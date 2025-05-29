@@ -1,0 +1,8 @@
+[package]
+name = "miden-up"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+miden-lib = { git = "https://github.com/0xPolygonMiden/miden-base", branch = "next", default-features = false }
+curl = "0.4.47"
