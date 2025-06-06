@@ -1,5 +1,31 @@
 use serde::{Deserialize, Serialize};
 
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+enum MidenUpError {
+    #[error("ERROR: data store disconnected {0}")]
+    CreateDirError(PathBuf),
+
+    #[error("ERROR: Could not create file in {0}")]
+    CreateFileError(PathBuf),
+
+    #[error(
+        "ERROR: Missing arguments:
+Format is: miden-up <command> <arguments>"
+    )]
+    MissingArgs,
+
+    #[error("ERROR: Couldn't fetch manifest from <link>")]
+    ManifestUnreachable,
+
+    #[error("ERROR: Ill-formated manifest")]
+    ManifestFormatError,
+
+    #[error("ERROR: Invalid toolchain selected {0}")]
+    ToolchainNotFound(String),
+}
+
 #[derive(Default, Serialize, Deserialize, Debug, Clone)]
 struct Stdlib {
     version: String,
