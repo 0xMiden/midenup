@@ -308,7 +308,7 @@ fn main() -> Result<(), MidenUpError> {
     let command = context.args.next().ok_or(MidenUpError::MissingArgs)?;
     #[cfg(debug_assertions)]
     let command = command.split("/").last().expect(
-        "Failed to remove path from executable. That get 'miden-up' from './target/debug/miden-up'. This is only a temporary messure.",
+        "Failed to remove path from executable. That get 'midenup' from './target/debug/midenup'. This is only a temporary messure.",
     );
 
     let subcommand = context.args.next().ok_or(MidenUpError::MissingArgs)?;
