@@ -775,6 +775,8 @@ version = "0.1.0"
 dependencies = [
  "curl",
  "miden-lib",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

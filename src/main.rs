@@ -1,22 +1,60 @@
-use miden_lib;
-use std::fs::File;
+use serde::{Deserialize, Serialize};
 
-use std::io::{stdout, Write};
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+struct Stdlib {
+    version: String,
+}
 
-use curl::easy::Easy;
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+struct MidenLib {
+    version: String,
+}
+
+#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+struct Midenc {
+    version: String,
+}
+
+#[derive(Default, Serialize, Deserialize, Debug)]
+struct Toolchain {
+    // This is the version that identifies the toolchain itself. Each component
+    // from the toolchain will have its own version separately.
+    version: String,
+
+    stdlib: Stdlib,
+    #[serde(rename(deserialize = "miden-lib"))]
+    miden_lib: MidenLib,
+    midenc: Midenc,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+struct Manifest {
+    #[serde(rename(deserialize = "manifest-version"))]
+    manifest_version: String,
+    date: String,
+    available_toolchains: Vec<Toolchain>,
+}
 
 fn main() {
-    let mut file = File::create("foo.tar.gz").unwrap();
+    let toolchain = Toolchain {
+        // Derived from the latest version of the Miden-VM
+        version: String::from("0.14.0"),
+        stdlib: Stdlib {
+            version: String::from("0.15.0"),
+        },
+        miden_lib: MidenLib {
+            version: String::from("0.9.0"),
+        },
+        midenc: Midenc {
+            version: String::from("0.1.0"),
+        },
+    };
 
-    // Download the latest version of the Miden VM
-    let mut easy = Easy::new();
-    easy.url("https://github.com/0xMiden/miden-vm/archive/refs/tags/v0.14.0.tar.gz")
-        .unwrap();
-    easy.follow_location(true).unwrap();
-    easy.write_function(move |data| {
-        file.write_all(data).unwrap();
-        Ok(data.len())
-    })
-    .unwrap();
-    easy.perform().unwrap();
+    let manifest = Manifest {
+        manifest_version: String::from("1.0"),
+        date: String::from("2025/06/06"),
+        available_toolchains: vec![toolchain],
+    };
+    let result = serde_json::to_string(&manifest).unwrap();
+    std::println!("{result}");
 }
