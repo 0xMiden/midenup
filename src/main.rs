@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use std::fs;
+use std::path::PathBuf;
+
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -48,39 +51,29 @@ struct Toolchain {
     version: String,
 
     stdlib: Stdlib,
-    #[serde(rename(deserialize = "miden-lib"))]
     miden_lib: MidenLib,
     midenc: Midenc,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 struct Manifest {
-    #[serde(rename(deserialize = "manifest-version"))]
     manifest_version: String,
     date: String,
     available_toolchains: Vec<Toolchain>,
 }
 
 fn main() {
-    let toolchain = Toolchain {
-        // Derived from the latest version of the Miden-VM
-        version: String::from("0.14.0"),
-        stdlib: Stdlib {
-            version: String::from("0.15.0"),
-        },
-        miden_lib: MidenLib {
-            version: String::from("0.9.0"),
-        },
-        midenc: Midenc {
-            version: String::from("0.1.0"),
-        },
-    };
+    let manifest = fetch_miden_manifest().unwrap();
 
-    let manifest = Manifest {
-        manifest_version: String::from("1.0"),
-        date: String::from("2025/06/06"),
-        available_toolchains: vec![toolchain],
-    };
-    let result = serde_json::to_string(&manifest).unwrap();
-    std::println!("{result}");
+    std::dbg!(manifest);
+}
+
+// NOTE: Currenltly this function is mocked, in reality this file will be download from a github page available in the miden organization
+fn fetch_miden_manifest() -> Result<Manifest, MidenUpError> {
+    let manifest_file = std::path::Path::new("channel-miden.json");
+    let contents =
+        fs::read_to_string(manifest_file).map_err(|_| MidenUpError::ManifestUnreachable)?;
+    let manifest: Manifest =
+        serde_json::from_str(&contents).map_err(|_| MidenUpError::ManifestFormatError)?;
+    Ok(manifest)
 }
