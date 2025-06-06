@@ -2,7 +2,9 @@ use serde::{Deserialize, Serialize};
 
 use std::env::Args as CLIArgs;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
+use std::process::Command;
 use std::str::FromStr;
 
 use clap::{Parser, Subcommand};
@@ -36,24 +38,63 @@ Format is: miden-up <command> <arguments>"
 
     #[error("ERROR: Empty manifest: The current manifest has no toolchains")]
     EmptyManifest,
+
+    #[error("ERROR: Couldn't find HOME directory")]
+    CouldNotFindHome,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+// TODO: Implement differentiator between these two
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum Version {
+    // A specific version of a package following a semantic or quasi-semantic
+    // versioning scheme
+    Semantic(String),
+    // A version that simply points to a git repository. Analogous to
+    // "nightly"/"trunk".
+    // Git(String),
+}
+
+impl ToString for Version {
+    fn to_string(&self) -> String {
+        match &self {
+            Version::Semantic(version) => version.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Stdlib {
-    version: String,
+    version: Version,
+}
+// TODO: Make this a macro
+impl Stdlib {
+    fn as_cargo_dependency(&self) -> String {
+        match &self.version {
+            Version::Semantic(version) => format!("miden-stdlib = {{ version = \"{version}\" }}"),
+        }
+    }
 }
 
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+impl MidenLib {
+    fn as_cargo_dependency(&self) -> String {
+        match &self.version {
+            Version::Semantic(version) => format!("miden-lib = {{ version = \"{version}\" }}"),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct MidenLib {
-    version: String,
+    version: Version,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Midenc {
-    version: String,
+    version: Version,
 }
 
-#[derive(Default, Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 struct Toolchain {
     // This is the version that identifies the toolchain itself. Each component
     // from the toolchain will have its own version separately.
@@ -62,6 +103,22 @@ struct Toolchain {
     stdlib: Stdlib,
     miden_lib: MidenLib,
     midenc: Midenc,
+}
+
+impl Toolchain {
+    fn generate_cargo_toml(&self) -> String {
+        let mut full_toml = String::new();
+
+        let stdlib_link = self.stdlib.as_cargo_dependency();
+        full_toml.push_str(stdlib_link.as_str());
+        full_toml.push('\n');
+
+        let miden_lib_link = self.miden_lib.as_cargo_dependency();
+        full_toml.push_str(miden_lib_link.as_str());
+        full_toml.push('\n');
+
+        full_toml
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -105,9 +162,49 @@ impl FromStr for MidenupSubcommand {
 /// This is the first command the user runs. It:
 /// - Install the current stable library
 fn midenup_init(ctx: &mut Context) -> Result<(), MidenUpError> {
-    let stable = ctx.manifest.get_stable()?;
-    std::dbg!(stable);
-    todo!()
+    let stable_toolchain = ctx.manifest.get_stable()?;
+    let stable_version = &stable_toolchain.version;
+
+    // MIDENC_SYSROOT is where all the toolchains will live
+    let miden_dir = std::env::var("MIDENC_SYSROOT")
+        .as_ref()
+        .map(std::path::PathBuf::from)
+        .unwrap_or(
+            dirs::home_dir()
+                .ok_or(MidenUpError::CouldNotFindHome)?
+                .join(".miden"),
+        );
+
+    let toolchain_dir = miden_dir.join(format!("toolchain-{stable_version}"));
+    unsafe {
+        std::env::set_var("MIDENC_SYSROOT", &miden_dir);
+    }
+
+    // Create the miden and toolchain directory if they are not already present
+    fs::create_dir_all(&miden_dir).map_err(|_| MidenUpError::CreateDirError(miden_dir))?;
+    fs::create_dir_all(&toolchain_dir)
+        .map_err(|_| MidenUpError::CreateDirError(toolchain_dir.clone()))?;
+
+    // Create install directory and script
+    let install_dir = toolchain_dir.join("install");
+    fs::create_dir_all(&install_dir)
+        .map_err(|_| MidenUpError::CreateDirError(toolchain_dir.clone()))?;
+
+    let install_file_path = install_dir.join("install").with_extension("rs");
+    let mut install_file = fs::File::create(&install_file_path)
+        .map_err(|_| MidenUpError::CreateFileError(install_file_path.clone()))?;
+
+    let install_script_contents = generate_install_script(stable_toolchain);
+    install_file
+        .write_all(&install_script_contents.into_bytes())
+        .unwrap();
+
+    let _output = Command::new("cargo")
+        .args(["+nightly", "-Zscript", install_file_path.to_str().unwrap()])
+        .output()
+        .expect("failed to execute process");
+
+    Ok(())
 }
 
 impl MidenupSubcommand {
@@ -152,4 +249,52 @@ fn fetch_miden_manifest() -> Result<Manifest, MidenUpError> {
         fs::read_to_string(manifest_file).map_err(|_| MidenUpError::ManifestUnreachable)?;
     let manifest: Manifest = serde_json::from_str(&contents).unwrap();
     Ok(manifest)
+}
+
+fn generate_install_script(install: &Toolchain) -> String {
+    let repos = install.generate_cargo_toml();
+
+    let toolchain_version = &install.version;
+
+    format!("#!/usr/bin/env cargo
+---cargo
+[dependencies]
+{repos}
+---
+
+use std::process::Command;
+
+// NOTE: This file was generated by midenup. Do not edit by hand
+
+fn main() {{
+    // MIDENC_SYSROOT is set by the compiler when invoking this script, and will contain
+    // the resolved (and prepared) sysroot path of `$XDG_DATA_DIR/miden`
+    let miden_dir = std::path::Path::new(env!(\"MIDENC_SYSROOT\"));
+    let toolchain_dir = miden_dir.join(format!(\"toolchain-{toolchain_version}\"));
+    let lib_dir = toolchain_dir.join(\"lib\");
+
+    // Write transaction kernel to $XDG_DATA_DIR/miden/<toolchain>/tx.masl
+    let tx = miden_lib::MidenLib::default();
+    let tx = tx.as_ref();
+    (*tx)
+        .write_to_file(lib_dir.join(\"miden-lib\").with_extension(\"masl\"))
+        .unwrap();
+
+    // Write stdlib to $XDG_DATA_DIR/miden/<toolchain>/std.masl
+    let stdlib = miden_lib::StdLibrary::default();
+    // let stdlib = miden_stdlib::StdLibrary::default(); //NOTE: Both imports work, which one should be used?
+    let stdlib = stdlib.as_ref();
+    (*stdlib)
+        .write_to_file(lib_dir.join(\"std\").with_extension(\"masl\"))
+        .unwrap();
+
+    // NOTE: Commenting this out simply to save time.
+    // // Install midenc
+    //
+    // Command::new(\"cargo\")
+    //     .args([\"install\", \"midenc\", \"--root\", toolchain_dir.to_str().unwrap()])
+    //     .output()
+    //     .expect(\"failed to install compiler \");
+}}
+")
 }
