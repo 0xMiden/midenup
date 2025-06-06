@@ -367,11 +367,11 @@ fn main() {{
 
     // NOTE: Commenting this out simply to save time.
     // // Install midenc
-    //
-    // Command::new(\"cargo\")
-    //     .args([\"install\", \"midenc\", \"--root\", toolchain_dir.to_str().unwrap()])
-    //     .output()
-    //     .expect(\"failed to install compiler \");
+    
+     Command::new(\"cargo\")
+         .args([\"install\", \"midenc\", \"--root\", toolchain_dir.to_str().unwrap()])
+         .output()
+         .expect(\"failed to install compiler \");
 }}
 ")
 }
