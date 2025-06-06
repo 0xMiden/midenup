@@ -1,7 +1,7 @@
 {
   "manifest_version": "1.0",
   "date": "2025/06/06",
-  "available_toolchains": [
+  "stable": [
     {
       "version": "0.14.0",
       "stdlib": {
@@ -9,6 +9,18 @@
       },
       "miden_lib": {
         "version": "0.9.0"
+      },
+      "midenc": {
+        "version": "0.1.0"
+      }
+    },
+    {
+      "version": "0.13.0",
+      "stdlib": {
+        "version": "0.13.0"
+      },
+      "miden_lib": {
+        "version": "0.8.0"
       },
       "midenc": {
         "version": "0.1.0"

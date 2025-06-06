@@ -59,7 +59,7 @@ struct Toolchain {
 struct Manifest {
     manifest_version: String,
     date: String,
-    available_toolchains: Vec<Toolchain>,
+    stable: Vec<Toolchain>,
 }
 
 fn main() {
@@ -73,7 +73,6 @@ fn fetch_miden_manifest() -> Result<Manifest, MidenUpError> {
     let manifest_file = std::path::Path::new("channel-miden.json");
     let contents =
         fs::read_to_string(manifest_file).map_err(|_| MidenUpError::ManifestUnreachable)?;
-    let manifest: Manifest =
-        serde_json::from_str(&contents).map_err(|_| MidenUpError::ManifestFormatError)?;
+    let manifest: Manifest = serde_json::from_str(&contents).unwrap();
     Ok(manifest)
 }
