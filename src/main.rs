@@ -170,7 +170,7 @@ impl Manifest {
                 .fold(String::new(), |mut acc, toolchain| {
                     acc.push_str("- ");
                     acc.push_str(&toolchain.version);
-                    acc.push_str("\n");
+                    acc.push('\n');
                     acc
                 });
             return Err(MidenUpError::NoSuchToolChainAvailable(err_string));

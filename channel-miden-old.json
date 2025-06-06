@@ -1,0 +1,30 @@
+{
+  "manifest_version": "1.0",
+  "date": "2025/06/06",
+  "stable": [
+    {
+      "version": "0.13.0",
+      "stdlib": {
+        "version": "0.14.0"
+      },
+      "miden_lib": {
+        "version": "0.8.0"
+      },
+      "midenc": {
+        "version": "0.1.0"
+      }
+    },
+    {
+      "version": "0.12.0",
+      "stdlib": {
+        "version": "0.13.0"
+      },
+      "miden_lib": {
+        "version": "0.7.0"
+      },
+      "midenc": {
+        "version": "0.1.0"
+      }
+    }
+  ]
+}
