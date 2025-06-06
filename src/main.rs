@@ -53,9 +53,12 @@ miden-up init
 
     #[error(
         "ERROR: No such toolchain available. The available toolchains are:
-${0}"
+{0}"
     )]
     NoSuchToolChainAvailable(String),
+
+    #[error("ERROR: Unrecognized channel: {0}")]
+    NoSuchChannel(String),
 }
 
 // TODO: Implement differentiator between these two
@@ -218,11 +221,7 @@ fn midenup_install(ctx: &mut Context) -> Result<(), MidenUpError> {
         chosen_version if semver::Version::parse(chosen_version).is_ok() => {
             ctx.manifest.get_toolchain(chosen_version)?
         }
-        unrecognized => {
-            return Err(MidenUpError::NoSuchToolChainAvailable(
-                unrecognized.to_string(),
-            ))
-        }
+        unrecognized => return Err(MidenUpError::NoSuchChannel(unrecognized.to_string())),
     };
 
     let version_string = &chosen_toolchain.version;
@@ -315,8 +314,9 @@ fn main() -> Result<(), MidenUpError> {
     let subcommand = context.args.next().ok_or(MidenUpError::MissingArgs)?;
     let subcommand = MidenupSubcommand::from_str(&subcommand)?;
 
-    subcommand.execute(&mut context)?;
-    Ok(())
+    subcommand
+        .execute(&mut context)
+        .inspect_err(|result| println!("{result}"))
 }
 
 // NOTE: Currenltly this function is mocked, in reality this file will be download from a github page available in the miden organization
