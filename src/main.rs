@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+use semver;
 use std::env::Args as CLIArgs;
 use std::fs;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::str::FromStr;
@@ -41,6 +43,19 @@ Format is: miden-up <command> <arguments>"
 
     #[error("ERROR: Couldn't find HOME directory")]
     CouldNotFindHome,
+
+    #[error(
+        "ERROR: .miden directory missing. Try running
+miden-up init
+"
+    )]
+    MidenDirMissing,
+
+    #[error(
+        "ERROR: No such toolchain available. The available toolchains are:
+${0}"
+    )]
+    NoSuchToolChainAvailable(String),
 }
 
 // TODO: Implement differentiator between these two
@@ -135,6 +150,29 @@ impl Manifest {
             .max_by(|ver_x, ver_y| ver_x.version.cmp(&ver_y.version))
             .ok_or(MidenUpError::EmptyManifest)
     }
+
+    fn get_toolchain(&self, toolchain_version: &str) -> Result<&Toolchain, MidenUpError> {
+        let toolchain = self
+            .stable
+            .iter()
+            .find(|toolchain| toolchain.version == toolchain_version);
+
+        // TODO: Refactor using inspect_err
+        if let Some(toolchain) = toolchain {
+            Ok(toolchain)
+        } else {
+            let err_string = self
+                .stable
+                .iter()
+                .fold(String::new(), |mut acc, toolchain| {
+                    acc.push_str("- ");
+                    acc.push_str(&toolchain.version);
+                    acc.push_str("\n");
+                    acc
+                });
+            return Err(MidenUpError::NoSuchToolChainAvailable(err_string));
+        }
+    }
 }
 
 enum MidenupSubcommand {
@@ -174,18 +212,32 @@ fn midenup_init(ctx: &mut Context) -> Result<(), MidenUpError> {
 /// This is the first command the user runs. It:
 /// - Install the current stable library
 fn midenup_install(ctx: &mut Context) -> Result<(), MidenUpError> {
-    let stable_toolchain = ctx.manifest.get_stable()?;
-    let stable_version = &stable_toolchain.version;
+    let channel = ctx.args.next().ok_or(MidenUpError::MissingArgs)?;
+    let chosen_toolchain = match channel.as_str() {
+        "stable" => ctx.manifest.get_stable()?,
+        chosen_version if semver::Version::parse(chosen_version).is_ok() => {
+            ctx.manifest.get_toolchain(chosen_version)?
+        }
+        unrecognized => {
+            return Err(MidenUpError::NoSuchToolChainAvailable(
+                unrecognized.to_string(),
+            ))
+        }
+    };
+
+    let version_string = &chosen_toolchain.version;
 
     let miden_dir = &ctx.miden_dir;
-    let toolchain_dir = miden_dir.join(format!("toolchain-{stable_version}"));
+    let toolchain_dir = miden_dir.join(format!("toolchain-{version_string}"));
     unsafe {
-        std::env::set_var("MIDENC_SYSROOT", &miden_dir);
+        std::env::set_var("MIDENC_SYSROOT", miden_dir);
+    }
+
+    if !Path::new(miden_dir).exists() {
+        return Err(MidenUpError::MidenDirMissing);
     }
 
     // Create the miden and toolchain directory if they are not already present
-    fs::create_dir_all(&miden_dir)
-        .map_err(|_| MidenUpError::CreateDirError(miden_dir.to_path_buf()))?;
     fs::create_dir_all(&toolchain_dir)
         .map_err(|_| MidenUpError::CreateDirError(toolchain_dir.clone()))?;
 
@@ -198,7 +250,7 @@ fn midenup_install(ctx: &mut Context) -> Result<(), MidenUpError> {
     let mut install_file = fs::File::create(&install_file_path)
         .map_err(|_| MidenUpError::CreateFileError(install_file_path.clone()))?;
 
-    let install_script_contents = generate_install_script(stable_toolchain);
+    let install_script_contents = generate_install_script(chosen_toolchain);
     install_file
         .write_all(&install_script_contents.into_bytes())
         .unwrap();
@@ -215,7 +267,7 @@ impl MidenupSubcommand {
     fn execute(&self, ctx: &mut Context) -> Result<(), MidenUpError> {
         match &self {
             MidenupSubcommand::Init => midenup_init(ctx),
-            MidenupSubcommand::Install => todo!(),
+            MidenupSubcommand::Install => midenup_install(ctx),
             MidenupSubcommand::Update => todo!(),
         }
     }
