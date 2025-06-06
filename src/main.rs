@@ -159,29 +159,33 @@ impl FromStr for MidenupSubcommand {
 // fn process_miden_up_install(args: &mut CLIArgs) -> Result<(), MidenUpError> {
 // }
 
-/// This is the first command the user runs. It:
+/// This is the first command the user runs after first installing the midenup. It:
 /// - Install the current stable library
 fn midenup_init(ctx: &mut Context) -> Result<(), MidenUpError> {
+    // MIDENC_SYSROOT is where all the toolchains will live
+    let miden_dir = &ctx.miden_dir;
+    // Create the miden directory if are not already present
+    fs::create_dir_all(&miden_dir)
+        .map_err(|_| MidenUpError::CreateDirError(miden_dir.to_path_buf()))?;
+
+    Ok(())
+}
+
+/// This is the first command the user runs. It:
+/// - Install the current stable library
+fn midenup_install(ctx: &mut Context) -> Result<(), MidenUpError> {
     let stable_toolchain = ctx.manifest.get_stable()?;
     let stable_version = &stable_toolchain.version;
 
-    // MIDENC_SYSROOT is where all the toolchains will live
-    let miden_dir = std::env::var("MIDENC_SYSROOT")
-        .as_ref()
-        .map(std::path::PathBuf::from)
-        .unwrap_or(
-            dirs::home_dir()
-                .ok_or(MidenUpError::CouldNotFindHome)?
-                .join(".miden"),
-        );
-
+    let miden_dir = &ctx.miden_dir;
     let toolchain_dir = miden_dir.join(format!("toolchain-{stable_version}"));
     unsafe {
         std::env::set_var("MIDENC_SYSROOT", &miden_dir);
     }
 
     // Create the miden and toolchain directory if they are not already present
-    fs::create_dir_all(&miden_dir).map_err(|_| MidenUpError::CreateDirError(miden_dir))?;
+    fs::create_dir_all(&miden_dir)
+        .map_err(|_| MidenUpError::CreateDirError(miden_dir.to_path_buf()))?;
     fs::create_dir_all(&toolchain_dir)
         .map_err(|_| MidenUpError::CreateDirError(toolchain_dir.clone()))?;
 
@@ -222,12 +226,33 @@ struct Context {
     manifest: Manifest,
     // Cli arguments
     args: CLIArgs,
+    // Miden dir
+    miden_dir: PathBuf,
 }
+impl Context {
+    fn new(manifest: Manifest, args: CLIArgs) -> Result<Self, MidenUpError> {
+        // MIDENC_SYSROOT is where all the toolchains will live
+        let miden_dir = std::env::var("MIDENC_SYSROOT")
+            .as_ref()
+            .map(std::path::PathBuf::from)
+            .unwrap_or(
+                dirs::home_dir()
+                    .ok_or(MidenUpError::CouldNotFindHome)?
+                    .join(".miden"),
+            );
+        Ok(Context {
+            manifest,
+            args,
+            miden_dir,
+        })
+    }
+}
+
 fn main() -> Result<(), MidenUpError> {
     // Ideally, this should be lazy. Maybe
     let manifest = fetch_miden_manifest().unwrap();
     let args = std::env::args();
-    let mut context = Context { manifest, args };
+    let mut context = Context::new(manifest, args)?;
 
     let command = context.args.next().ok_or(MidenUpError::MissingArgs)?;
     #[cfg(debug_assertions)]
