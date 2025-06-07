@@ -1,380 +1,191 @@
-use serde::{Deserialize, Serialize};
+mod channel;
+mod commands;
+mod config;
+mod manifest;
+mod toolchain;
+mod version;
 
-use semver;
-use std::env::Args as CLIArgs;
-use std::fs;
-use std::io::Write;
-use std::path::Path;
-use std::path::PathBuf;
-use std::process::Command;
-use std::str::FromStr;
+use std::{ffi::OsString, path::PathBuf};
 
-use clap::{Parser, Subcommand};
-use thiserror::Error;
+use anyhow::{Context, anyhow, bail};
+use clap::{Args, FromArgMatches, Parser, Subcommand};
 
-#[derive(Error, Debug)]
-enum MidenUpError {
-    #[error("ERROR: data store disconnected {0}")]
-    CreateDirError(PathBuf),
+pub use self::config::Config;
+use self::{channel::ChannelType, toolchain::Toolchain};
 
-    #[error("ERROR: Could not create file in {0}")]
-    CreateFileError(PathBuf),
-
-    #[error(
-        "ERROR: Missing arguments:
-Format is: miden-up <command> <arguments>"
-    )]
-    MissingArgs,
-
-    #[error("ERROR: Couldn't fetch manifest from <link>")]
-    ManifestUnreachable,
-
-    #[error("ERROR: Ill-formated manifest")]
-    ManifestFormatError,
-
-    #[error("ERROR: Invalid toolchain selected {0}")]
-    ToolchainNotFound(String),
-
-    #[error("ERROR: Unknown subcommand")]
-    UnknownSubcommand,
-
-    #[error("ERROR: Empty manifest: The current manifest has no toolchains")]
-    EmptyManifest,
-
-    #[error("ERROR: Couldn't find HOME directory")]
-    CouldNotFindHome,
-
-    #[error(
-        "ERROR: .miden directory missing. Try running
-miden-up init
-"
-    )]
-    MidenDirMissing,
-
-    #[error(
-        "ERROR: No such toolchain available. The available toolchains are:
-{0}"
-    )]
-    NoSuchToolChainAvailable(String),
-
-    #[error("ERROR: Unrecognized channel: {0}")]
-    NoSuchChannel(String),
+#[derive(Debug, Parser)]
+#[command(name = "midenup")]
+#[command(multicall(true))]
+#[command(author, version, about = "The Miden toolchain installer", long_about = None)]
+pub struct Midenup {
+    #[command(subcommand)]
+    behavior: Behavior,
 }
 
-// TODO: Implement differentiator between these two
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(untagged)]
-enum Version {
-    // A specific version of a package following a semantic or quasi-semantic
-    // versioning scheme
-    Semantic(String),
-    // A version that simply points to a git repository. Analogous to
-    // "nightly"/"trunk".
-    // Git(String),
+#[derive(Debug, Subcommand)]
+enum Behavior {
+    /// The Miden toolchain installer
+    Midenup {
+        #[command(flatten)]
+        config: GlobalArgs,
+        #[command(subcommand)]
+        command: Commands,
+    },
+    /// Invoke components of the current Miden toolchain
+    #[command(external_subcommand)]
+    Miden(Vec<OsString>),
 }
 
-impl ToString for Version {
-    fn to_string(&self) -> String {
-        match &self {
-            Version::Semantic(version) => version.to_string(),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Stdlib {
-    version: Version,
-}
-// TODO: Make this a macro
-impl Stdlib {
-    fn as_cargo_dependency(&self) -> String {
-        match &self.version {
-            Version::Semantic(version) => format!("miden-stdlib = {{ version = \"{version}\" }}"),
-        }
-    }
-}
-
-impl MidenLib {
-    fn as_cargo_dependency(&self) -> String {
-        match &self.version {
-            Version::Semantic(version) => format!("miden-lib = {{ version = \"{version}\" }}"),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct MidenLib {
-    version: Version,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct Midenc {
-    version: Version,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Toolchain {
-    // This is the version that identifies the toolchain itself. Each component
-    // from the toolchain will have its own version separately.
-    version: String,
-
-    stdlib: Stdlib,
-    miden_lib: MidenLib,
-    midenc: Midenc,
-}
-
-impl Toolchain {
-    fn generate_cargo_toml(&self) -> String {
-        let mut full_toml = String::new();
-
-        let stdlib_link = self.stdlib.as_cargo_dependency();
-        full_toml.push_str(stdlib_link.as_str());
-        full_toml.push('\n');
-
-        let miden_lib_link = self.miden_lib.as_cargo_dependency();
-        full_toml.push_str(miden_lib_link.as_str());
-        full_toml.push('\n');
-
-        full_toml
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-struct Manifest {
-    manifest_version: String,
-    date: String,
-    stable: Vec<Toolchain>,
-}
-
-impl Manifest {
-    fn get_stable(&self) -> Result<&Toolchain, MidenUpError> {
-        self.stable
-            .iter()
-            .max_by(|ver_x, ver_y| ver_x.version.cmp(&ver_y.version))
-            .ok_or(MidenUpError::EmptyManifest)
-    }
-
-    fn get_toolchain(&self, toolchain_version: &str) -> Result<&Toolchain, MidenUpError> {
-        let toolchain = self
-            .stable
-            .iter()
-            .find(|toolchain| toolchain.version == toolchain_version);
-
-        // TODO: Refactor using inspect_err
-        if let Some(toolchain) = toolchain {
-            Ok(toolchain)
-        } else {
-            let err_string = self
-                .stable
-                .iter()
-                .fold(String::new(), |mut acc, toolchain| {
-                    acc.push_str("- ");
-                    acc.push_str(&toolchain.version);
-                    acc.push('\n');
-                    acc
-                });
-            return Err(MidenUpError::NoSuchToolChainAvailable(err_string));
-        }
-    }
-}
-
-enum MidenupSubcommand {
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Bootstrap the `midenup` environment.
+    ///
+    /// This initializes the `MIDEN_HOME` directory layout and configuration.
     Init,
-    Install,
-    Update,
+    /// Install a Miden toolchain
+    Install {
+        /// The channel or version to install, e.g. `stable` or `0.15.0`
+        #[arg(required(true), value_name = "CHANNEL", value_parser)]
+        channel: ChannelType,
+    },
+    /// Show information about the midenup environment
+    #[command(subcommand)]
+    Show(commands::ShowCommand),
+    /// Update your installed Miden toolchains
+    Update {
+        /// If provided, updates only the specified channel.
+        #[arg(required(true), value_name = "CHANNEL", value_parser)]
+        channel: Option<ChannelType>,
+    },
 }
 
-impl FromStr for MidenupSubcommand {
-    type Err = MidenUpError;
+/// Global configuration options for `midenup`
+#[derive(Debug, Args)]
+struct GlobalArgs {
+    /// The location of the Miden toolchain root
+    #[arg(long, hide(true), value_name = "DIR", env = "MIDENUP_HOME")]
+    midenup_home: Option<PathBuf>,
+    /// The URI from which we should load the global toolchain manifest
+    #[arg(
+        long,
+        hide(true),
+        value_name = "FILE",
+        env = "MIDENUP_MANIFEST_URI",
+        default_value = "file://channel-manifest.json"
+    )]
+    manifest_uri: String,
+}
 
-    // Required method
-    fn from_str(subcommand: &str) -> Result<Self, Self::Err> {
-        match subcommand {
-            "init" => Ok(MidenupSubcommand::Init),
-            "install" => Ok(MidenupSubcommand::Install),
-            "update" => Ok(MidenupSubcommand::Update),
-            _ => Err(MidenUpError::UnknownSubcommand),
+impl Commands {
+    /// Execute the requested subcommand
+    fn execute(&self, config: &Config) -> anyhow::Result<()> {
+        match &self {
+            Self::Init { .. } => commands::init(config),
+            Self::Install { channel, .. } => commands::install(config, channel),
+            Self::Update { channel, .. } => commands::update(config, channel.as_ref()),
+            Self::Show(cmd) => cmd.execute(config),
         }
     }
 }
-// fn process_miden_up_install(args: &mut CLIArgs) -> Result<(), MidenUpError> {
-// }
 
-/// This is the first command the user runs after first installing the midenup. It:
-/// - Install the current stable library
-fn midenup_init(ctx: &mut Context) -> Result<(), MidenUpError> {
-    // MIDEN_SYSROOT is where all the toolchains will live
-    let miden_dir = &ctx.miden_dir;
-    // Create the miden directory if are not already present
-    fs::create_dir_all(&miden_dir)
-        .map_err(|_| MidenUpError::CreateDirError(miden_dir.to_path_buf()))?;
+fn main() -> anyhow::Result<()> {
+    curl::init();
 
-    Ok(())
-}
+    let cli = <Midenup as clap::CommandFactory>::command();
+    let matches = cli.get_matches();
+    let cli = Midenup::from_arg_matches(&matches)
+        .map_err(|err| err.exit())
+        .unwrap();
 
-/// This is the first command the user runs. It:
-/// - Install the current stable library
-fn midenup_install(ctx: &mut Context) -> Result<(), MidenUpError> {
-    let channel = ctx.args.next().ok_or(MidenUpError::MissingArgs)?;
-    let chosen_toolchain = match channel.as_str() {
-        "stable" => ctx.manifest.get_stable()?,
-        chosen_version if semver::Version::parse(chosen_version).is_ok() => {
-            ctx.manifest.get_toolchain(chosen_version)?
+    let config = match cli.behavior {
+        Behavior::Miden(_) => {
+            // Always respect XDG dirs if set
+            let midenup_home = std::env::var_os("XDG_DATA_HOME")
+                .map(PathBuf::from)
+                .map(|dir| dir.join("midenup"))
+                .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
+                .ok_or_else(|| {
+                    anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
+                })?;
+            Config::init(midenup_home, "file://channel-manifest.json")?
         }
-        unrecognized => return Err(MidenUpError::NoSuchChannel(unrecognized.to_string())),
+        Behavior::Midenup { ref config, .. } => {
+            let midenup_home = config
+                .midenup_home
+                .clone()
+                .or_else(|| {
+                    // Always respect XDG dirs if set
+                    std::env::var_os("XDG_DATA_HOME")
+                        .map(PathBuf::from)
+                        .map(|dir| dir.join("midenup"))
+                })
+                .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
+                .ok_or_else(|| {
+                    anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
+                })?;
+
+            Config::init(midenup_home, &config.manifest_uri)?
+        }
     };
 
-    let version_string = &chosen_toolchain.version;
+    match cli.behavior {
+        Behavior::Miden(argv) => {
+            // Extract the target binary to execute from argv[1]
+            let subcommand = argv[1].to_str().expect("invalid command name");
+            let (target_exe, prefix_args) = match subcommand {
+                // When 'help' is invoked, we should look for the target exe in argv[1], and present
+                // help accordingly
+                "help" => todo!(),
+                "build" => ("cargo", vec!["miden", "build"]),
+                "new" => ("cargo", vec!["miden", "new"]),
+                other => (other, vec![]),
+            };
 
-    let miden_dir = &ctx.miden_dir;
-    let toolchain_dir = miden_dir.join(format!("toolchain-{version_string}"));
-    unsafe {
-        std::env::set_var("MIDEN_SYSROOT", miden_dir);
-        // HACK(pauls): This is for the benefit of the compiler, until it moves to using
-        // MIDEN_SYSROOT instead.
-        std::env::set_var("MIDENC_SYSROOT", miden_dir);
-    }
+            // Make sure we know the current toolchain so we can modify the PATH appropriately
+            let toolchain = Toolchain::current()?;
 
-    if !Path::new(miden_dir).exists() {
-        return Err(MidenUpError::MidenDirMissing);
-    }
+            // Compute the effective PATH for this command
+            let toolchain_bin = config
+                .midenup_home
+                .join("toolchains")
+                .join(toolchain.channel.to_string())
+                .join("bin");
+            let path = match std::env::var_os("PATH") {
+                Some(prev_path) => {
+                    let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
+                    path.push(prev_path);
+                    path
+                }
+                None => toolchain_bin.into_os_string(),
+            };
 
-    // Create the miden and toolchain directory if they are not already present
-    fs::create_dir_all(&toolchain_dir)
-        .map_err(|_| MidenUpError::CreateDirError(toolchain_dir.clone()))?;
+            let mut output = std::process::Command::new(target_exe)
+                .env("MIDENUP_HOME", &config.midenup_home)
+                .env("PATH", path)
+                .args(prefix_args)
+                .args(argv.iter().skip(2))
+                .stderr(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .spawn()
+                .with_context(|| format!("failed to run 'miden {subcommand}'"))?;
 
-    // Create install directory and script
-    let install_dir = toolchain_dir.join("install");
-    fs::create_dir_all(&install_dir)
-        .map_err(|_| MidenUpError::CreateDirError(toolchain_dir.clone()))?;
+            let status = output.wait().with_context(|| {
+                format!("error occurred while waiting for 'miden {subcommand}' to finish executing")
+            })?;
 
-    let install_file_path = install_dir.join("install").with_extension("rs");
-    let mut install_file = fs::File::create(&install_file_path)
-        .map_err(|_| MidenUpError::CreateFileError(install_file_path.clone()))?;
-
-    let install_script_contents = generate_install_script(chosen_toolchain);
-    install_file
-        .write_all(&install_script_contents.into_bytes())
-        .unwrap();
-
-    let _output = Command::new("cargo")
-        .args(["+nightly", "-Zscript", install_file_path.to_str().unwrap()])
-        .output()
-        .expect("failed to execute process");
-
-    Ok(())
-}
-
-impl MidenupSubcommand {
-    fn execute(&self, ctx: &mut Context) -> Result<(), MidenUpError> {
-        match &self {
-            MidenupSubcommand::Init => midenup_init(ctx),
-            MidenupSubcommand::Install => midenup_install(ctx),
-            MidenupSubcommand::Update => todo!(),
+            if status.success() {
+                Ok(())
+            } else {
+                bail!(
+                    "'miden {}' failed with status {}",
+                    subcommand,
+                    status.code().unwrap_or(1)
+                )
+            }
         }
+        Behavior::Midenup {
+            command: subcommand,
+            ..
+        } => subcommand.execute(&config),
     }
-}
-
-struct Context {
-    // Latest available manifest
-    manifest: Manifest,
-    // Cli arguments
-    args: CLIArgs,
-    // Miden dir
-    miden_dir: PathBuf,
-}
-impl Context {
-    fn new(manifest: Manifest, args: CLIArgs) -> Result<Self, MidenUpError> {
-        // MIDEN_SYSROOT is where all the toolchains will live
-        let miden_dir = std::env::var("MIDEN_SYSROOT")
-            .as_ref()
-            .map(std::path::PathBuf::from)
-            .unwrap_or(
-                dirs::home_dir()
-                    .ok_or(MidenUpError::CouldNotFindHome)?
-                    .join(".miden"),
-            );
-        Ok(Context {
-            manifest,
-            args,
-            miden_dir,
-        })
-    }
-}
-
-fn main() -> Result<(), MidenUpError> {
-    // Ideally, this should be lazy. Maybe
-    let manifest = fetch_miden_manifest().unwrap();
-    let args = std::env::args();
-    let mut context = Context::new(manifest, args)?;
-
-    let command = context.args.next().ok_or(MidenUpError::MissingArgs)?;
-    #[cfg(debug_assertions)]
-    let command = command.split("/").last().expect(
-        "Failed to remove path from executable. That get 'midenup' from './target/debug/midenup'. This is only a temporary messure.",
-    );
-
-    let subcommand = context.args.next().ok_or(MidenUpError::MissingArgs)?;
-    let subcommand = MidenupSubcommand::from_str(&subcommand)?;
-
-    subcommand
-        .execute(&mut context)
-        .inspect_err(|result| println!("{result}"))
-}
-
-// NOTE: Currenltly this function is mocked, in reality this file will be download from a github page available in the miden organization
-fn fetch_miden_manifest() -> Result<Manifest, MidenUpError> {
-    let manifest_file = std::path::Path::new("channel-miden.json");
-    let contents =
-        fs::read_to_string(manifest_file).map_err(|_| MidenUpError::ManifestUnreachable)?;
-    let manifest: Manifest = serde_json::from_str(&contents).unwrap();
-    Ok(manifest)
-}
-
-fn generate_install_script(install: &Toolchain) -> String {
-    let repos = install.generate_cargo_toml();
-
-    let toolchain_version = &install.version;
-
-    format!("#!/usr/bin/env cargo
----cargo
-[dependencies]
-{repos}
----
-
-use std::process::Command;
-
-// NOTE: This file was generated by midenup. Do not edit by hand
-
-fn main() {{
-    // MIDEN_SYSROOT is set by the compiler when invoking this script, and will contain
-    // the resolved (and prepared) sysroot path of `$XDG_DATA_DIR/miden`
-    let miden_dir = std::path::Path::new(env!(\"MIDEN_SYSROOT\"));
-    let toolchain_dir = miden_dir.join(format!(\"toolchain-{toolchain_version}\"));
-    let lib_dir = toolchain_dir.join(\"lib\");
-
-    // Write transaction kernel to $XDG_DATA_DIR/miden/<toolchain>/tx.masp
-    let tx = miden_lib::MidenLib::default();
-    let tx = tx.as_ref();
-    (*tx)
-        .write_to_file(lib_dir.join(\"miden-lib\").with_extension(\"masp\"))
-        .unwrap();
-
-    // Write stdlib to $XDG_DATA_DIR/miden/<toolchain>/std.masp
-    let stdlib = miden_lib::StdLibrary::default();
-    // let stdlib = miden_stdlib::StdLibrary::default(); //NOTE: Both imports work, which one should be used?
-    let stdlib = stdlib.as_ref();
-    (*stdlib)
-        .write_to_file(lib_dir.join(\"std\").with_extension(\"masp\"))
-        .unwrap();
-
-    // NOTE: Commenting this out simply to save time.
-    // // Install midenc
-
-     Command::new(\"cargo\")
-         .args([\"install\", \"midenc\", \"--root\", toolchain_dir.to_str().unwrap()])
-         .output()
-         .expect(\"failed to install compiler \");
-}}
-")
 }
