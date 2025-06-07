@@ -350,24 +350,24 @@ fn main() {{
     let toolchain_dir = miden_dir.join(format!(\"toolchain-{toolchain_version}\"));
     let lib_dir = toolchain_dir.join(\"lib\");
 
-    // Write transaction kernel to $XDG_DATA_DIR/miden/<toolchain>/tx.masl
+    // Write transaction kernel to $XDG_DATA_DIR/miden/<toolchain>/tx.masp
     let tx = miden_lib::MidenLib::default();
     let tx = tx.as_ref();
     (*tx)
-        .write_to_file(lib_dir.join(\"miden-lib\").with_extension(\"masl\"))
+        .write_to_file(lib_dir.join(\"miden-lib\").with_extension(\"masp\"))
         .unwrap();
 
-    // Write stdlib to $XDG_DATA_DIR/miden/<toolchain>/std.masl
+    // Write stdlib to $XDG_DATA_DIR/miden/<toolchain>/std.masp
     let stdlib = miden_lib::StdLibrary::default();
     // let stdlib = miden_stdlib::StdLibrary::default(); //NOTE: Both imports work, which one should be used?
     let stdlib = stdlib.as_ref();
     (*stdlib)
-        .write_to_file(lib_dir.join(\"std\").with_extension(\"masl\"))
+        .write_to_file(lib_dir.join(\"std\").with_extension(\"masp\"))
         .unwrap();
 
     // NOTE: Commenting this out simply to save time.
     // // Install midenc
-    
+
      Command::new(\"cargo\")
          .args([\"install\", \"midenc\", \"--root\", toolchain_dir.to_str().unwrap()])
          .output()
