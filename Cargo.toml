@@ -1,0 +1,20 @@
+[package]
+name = "midenup"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0"
+curl = "0.4.47"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+serde-untagged = "0.1"
+thiserror = "2.0.12"
+clap = { version = "4.5", features = ["derive", "env"] }
+dirs = "6.0.0"
+semver = { version = "1.0", features = ["serde"] }
+chrono = { version = "0.4.41", default-features = false, features = [
+    "std",
+    "now",
+] }
+toml = { version = "0.8", features = ["preserve_order"] }

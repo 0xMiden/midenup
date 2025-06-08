@@ -1,0 +1,35 @@
+{
+  "manifest_version": "1.0",
+  "date": 1749330054,
+  "channels": [
+    {
+      "name": "stable",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.15.0"
+        },
+        {
+          "name": "base",
+          "package": "miden-lib",
+          "version": "0.9.0"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.15.0",
+          "features": ["executable", "concurrent"]
+        },
+        {
+          "name": "midenc",
+          "version": "0.1.0"
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.1.0"
+        }
+      ]
+    }
+  ]
+}
