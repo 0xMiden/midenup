@@ -18,3 +18,15 @@ chrono = { version = "0.4.41", default-features = false, features = [
     "now",
 ] }
 toml = { version = "0.8", features = ["preserve_order"] }
+
+[profile.optimized]
+inherits = "release"
+codegen-units = 1
+lto = true
+
+[profile.test-dev]
+inherits = "dev"
+opt-level = 1
+debug = true
+debug-assertions = true
+overflow-checks = true
