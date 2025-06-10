@@ -22,6 +22,7 @@ jobs:
           path: manifest/
 
   deploy:
+    name: Deploy github page containing midenup manifest
     needs: upload-manifest
 
     # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
