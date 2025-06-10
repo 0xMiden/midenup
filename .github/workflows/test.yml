@@ -10,8 +10,18 @@ concurrency:
 on:
   push:
     branches: [main, next]
+    paths-ignore:
+      - "**.md"
+      - "**.txt"
+      - "manifest/**"
+      - "docs/**"
   pull_request:
     types: [opened, reopened, synchronize]
+    paths-ignore:
+      - "**.md"
+      - "**.txt"
+      - "manifest/**"
+      - "docs/**"
 
 jobs:
   test:
