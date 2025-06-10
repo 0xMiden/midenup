@@ -40,10 +40,7 @@ impl Toolchain {
 
         let toolchain_file_contents =
             std::fs::read_to_string(&toolchain_file).with_context(|| {
-                format!(
-                    "unable to read toolchain file '{}'",
-                    toolchain_file.display()
-                )
+                format!("unable to read toolchain file '{}'", toolchain_file.display())
             })?;
 
         toml::from_str(&toolchain_file_contents).context("invalid toolchain file")

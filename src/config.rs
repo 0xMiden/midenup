@@ -13,10 +13,7 @@ impl Config {
     pub fn init(midenup_home: PathBuf, manifest_uri: impl AsRef<str>) -> anyhow::Result<Config> {
         let manifest = Manifest::load_from(manifest_uri)?;
 
-        let config = Config {
-            midenup_home,
-            manifest,
-        };
+        let config = Config { midenup_home, manifest };
 
         Ok(config)
     }
@@ -24,10 +21,7 @@ impl Config {
     pub fn ensure_midenup_home_exists(&self) -> anyhow::Result<&Path> {
         if !self.midenup_home.exists() {
             std::fs::create_dir_all(&self.midenup_home).with_context(|| {
-                format!(
-                    "failed to create MIDENUP_HOME with path: {}",
-                    self.midenup_home.display()
-                )
+                format!("failed to create MIDENUP_HOME with path: {}", self.midenup_home.display())
             })?;
         }
 

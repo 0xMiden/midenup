@@ -93,9 +93,7 @@ fn main() -> anyhow::Result<()> {
 
     let cli = <Midenup as clap::CommandFactory>::command();
     let matches = cli.get_matches();
-    let cli = Midenup::from_arg_matches(&matches)
-        .map_err(|err| err.exit())
-        .unwrap();
+    let cli = Midenup::from_arg_matches(&matches).map_err(|err| err.exit()).unwrap();
 
     let config = match cli.behavior {
         Behavior::Miden(_) => {
@@ -108,7 +106,7 @@ fn main() -> anyhow::Result<()> {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
             Config::init(midenup_home, "file://channel-manifest.json")?
-        }
+        },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
                 .midenup_home
@@ -125,7 +123,7 @@ fn main() -> anyhow::Result<()> {
                 })?;
 
             Config::init(midenup_home, &config.manifest_uri)?
-        }
+        },
     };
 
     match cli.behavior {
@@ -155,7 +153,7 @@ fn main() -> anyhow::Result<()> {
                     let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
                     path.push(prev_path);
                     path
-                }
+                },
                 None => toolchain_bin.into_os_string(),
             };
 
@@ -176,16 +174,9 @@ fn main() -> anyhow::Result<()> {
             if status.success() {
                 Ok(())
             } else {
-                bail!(
-                    "'miden {}' failed with status {}",
-                    subcommand,
-                    status.code().unwrap_or(1)
-                )
+                bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
             }
-        }
-        Behavior::Midenup {
-            command: subcommand,
-            ..
-        } => subcommand.execute(&config),
+        },
+        Behavior::Midenup { command: subcommand, .. } => subcommand.execute(&config),
     }
 }

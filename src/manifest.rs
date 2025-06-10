@@ -71,9 +71,8 @@ impl Manifest {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::ChannelType;
-
     use super::Manifest;
+    use crate::channel::ChannelType;
 
     #[test]
     fn validate_current_channel_manifest() {

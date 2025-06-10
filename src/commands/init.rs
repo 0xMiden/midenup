@@ -5,8 +5,8 @@ use crate::Config;
 /// This is the first command the user runs after first installing the midenup. It performs the
 /// following tasks:
 ///
-/// - Bootstrap the `midenup` environment (create directories, default config, etc.), if not
-///   already done.
+/// - Bootstrap the `midenup` environment (create directories, default config, etc.), if not already
+///   done.
 /// - Install the stable channel
 pub fn init(config: &Config) -> anyhow::Result<()> {
     // Create the data directory layout.
@@ -26,10 +26,7 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
     let bin_dir = config.midenup_home.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
-            format!(
-                "failed to initialize MIDENUP_HOME subdirectory: '{}'",
-                bin_dir.display()
-            )
+            format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
         })?;
     }
 
