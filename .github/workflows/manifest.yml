@@ -1,0 +1,42 @@
+name: Publish midenup manifest to Github Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - manifest/**
+
+jobs:
+  upload-manifest:
+    name: upload manifest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: updload manifest.json
+        id: deployment
+        uses: actions/upload-pages-artifact@v3 # or specific "vX.X.X" version tag for this action
+        with:
+          path: manifest/
+
+  deploy:
+    needs: upload-manifest
+
+    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+
