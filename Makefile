@@ -4,9 +4,20 @@
 clippy: ## Runs Clippy with configs
 	cargo clippy -- -D warnings
 
+.PHONY: fix
+fix: ## Runs Fix with configs
+	cargo +nightly fix --allow-staged --allow-dirty --all-targets
+
+.PHONY: format
+format: ## Runs Format using nightly toolchain
+	cargo +nightly fmt --all
+
 .PHONY: format-check
 format-check: ## Runs Format using nightly toolchain but only in check mode
 	cargo +nightly fmt --all --check
+
+.PHONY: lint
+lint: format fix clippy ## Runs all linting tasks at once (Clippy, fixing, formatting)
 
 # --- building ------------------------------------------------------------------------------------
 .PHONY: build
