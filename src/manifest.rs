@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelType};
@@ -77,7 +77,7 @@ mod tests {
 
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://channel-manifest.json").unwrap();
+        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
         let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
 
