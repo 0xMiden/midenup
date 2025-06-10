@@ -19,11 +19,6 @@ format-check: ## Runs Format using nightly toolchain but only in check mode
 .PHONY: lint
 lint: format fix clippy ## Runs all linting tasks at once (Clippy, fixing, formatting)
 
-# --- building ------------------------------------------------------------------------------------
-.PHONY: build
-build: ## Builds with default parameters
-	cargo build --release
-
 # --- testing -------------------------------------------------------------------------------------
 
 .PHONY: test-build
@@ -34,3 +29,8 @@ test-build: ## Build the test binary
 .PHONY: test
 test: ## Run all tests
 	cargo nextest run --profile default --cargo-profile test-dev
+
+# --- building ------------------------------------------------------------------------------------
+.PHONY: build
+build: ## Builds with default parameters
+	cargo build --release
