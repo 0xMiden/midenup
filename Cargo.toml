@@ -23,10 +23,3 @@ toml = { version = "0.8", features = ["preserve_order"] }
 opt-level = 2
 codegen-units = 1
 lto = "thin"
-
-[profile.test-dev]
-inherits = "dev"
-opt-level = 1
-debug = true
-debug-assertions = true
-overflow-checks = true
