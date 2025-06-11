@@ -38,7 +38,7 @@ impl Manifest {
             let contents = std::fs::read_to_string(path).with_context(|| {
                 format!("failed to read channel manifest from '{}'", path.display())
             })?;
-            toml::from_str::<Manifest>(&contents).context("invalid channel manifest")
+            serde_json::from_str::<Manifest>(&contents).context("invalid channel manifest")
         } else if uri.starts_with("https://") {
             let mut data = Vec::new();
             let mut handle = curl::easy::Easy::new();
@@ -57,8 +57,7 @@ impl Manifest {
                     .perform()
                     .with_context(|| format!("failed to load channel manifest from '{uri}'"))?;
             }
-            let data = String::from_utf8(data)?;
-            toml::from_str::<Manifest>(&data).context("invalid channel manifest")
+            serde_json::from_slice::<Manifest>(&data).context("invalid channel manifest")
         } else {
             bail!("unsupported channel manifest uri: '{}'", uri)
         }
@@ -77,7 +76,7 @@ mod tests {
 
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.toml").unwrap();
+        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
         let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
 
