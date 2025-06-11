@@ -56,8 +56,6 @@ jobs:
           make build
   test:
     name: test
-    # Run this job after building, so the cache is hot
-    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@main
