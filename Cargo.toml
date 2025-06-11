@@ -20,8 +20,9 @@ chrono = { version = "0.4.41", default-features = false, features = [
 toml = { version = "0.8", features = ["preserve_order"] }
 
 [profile.release]
+opt-level = 2
 codegen-units = 1
-lto = true
+lto = "thin"
 
 [profile.test-dev]
 inherits = "dev"
