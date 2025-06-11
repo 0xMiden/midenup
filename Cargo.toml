@@ -22,4 +22,3 @@ toml = { version = "0.8", features = ["preserve_order"] }
 [profile.release]
 opt-level = 2
 codegen-units = 1
-lto = "thin"
