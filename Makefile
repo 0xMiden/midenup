@@ -6,7 +6,7 @@ clippy: ## Runs Clippy with configs
 
 .PHONY: fix
 fix: ## Runs Fix with configs
-	cargo +nightly fix --allow-staged --allow-dirty --all-targets
+	cargo fix --allow-staged --allow-dirty --all-targets
 
 .PHONY: format
 format: ## Runs Format using nightly toolchain
