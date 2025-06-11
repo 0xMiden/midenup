@@ -17,7 +17,7 @@ format-check: ## Runs Format using nightly toolchain but only in check mode
 	cargo +nightly fmt --all --check
 
 .PHONY: lint
-lint: format fix clippy ## Runs all linting tasks at once (Clippy, fixing, formatting)
+lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
 
 # --- testing -------------------------------------------------------------------------------------
 
