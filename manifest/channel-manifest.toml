@@ -1,0 +1,29 @@
+manifest_version = "1.0.0"
+date = 1749654780
+
+[[channels]]
+name = "stable"
+
+[[channels.components]]
+name = "std"
+package = "miden-stdlib"
+version = "0.15.0"
+
+[[channels.components]]
+name = "base"
+package = "miden-lib"
+version = "0.9.0"
+
+[[channels.components]]
+name = "vm"
+package = "miden-vm"
+version = "0.15.0"
+features = ["executable", "concurrent"]
+
+[[channels.components]]
+name = "midenc"
+version = "0.1.0"
+
+[[channels.components]]
+name = "cargo-miden"
+version = "0.1.0"

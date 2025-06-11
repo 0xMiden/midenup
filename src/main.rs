@@ -71,7 +71,7 @@ struct GlobalArgs {
         hide(true),
         value_name = "FILE",
         env = "MIDENUP_MANIFEST_URI",
-        default_value = "file://channel-manifest.json"
+        default_value = "file://manifest/channel-manifest.toml"
     )]
     manifest_uri: String,
 }
@@ -105,7 +105,7 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
-            Config::init(midenup_home, "file://channel-manifest.json")?
+            Config::init(midenup_home, "file://manifest/channel-manifest.toml")?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
