@@ -25,10 +25,9 @@ lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
 test-build: ## Build the test binary
 	cargo nextest run --no-run
 
-
 .PHONY: test
 test: ## Run all tests
-	cargo nextest run --profile default
+	cargo nextest run
 
 # --- building ------------------------------------------------------------------------------------
 .PHONY: build
