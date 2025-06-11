@@ -33,4 +33,4 @@ test: ## Run all tests
 # --- building ------------------------------------------------------------------------------------
 .PHONY: build
 build: ## Builds with default parameters
-	cargo build --release
+	cargo build
