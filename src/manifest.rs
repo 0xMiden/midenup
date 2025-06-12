@@ -30,6 +30,9 @@ impl Default for Manifest {
 }
 
 impl Manifest {
+    pub const PUBLISHED_MANIFEST_URI: &str =
+        "https://0xmiden.github.io/midenup/channel-manifest.json";
+
     /// Loads a [Manifest] from the given URI
     pub fn load_from(uri: impl AsRef<str>) -> anyhow::Result<Self> {
         let uri = uri.as_ref();
@@ -77,6 +80,15 @@ mod tests {
     #[test]
     fn validate_current_channel_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
+
+        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+
+        assert!(stable.get_component("std").is_some());
+    }
+
+    #[test]
+    fn validate_published_channel_manifest() {
+        let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).unwrap();
 
         let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
 
