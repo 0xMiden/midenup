@@ -17,6 +17,7 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
     // |- bin/
     // | |- miden --> $CARGO_INSTALL_DIR/midenup
     // |- toolchains
+    // | |- stable/ --> <channel>/
     // | |- <channel>/
     // | | |- bin/
     // | | |- lib/
