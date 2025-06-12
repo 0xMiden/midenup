@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::Path};
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::channel::{Channel, ChannelType};
+use crate::channel::{CanonicalChannel, Channel, ChannelType};
 
 const MANIFEST_VERSION: &str = "1.0.0";
 
@@ -67,14 +67,27 @@ impl Manifest {
     }
 
     /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
-    pub fn get_channel(&self, channel: &ChannelType) -> Option<&Channel> {
+    pub fn get_channel(&self, channel: &CanonicalChannel) -> Option<&Channel> {
         match channel {
-            ChannelType::Stable => self.channels.iter().max_by(|a, b| a.name.cmp(&b.name)),
-            ChannelType::Nightly => {
+            CanonicalChannel::Nightly => {
                 todo!("Nightly channel not yet implemented")
             },
-            ChannelType::Version(version) => self.channels.iter().find(|c| &c.name == channel),
+            CanonicalChannel::Version { version, .. } => {
+                self.channels.iter().find(|c| &c.name == channel)
+            },
         }
+    }
+
+    /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
+    /// the latest version
+    pub fn get_stable_version(&self) -> Option<&semver::Version> {
+        self.channels
+            .iter()
+            .filter_map(|channel| match &channel.name {
+                CanonicalChannel::Nightly => None,
+                CanonicalChannel::Version { version, .. } => Some(version),
+            })
+            .max_by(|x, y| x.cmp_precedence(y))
     }
 }
 

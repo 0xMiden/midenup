@@ -1,15 +1,15 @@
 use std::io::Write;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
 use crate::{
-    Config,
-    channel::{Channel, ChannelType},
+    channel::{CanonicalChannel, Channel, ChannelType},
     version::Authority,
+    Config,
 };
 
 /// Installs a specified toolchain by channel or version.
-pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()> {
+pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Result<()> {
     let Some(channel) = config.manifest.get_channel(channel_type) else {
         bail!("channel '{}' doesn't exist or is unavailable", channel_type);
     };

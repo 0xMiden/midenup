@@ -7,11 +7,14 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
-use self::{channel::ChannelType, toolchain::Toolchain};
+use self::{
+    channel::{CanonicalChannel, ChannelType},
+    toolchain::Toolchain,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
@@ -81,7 +84,11 @@ impl Commands {
     fn execute(&self, config: &Config) -> anyhow::Result<()> {
         match &self {
             Self::Init { .. } => commands::init(config),
-            Self::Install { channel, .. } => commands::install(config, channel),
+            Self::Install { channel, .. } => {
+                // TODO: Remove .clone();
+                let channel = CanonicalChannel::from_input(channel.clone(), &config.manifest);
+                commands::install(config, &channel)
+            },
             Self::Update { channel, .. } => commands::update(config, channel.as_ref()),
             Self::Show(cmd) => cmd.execute(config),
         }

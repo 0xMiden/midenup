@@ -2,7 +2,7 @@ use std::{borrow::Cow, fmt};
 
 use serde::{Deserialize, Serialize};
 
-use crate::version::Authority;
+use crate::{manifest::Manifest, version::Authority};
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -11,7 +11,7 @@ use crate::version::Authority;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Channel {
     /// The name of the channel
-    pub name: ChannelType,
+    pub name: CanonicalChannel,
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
 }
@@ -47,6 +47,87 @@ impl Component {
             features: vec![],
             requires: vec![],
         }
+    }
+}
+
+/// The version/stability guarantee of a [Channel]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged, rename_all = "snake_case")]
+pub enum CanonicalChannel {
+    /// This channel represents the latest nightly versions of all components
+    Nightly,
+    /// This channel represents the latest stable versions of all components compatible with
+    /// the specified toolchain version string.
+    Version {
+        version: semver::Version,
+        #[serde(skip_serializing)]
+        is_stable: bool,
+    },
+}
+
+impl CanonicalChannel {
+    // TODO: Change this to try_from considering get_stable_version could be empty
+    pub fn from_input(value: ChannelType, manifest: &Manifest) -> Self {
+        match value {
+            ChannelType::Nightly => CanonicalChannel::Nightly,
+            ChannelType::Stable => {
+                // TODO: Wrap this in an error
+                let version = manifest
+                    .get_stable_version()
+                    .expect("Failed to obtain stable version. No versions found")
+                    .clone();
+                CanonicalChannel::Version { version, is_stable: true }
+            },
+            ChannelType::Version(version) => {
+                CanonicalChannel::Version { version, is_stable: false }
+            },
+        }
+    }
+}
+
+impl fmt::Display for CanonicalChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nightly => f.write_str("nightly"),
+            Self::Version { version, is_stable } => {
+                if *is_stable {
+                    f.write_str("stable")
+                } else {
+                    write!(f, "{version}")
+                }
+            },
+        }
+    }
+}
+
+impl Eq for CanonicalChannel {}
+impl PartialEq for CanonicalChannel {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Nightly, Self::Nightly) => true,
+            (Self::Nightly, _) => false,
+            (_, Self::Nightly) => false,
+            (Self::Version { version: x, .. }, Self::Version { version: y, .. }) => x == y,
+        }
+    }
+}
+
+impl Ord for CanonicalChannel {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        match (self, other) {
+            (Self::Nightly, Self::Nightly) => Ordering::Equal,
+            (Self::Nightly, _) => Ordering::Greater,
+            (_, Self::Nightly) => Ordering::Less,
+            (Self::Version { version: x, .. }, Self::Version { version: y, .. }) => {
+                x.cmp_precedence(y)
+            },
+        }
+    }
+}
+impl PartialOrd for CanonicalChannel {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
