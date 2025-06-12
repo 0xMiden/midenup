@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelType};
@@ -68,7 +68,13 @@ impl Manifest {
 
     /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
     pub fn get_channel(&self, channel: &ChannelType) -> Option<&Channel> {
-        self.channels.iter().find(|c| &c.name == channel)
+        match channel {
+            ChannelType::Stable => self.channels.iter().max_by(|a, b| a.name.cmp(&b.name)),
+            ChannelType::Nightly => {
+                todo!("Nightly channel not yet implemented")
+            },
+            ChannelType::Version(version) => self.channels.iter().find(|c| &c.name == channel),
+        }
     }
 }
 
