@@ -71,13 +71,12 @@ impl Manifest {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::ChannelType;
-
     use super::Manifest;
+    use crate::channel::ChannelType;
 
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://channel-manifest.json").unwrap();
+        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
         let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
 

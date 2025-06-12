@@ -16,40 +16,26 @@ pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()
 
     config.ensure_midenup_home_exists()?;
 
-    let toolchain_dir = config
-        .midenup_home
-        .join("toolchains")
-        .join(format!("{}", &channel.name));
+    let toolchain_dir = config.midenup_home.join("toolchains").join(format!("{}", &channel.name));
 
     if toolchain_dir.exists() {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
     std::fs::create_dir_all(&toolchain_dir).with_context(|| {
-        format!(
-            "failed to create toolchain directory: '{}'",
-            toolchain_dir.display()
-        )
+        format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
     })?;
 
     // Create install script
     let install_file_path = toolchain_dir.join("install").with_extension("rs");
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
-        format!(
-            "failed to create file for install script at '{}'",
-            install_file_path.display()
-        )
+        format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
     let install_script_contents = generate_install_script(channel);
-    install_file
-        .write_all(&install_script_contents.into_bytes())
-        .with_context(|| {
-            format!(
-                "failed to write install script at '{}'",
-                install_file_path.display()
-            )
-        })?;
+    install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
+        format!("failed to write install script at '{}'", install_file_path.display())
+    })?;
 
     let mut child = std::process::Command::new("cargo")
         .env("MIDEN_SYSROOT", &toolchain_dir)
@@ -63,9 +49,7 @@ pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()
         .spawn()
         .context("error occurred while running install script")?;
 
-    child
-        .wait()
-        .context("failed to execute toolchain installer")?;
+    child.wait().context("failed to execute toolchain installer")?;
 
     Ok(())
 }
@@ -141,13 +125,11 @@ fn format_component_as_cargo_dependency(buf: &mut String, component: &Component)
         Authority::Cargo { package, version } => {
             let package = package.as_deref().unwrap_or(component.name.as_ref());
             write!(buf, "{package} = \"{version}\"").unwrap();
-        }
-        Authority::Git(repo) => write!(
-            buf,
-            "{} = {{ version = \"> 0.0.0\", git = \"{repo}\" }}",
-            &component.name
-        )
-        .unwrap(),
+        },
+        Authority::Git(repo) => {
+            write!(buf, "{} = {{ version = \"> 0.0.0\", git = \"{repo}\" }}", &component.name)
+                .unwrap()
+        },
         Authority::Path(path) => write!(
             buf,
             "{} = {{ version = \"> 0.0.0\", path = \"{}\" }}",
@@ -171,13 +153,13 @@ fn format_component_cargo_install_command(buf: &mut String, component: &Componen
             let package = package.as_deref().unwrap_or(component.name.as_ref());
             writeln!(buf, "        .arg(\"{package}\")\n").unwrap();
             writeln!(buf, "        .args([\"--version\", \"{version}\"])\n").unwrap();
-        }
+        },
         Authority::Git(repo_uri) => {
             writeln!(buf, "        .args([\"--git\", \"{repo_uri}\"])\n").unwrap();
-        }
+        },
         Authority::Path(path) => {
             writeln!(buf, "        .args([\"--path\", \"{}\"])\n", path.display()).unwrap();
-        }
+        },
     }
 
     // Enable optional features, if present
@@ -194,12 +176,8 @@ fn format_component_cargo_install_command(buf: &mut String, component: &Componen
     writeln!(buf, "        .stderr(std::process::Stdio::inherit())\n").unwrap();
     writeln!(buf, "        .stdout(std::process::Stdio::inherit())\n").unwrap();
     writeln!(buf, "        .spawn()\n").unwrap();
-    writeln!(
-        buf,
-        "        .expect(\"failed to install component '{}'\");\n",
-        &component.name
-    )
-    .unwrap();
+    writeln!(buf, "        .expect(\"failed to install component '{}'\");\n", &component.name)
+        .unwrap();
 
     // Await results
     writeln!(

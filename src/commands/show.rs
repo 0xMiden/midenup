@@ -20,12 +20,12 @@ impl ShowCommand {
                 println!("{}", &toolchain.channel);
 
                 Ok(())
-            }
+            },
             Self::Home => {
                 println!("{}", config.midenup_home.display());
 
                 Ok(())
-            }
+            },
         }
     }
 }
