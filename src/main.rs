@@ -71,7 +71,7 @@ struct GlobalArgs {
         hide(true),
         value_name = "FILE",
         env = "MIDENUP_MANIFEST_URI",
-        default_value = "file://manifest/channel-manifest.json"
+        default_value = manifest::Manifest::PUBLISHED_MANIFEST_URI
     )]
     manifest_uri: String,
 }
