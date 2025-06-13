@@ -3,7 +3,7 @@ use std::io::Write;
 use anyhow::{bail, Context};
 
 use crate::{
-    channel::{CanonicalChannel, Channel, ChannelType},
+    channel::{CanonicalChannel, Channel},
     version::Authority,
     Config,
 };
@@ -232,13 +232,16 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
+    use crate::{manifest::Manifest, ChannelType};
 
     #[test]
     fn install_script_template_from_local_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
+            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
+
+        let stable = manifest.get_channel(&channel).expect("No channels found in manifest");
 
         let script = generate_install_script(stable);
 

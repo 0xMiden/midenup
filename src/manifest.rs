@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::Path};
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::channel::{CanonicalChannel, Channel, ChannelType};
+use crate::channel::{CanonicalChannel, Channel};
 
 const MANIFEST_VERSION: &str = "1.0.0";
 
@@ -72,9 +72,7 @@ impl Manifest {
             CanonicalChannel::Nightly => {
                 todo!("Nightly channel not yet implemented")
             },
-            CanonicalChannel::Version { version, .. } => {
-                self.channels.iter().find(|c| &c.name == channel)
-            },
+            CanonicalChannel::Version { .. } => self.channels.iter().find(|c| &c.name == channel),
         }
     }
 
@@ -94,13 +92,16 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::Manifest;
-    use crate::channel::ChannelType;
+    use crate::channel::{CanonicalChannel, ChannelType};
 
     #[test]
     fn validate_current_channel_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
+            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
+
+        let stable = manifest.get_channel(&channel).unwrap();
 
         assert!(stable.get_component("std").is_some());
     }
@@ -109,7 +110,10 @@ mod tests {
     fn validate_published_channel_manifest() {
         let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).unwrap();
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
+            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
+
+        let stable = manifest.get_channel(&channel).unwrap();
 
         assert!(stable.get_component("std").is_some());
     }
