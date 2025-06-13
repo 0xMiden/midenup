@@ -1,11 +1,11 @@
 use std::io::Write;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::{
+    Config,
     channel::{Channel, ChannelType},
     version::Authority,
-    Config,
 };
 
 /// Installs a specified toolchain by channel or version.
