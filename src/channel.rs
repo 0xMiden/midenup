@@ -72,7 +72,6 @@ impl CanonicalChannel {
         match value {
             ChannelType::Nightly => Ok(CanonicalChannel::Nightly),
             ChannelType::Stable => {
-                // TODO: Wrap this in an error
                 let version = manifest
                     .get_stable_version()
                     .context("Failed to obtain stable version. No versions found")?
