@@ -51,7 +51,7 @@ impl Component {
     }
 }
 
-/// The version/stability guarantee of a [Channel]
+/// The internal [Channel] representation.
 #[derive(Serialize, Debug, Clone)]
 #[serde(untagged, rename_all = "snake_case")]
 pub enum CanonicalChannel {
@@ -117,19 +117,6 @@ impl PartialEq for CanonicalChannel {
     }
 }
 
-/// The version/stability guarantee of a [Channel]
-#[derive(Serialize, Debug, Clone)]
-#[serde(untagged, rename_all = "snake_case")]
-pub enum ChannelType {
-    /// This channel represents the latest stable versions of all components
-    Stable,
-    /// This channel represents the latest nightly versions of all components
-    Nightly,
-    /// This channel represents the latest stable versions of all components compatible with
-    /// the specified toolchain version string.
-    Version(semver::Version),
-}
-
 impl<'de> serde::de::Deserialize<'de> for CanonicalChannel {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -148,6 +135,37 @@ impl<'de> serde::de::Deserialize<'de> for CanonicalChannel {
     }
 }
 
+impl core::str::FromStr for CanonicalChannel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use anyhow::anyhow;
+
+        // NOTE: Currently, when parsing from a str, all versions are marked as
+        // not stable, they are marked as stable after the entire Manifest is
+        // parsed
+        match s {
+            "nightly" => Ok(Self::Nightly),
+            version => semver::Version::parse(version)
+                .map(|version| Self::Version { version, is_stable: false })
+                .map_err(|err| anyhow!("invalid channel version: {err}")),
+        }
+    }
+}
+
+/// The version/stability guarantee of a [Channel]
+#[derive(Serialize, Debug, Clone)]
+#[serde(untagged, rename_all = "snake_case")]
+pub enum ChannelType {
+    /// This channel represents the latest stable versions of all components
+    Stable,
+    /// This channel represents the latest nightly versions of all components
+    Nightly,
+    /// This channel represents the latest stable versions of all components compatible with
+    /// the specified toolchain version string.
+    Version(semver::Version),
+}
+
 impl<'de> serde::de::Deserialize<'de> for ChannelType {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -163,21 +181,6 @@ impl<'de> serde::de::Deserialize<'de> for ChannelType {
                 })
             })
             .deserialize(deserializer)
-    }
-}
-
-impl core::str::FromStr for CanonicalChannel {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use anyhow::anyhow;
-
-        match s {
-            "nightly" => Ok(Self::Nightly),
-            version => semver::Version::parse(version)
-                .map(|version| Self::Version { version, is_stable: false })
-                .map_err(|err| anyhow!("invalid channel version: {err}")),
-        }
     }
 }
 
