@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt};
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{manifest::Manifest, version::Authority};
@@ -67,19 +68,19 @@ pub enum CanonicalChannel {
 
 impl CanonicalChannel {
     // TODO: Change this to try_from considering get_stable_version could be empty
-    pub fn from_input(value: ChannelType, manifest: &Manifest) -> Self {
+    pub fn from_input(value: ChannelType, manifest: &Manifest) -> anyhow::Result<Self> {
         match value {
-            ChannelType::Nightly => CanonicalChannel::Nightly,
+            ChannelType::Nightly => Ok(CanonicalChannel::Nightly),
             ChannelType::Stable => {
                 // TODO: Wrap this in an error
                 let version = manifest
                     .get_stable_version()
-                    .expect("Failed to obtain stable version. No versions found")
+                    .context("Failed to obtain stable version. No versions found")?
                     .clone();
-                CanonicalChannel::Version { version, is_stable: true }
+                Ok(CanonicalChannel::Version { version, is_stable: true })
             },
             ChannelType::Version(version) => {
-                CanonicalChannel::Version { version, is_stable: false }
+                Ok(CanonicalChannel::Version { version, is_stable: false })
             },
         }
     }

@@ -86,7 +86,7 @@ impl Commands {
             Self::Init { .. } => commands::init(config),
             Self::Install { channel, .. } => {
                 // TODO: Remove .clone();
-                let channel = CanonicalChannel::from_input(channel.clone(), &config.manifest);
+                let channel = CanonicalChannel::from_input(channel.clone(), &config.manifest)?;
                 commands::install(config, &channel)
             },
             Self::Update { channel, .. } => commands::update(config, channel.as_ref()),
