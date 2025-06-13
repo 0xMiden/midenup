@@ -36,7 +36,7 @@ impl Manifest {
     /// Loads a [Manifest] from the given URI
     pub fn load_from(uri: impl AsRef<str>) -> anyhow::Result<Self> {
         let uri = uri.as_ref();
-        if let Some(manifest_path) = uri.strip_prefix("file://") {
+        let mut manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
             let path = Path::new(manifest_path);
             let contents = std::fs::read_to_string(path).with_context(|| {
                 format!("failed to read channel manifest from '{}'", path.display())
@@ -58,12 +58,36 @@ impl Manifest {
                     .unwrap();
                 transfer
                     .perform()
-                    .with_context(|| format!("failed to load channel manifest from '{uri}'"))?;
+                    .with_context(|| format!("failed to load channel manifest from '{uri}'"))?
             }
             serde_json::from_slice::<Manifest>(&data).context("invalid channel manifest")
         } else {
             bail!("unsupported channel manifest uri: '{}'", uri)
-        }
+        }?;
+
+        // Mark the largest version as stable
+        let channels = &mut manifest.channels;
+        let stable_channel = channels
+            .iter_mut()
+            .filter(|channel| matches!(channel.name, CanonicalChannel::Version { .. }))
+            .max_by(|x, y| match (&x.name, &y.name) {
+                (CanonicalChannel::Nightly, _) => unreachable!(),
+                (_, CanonicalChannel::Nightly) => unreachable!(),
+                (
+                    CanonicalChannel::Version { version: x, .. },
+                    CanonicalChannel::Version { version: y, .. },
+                ) => x.cmp_precedence(y),
+            });
+
+        if let Some(stable) = stable_channel {
+            stable.name = match &stable.name {
+                CanonicalChannel::Nightly => CanonicalChannel::Nightly,
+                CanonicalChannel::Version { version: x, .. } => {
+                    CanonicalChannel::Version { version: x.clone(), is_stable: true }
+                },
+            }
+        };
+        Ok(manifest)
     }
 
     /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
