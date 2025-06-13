@@ -162,6 +162,24 @@ impl<'de> serde::de::Deserialize<'de> for CanonicalChannel {
     }
 }
 
+impl<'de> serde::de::Deserialize<'de> for ChannelType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Unexpected;
+        use serde_untagged::UntaggedEnumVisitor;
+
+        UntaggedEnumVisitor::new()
+            .string(|s| {
+                s.parse::<ChannelType>().map_err(|err| {
+                    serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
+                })
+            })
+            .deserialize(deserializer)
+    }
+}
+
 impl core::str::FromStr for CanonicalChannel {
     type Err = anyhow::Error;
 
