@@ -1,19 +1,20 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::channel::ChannelType;
+use crate::channel::{CanonicalChannel, ChannelType};
 
 /// Represents a `miden-toolchain.toml` file
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Toolchain {
-    pub channel: ChannelType,
+    pub channel: CanonicalChannel,
     pub components: Vec<String>,
 }
 
 impl Default for Toolchain {
     fn default() -> Self {
         Self {
-            channel: ChannelType::Stable,
+            // TODO(fabrio): Revisit this. Put here temporarily.
+            channel: CanonicalChannel::Nightly,
             components: vec![
                 "std".to_string(),
                 "base".to_string(),

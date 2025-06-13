@@ -51,7 +51,7 @@ impl Component {
 }
 
 /// The version/stability guarantee of a [Channel]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(untagged, rename_all = "snake_case")]
 pub enum CanonicalChannel {
     /// This channel represents the latest nightly versions of all components
@@ -144,7 +144,7 @@ pub enum ChannelType {
     Version(semver::Version),
 }
 
-impl<'de> serde::de::Deserialize<'de> for ChannelType {
+impl<'de> serde::de::Deserialize<'de> for CanonicalChannel {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
@@ -154,11 +154,26 @@ impl<'de> serde::de::Deserialize<'de> for ChannelType {
 
         UntaggedEnumVisitor::new()
             .string(|s| {
-                s.parse::<ChannelType>().map_err(|err| {
+                s.parse::<CanonicalChannel>().map_err(|err| {
                     serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
                 })
             })
             .deserialize(deserializer)
+    }
+}
+
+impl core::str::FromStr for CanonicalChannel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use anyhow::anyhow;
+
+        match s {
+            "nightly" => Ok(Self::Nightly),
+            version => semver::Version::parse(version)
+                .map(|version| Self::Version { version, is_stable: false })
+                .map_err(|err| anyhow!("invalid channel version: {err}")),
+        }
     }
 }
 
