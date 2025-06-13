@@ -141,4 +141,35 @@ mod tests {
 
         assert!(stable.get_component("std").is_some());
     }
+
+    #[test]
+    fn validate_stable_is_latest() {
+        let manifest = Manifest::load_from("file://tests/manifest-check-stable.json").unwrap();
+
+        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
+            .expect("Couldn't parse Canonical Stable channel from the test file");
+
+        let stable = manifest.get_channel(&channel).unwrap();
+        assert_eq!(
+            stable.name,
+            CanonicalChannel::Version {
+                version: semver::Version::new(0, 15, 0),
+                is_stable: true
+            }
+        );
+
+        let version = CanonicalChannel::from_input(
+            ChannelType::Version(semver::Version::new(0, 14, 0)),
+            &manifest,
+        )
+        .expect("Couldn't parse Canonical Stable channel from the test file");
+
+        assert_eq!(
+            version,
+            CanonicalChannel::Version {
+                version: semver::Version::new(0, 14, 0),
+                is_stable: false,
+            }
+        );
+    }
 }
