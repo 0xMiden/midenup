@@ -16,7 +16,8 @@ pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Resu
 
     config.ensure_midenup_home_exists()?;
 
-    let toolchain_dir = config.midenup_home.join("toolchains").join(format!("{}", &channel.name));
+    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
     if toolchain_dir.exists() {
         bail!("the '{}' toolchain is already installed", &channel.name);
@@ -50,6 +51,15 @@ pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Resu
         .context("error occurred while running install script")?;
 
     child.wait().context("failed to execute toolchain installer")?;
+
+    // If stable is installed, update the symlink
+    if matches!(channel_type, CanonicalChannel::Version { is_stable: true, .. }) {
+        use crate::commands::init::symlink;
+        // TODO(fabrio): This is an absolute file path, would a relative file be
+        // more suitable for this context?
+        let stable_dir = installed_toolchains_dir.join("stable");
+        symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+    }
 
     Ok(())
 }

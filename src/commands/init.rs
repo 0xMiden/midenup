@@ -76,11 +76,11 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
 }
 
 #[cfg(unix)]
-fn symlink(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
+pub fn symlink(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
     std::os::unix::fs::symlink(to, from).context("could not create symlink")
 }
 
 #[cfg(windows)]
-fn symlink(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
+pub fn symlink(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
     std::os::windows::fs::symlink_file(to, from).context("could not create symlink")
 }
