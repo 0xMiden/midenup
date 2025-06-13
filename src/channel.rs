@@ -72,11 +72,17 @@ impl CanonicalChannel {
         match value {
             ChannelType::Nightly => Ok(CanonicalChannel::Nightly),
             ChannelType::Stable => {
-                let version = manifest
+                let stable = manifest
                     .get_stable_version()
-                    .context("Failed to obtain stable version. No versions found")?
-                    .clone();
-                Ok(CanonicalChannel::Version { version, is_stable: true })
+                    .context("Failed to obtain stable version. No versions found")?;
+
+                debug_assert!(matches!(
+                    &stable.name,
+                    &CanonicalChannel::Version { is_stable: true, .. }
+                ));
+
+                // TODO: This gets cloned because semver::Version doesn't implement Copy
+                Ok(stable.name.clone())
             },
             ChannelType::Version(version) => {
                 Ok(CanonicalChannel::Version { version, is_stable: false })

@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{CanonicalChannel, Channel};
@@ -102,14 +102,10 @@ impl Manifest {
 
     /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
     /// the latest version
-    pub fn get_stable_version(&self) -> Option<&semver::Version> {
-        self.channels
-            .iter()
-            .filter_map(|channel| match &channel.name {
-                CanonicalChannel::Nightly => None,
-                CanonicalChannel::Version { version, .. } => Some(version),
-            })
-            .max_by(|x, y| x.cmp_precedence(y))
+    pub fn get_stable_version(&self) -> Option<&Channel> {
+        self.channels.iter().find(|channel| {
+            matches!(channel.name, CanonicalChannel::Version { is_stable: true, .. })
+        })
     }
 }
 
