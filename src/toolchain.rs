@@ -1,7 +1,7 @@
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::channel::{CanonicalChannel, ChannelType};
+use crate::channel::ChannelType;
 
 /// Represents a `miden-toolchain.toml` file
 #[derive(Serialize, Deserialize, Debug)]
