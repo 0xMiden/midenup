@@ -118,25 +118,6 @@ impl PartialEq for CanonicalChannel {
     }
 }
 
-impl Ord for CanonicalChannel {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        use std::cmp::Ordering;
-        match (self, other) {
-            (Self::Nightly, Self::Nightly) => Ordering::Equal,
-            (Self::Nightly, _) => Ordering::Greater,
-            (_, Self::Nightly) => Ordering::Less,
-            (Self::Version { version: x, .. }, Self::Version { version: y, .. }) => {
-                x.cmp_precedence(y)
-            },
-        }
-    }
-}
-impl PartialOrd for CanonicalChannel {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
 /// The version/stability guarantee of a [Channel]
 #[derive(Serialize, Debug, Clone)]
 #[serde(untagged, rename_all = "snake_case")]
