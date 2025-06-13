@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::Config;
 
@@ -27,7 +27,7 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
 
     let midenhome_dir = &config.midenup_home;
     if !midenhome_dir.exists() {
-        std::fs::create_dir_all(&midenhome_dir).with_context(|| {
+        std::fs::create_dir_all(midenhome_dir).with_context(|| {
             format!("failed to initialize MIDENUP_HOME directory: '{}'", midenhome_dir.display())
         })?;
     }
