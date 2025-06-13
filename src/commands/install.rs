@@ -58,6 +58,9 @@ pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Resu
         // TODO(fabrio): This is an absolute file path, would a relative file be
         // more suitable for this context?
         let stable_dir = installed_toolchains_dir.join("stable");
+        if stable_dir.exists() {
+            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
+        }
         symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
     }
 
