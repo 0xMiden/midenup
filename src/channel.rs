@@ -67,7 +67,6 @@ pub enum CanonicalChannel {
 }
 
 impl CanonicalChannel {
-    // TODO: Change this to try_from considering get_stable_version could be empty
     pub fn from_input(value: ChannelType, manifest: &Manifest) -> anyhow::Result<Self> {
         match value {
             ChannelType::Nightly => Ok(CanonicalChannel::Nightly),
@@ -81,7 +80,7 @@ impl CanonicalChannel {
                     &CanonicalChannel::Version { is_stable: true, .. }
                 ));
 
-                // TODO: This gets cloned because semver::Version doesn't implement Copy
+                // NOTE: This gets cloned because semver::Version doesn't implement Copy
                 Ok(stable.name.clone())
             },
             ChannelType::Version(version) => {
