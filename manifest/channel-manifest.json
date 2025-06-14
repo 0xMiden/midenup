@@ -23,11 +23,13 @@
         },
         {
           "name": "midenc",
-          "version": "0.1.0"
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20"
         },
         {
           "name": "cargo-miden",
-          "version": "0.1.0"
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20"
         }
       ]
     }
