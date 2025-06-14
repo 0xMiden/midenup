@@ -1,8 +1,9 @@
 use std::{borrow::Cow, fmt};
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::version::Authority;
+use crate::{manifest::Manifest, version::Authority};
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -11,7 +12,7 @@ use crate::version::Authority;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Channel {
     /// The name of the channel
-    pub name: ChannelType,
+    pub name: CanonicalChannel,
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
 }
@@ -50,6 +51,108 @@ impl Component {
             features: vec![],
             requires: vec![],
             rustup_channel: None,
+        }
+    }
+}
+
+/// The internal [Channel] representation.
+#[derive(Serialize, Debug, Clone)]
+#[serde(untagged, rename_all = "snake_case")]
+pub enum CanonicalChannel {
+    /// This channel represents the latest nightly versions of all components
+    Nightly,
+    /// This channel represents the latest stable versions of all components compatible with
+    /// the specified toolchain version string.
+    Version {
+        version: semver::Version,
+        #[serde(skip_serializing)]
+        is_stable: bool,
+    },
+}
+
+impl CanonicalChannel {
+    pub fn from_input(value: ChannelType, manifest: &Manifest) -> anyhow::Result<Self> {
+        match value {
+            ChannelType::Nightly => Ok(CanonicalChannel::Nightly),
+            ChannelType::Stable => {
+                let stable = manifest
+                    .get_stable_version()
+                    .context("Failed to obtain stable version. No versions found")?;
+
+                debug_assert!(matches!(
+                    &stable.name,
+                    &CanonicalChannel::Version { is_stable: true, .. }
+                ));
+
+                // NOTE: This gets cloned because semver::Version doesn't implement Copy
+                Ok(stable.name.clone())
+            },
+            ChannelType::Version(version) => {
+                Ok(CanonicalChannel::Version { version, is_stable: false })
+            },
+        }
+    }
+}
+
+impl fmt::Display for CanonicalChannel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Nightly => f.write_str("nightly"),
+            Self::Version { version, is_stable } => {
+                if *is_stable {
+                    f.write_str("stable")
+                } else {
+                    write!(f, "{version}")
+                }
+            },
+        }
+    }
+}
+
+impl Eq for CanonicalChannel {}
+impl PartialEq for CanonicalChannel {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Nightly, Self::Nightly) => true,
+            (Self::Nightly, _) => false,
+            (_, Self::Nightly) => false,
+            (Self::Version { version: x, .. }, Self::Version { version: y, .. }) => x == y,
+        }
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for CanonicalChannel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Unexpected;
+        use serde_untagged::UntaggedEnumVisitor;
+
+        UntaggedEnumVisitor::new()
+            .string(|s| {
+                s.parse::<CanonicalChannel>().map_err(|err| {
+                    serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
+                })
+            })
+            .deserialize(deserializer)
+    }
+}
+
+impl core::str::FromStr for CanonicalChannel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use anyhow::anyhow;
+
+        // NOTE: Currently, when parsing from a str, all versions are marked as
+        // not stable, they are marked as stable after the entire Manifest is
+        // parsed
+        match s {
+            "nightly" => Ok(Self::Nightly),
+            version => semver::Version::parse(version)
+                .map(|version| Self::Version { version, is_stable: false })
+                .map_err(|err| anyhow!("invalid channel version: {err}")),
         }
     }
 }

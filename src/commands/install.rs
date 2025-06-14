@@ -4,19 +4,20 @@ use anyhow::{Context, bail};
 
 use crate::{
     Config,
-    channel::{Channel, ChannelType},
+    channel::{CanonicalChannel, Channel},
     version::Authority,
 };
 
 /// Installs a specified toolchain by channel or version.
-pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()> {
+pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Result<()> {
     let Some(channel) = config.manifest.get_channel(channel_type) else {
         bail!("channel '{}' doesn't exist or is unavailable", channel_type);
     };
 
     config.ensure_midenup_home_exists()?;
 
-    let toolchain_dir = config.midenup_home.join("toolchains").join(format!("{}", &channel.name));
+    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
     if toolchain_dir.exists() {
         bail!("the '{}' toolchain is already installed", &channel.name);
@@ -50,6 +51,18 @@ pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()
         .context("error occurred while running install script")?;
 
     child.wait().context("failed to execute toolchain installer")?;
+
+    // If stable is installed, update the symlink
+    if matches!(channel_type, CanonicalChannel::Version { is_stable: true, .. }) {
+        use crate::commands::init::symlink;
+        // TODO(fabrio): This is an absolute file path, would a relative file be
+        // more suitable for this context?
+        let stable_dir = installed_toolchains_dir.join("stable");
+        if stable_dir.exists() {
+            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
+        }
+        symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+    }
 
     Ok(())
 }
@@ -226,13 +239,16 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
+    use crate::{ChannelType, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
+            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
+
+        let stable = manifest.get_channel(&channel).expect("No channels found in manifest");
 
         let script = generate_install_script(stable);
 
