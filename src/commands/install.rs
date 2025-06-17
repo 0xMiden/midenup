@@ -1,19 +1,11 @@
 use std::io::Write;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
-use crate::{
-    Config,
-    channel::{CanonicalChannel, Channel},
-    version::Authority,
-};
+use crate::{channel::Channel, version::Authority, Config};
 
 /// Installs a specified toolchain by channel or version.
-pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Result<()> {
-    let Some(channel) = config.manifest.get_channel(channel_type) else {
-        bail!("channel '{}' doesn't exist or is unavailable", channel_type);
-    };
-
+pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     config.ensure_midenup_home_exists()?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
@@ -53,7 +45,7 @@ pub fn install(config: &Config, channel_type: &CanonicalChannel) -> anyhow::Resu
     child.wait().context("failed to execute toolchain installer")?;
 
     // If stable is installed, update the symlink
-    if matches!(channel_type, CanonicalChannel::Version { is_stable: true, .. }) {
+    if channel.is_latest_stable() {
         use crate::commands::init::symlink;
         // TODO(fabrio): This is an absolute file path, would a relative file be
         // more suitable for this context?
@@ -232,7 +224,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ChannelType, manifest::Manifest};
+    use crate::{manifest::Manifest, ChannelType};
 
     #[test]
     fn install_script_template_from_local_manifest() {

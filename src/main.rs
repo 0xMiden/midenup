@@ -7,14 +7,11 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
-use self::{
-    channel::{CanonicalChannel, ChannelType},
-    toolchain::Toolchain,
-};
+use self::{channel::UserChannel, toolchain::Toolchain};
 
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
@@ -49,7 +46,7 @@ enum Commands {
     Install {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: ChannelType,
+        channel: UserChannel,
     },
     /// Show information about the midenup environment
     #[command(subcommand)]
@@ -58,7 +55,7 @@ enum Commands {
     Update {
         /// If provided, updates only the specified channel.
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: Option<ChannelType>,
+        channel: Option<UserChannel>,
     },
 }
 
@@ -85,10 +82,12 @@ impl Commands {
         match &self {
             Self::Init { .. } => commands::init(config),
             Self::Install { channel, .. } => {
-                let channel = CanonicalChannel::from_input(channel.clone(), &config.manifest)?;
+                let Some(channel) = config.manifest.get_channel(channel) else {
+                    bail!("channel '{}' doesn't exist or is unavailable", channel);
+                };
                 commands::install(config, &channel)
             },
-            Self::Update { channel, .. } => commands::update(config, channel.as_ref()),
+            Self::Update { channel, .. } => todo!(), //commands::update(config, channel.as_ref()),
             Self::Show(cmd) => cmd.execute(config),
         }
     }
@@ -127,6 +126,7 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
+            std::dbg!("Parsed");
 
             Config::init(midenup_home, &config.manifest_uri)?
         },

@@ -1,9 +1,9 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::channel::{CanonicalChannel, Channel};
+use crate::channel::{Channel, ChannelAlias, UserChannel};
 
 const MANIFEST_VERSION: &str = "1.0.0";
 
@@ -65,47 +65,63 @@ impl Manifest {
             bail!("unsupported channel manifest uri: '{}'", uri)
         }?;
 
-        // Mark the largest version as stable
-        let channels = &mut manifest.channels;
-        let stable_channel = channels
-            .iter_mut()
-            .filter(|channel| matches!(channel.name, CanonicalChannel::Version { .. }))
-            .max_by(|x, y| match (&x.name, &y.name) {
-                (CanonicalChannel::Nightly, _) => unreachable!(),
-                (_, CanonicalChannel::Nightly) => unreachable!(),
-                (
-                    CanonicalChannel::Version { version: x, .. },
-                    CanonicalChannel::Version { version: y, .. },
-                ) => x.cmp_precedence(y),
-            });
+        // // Mark the largest version as stable
+        // let channels = &mut manifest.channels;
+        // let stable_channel =
+        //     channels.iter_mut().filter(|channel| channel.is_stable()).max_by(|x, y| {
+        //         match (&x.name, &y.name) {
+        //             (CanonicalChannel::Nightly, _) => unreachable!(),
+        //             (_, CanonicalChannel::Nightly) => unreachable!(),
+        //             (
+        //                 CanonicalChannel::Version { version: x, .. },
+        //                 CanonicalChannel::Version { version: y, .. },
+        //             ) => x.cmp_precedence(y),
+        //         }
+        //     });
 
-        if let Some(stable) = stable_channel {
-            stable.name = match &stable.name {
-                CanonicalChannel::Nightly => CanonicalChannel::Nightly,
-                CanonicalChannel::Version { version: x, .. } => {
-                    CanonicalChannel::Version { version: x.clone(), is_stable: true }
-                },
-            }
-        };
+        // if let Some(stable) = stable_channel {
+        //     stable.name = match &stable.name {
+        //         CanonicalChannel::Nightly => CanonicalChannel::Nightly,
+        //         CanonicalChannel::Version { version: x, .. } => {
+        //             CanonicalChannel::Version { version: x.clone(), is_stable: true }
+        //         },
+        //     }
+        // };
         Ok(manifest)
-    }
-
-    /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
-    pub fn get_channel(&self, channel: &CanonicalChannel) -> Option<&Channel> {
-        match channel {
-            CanonicalChannel::Nightly => {
-                todo!("Nightly channel not yet implemented")
-            },
-            CanonicalChannel::Version { .. } => self.channels.iter().find(|c| &c.name == channel),
-        }
     }
 
     /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
     /// the latest version
-    pub fn get_stable_version(&self) -> Option<&Channel> {
-        self.channels.iter().find(|channel| {
-            matches!(channel.name, CanonicalChannel::Version { is_stable: true, .. })
+    pub fn get_latest_stable(&self) -> Option<&Channel> {
+        self.channels.iter().find(|c| c.is_latest_stable()).or_else(|| {
+            self.channels
+                .iter()
+                .filter(|c| c.is_stable())
+                .max_by(|x, y| x.name.cmp_precedence(&y.name))
         })
+    }
+
+    pub fn get_latest_nightly(&self) -> Option<&Channel> {
+        todo!()
+    }
+
+    pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
+        todo!()
+    }
+    /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
+    pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
+        match channel {
+            UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
+            UserChannel::Stable => self.get_latest_stable(),
+            UserChannel::Nightly => self.get_latest_nightly(),
+            // UserChannel::Other(tag) => match tag.split_prefix("nightly-") {
+            //     Some(suffix) => self.get_named_nightly(suffix),
+            //     None => self.channels.iter().find(|c| {
+            //         c.alias.is_some_and(|alias| matches!(alias, ChannelAlias::Tag(t) if t ==
+            // tag))     }),
+            // },
+            _ => todo!(),
+        }
     }
 }
 
