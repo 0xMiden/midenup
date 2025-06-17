@@ -103,7 +103,7 @@ fn main() {
     // Install {{ component.name }}
     let mut child = Command::new("cargo")
         .arg(
-          "{{ component.required_toolchain }}",
+          "{{ component.required_toolchain_flag }}",
         )
         .arg("install")
         .args([
@@ -198,7 +198,9 @@ fn main() {
             }
 
             let required_toolchain =
-                component.rustup_channel.clone().unwrap_or(String::from("+stable"));
+                component.rustup_channel.clone().unwrap_or(String::from("stable"));
+
+            let required_toolchain_flag = format!("+{required_toolchain}");
 
             // Enable optional features, if present
             if !component.features.is_empty() {
@@ -209,7 +211,7 @@ fn main() {
 
             upon::value! {
                 name: component.name.to_string(),
-                required_toolchain: required_toolchain,
+                required_toolchain_flag: required_toolchain_flag,
                 args: args,
             }
         })
