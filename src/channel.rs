@@ -73,6 +73,9 @@ pub struct Component {
     /// Other components that are required if this component is installed
     #[serde(default)]
     pub requires: Vec<String>,
+    /// If not None, then this component requires a specific toolchain to compile.
+    #[serde(default)]
+    pub rustup_channel: Option<String>,
 }
 
 impl Component {
@@ -82,6 +85,7 @@ impl Component {
             version,
             features: vec![],
             requires: vec![],
+            rustup_channel: None,
         }
     }
 }
