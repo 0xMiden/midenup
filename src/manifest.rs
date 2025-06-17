@@ -128,60 +128,47 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::Manifest;
-    use crate::channel::{CanonicalChannel, ChannelType};
+    use crate::channel::UserChannel;
 
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
+        let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
+            .expect("couldn't load manifest");
 
-        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
-            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
-
-        let stable = manifest.get_channel(&channel).unwrap();
+        let stable = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation");
 
         assert!(stable.get_component("std").is_some());
     }
 
     #[test]
     fn validate_published_channel_manifest() {
-        let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).unwrap();
+        let manifest =
+            Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).expect("couldn't load manifest");
 
-        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
-            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
-
-        let stable = manifest.get_channel(&channel).unwrap();
+        let stable = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation");
 
         assert!(stable.get_component("std").is_some());
     }
 
     #[test]
     fn validate_stable_is_latest() {
-        let manifest = Manifest::load_from("file://tests/manifest-check-stable.json").unwrap();
+        const FILE: &str = "file://tests/manifest-check-stable.json";
+        let manifest = Manifest::load_from(FILE).unwrap();
 
-        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
-            .expect("Couldn't parse Canonical Stable channel from the test file");
+        let stable = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation from {FILE}");
 
-        let stable = manifest.get_channel(&channel).unwrap();
-        assert_eq!(
-            stable.name,
-            CanonicalChannel::Version {
-                version: semver::Version::new(0, 15, 0),
-                is_stable: true
-            }
-        );
+        assert_eq!(stable.name, semver::Version::new(0, 15, 0));
 
-        let version = CanonicalChannel::from_input(
-            ChannelType::Version(semver::Version::new(0, 14, 0)),
-            &manifest,
-        )
-        .expect("Couldn't parse Canonical Stable channel from the test file");
+        let specific_version = manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .expect("Could not convert UserChannel to internal channel representation from {FILE}");
 
-        assert_eq!(
-            version,
-            CanonicalChannel::Version {
-                version: semver::Version::new(0, 14, 0),
-                is_stable: false,
-            }
-        );
+        assert_eq!(specific_version.name, semver::Version::new(0, 14, 0));
     }
 }

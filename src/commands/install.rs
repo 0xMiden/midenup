@@ -224,18 +224,17 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manifest::Manifest, ChannelType};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
-        let channel = CanonicalChannel::from_input(ChannelType::Stable, &manifest)
-            .expect("Couldn't parse Canonical Stable channel from the input stable channel");
+        let channel = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation");
 
-        let stable = manifest.get_channel(&channel).expect("No channels found in manifest");
-
-        let script = generate_install_script(stable);
+        let script = generate_install_script(channel);
 
         println!("{script}");
 
