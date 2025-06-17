@@ -86,8 +86,8 @@ impl core::str::FromStr for ChannelAlias {
             "stable" => Ok(Self::Stable),
             "nightly" => Ok(Self::Nightly(None)),
             tag => match tag.strip_prefix("nightly-") {
-                Some(suffix) => todo!(),
-                None => todo!(),
+                Some(suffix) => Ok(Self::Nightly(Some(Cow::Owned(suffix.to_string())))),
+                None => Ok(Self::Tag(Cow::Owned(tag.to_string()))),
             },
         }
     }
