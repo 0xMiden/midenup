@@ -55,12 +55,6 @@ jobs:
           rustup update --no-self-update
           make build
 
-      - name: Upload resulting executable
-        uses: actions/upload-artifact@v4
-        with:
-          name: midenup_exe
-          path: target/debug/midenup
-
   test:
     name: test
     runs-on: ubuntu-latest
