@@ -43,7 +43,7 @@ jobs:
     name: try to install the stable toolchain via the CLI
     needs: [build]
     runs-on: ubuntu-latest
-    if: ${{ github.ref_name == 'main' || github.event.pull_request.labels.*.name == 'check:install' }}
+    if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
     steps:
       - uses: actions/checkout@v4
       - name: Download midenup executable
