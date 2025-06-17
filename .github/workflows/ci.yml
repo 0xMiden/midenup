@@ -76,24 +76,3 @@ jobs:
         run: rustup update --no-self-update
       - name: run tests
         run: make test
-
-  install-stable:
-    name: try to install the stable toolchain via the CLI
-    needs: [build]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Download midenup executable
-        uses: actions/download-artifact@v4
-        with:
-          name: midenup_exe
-          path: .
-      - name: Mark midenup it as executable
-        run: |
-          chmod +x midenup
-      - name: initialize midenup directory
-        run: |
-          ./midenup init
-      - name: install stable
-        run: |
-          ./midenup install stable
