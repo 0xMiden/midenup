@@ -32,13 +32,13 @@ jobs:
       - name: build
         run: |
           rustup update --no-self-update
-          make build
+          make build-release
 
       - name: Upload resulting executable
         uses: actions/upload-artifact@v4
         with:
           name: midenup_exe
-          path: target/debug/midenup
+          path: target/release/midenup
 
   install-stable:
     name: try to install the stable toolchain via the CLI
