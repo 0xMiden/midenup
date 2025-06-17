@@ -4,6 +4,7 @@
   "channels": [
     {
       "name": "0.15.0",
+      "alias": "stable",
       "components": [
         {
           "name": "std",

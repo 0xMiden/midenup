@@ -13,7 +13,6 @@ use crate::{manifest::Manifest, version::Authority};
 pub struct Channel {
     pub name: semver::Version,
 
-    #[serde(skip_deserializing)]
     pub alias: Option<ChannelAlias>,
 
     /// The set of toolchain components available in this channel
@@ -48,7 +47,7 @@ impl Channel {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Debug)]
 #[serde(untagged, rename_all = "snake_case")]
 pub enum ChannelAlias {
     /// Represents `stable`
@@ -57,6 +56,41 @@ pub enum ChannelAlias {
     Nightly(Option<Cow<'static, str>>),
     /// An ad-hoc named alias for a channel
     Tag(Cow<'static, str>),
+}
+
+impl<'de> serde::de::Deserialize<'de> for ChannelAlias {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Unexpected;
+        use serde_untagged::UntaggedEnumVisitor;
+
+        UntaggedEnumVisitor::new()
+            .string(|s| {
+                s.parse::<ChannelAlias>().map_err(|err| {
+                    serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
+                })
+            })
+            .deserialize(deserializer)
+    }
+}
+
+impl core::str::FromStr for ChannelAlias {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use anyhow::anyhow;
+
+        match s {
+            "stable" => Ok(Self::Stable),
+            "nightly" => Ok(Self::Nightly(None)),
+            tag => match tag.strip_prefix("nightly-") {
+                Some(suffix) => todo!(),
+                None => todo!(),
+            },
+        }
+    }
 }
 
 /// An installable component of a toolchain
