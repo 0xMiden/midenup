@@ -1,4 +1,4 @@
-name: Use-cases
+name: Integration
 
 on:
   push:
@@ -40,7 +40,7 @@ jobs:
           path: target/release/midenup
 
   install-stable:
-    name: try to install the stable toolchain via the CLI
+    name: install the stable toolchain via the CLI
     needs: [build]
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
