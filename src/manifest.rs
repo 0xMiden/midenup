@@ -102,11 +102,20 @@ impl Manifest {
     }
 
     pub fn get_latest_nightly(&self) -> Option<&Channel> {
-        todo!()
+        self.channels.iter().find(|c| c.is_latest_nightly()).or_else(|| {
+            self.channels
+                .iter()
+                .filter(|c| c.is_nightly())
+                .max_by(|x, y| x.name.cmp_precedence(&y.name))
+        })
     }
 
     pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
-        todo!()
+        self.channels.iter().find(|c| {
+            c.alias.as_ref().is_some_and(
+                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
+            )
+        })
     }
     /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
@@ -114,13 +123,15 @@ impl Manifest {
             UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
             UserChannel::Stable => self.get_latest_stable(),
             UserChannel::Nightly => self.get_latest_nightly(),
-            // UserChannel::Other(tag) => match tag.split_prefix("nightly-") {
-            //     Some(suffix) => self.get_named_nightly(suffix),
-            //     None => self.channels.iter().find(|c| {
-            //         c.alias.is_some_and(|alias| matches!(alias, ChannelAlias::Tag(t) if t ==
-            // tag))     }),
-            // },
-            _ => todo!(),
+            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
+                Some(suffix) => self.get_named_nightly(suffix),
+                None => self.channels.iter().find(|c| {
+                    c.alias.as_ref().is_some_and(|alias| {
+                        matches!(alias, ChannelAlias::Tag(t) if t ==
+            tag.as_ref())
+                    })
+                }),
+            },
         }
     }
 }
