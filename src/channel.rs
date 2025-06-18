@@ -42,8 +42,8 @@ impl Channel {
     }
 }
 
-#[serde(rename_all = "snake_case")]
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
     /// Represents `stable`
     Stable,
