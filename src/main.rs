@@ -3,11 +3,12 @@ mod commands;
 mod config;
 mod manifest;
 mod toolchain;
+mod utils;
 mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;

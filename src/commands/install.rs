@@ -2,7 +2,7 @@ use std::io::Write;
 
 use anyhow::{bail, Context};
 
-use crate::{channel::Channel, version::Authority, Config};
+use crate::{channel::Channel, utils, version::Authority, Config};
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
@@ -80,14 +80,13 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     // commit by always using the manifest to check if the current channel is
     // stable.
     if config.manifest.is_latest_stable(channel) {
-        use crate::commands::init::symlink;
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
         let stable_dir = installed_toolchains_dir.join("stable");
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
-        symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+        utils::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
     }
 
     Ok(())

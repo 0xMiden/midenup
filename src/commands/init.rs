@@ -1,6 +1,6 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
-use crate::Config;
+use crate::{utils, Config};
 
 /// This is the first command the user runs after first installing the midenup. It performs the
 /// following tasks:
@@ -54,7 +54,7 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         std::env::current_exe().expect("unable to get location of current executable");
     let miden_exe = bin_dir.join("miden");
     if !miden_exe.exists() {
-        symlink(&miden_exe, &current_exe)?;
+        utils::symlink(&miden_exe, &current_exe)?;
     }
 
     let toolchains_dir = config.midenup_home.join("toolchains");
@@ -73,14 +73,4 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-#[cfg(unix)]
-pub fn symlink(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
-    std::os::unix::fs::symlink(to, from).context("could not create symlink")
-}
-
-#[cfg(windows)]
-pub fn symlink(from: &std::path::Path, to: &std::path::Path) -> anyhow::Result<()> {
-    std::os::windows::fs::symlink_file(to, from).context("could not create symlink")
 }
