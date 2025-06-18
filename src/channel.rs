@@ -42,6 +42,30 @@ impl Channel {
     }
 }
 
+impl PartialEq for Channel {
+    fn eq(&self, other: &Self) -> bool {
+        // NOTE: To channels are equal regardless of their aliases
+        let equal_name = self.name == other.name;
+        if !equal_name {
+            return false;
+        }
+
+        let my_components: std::collections::HashSet<Component> =
+            self.components.clone().into_iter().collect();
+
+        let other_components: std::collections::HashSet<Component> =
+            self.components.clone().into_iter().collect();
+
+        let equal_components = other_components == my_components;
+
+        if !equal_components {
+            return false;
+        }
+
+        true
+    }
+}
+
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
@@ -87,7 +111,7 @@ impl core::str::FromStr for ChannelAlias {
 }
 
 /// An installable component of a toolchain
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Component {
     /// The canonical name of this toolchain component
     pub name: Cow<'static, str>,
