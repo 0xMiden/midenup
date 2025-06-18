@@ -1,6 +1,6 @@
-use crate::{channel::Channel, Config};
+use crate::{Config, channel::Channel};
 
 /// Updates installed toolchains
-pub fn update(_config: &Config, _channel_type: Option<&Channel>) -> anyhow::Result<()> {
+pub fn _update(_config: &Config, _channel_type: Option<&Channel>) -> anyhow::Result<()> {
     todo!()
 }

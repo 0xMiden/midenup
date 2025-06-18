@@ -1,9 +1,8 @@
 use std::{borrow::Cow, fmt};
 
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use crate::{manifest::Manifest, version::Authority};
+use crate::version::Authority;
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -80,8 +79,6 @@ impl core::str::FromStr for ChannelAlias {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use anyhow::anyhow;
-
         match s {
             "stable" => Ok(Self::Stable),
             "nightly" => Ok(Self::Nightly(None)),

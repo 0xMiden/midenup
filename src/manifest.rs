@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
@@ -36,7 +36,7 @@ impl Manifest {
     /// Loads a [Manifest] from the given URI
     pub fn load_from(uri: impl AsRef<str>) -> anyhow::Result<Self> {
         let uri = uri.as_ref();
-        let mut manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
+        let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
             let path = Path::new(manifest_path);
             let contents = std::fs::read_to_string(path).with_context(|| {
                 format!("failed to read channel manifest from '{}'", path.display())
@@ -65,28 +65,6 @@ impl Manifest {
             bail!("unsupported channel manifest uri: '{}'", uri)
         }?;
 
-        // // Mark the largest version as stable
-        // let channels = &mut manifest.channels;
-        // let stable_channel =
-        //     channels.iter_mut().filter(|channel| channel.is_stable()).max_by(|x, y| {
-        //         match (&x.name, &y.name) {
-        //             (CanonicalChannel::Nightly, _) => unreachable!(),
-        //             (_, CanonicalChannel::Nightly) => unreachable!(),
-        //             (
-        //                 CanonicalChannel::Version { version: x, .. },
-        //                 CanonicalChannel::Version { version: y, .. },
-        //             ) => x.cmp_precedence(y),
-        //         }
-        //     });
-
-        // if let Some(stable) = stable_channel {
-        //     stable.name = match &stable.name {
-        //         CanonicalChannel::Nightly => CanonicalChannel::Nightly,
-        //         CanonicalChannel::Version { version: x, .. } => {
-        //             CanonicalChannel::Version { version: x.clone(), is_stable: true }
-        //         },
-        //     }
-        // };
         Ok(manifest)
     }
 

@@ -1,8 +1,8 @@
 use std::io::Write;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
-use crate::{channel::Channel, version::Authority, Config};
+use crate::{Config, channel::Channel, version::Authority};
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
@@ -267,7 +267,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manifest::Manifest, UserChannel};
+    use crate::{UserChannel, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {
