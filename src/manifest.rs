@@ -138,8 +138,10 @@ impl Manifest {
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::Manifest;
-    use crate::channel::UserChannel;
+    use crate::{channel::UserChannel, manifest::ChannelAlias};
 
     #[test]
     fn validate_current_channel_manifest() {
@@ -181,5 +183,34 @@ mod tests {
             .expect("Could not convert UserChannel to internal channel representation from {FILE}");
 
         assert_eq!(specific_version.name, semver::Version::new(0, 14, 0));
+    }
+
+    #[test]
+    /// Do note that this encapsulates all non-stable channels, i.e. nightly,
+    /// nightly-suffix and tagged channels
+    fn validate_non_stable() {
+        const FILE: &str = "file://tests/manifest-non-stable.json";
+        let manifest = Manifest::load_from(FILE).unwrap();
+        std::dbg!(&manifest);
+
+        let stable = manifest
+            .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+            .expect(
+                "Could not convert UserChannel to internal channel representation from
+    {FILE}",
+            );
+
+        assert_eq!(
+            stable.name,
+            semver::Version {
+                major: 0,
+                minor: 16,
+                patch: 0,
+                pre: semver::Prerelease::new("custom-build").expect("invalid pre-release"),
+                build: semver::BuildMetadata::EMPTY,
+            }
+        );
+
+        assert_eq!(stable.alias, Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build"))));
     }
 }

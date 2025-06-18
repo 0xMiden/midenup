@@ -1,0 +1,26 @@
+{
+  "manifest_version": "1.0",
+  "date": 1749330054,
+  "channels": [
+    {
+      "name": "0.16.0-custom-build",
+      "alias": "custom-dev-build",
+      "components": [
+        {
+          "name": "std",
+          "path": "/path/to/directory"
+        }
+      ]
+    },
+    {
+      "name": "0.15.0-nightly",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.15.0-nightly"
+        }
+      ]
+    }
+  ]
+}
