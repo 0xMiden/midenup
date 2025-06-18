@@ -1,6 +1,6 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
-use crate::{utils, Config};
+use crate::{Config, utils};
 
 /// This is the first command the user runs after first installing the midenup. It performs the
 /// following tasks:

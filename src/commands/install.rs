@@ -1,8 +1,8 @@
 use std::io::Write;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
-use crate::{channel::Channel, utils, version::Authority, Config};
+use crate::{Config, channel::Channel, utils, version::Authority};
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
@@ -45,40 +45,6 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     child.wait().context("failed to execute toolchain installer")?;
 
     // If stable is installed, update the symlink
-    //
-    // NOTE: I'm encountering an issue when trying to determine if the current
-    // channel is the lastest stable version.
-    //
-    // In the case where we are downloading the manifest file from the gihub
-    // page, no channel has the "stable" alias (since, as I understand it, these
-    // explicit aliases are reserved for the local manifest). So, the "latest
-    // stable" channel is currently being defined on the fly, by the Manifest,
-    // by obtaining the lastest channel from the Channel vector.
-    // So, if we want to check if the current channel is the "latest stable",
-    // we'd either:
-    // - need it to have the "stable" alias, which AFAIK it will not be present when downloading
-    //   from the manifest from upstream .
-    // - or, compare it against every other channel marked as stable, which is done via the
-    //   Manifest.
-    //
-    // So, in the case where we are downloading the upstream manifest, I think
-    // the only way to check it, is the latter approach. With this in mind, I
-    // think the [Channel::is_latest_stable] function would only work in cases
-    // where we are using the local Manifest file. This could lead to
-    // confusion/errors, since the lastest stable release will not be aware that
-    // it is the latest stable release unless it has that alias. In order to
-    // guarantee that this works in both cases, I am going to check via the
-    // manifest if this is the latest stable release.
-    //
-    // I think this stems from the fact that [Channel::is_latest_stable] is only
-    // using the alias to determine if this is the latest stable release; whilst
-    // the [Manifest::get_latest_stable] is falling back on the comparison
-    // against all the other "stable" releases.
-    //
-    // Thus, I need to check via the manifest if this is the latest stable
-    // release, in order to guarantee that this applies to both cases. This
-    // commit by always using the manifest to check if the current channel is
-    // stable.
     if config.manifest.is_latest_stable(channel) {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
@@ -266,7 +232,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manifest::Manifest, UserChannel};
+    use crate::{UserChannel, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {
