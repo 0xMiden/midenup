@@ -55,6 +55,25 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
         utils::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
     }
 
+    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    let local_manifest_uri = format!(
+        "file://{}",
+        local_manifest_path.to_str().context("Couldn't convert miden directory")?,
+    );
+
+    let local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+
+    let mut local_manifest_file =
+        std::fs::File::create(&local_manifest_path).with_context(|| {
+            format!(
+                "failed to create file for install script at '{}'",
+                local_manifest_path.display()
+            )
+        })?;
+    local_manifest_file
+        .write_all(serde_json::to_string_pretty(&local_manifest).unwrap().as_bytes())
+        .unwrap();
+
     Ok(())
 }
 
