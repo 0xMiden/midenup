@@ -90,6 +90,13 @@ impl Manifest {
         Ok(manifest)
     }
 
+    pub fn is_latest_stable(&self, channel: &Channel) -> bool {
+        self.channels.iter().filter(|c| c.is_stable()).all(|c| {
+            channel.name.cmp_precedence(&c.name) == std::cmp::Ordering::Less
+                || channel.name.cmp_precedence(&c.name) == std::cmp::Ordering::Equal
+        })
+    }
+
     /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
     /// the latest version
     pub fn get_latest_stable(&self) -> Option<&Channel> {
