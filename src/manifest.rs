@@ -74,7 +74,7 @@ impl Manifest {
     pub fn is_latest_stable(&self, channel: &Channel) -> bool {
         self.channels.iter().filter(|c| c.is_stable()).all(|c| {
             let comparison = channel.name.cmp_precedence(&c.name);
-            matches!(comparison, std::cmp::Ordering::Less | std::cmp::Ordering::Equal)
+            matches!(comparison, std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
         })
     }
 

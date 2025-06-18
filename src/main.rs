@@ -127,7 +127,6 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
-            std::dbg!("Parsed");
 
             Config::init(midenup_home, &config.manifest_uri)?
         },
