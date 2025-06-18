@@ -173,7 +173,7 @@ mod tests {
         let manifest = Manifest::load_from(FILE).unwrap();
 
         let stable = manifest
-            .get_channel(&UserChannel::Stable)
+            .get_latest_stable()
             .expect("Could not convert UserChannel to internal channel representation from {FILE}");
 
         assert_eq!(stable.name, semver::Version::new(0, 15, 0));
