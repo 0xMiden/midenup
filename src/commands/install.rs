@@ -51,6 +51,7 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     child.wait().context("failed to execute toolchain installer")?;
 
     let is_latest_stable = config.manifest.is_latest_stable(channel);
+
     // If stable is installed, update the symlink
     if is_latest_stable {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
@@ -62,6 +63,7 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
         utils::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
     }
 
+    // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
     let local_manifest_uri = format!(
         "file://{}",
