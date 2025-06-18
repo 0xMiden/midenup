@@ -33,3 +33,7 @@ test: ## Run all tests
 .PHONY: build
 build: ## Builds with default parameters
 	cargo build
+
+.PHONY: build-release
+build-release: ## Builds with release profile
+	cargo build --release
