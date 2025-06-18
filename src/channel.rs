@@ -12,6 +12,7 @@ use crate::version::Authority;
 pub struct Channel {
     pub name: semver::Version,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
 
     /// The set of toolchain components available in this channel
@@ -42,7 +43,7 @@ impl Channel {
 }
 
 #[derive(Serialize, Debug, PartialEq, Eq)]
-#[serde(untagged, rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
     /// Represents `stable`
     Stable,
