@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::Path};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::channel::{Channel, ChannelType};
+use crate::channel::{Channel, ChannelAlias, UserChannel};
 
 const MANIFEST_VERSION: &str = "1.0.0";
 
@@ -36,7 +36,7 @@ impl Manifest {
     /// Loads a [Manifest] from the given URI
     pub fn load_from(uri: impl AsRef<str>) -> anyhow::Result<Self> {
         let uri = uri.as_ref();
-        if let Some(manifest_path) = uri.strip_prefix("file://") {
+        let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
             let path = Path::new(manifest_path);
             let contents = std::fs::read_to_string(path).with_context(|| {
                 format!("failed to read channel manifest from '{}'", path.display())
@@ -58,40 +58,147 @@ impl Manifest {
                     .unwrap();
                 transfer
                     .perform()
-                    .with_context(|| format!("failed to load channel manifest from '{uri}'"))?;
+                    .with_context(|| format!("failed to load channel manifest from '{uri}'"))?
             }
             serde_json::from_slice::<Manifest>(&data).context("invalid channel manifest")
         } else {
             bail!("unsupported channel manifest uri: '{}'", uri)
-        }
+        }?;
+
+        Ok(manifest)
     }
 
+    pub fn is_latest_stable(&self, channel: &Channel) -> bool {
+        self.channels.iter().filter(|c| c.is_stable()).all(|c| {
+            let comparison = channel.name.cmp_precedence(&c.name);
+            matches!(comparison, std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
+        })
+    }
+
+    /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
+    /// the latest version
+    pub fn get_latest_stable(&self) -> Option<&Channel> {
+        self.channels
+            .iter()
+            .find(|c| matches!(c.alias, Some(ChannelAlias::Stable)))
+            .or_else(|| {
+                self.channels
+                    .iter()
+                    .filter(|c| c.is_stable())
+                    .max_by(|x, y| x.name.cmp_precedence(&y.name))
+            })
+    }
+
+    pub fn get_latest_nightly(&self) -> Option<&Channel> {
+        self.channels.iter().find(|c| c.is_latest_nightly()).or_else(|| {
+            self.channels
+                .iter()
+                .filter(|c| c.is_nightly())
+                .max_by(|x, y| x.name.cmp_precedence(&y.name))
+        })
+    }
+
+    pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
+        self.channels.iter().find(|c| {
+            c.alias.as_ref().is_some_and(
+                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
+            )
+        })
+    }
     /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
-    pub fn get_channel(&self, channel: &ChannelType) -> Option<&Channel> {
-        self.channels.iter().find(|c| &c.name == channel)
+    pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
+        match channel {
+            UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
+            UserChannel::Stable => self.get_latest_stable(),
+            UserChannel::Nightly => self.get_latest_nightly(),
+            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
+                Some(suffix) => self.get_named_nightly(suffix),
+                None => self.channels.iter().find(|c| {
+                    c.alias.as_ref().is_some_and(|alias| {
+                        matches!(alias, ChannelAlias::Tag(t) if t ==
+            tag.as_ref())
+                    })
+                }),
+            },
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::borrow::Cow;
+
     use super::Manifest;
-    use crate::channel::ChannelType;
+    use crate::{channel::UserChannel, manifest::ChannelAlias};
 
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
+        let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
+            .expect("couldn't load manifest");
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let stable = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation");
 
         assert!(stable.get_component("std").is_some());
     }
 
     #[test]
     fn validate_published_channel_manifest() {
-        let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).unwrap();
+        let manifest =
+            Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).expect("couldn't load manifest");
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let stable = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation");
 
         assert!(stable.get_component("std").is_some());
+    }
+
+    #[test]
+    fn validate_stable_is_latest() {
+        const FILE: &str = "file://tests/manifest-check-stable.json";
+        let manifest = Manifest::load_from(FILE).unwrap();
+
+        let stable = manifest
+            .get_latest_stable()
+            .expect("Could not convert UserChannel to internal channel representation from {FILE}");
+
+        assert_eq!(stable.name, semver::Version::new(0, 15, 0));
+
+        let specific_version = manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .expect("Could not convert UserChannel to internal channel representation from {FILE}");
+
+        assert_eq!(specific_version.name, semver::Version::new(0, 14, 0));
+    }
+
+    #[test]
+    /// Do note that this encapsulates all non-stable channels, i.e. nightly,
+    /// nightly-suffix and tagged channels
+    fn validate_non_stable() {
+        const FILE: &str = "file://tests/manifest-non-stable.json";
+        let manifest = Manifest::load_from(FILE).unwrap();
+        std::dbg!(&manifest);
+
+        let stable = manifest
+            .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+            .expect(
+                "Could not convert UserChannel to internal channel representation from
+    {FILE}",
+            );
+
+        assert_eq!(
+            stable.name,
+            semver::Version {
+                major: 0,
+                minor: 16,
+                patch: 0,
+                pre: semver::Prerelease::new("custom-build").expect("invalid pre-release"),
+                build: semver::BuildMetadata::EMPTY,
+            }
+        );
+
+        assert_eq!(stable.alias, Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build"))));
     }
 }

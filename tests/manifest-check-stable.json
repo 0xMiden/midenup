@@ -1,0 +1,26 @@
+{
+  "manifest_version": "1.0",
+  "date": 1745931671,
+  "channels": [
+    {
+      "name": "0.15.0",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.15.0"
+        }
+      ]
+    },
+    {
+      "name": "0.14.0",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.15.0"
+        }
+      ]
+    }
+  ]
+}

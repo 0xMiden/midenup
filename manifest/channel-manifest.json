@@ -3,7 +3,7 @@
   "date": 1749330054,
   "channels": [
     {
-      "name": "stable",
+      "name": "0.15.0",
       "components": [
         {
           "name": "std",
