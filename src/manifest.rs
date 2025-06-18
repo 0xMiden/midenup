@@ -68,6 +68,9 @@ impl Manifest {
         Ok(manifest)
     }
 
+    pub fn add_channel(&mut self, channel: Channel) {
+        self.channels.push(channel);
+    }
     pub fn is_latest_stable(&self, channel: &Channel) -> bool {
         self.channels.iter().filter(|c| c.is_stable()).all(|c| {
             let comparison = channel.name.cmp_precedence(&c.name);

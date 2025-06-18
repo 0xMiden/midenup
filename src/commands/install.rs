@@ -1,8 +1,14 @@
 use std::io::Write;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
-use crate::{Config, channel::Channel, utils, version::Authority};
+use crate::{
+    channel::{Channel, ChannelAlias},
+    manifest::Manifest,
+    utils,
+    version::Authority,
+    Config,
+};
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
@@ -44,8 +50,9 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
 
     child.wait().context("failed to execute toolchain installer")?;
 
+    let is_latest_stable = config.manifest.is_latest_stable(channel);
     // If stable is installed, update the symlink
-    if config.manifest.is_latest_stable(channel) {
+    if is_latest_stable {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
         let stable_dir = installed_toolchains_dir.join("stable");
@@ -61,7 +68,15 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
         local_manifest_path.to_str().context("Couldn't convert miden directory")?,
     );
 
-    let local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+    let mut local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+    let channel_to_save = if is_latest_stable {
+        let mut modifiable = channel.clone();
+        modifiable.alias = Some(ChannelAlias::Stable);
+        modifiable
+    } else {
+        channel.clone()
+    };
+    local_manifest.add_channel(channel_to_save);
 
     let mut local_manifest_file =
         std::fs::File::create(&local_manifest_path).with_context(|| {

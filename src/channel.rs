@@ -8,7 +8,7 @@ use crate::version::Authority;
 ///
 /// Different channels have different stability guarantees. See the specific details for the
 /// channel you are interested in to learn more.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
     pub name: semver::Version,
 
@@ -42,8 +42,8 @@ impl Channel {
     }
 }
 
-#[derive(Serialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 pub enum ChannelAlias {
     /// Represents `stable`
     Stable,
