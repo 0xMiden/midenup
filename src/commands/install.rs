@@ -86,7 +86,11 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
             )
         })?;
     local_manifest_file
-        .write_all(serde_json::to_string_pretty(&local_manifest).unwrap().as_bytes())
+        .write_all(
+            serde_json::to_string_pretty(&local_manifest)
+                .context("Couldn't serialize local manifest")?
+                .as_bytes(),
+        )
         .unwrap();
 
     Ok(())
