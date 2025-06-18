@@ -28,11 +28,6 @@ impl Channel {
         self.alias.as_ref().is_none_or(|alias| matches!(alias, ChannelAlias::Stable))
     }
 
-    /// Is this channel the current version carrying the `stable` alias
-    pub fn is_latest_stable(&self) -> bool {
-        self.alias.as_ref().is_some_and(|alias| matches!(alias, ChannelAlias::Stable))
-    }
-
     pub fn is_nightly(&self) -> bool {
         self.alias
             .as_ref()

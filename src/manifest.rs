@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
@@ -78,12 +78,15 @@ impl Manifest {
     /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
     /// the latest version
     pub fn get_latest_stable(&self) -> Option<&Channel> {
-        self.channels.iter().find(|c| c.is_latest_stable()).or_else(|| {
-            self.channels
-                .iter()
-                .filter(|c| c.is_stable())
-                .max_by(|x, y| x.name.cmp_precedence(&y.name))
-        })
+        self.channels
+            .iter()
+            .find(|c| matches!(c.alias, Some(ChannelAlias::Stable)))
+            .or_else(|| {
+                self.channels
+                    .iter()
+                    .filter(|c| c.is_stable())
+                    .max_by(|x, y| x.name.cmp_precedence(&y.name))
+            })
     }
 
     pub fn get_latest_nightly(&self) -> Option<&Channel> {
