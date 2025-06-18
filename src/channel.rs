@@ -95,12 +95,15 @@ pub struct Component {
     pub version: Authority,
     /// Optional features to enable, if applicable, when installing this component
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
     /// Other components that are required if this component is installed
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
     /// If not None, then this component requires a specific toolchain to compile.
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rustup_channel: Option<String>,
 }
 
