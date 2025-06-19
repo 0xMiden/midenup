@@ -15,7 +15,8 @@ pub struct Manifest {
     /// The UTC timestamp at which this manifest was generated
     date: i64,
     /// The channels described in this manifest
-    channels: Vec<Channel>,
+    /// NOTE: Changing this to pub momentarily
+    pub channels: Vec<Channel>,
 }
 
 impl Default for Manifest {

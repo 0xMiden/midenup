@@ -71,6 +71,17 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     );
 
     let mut local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+    // Before adding the new stable channel, remove the stable alias from all
+    // the channels that have it.
+    // NOTE: This should be only a single channel, we check for multiple just in
+    // case.
+    for channel in local_manifest
+        .channels
+        .iter_mut()
+        .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
+    {
+        channel.alias = None
+    }
     let channel_to_save = if is_latest_stable {
         let mut modifiable = channel.clone();
         modifiable.alias = Some(ChannelAlias::Stable);
