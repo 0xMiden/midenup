@@ -70,6 +70,35 @@ midenup install stable
 
             commands::install(config, upstream_channel)?;
         },
+        None => {
+            // Update all toolchains
+            for local_channel in local_manifest.channels.iter() {
+                let upstream_channel =
+                    config.manifest.channels.iter().find(|up_c| up_c.name == local_channel.name);
+                let Some(upstream_channel) = upstream_channel else {
+                    // NOTE: A bit of an edge case. If the channel is present in
+                    // the local manifest but not in upstream, then it probably
+                    // is a developer toolchain. For more information see:
+                    // https://github.com/0xMiden/midenup/pull/11#discussion_r2147289872
+                    continue;
+                };
+                let installed_toolchains_dir = config.midenup_home.join("toolchains");
+                let toolchain_dir =
+                    installed_toolchains_dir.join(format!("{}", &local_channel.name));
+
+                let updates = local_channel.components_to_update(upstream_channel);
+
+                let files_to_remove: Vec<_> = updates
+                    .iter()
+                    .map(|c| get_path_to_component(&toolchain_dir, &c.name))
+                    .collect();
+                for file in files_to_remove {
+                    std::fs::remove_file(file).context("Couldn't delete {file}")?;
+                }
+
+                commands::install(config, upstream_channel)?;
+            }
+        },
         _ => todo!(),
     }
     todo!()
