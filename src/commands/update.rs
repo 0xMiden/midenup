@@ -46,29 +46,22 @@ midenup install stable
                 std::println!("Nothing to update, you are all up to date");
             }
         },
-        Some(user_channel) if matches!(user_channel, UserChannel::Version(_)) => {
+        // NOTE: I'd like to save the enum variant in a variable, like so:
+        // Some(user_channel) if matches!(user_channel, &UserChannel::Version(_)) => {
+        // but the compiler complains that I'm not matching every variable
+        Some(UserChannel::Version(version)) => {
             // Check if any individual component changed since the last the
             // manifest was synced
             let local_channel = local_manifest
-                .get_channel(user_channel)
+                .get_channel(&UserChannel::Version(version.clone()))
                 .context("TODO: Think what this means")?;
 
             let upstream_channel = config
                 .manifest
-                .get_channel(user_channel)
+                .get_channel(&UserChannel::Version(version.clone()))
                 .context("TODO: Think what this means")?;
 
-            let installed_toolchains_dir = config.midenup_home.join("toolchains");
-            let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
-
-            let updates = local_channel.components_to_update(upstream_channel);
-            let files_to_remove: Vec<_> =
-                updates.iter().map(|c| get_path_to_component(&toolchain_dir, &c.name)).collect();
-            for file in files_to_remove {
-                std::fs::remove_file(file).context("Couldn't delete {file}")?;
-            }
-
-            commands::install(config, upstream_channel)?;
+            update_channel(config, local_channel, upstream_channel)?
         },
         None => {
             // Update all toolchains
@@ -82,24 +75,11 @@ midenup install stable
                     // https://github.com/0xMiden/midenup/pull/11#discussion_r2147289872
                     continue;
                 };
-                let installed_toolchains_dir = config.midenup_home.join("toolchains");
-                let toolchain_dir =
-                    installed_toolchains_dir.join(format!("{}", &local_channel.name));
-
-                let updates = local_channel.components_to_update(upstream_channel);
-
-                let files_to_remove: Vec<_> = updates
-                    .iter()
-                    .map(|c| get_path_to_component(&toolchain_dir, &c.name))
-                    .collect();
-                for file in files_to_remove {
-                    std::fs::remove_file(file).context("Couldn't delete {file}")?;
-                }
-
-                commands::install(config, upstream_channel)?;
+                update_channel(config, local_channel, upstream_channel)?;
             }
         },
-        _ => todo!(),
+        Some(UserChannel::Nightly) => todo!(),
+        Some(UserChannel::Other(_)) => todo!(),
     }
     todo!()
 }
@@ -107,15 +87,30 @@ midenup install stable
 // TODO(fabrio): Use this function for path resolution here and in the install
 // script. Move as [Component] associated function
 // TODO(fabrio): Clean up? Use AsRef if possible
-fn get_path_to_component(toolchain_dir: &Path, component_name: &str) -> PathBuf
-// where
-//     S: AsRef<str>,
-    // S: AsRef<Path>,
-{
+fn get_path_to_component(toolchain_dir: &Path, component_name: &str) -> PathBuf {
     let libs = ["std", "base"];
     if libs.contains(&component_name) {
         toolchain_dir.join("lib").join(component_name).with_extension("masp")
     } else {
         toolchain_dir.join("bin").join(component_name).with_extension("masp")
     }
+}
+
+fn update_channel(
+    config: &Config,
+    local_channel: &Channel,
+    upstream_channel: &Channel,
+) -> anyhow::Result<()> {
+    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
+
+    let updates = local_channel.components_to_update(upstream_channel);
+    let files_to_remove: Vec<_> =
+        updates.iter().map(|c| get_path_to_component(&toolchain_dir, &c.name)).collect();
+    for file in files_to_remove {
+        std::fs::remove_file(file).context("Couldn't delete {file}")?;
+    }
+
+    commands::install(config, upstream_channel)?;
+    Ok(())
 }
