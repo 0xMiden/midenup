@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn validate_stable_is_latest() {
-        const FILE: &str = "file://tests/manifest-check-stable.json";
+        const FILE: &str = "file://tests/data/manifest-check-stable.json";
         let manifest = Manifest::load_from(FILE).unwrap();
 
         let stable = manifest
@@ -180,7 +180,7 @@ mod tests {
     /// Do note that this encapsulates all non-stable channels, i.e. nightly,
     /// nightly-suffix and tagged channels
     fn validate_non_stable() {
-        const FILE: &str = "file://tests/manifest-non-stable.json";
+        const FILE: &str = "file://tests/data/manifest-non-stable.json";
         let manifest = Manifest::load_from(FILE).unwrap();
         std::dbg!(&manifest);
 
