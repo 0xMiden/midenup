@@ -88,7 +88,14 @@ impl Commands {
                 };
                 commands::install(config, channel)
             },
-            Self::Update { .. } => todo!(), //commands::update(config, channel.as_ref()),
+            Self::Update { channel } => {
+                let channel = channel.as_ref().map(|c| {
+                    config.manifest.get_channel(c).unwrap_or_else(|| {
+                        panic!("channel '{}' doesn't exist or is unavailable", c)
+                    })
+                });
+                commands::update(config, channel)
+            },
             Self::Show(cmd) => cmd.execute(config),
         }
     }
