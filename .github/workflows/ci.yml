@@ -54,6 +54,7 @@ jobs:
         run: |
           rustup update --no-self-update
           make build
+
   test:
     name: test
     runs-on: ubuntu-latest
