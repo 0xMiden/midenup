@@ -157,28 +157,28 @@ fn main() {
     }
 
     {% for component in installable_components %}
-//    // Install {{ component.name }}
-//    let mut child = Command::new("cargo")
-//        .arg(
-//          "{{ component.required_toolchain_flag }}",
-//        )
-//        .arg("install")
-//        .args([
-//        {%- for arg in component.args %}
-//          "{{ arg }}",
-//        {%- endfor %}
-//        ])
-//        // Force the install target directory to be $MIDEN_SYSROOT/bin
-//        .arg("--root")
-//        .arg(&miden_sysroot_dir)
-//        // Spawn command
-//        .stderr(std::process::Stdio::inherit())
-//        .stdout(std::process::Stdio::inherit())
-//        .spawn()
-//        .expect("failed to install component '{{ component.name }}'");
-//
-//    // Await results
-//    child.wait().expect("failed to install component '{{ component.name }}'");
+    // Install {{ component.name }}
+    let mut child = Command::new("cargo")
+        .arg(
+          "{{ component.required_toolchain_flag }}",
+        )
+        .arg("install")
+        .args([
+        {%- for arg in component.args %}
+          "{{ arg }}",
+        {%- endfor %}
+        ])
+        // Force the install target directory to be $MIDEN_SYSROOT/bin
+        .arg("--root")
+        .arg(&miden_sysroot_dir)
+        // Spawn command
+        .stderr(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::inherit())
+        .spawn()
+        .expect("failed to install component '{{ component.name }}'");
+
+    // Await results
+    child.wait().expect("failed to install component '{{ component.name }}'");
 
     {% endfor %}
 }

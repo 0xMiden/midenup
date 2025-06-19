@@ -1,3 +1,8 @@
+use std::{
+    borrow::Cow,
+    path::{Path, PathBuf},
+};
+
 use anyhow::{bail, Context};
 
 use crate::{
@@ -41,22 +46,47 @@ midenup install stable
                 todo!()
             }
         },
-        Some(UserChannel::Version(version)) => {
+        Some(user_channel) if matches!(user_channel, UserChannel::Version(_)) => {
             // Check if any individual component changed since the last the
             // manifest was synced
-            let local_version = local_manifest
-                .get_channel(&UserChannel::Version(version.clone()))
-                .expect("TODO: Think what this means");
+            let local_channel = local_manifest
+                .get_channel(user_channel)
+                .context("TODO: Think what this means")?;
 
-            let upstream_version = local_manifest
-                .get_channel(&UserChannel::Version(version.clone()))
-                .expect("TODO: Think what this means");
-            let updates = local_version.components_to_update(upstream_version);
+            let upstream_channel = config
+                .manifest
+                .get_channel(user_channel)
+                .context("TODO: Think what this means")?;
 
-            commands::install(config, upstream_version)?;
-            todo!()
+            let installed_toolchains_dir = config.midenup_home.join("toolchains");
+            let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
+
+            let updates = local_channel.components_to_update(upstream_channel);
+            let files_to_remove: Vec<_> =
+                updates.iter().map(|c| get_path_to_component(&toolchain_dir, &c.name)).collect();
+            for file in files_to_remove {
+                std::fs::remove_file(file).context("Couldn't delete {file}")?;
+            }
+
+            commands::install(config, upstream_channel)?;
         },
         _ => todo!(),
     }
     todo!()
+}
+
+// TODO(fabrio): Use this function for path resolution here and in the install
+// script. Move as [Component] associated function
+// TODO(fabrio): Clean up? Use AsRef if possible
+fn get_path_to_component(toolchain_dir: &Path, component_name: &str) -> PathBuf
+// where
+//     S: AsRef<str>,
+    // S: AsRef<Path>,
+{
+    let libs = ["std", "base"];
+    if libs.contains(&component_name) {
+        toolchain_dir.join("lib").join(component_name).with_extension("masp")
+    } else {
+        toolchain_dir.join("bin").join(component_name).with_extension("masp")
+    }
 }
