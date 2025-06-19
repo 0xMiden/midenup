@@ -81,6 +81,9 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     {
         channel.alias = None
     }
+    // Remove the channel if it already exists, this can happen while updating
+    local_manifest.channels.retain(|c| c.name != channel.name);
+
     let channel_to_save = if is_latest_stable {
         let mut modifiable = channel.clone();
         modifiable.alias = Some(ChannelAlias::Stable);
