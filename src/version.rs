@@ -3,7 +3,7 @@ use std::{fmt, path::PathBuf};
 use serde::{Deserialize, Serialize};
 
 /// Represents the canonical versioning authority for a tool or toolchain
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Authority {
     /// The authority for this tool/toolchain is a git repository.
