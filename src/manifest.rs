@@ -1,6 +1,6 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
@@ -126,6 +126,13 @@ impl Manifest {
             },
         }
     }
+
+    // pub fn check_differences(
+    //     local_manifest: &Manifest,
+    //     upstream_manifest: &Manifest,
+    // ) -> impl Iterator<Item = Channel> {
+    //     todo!()
+    // }
 }
 
 #[cfg(test)]

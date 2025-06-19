@@ -40,6 +40,29 @@ impl Channel {
             .as_ref()
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
     }
+
+    pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
+        // NOTE: This wouldn't work if they have different amount of elements
+        // let old_components = self.components.iter();
+        let new_components = newer.components.iter();
+        let mut updates = Vec::new();
+
+        for new_component in new_components {
+            let old_component = self.components.iter().find(|c| c.name == new_component.name);
+            if let Some(old_component) = old_component {
+                if old_component != new_component {
+                    updates.push(new_component.clone());
+                }
+            } else {
+                // If the new component does not exist in the old component
+                // list, then that means it was added in an update and must be
+                // installed
+                updates.push(new_component.clone());
+            };
+        }
+
+        updates
+    }
 }
 
 impl PartialEq for Channel {
