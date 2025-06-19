@@ -43,7 +43,7 @@ midenup install stable
             if upstream_stable.name > local_stable.name {
                 commands::install(config, upstream_stable)?
             } else {
-                todo!()
+                std::println!("Nothing to update, you are all up to date");
             }
         },
         Some(user_channel) if matches!(user_channel, UserChannel::Version(_)) => {
