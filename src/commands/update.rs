@@ -53,6 +53,7 @@ midenup install stable
                 .expect("TODO: Think what this means");
             let updates = local_version.components_to_update(upstream_version);
 
+            commands::install(config, upstream_version)?;
             todo!()
         },
         _ => todo!(),

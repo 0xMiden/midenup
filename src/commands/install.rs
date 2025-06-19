@@ -17,24 +17,23 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
-    if toolchain_dir.exists() {
-        bail!("the '{}' toolchain is already installed", &channel.name);
-    }
-
-    std::fs::create_dir_all(&toolchain_dir).with_context(|| {
-        format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
-    })?;
-
-    // Create install script
     let install_file_path = toolchain_dir.join("install").with_extension("rs");
-    let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
-        format!("failed to create file for install script at '{}'", install_file_path.display())
-    })?;
 
-    let install_script_contents = generate_install_script(channel);
-    install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
-        format!("failed to write install script at '{}'", install_file_path.display())
-    })?;
+    if !toolchain_dir.exists() {
+        std::fs::create_dir_all(&toolchain_dir).with_context(|| {
+            format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
+        })?;
+
+        // Create install script
+        let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
+            format!("failed to create file for install script at '{}'", install_file_path.display())
+        })?;
+
+        let install_script_contents = generate_install_script(channel);
+        install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
+            format!("failed to write install script at '{}'", install_file_path.display())
+        })?;
+    }
 
     let mut child = std::process::Command::new("cargo")
         .env("MIDEN_SYSROOT", &toolchain_dir)
@@ -138,40 +137,48 @@ fn main() {
 
     // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
     let tx = miden_lib::MidenLib::default();
-    tx.as_ref()
-        .write_to_file(lib_dir.join("base").with_extension("masp"))
-        .expect("failed to install Miden transaction kernel library component");
+    let tx_path = lib_dir.join("base").with_extension("masp");
+    // NOTE: If the file already exists, then we are running an update and we
+    // don't need to update this element
+    if std::fs::exists(&tx_path).expect("Can't check existence of file") == false {
+        tx.as_ref()
+            .write_to_file(&tx_path)
+            .expect("failed to install Miden transaction kernel library component");
+    }
 
     // Write stdlib to $MIDEN_SYSROOT/std.masp
     let stdlib = miden_stdlib::StdLibrary::default();
-    stdlib
-        .as_ref()
-        .write_to_file(lib_dir.join("std").with_extension("masp"))
-        .expect("failed to install Miden standard library component");
+    let stdlib_path = lib_dir.join("std").with_extension("masp");
+    if std::fs::exists(&stdlib_path).expect("Can't check existence of file") == false {
+        stdlib
+            .as_ref()
+            .write_to_file(&stdlib_path)
+            .expect("failed to install Miden standard library component");
+    }
 
     {% for component in installable_components %}
-    // Install {{ component.name }}
-    let mut child = Command::new("cargo")
-        .arg(
-          "{{ component.required_toolchain_flag }}",
-        )
-        .arg("install")
-        .args([
-        {%- for arg in component.args %}
-          "{{ arg }}",
-        {%- endfor %}
-        ])
-        // Force the install target directory to be $MIDEN_SYSROOT/bin
-        .arg("--root")
-        .arg(&miden_sysroot_dir)
-        // Spawn command
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .spawn()
-        .expect("failed to install component '{{ component.name }}'");
-
-    // Await results
-    child.wait().expect("failed to install component '{{ component.name }}'");
+//    // Install {{ component.name }}
+//    let mut child = Command::new("cargo")
+//        .arg(
+//          "{{ component.required_toolchain_flag }}",
+//        )
+//        .arg("install")
+//        .args([
+//        {%- for arg in component.args %}
+//          "{{ arg }}",
+//        {%- endfor %}
+//        ])
+//        // Force the install target directory to be $MIDEN_SYSROOT/bin
+//        .arg("--root")
+//        .arg(&miden_sysroot_dir)
+//        // Spawn command
+//        .stderr(std::process::Stdio::inherit())
+//        .stdout(std::process::Stdio::inherit())
+//        .spawn()
+//        .expect("failed to install component '{{ component.name }}'");
+//
+//    // Await results
+//    child.wait().expect("failed to install component '{{ component.name }}'");
 
     {% endfor %}
 }
@@ -273,7 +280,7 @@ fn main() {
             &engine,
             upon::value! {
                 dependencies: dependencies,
-                installable_components: installable_components,
+                installable_components: Vec::<upon::Value>::new(),
             },
         )
         .to_string()
@@ -283,7 +290,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
