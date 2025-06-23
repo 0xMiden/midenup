@@ -9,7 +9,7 @@ use crate::channel::{Channel, ChannelAlias, UserChannel};
 const MANIFEST_VERSION: &str = "1.0.0";
 
 /// The global manifest of all known channels and their toolchains
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Manifest {
     /// This version is used to handle breaking changes in the manifest format itself
     manifest_version: Cow<'static, str>,
@@ -56,7 +56,7 @@ impl Manifest {
             let contents = std::fs::read_to_string(path)
                 .map_err(|_| ManifestError::FilesystemError(path.display().to_string()))?;
             // This could potentially be valid if we are parsing the local manifest
-            if contents.len() == 0 {
+            if contents.is_empty() {
                 return Err(ManifestError::EmptyManifest);
             }
             serde_json::from_str::<Manifest>(&contents).map_err(|_| {

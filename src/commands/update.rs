@@ -14,19 +14,9 @@ use crate::{
 
 /// Updates installed toolchains
 pub fn update(config: &Config, channel_type: Option<&UserChannel>) -> anyhow::Result<()> {
-    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
-    let local_manifest_uri = format!(
-        "file://{}",
-        local_manifest_path.to_str().context("Couldn't convert miden directory")?,
-    );
-
     // TODO(fabrio): This could fail either because the file doesn't exist of
     // because the json is ill formatted. There should be a destinction
-    let local_manifest = Manifest::load_from(local_manifest_uri).context(
-        "No installed toolchains found. To install stable, run:
-midenup install stable
-",
-    )?;
+    let local_manifest = &config.local_manifest;
 
     match channel_type {
         Some(UserChannel::Stable) => {
@@ -35,7 +25,12 @@ midenup install stable
 midenup install stable
 ",
             )?;
-            let upstream_stable = config.manifest.get_latest_stable().expect("TODO: Remove unwrap");
+            // This is an edge-case that shouldn't happen. If this happens then
+            // it probably means that there's an error in midenup
+            let upstream_stable = config
+                .manifest
+                .get_latest_stable()
+                .expect("ERROR: No stable channel found in upstream");
 
             // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {

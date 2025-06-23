@@ -65,12 +65,8 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
 
     // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
-    let local_manifest_uri = format!(
-        "file://{}",
-        local_manifest_path.to_str().context("Couldn't convert miden directory")?,
-    );
 
-    let mut local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+    let local_manifest = &mut config.local_manifest.clone();
 
     // Before adding the new stable channel, remove the stable alias from all
     // the channels that have it.
