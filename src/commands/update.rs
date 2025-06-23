@@ -30,16 +30,14 @@ midenup install stable
 
     match channel_type {
         Some(UserChannel::Stable) => {
-            let local_stable = local_manifest.get_latest_stable();
-            let upstream_stable = config.manifest.get_latest_stable().expect("TODO: Remove unwrap");
-
-            // Check if local latest stable is older than upstream's
-            let local_stable = local_stable.context(
+            let local_stable = local_manifest.get_latest_stable().context(
                 "No stable version was found. To install it, try running:
 midenup install stable
 ",
             )?;
+            let upstream_stable = config.manifest.get_latest_stable().expect("TODO: Remove unwrap");
 
+            // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {
                 commands::install(config, upstream_stable)?
             } else {
@@ -48,7 +46,7 @@ midenup install stable
         },
         // NOTE: I'd like to save the enum variant in a variable, like so:
         // Some(user_channel) if matches!(user_channel, &UserChannel::Version(_)) => {
-        // but the compiler complains that I'm not matching every variable
+        // but the compiler complains that I'm not matching every variant
         Some(UserChannel::Version(version)) => {
             // Check if any individual component changed since the last the
             // manifest was synced

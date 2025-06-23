@@ -55,7 +55,7 @@ enum Commands {
     /// Update your installed Miden toolchains
     Update {
         /// If provided, updates only the specified channel.
-        #[arg(required(true), value_name = "CHANNEL", value_parser)]
+        #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<UserChannel>,
     },
 }

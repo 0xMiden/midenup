@@ -19,6 +19,7 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
 
     let install_file_path = toolchain_dir.join("install").with_extension("rs");
 
+    // NOTE: If it already exists, then we are executing an update
     if !toolchain_dir.exists() {
         std::fs::create_dir_all(&toolchain_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
@@ -51,7 +52,7 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
 
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
-    // If stable is installed, update the symlink
+    // If this channel is the new stable, we update the symlink
     if is_latest_stable {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
@@ -70,6 +71,7 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     );
 
     let mut local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+
     // Before adding the new stable channel, remove the stable alias from all
     // the channels that have it.
     // NOTE: This should be only a single channel, we check for multiple just in
@@ -81,7 +83,8 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     {
         channel.alias = None
     }
-    // Remove the channel if it already exists, this can happen while updating
+
+    // NOTE: If the channel already exists in the local manifest, remove the old version
     local_manifest.channels.retain(|c| c.name != channel.name);
 
     let channel_to_save = if is_latest_stable {
