@@ -14,6 +14,7 @@ pub enum Authority {
     #[serde(untagged)]
     Cargo {
         /// The name of the crates.io package under which this tool is provided
+        /// In None, then the package's name is the same as the component's
         package: Option<String>,
         /// The semantic versioning string for the package to fetch
         version: semver::Version,

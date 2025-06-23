@@ -27,7 +27,11 @@ test-build: ## Build the test binary
 
 .PHONY: test
 test: ## Run all tests
-	cargo nextest run
+	cargo nextest run -- --skip install_stable
+ 
+.PHONY: integration-test
+integration-test: ## Run all tests
+	cargo nextest run install_stable
 
 # --- building ------------------------------------------------------------------------------------
 .PHONY: build

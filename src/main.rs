@@ -193,3 +193,39 @@ fn main() -> anyhow::Result<()> {
         Behavior::Midenup { command: subcommand, .. } => subcommand.execute(&config),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{channel::*, manifest::*, *};
+    #[test]
+    fn install_stable() {
+        let tmp_home =
+            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
+        std::dbg!(&tmp_home);
+
+        const FILE: &str = "file://manifest/channel-manifest.json";
+
+        let config = Config::init(tmp_home.clone(), FILE).expect("Couldn't parse config");
+
+        let install = Commands::Install { channel: UserChannel::Stable };
+        install.execute(&config).expect("Instalar execute");
+
+        let manifest = tmp_home.join("manifest").with_extension("json");
+        std::dbg!(&manifest);
+        assert!(manifest.exists());
+
+        let stable_dir = tmp_home.join("toolchains").join("stable");
+        std::dbg!(&stable_dir);
+        assert!(stable_dir.exists());
+        assert!(stable_dir.is_symlink());
+
+        let manifest = Manifest::load_from(FILE).expect("Couldn't parse manifest");
+
+        let stable_channel = manifest
+            .get_latest_stable()
+            .expect("No stable channel found; despite having installed stable");
+
+        std::dbg!(&stable_channel);
+        assert_eq!(stable_channel.alias, Some(ChannelAlias::Stable));
+    }
+}
