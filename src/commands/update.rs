@@ -71,8 +71,10 @@ midenup install stable
                 let Some(upstream_channel) = upstream_channel else {
                     // NOTE: A bit of an edge case. If the channel is present in
                     // the local manifest but not in upstream, then it probably
-                    // is a developer toolchain. For more information see:
-                    // https://github.com/0xMiden/midenup/pull/11#discussion_r2147289872
+                    // either:
+                    // - is a developer toolchain.
+                    // - the upstream channel got removed from upstream (possibly for being too
+                    //   old/deprecated/got rolled back)
                     continue;
                 };
                 update_channel(config, local_channel, upstream_channel)?;
@@ -81,7 +83,7 @@ midenup install stable
         Some(UserChannel::Nightly) => todo!(),
         Some(UserChannel::Other(_)) => todo!(),
     }
-    todo!()
+    Ok(())
 }
 
 // TODO(fabrio): Use this function for path resolution here and in the install
