@@ -7,6 +7,8 @@ use crate::manifest::{Manifest, ManifestError};
 pub struct Config {
     pub midenup_home: PathBuf,
     pub manifest: Manifest,
+    /// Local version of the manifest describing the installed toolchains. If
+    /// missing, it starts as [Manifest::default]
     pub local_manifest: Manifest,
 }
 
@@ -21,7 +23,9 @@ impl Config {
         );
         let local_manifest = match Manifest::load_from(local_manifest_uri) {
             Ok(manifest) => Ok(manifest),
-            Err(ManifestError::EmptyManifest) => Ok(Manifest::default()),
+            Err(ManifestError::EmptyManifest | ManifestError::MissingManifest(_)) => {
+                Ok(Manifest::default())
+            },
             Err(err) => Err(err),
         }
         .context("Error parsing manifest")?;

@@ -35,8 +35,8 @@ impl Default for Manifest {
 pub enum ManifestError {
     #[error("Manifest file is empty")]
     EmptyManifest,
-    #[error("Failed to read channel manifest from `{0}`")]
-    FilesystemError(String),
+    #[error("Manifest file is not present in `{0}`")]
+    MissingManifest(String),
     #[error("Invalid channel manifest in URI: `{0}`")]
     InvalidManifest(String),
     #[error("unsupported channel manifest URI: `{0}`")]
@@ -54,7 +54,7 @@ impl Manifest {
         let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
             let path = Path::new(manifest_path);
             let contents = std::fs::read_to_string(path)
-                .map_err(|_| ManifestError::FilesystemError(path.display().to_string()))?;
+                .map_err(|_| ManifestError::MissingManifest(path.display().to_string()))?;
             // This could potentially be valid if we are parsing the local manifest
             if contents.is_empty() {
                 return Err(ManifestError::EmptyManifest);
