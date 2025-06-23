@@ -30,25 +30,43 @@ impl Default for Manifest {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ManifestError {
+    #[error("Manifest file is empty")]
+    EmptyManifest,
+    #[error("Failed to read channel manifest from `{0}`")]
+    FilesystemError(String),
+    #[error("Invalid channel manifest in URI: `{0}`")]
+    InvalidManifest(String),
+    #[error("unsupported channel manifest URI: `{0}`")]
+    UnsupportedManifest(String),
+}
+
 impl Manifest {
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
+    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
 
     /// Loads a [Manifest] from the given URI
-    pub fn load_from(uri: impl AsRef<str>) -> anyhow::Result<Self> {
+    pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
         let uri = uri.as_ref();
         let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
             let path = Path::new(manifest_path);
-            let contents = std::fs::read_to_string(path).with_context(|| {
-                format!("failed to read channel manifest from '{}'", path.display())
-            })?;
-            serde_json::from_str::<Manifest>(&contents).context("invalid channel manifest")
+            let contents = std::fs::read_to_string(path)
+                .map_err(|_| ManifestError::FilesystemError(path.display().to_string()))?;
+            // This could potentially be valid if we are parsing the local manifest
+            if contents.len() == 0 {
+                return Err(ManifestError::EmptyManifest);
+            }
+            serde_json::from_str::<Manifest>(&contents).map_err(|_| {
+                ManifestError::InvalidManifest(String::from("invalid channel manifest"))
+            })
         } else if uri.starts_with("https://") {
             let mut data = Vec::new();
             let mut handle = curl::easy::Easy::new();
-            handle
-                .url(uri)
-                .with_context(|| format!("invalid channel manifest uri: '{uri}'",))?;
+            handle.url(uri).map_err(|_| {
+                ManifestError::InvalidManifest(String::from("invalid channel manifest"))
+            })?;
             {
                 let mut transfer = handle.transfer();
                 transfer
@@ -57,13 +75,14 @@ impl Manifest {
                         Ok(new_data.len())
                     })
                     .unwrap();
-                transfer
-                    .perform()
-                    .with_context(|| format!("failed to load channel manifest from '{uri}'"))?
+                transfer.perform().map_err(|_| {
+                    ManifestError::InvalidManifest(String::from("invalid channel manifest"))
+                })?
             }
-            serde_json::from_slice::<Manifest>(&data).context("invalid channel manifest")
+            serde_json::from_slice::<Manifest>(&data)
+                .map_err(|_| ManifestError::InvalidManifest(uri.to_string()))
         } else {
-            bail!("unsupported channel manifest uri: '{}'", uri)
+            return Err(ManifestError::UnsupportedManifest(uri.to_string()));
         }?;
 
         Ok(manifest)
