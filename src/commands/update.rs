@@ -25,8 +25,9 @@ pub fn update(config: &Config, channel_type: Option<&UserChannel>) -> anyhow::Re
 midenup install stable
 ",
             )?;
-            // This is an edge-case that shouldn't happen. If this happens then
-            // it probably means that there's an error in midenup
+            // NOTE: This means that there is no stable toolchain upstram.  This
+            // is most likely an edge-case that shouldn't happen. If it does
+            // happen, it probably means that there's an error in midenup
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()

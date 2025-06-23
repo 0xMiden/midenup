@@ -208,7 +208,7 @@ mod tests {
         let config = Config::init(tmp_home.clone(), FILE).expect("Couldn't parse config");
 
         let install = Commands::Install { channel: UserChannel::Stable };
-        install.execute(&config).expect("Instalar execute");
+        install.execute(&config).expect("Failed to install stable");
 
         let manifest = tmp_home.join("manifest").with_extension("json");
         std::dbg!(&manifest);
@@ -227,5 +227,24 @@ mod tests {
 
         std::dbg!(&stable_channel);
         assert_eq!(stable_channel.alias, Some(ChannelAlias::Stable));
+    }
+    #[test]
+    fn update_stable() {
+        let tmp_home =
+            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
+        std::println!("PWD: {}", tmp_home.display());
+
+        const FILE_PRE_UPDATE: &str = "file://tests/data/update-stable/manifest-pre-update.json";
+
+        let config =
+            Config::init(tmp_home.clone(), FILE_PRE_UPDATE).expect("Couldn't parse config");
+
+        let install = Commands::Install { channel: UserChannel::Stable };
+        install.execute(&config).unwrap();
+
+        const FILE_POST_UPDATE: &str = "file://tests/data/update-stable/manifest-post-update.json";
+
+        let update = Commands::Update { channel: Some(UserChannel::Stable) };
+        update.execute(&config).expect("Failed to update stable");
     }
 }
