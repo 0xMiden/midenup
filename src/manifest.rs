@@ -2,6 +2,7 @@ use std::{borrow::Cow, path::Path};
 
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
 
