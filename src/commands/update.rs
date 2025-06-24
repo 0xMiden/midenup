@@ -1,23 +1,22 @@
-use std::{
-    borrow::Cow,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 
 use crate::{
-    channel::{Channel, UserChannel},
+    channel::{Channel, ChannelAlias, UserChannel},
     commands,
     manifest::Manifest,
     Config,
 };
 
 /// Updates installed toolchains
-pub fn update(config: &Config, channel_type: Option<&UserChannel>) -> anyhow::Result<()> {
+pub fn update(
+    config: &Config,
+    channel_type: Option<&UserChannel>,
+    local_manifest: &mut Manifest,
+) -> anyhow::Result<()> {
     // TODO(fabrio): This could fail either because the file doesn't exist of
     // because the json is ill formatted. There should be a destinction
-    let local_manifest = &config.local_manifest;
-
     match channel_type {
         Some(UserChannel::Stable) => {
             let local_stable = local_manifest.get_latest_stable().context(
@@ -35,7 +34,7 @@ midenup install stable
 
             // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {
-                commands::install(config, upstream_stable)?
+                commands::install(config, upstream_stable, local_manifest)?
             } else {
                 std::println!("Nothing to update, you are all up to date");
             }
@@ -48,18 +47,22 @@ midenup install stable
             // manifest was synced
             let local_channel = local_manifest
                 .get_channel(&UserChannel::Version(version.clone()))
-                .context("TODO: Think what this means")?;
+                .context(format!("ERROR: No installed channel found with version {}", version))?
+                .clone();
 
             let upstream_channel = config
                 .manifest
                 .get_channel(&UserChannel::Version(version.clone()))
-                .context("TODO: Think what this means")?;
+                .context(format!(
+                    "ERROR: Couldn't find a channel upstream with version {}. Maybe it got removed.",
+                    version
+                ))?;
 
-            update_channel(config, local_channel, upstream_channel)?
+            update_channel(config, &local_channel, upstream_channel, local_manifest)?
         },
         None => {
             // Update all toolchains
-            for local_channel in local_manifest.channels.iter() {
+            for local_channel in local_manifest.channels.clone().iter() {
                 let upstream_channel =
                     config.manifest.channels.iter().find(|up_c| up_c.name == local_channel.name);
                 let Some(upstream_channel) = upstream_channel else {
@@ -71,7 +74,7 @@ midenup install stable
                     //   old/deprecated/got rolled back)
                     continue;
                 };
-                update_channel(config, local_channel, upstream_channel)?;
+                update_channel(config, local_channel, upstream_channel, local_manifest)?;
             }
         },
         Some(UserChannel::Nightly) => todo!(),
@@ -96,6 +99,7 @@ fn update_channel(
     config: &Config,
     local_channel: &Channel,
     upstream_channel: &Channel,
+    local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
@@ -107,6 +111,22 @@ fn update_channel(
         std::fs::remove_file(file).context("Couldn't delete {file}")?;
     }
 
-    commands::install(config, upstream_channel)?;
+    // Before adding the new stable channel, remove the stable alias from all
+    // the channels that have it.
+    // NOTE: This should be only a single channel, we check for multiple just in
+    // case.
+    for channel in local_manifest
+        .channels
+        .iter_mut()
+        .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
+    {
+        channel.alias = None
+    }
+
+    // NOTE: If the channel already exists in the local manifest, remove the old version. This
+    // happens when updating
+    local_manifest.channels.retain(|c| c.name != upstream_channel.name);
+
+    commands::install(config, upstream_channel, local_manifest)?;
     Ok(())
 }

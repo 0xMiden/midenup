@@ -1,6 +1,5 @@
 use std::{borrow::Cow, path::Path};
 
-use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -210,7 +209,6 @@ mod tests {
     fn validate_non_stable() {
         const FILE: &str = "file://tests/data/manifest-non-stable.json";
         let manifest = Manifest::load_from(FILE).unwrap();
-        std::dbg!(&manifest);
 
         let stable = manifest
             .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))

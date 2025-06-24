@@ -12,7 +12,11 @@ use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
-use self::{channel::UserChannel, toolchain::Toolchain};
+use self::{
+    channel::UserChannel,
+    manifest::{Manifest, ManifestError},
+    toolchain::Toolchain,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
@@ -79,14 +83,14 @@ struct GlobalArgs {
 
 impl Commands {
     /// Execute the requested subcommand
-    fn execute(&self, config: &Config) -> anyhow::Result<()> {
+    fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
         match &self {
             Self::Init { .. } => commands::init(config),
             Self::Install { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                commands::install(config, channel)
+                commands::install(config, channel, local_manifest)
             },
             Self::Update { channel } => {
                 // let channel = channel.as_ref().map(|c| {
@@ -94,7 +98,7 @@ impl Commands {
                 //         panic!("channel '{}' doesn't exist or is unavailable", c)
                 //     })
                 // });
-                commands::update(config, channel.as_ref())
+                commands::update(config, channel.as_ref(), local_manifest)
             },
             Self::Show(cmd) => cmd.execute(config),
         }
@@ -138,6 +142,23 @@ fn main() -> anyhow::Result<()> {
             Config::init(midenup_home, &config.manifest_uri)?
         },
     };
+
+    // Manifest that stores locally installed toolchains
+    let mut local_manifest = {
+        let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+        let local_manifest_uri = format!(
+            "file://{}",
+            local_manifest_path.to_str().context("Couldn't convert miden directory")?,
+        );
+        match Manifest::load_from(local_manifest_uri) {
+            Ok(manifest) => Ok(manifest),
+            Err(ManifestError::EmptyManifest | ManifestError::MissingManifest(_)) => {
+                Ok(Manifest::default())
+            },
+            Err(err) => Err(err),
+        }
+        .context("Error parsing local manifest")
+    }?;
 
     match cli.behavior {
         Behavior::Miden(argv) => {
@@ -190,61 +211,160 @@ fn main() -> anyhow::Result<()> {
                 bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
             }
         },
-        Behavior::Midenup { command: subcommand, .. } => subcommand.execute(&config),
+        Behavior::Midenup { command: subcommand, .. } => {
+            subcommand.execute(&config, &mut local_manifest)
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
+    // use std::fs::Path;
+    use std::path::Path;
+
+    type LocalManifest = Manifest;
     use crate::{channel::*, manifest::*, *};
+
+    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
+        let local_manifest = {
+            let local_manifest_path = midenup_home.join("manifest").with_extension("json");
+            let local_manifest_uri = format!(
+                "file://{}",
+                local_manifest_path.to_str().expect("Couldn't convert miden directory"),
+            );
+
+            match Manifest::load_from(local_manifest_uri) {
+                Ok(manifest) => Ok(manifest),
+                Err(ManifestError::EmptyManifest | ManifestError::MissingManifest(_)) => {
+                    Ok(Manifest::default())
+                },
+                Err(err) => Err(err),
+            }
+            .unwrap_or_else(|_| {
+                panic!("Failed to parse manifest {}", local_manifest_path.display())
+            })
+        };
+
+        let config =
+            Config::init(midenup_home.to_path_buf().clone(), manifest_uri).unwrap_or_else(|_| {
+                panic!(
+                    "Failed construct config from manifest {} and midenup_home at {}",
+                    manifest_uri,
+                    midenup_home.display(),
+                )
+            });
+
+        (local_manifest, config)
+    }
     #[test]
     fn install_stable() {
         let tmp_home =
             tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
-        std::dbg!(&tmp_home);
+        let midenup_home = tmp_home.join("midenup");
 
         const FILE: &str = "file://manifest/channel-manifest.json";
 
-        let config = Config::init(tmp_home.clone(), FILE).expect("Couldn't parse config");
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
-        let install = Commands::Install { channel: UserChannel::Stable };
-        install.execute(&config).expect("Failed to install stable");
+        let init = Commands::Init;
+        init.execute(&config, &mut local_manifest).expect("Failed to init");
 
-        let manifest = tmp_home.join("manifest").with_extension("json");
-        std::dbg!(&manifest);
+        let manifest = midenup_home.join("manifest").with_extension("json");
         assert!(manifest.exists());
 
-        let stable_dir = tmp_home.join("toolchains").join("stable");
-        std::dbg!(&stable_dir);
+        let install = Commands::Install { channel: UserChannel::Stable };
+        install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        let stable_dir = midenup_home.join("toolchains").join("stable");
         assert!(stable_dir.exists());
         assert!(stable_dir.is_symlink());
 
-        let manifest = Manifest::load_from(FILE).expect("Couldn't parse manifest");
-
-        let stable_channel = manifest
+        let stable_channel = local_manifest
             .get_latest_stable()
             .expect("No stable channel found; despite having installed stable");
 
-        std::dbg!(&stable_channel);
+        // We test if the in-memory representation of the local manifest
+        // contains the stable alias
         assert_eq!(stable_channel.alias, Some(ChannelAlias::Stable));
+
+        // We read the filesystem again, to check that the "stable" alias was
+        // correclty saved
+        assert_eq!(
+            local_manifest
+                .channels
+                .first()
+                .expect(
+                    "ERROR: The local_manifest in the filesystem has no alias, when it should have stable alias"
+                )
+                .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
+            &ChannelAlias::Stable
+        );
     }
+
     #[test]
     fn update_stable() {
+        // NOTE: Currentlty "update stable" maintains the old stable toolchain
         let tmp_home =
             tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
-        std::println!("PWD: {}", tmp_home.display());
+        let midenup_home = tmp_home.join("midenup");
 
         const FILE_PRE_UPDATE: &str = "file://tests/data/update-stable/manifest-pre-update.json";
 
-        let config =
-            Config::init(tmp_home.clone(), FILE_PRE_UPDATE).expect("Couldn't parse config");
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+
+        let init = Commands::Init;
+        init.execute(&config, &mut local_manifest).expect("Failed to init");
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
 
         let install = Commands::Install { channel: UserChannel::Stable };
-        install.execute(&config).unwrap();
+        install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+        let stable_dir = midenup_home.join("toolchains").join("stable");
+        assert!(stable_dir.exists());
+        assert!(stable_dir.is_symlink());
 
         const FILE_POST_UPDATE: &str = "file://tests/data/update-stable/manifest-post-update.json";
 
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
+
         let update = Commands::Update { channel: Some(UserChannel::Stable) };
-        update.execute(&config).expect("Failed to update stable");
+        update.execute(&config, &mut local_manifest).expect("Failed to update stable");
+
+        // Now there should be two channels. The old stable (no longer marked as
+        // such) and the new stable channel
+        assert_eq!(local_manifest.channels.len(), 2);
+        let old_stable = local_manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .expect("Couldn't find old stable channel via version");
+        assert_eq!(old_stable.alias, None);
+
+        let new_stable = local_manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 15, 0)))
+            .expect("Couldn't find old stable channel via version");
+        assert_eq!(new_stable.alias, Some(ChannelAlias::Stable));
+
+        // Now we check if the structure is correclty saved in the filesystem
+        let (local_manifest, _) = test_setup(&midenup_home, FILE_POST_UPDATE);
+        let old_stable = local_manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .expect("Couldn't find old stable channel via version");
+        assert_eq!(old_stable.alias, None);
+
+        let new_stable = local_manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 15, 0)))
+            .expect("Couldn't find old stable channel via version");
+        assert_eq!(new_stable.alias, Some(ChannelAlias::Stable));
+
+        let toolchain_dir = midenup_home.join("toolchains");
+        let _old_stable = toolchain_dir.join("0.14.0");
+        let new_stable = toolchain_dir.join("0.15.0");
+        let stable_symlink = toolchain_dir.join("stable");
+
+        assert!(stable_symlink.exists());
+        assert!(stable_symlink.is_symlink());
+
+        let stable_dir = std::fs::read_link(stable_symlink.as_path())
+            .expect("Couldn't obtain directory where the stable directory is pointing to");
+        assert_eq!(stable_dir, new_stable);
     }
 }

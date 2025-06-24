@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
 
 use crate::{
     channel::{Channel, ChannelAlias},
@@ -11,7 +11,11 @@ use crate::{
 };
 
 /// Installs a specified toolchain by channel or version.
-pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
+pub fn install(
+    config: &Config,
+    channel: &Channel,
+    local_manifest: &mut Manifest,
+) -> anyhow::Result<()> {
     config.ensure_midenup_home_exists()?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
@@ -65,23 +69,6 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
 
     // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
-
-    let local_manifest = &mut config.local_manifest.clone();
-
-    // Before adding the new stable channel, remove the stable alias from all
-    // the channels that have it.
-    // NOTE: This should be only a single channel, we check for multiple just in
-    // case.
-    for channel in local_manifest
-        .channels
-        .iter_mut()
-        .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
-    {
-        channel.alias = None
-    }
-
-    // NOTE: If the channel already exists in the local manifest, remove the old version
-    local_manifest.channels.retain(|c| c.name != channel.name);
 
     let channel_to_save = if is_latest_stable {
         let mut modifiable = channel.clone();
@@ -282,7 +269,7 @@ fn main() {
             &engine,
             upon::value! {
                 dependencies: dependencies,
-                installable_components: Vec::<upon::Value>::new(),
+                installable_components: installable_components,
             },
         )
         .to_string()
