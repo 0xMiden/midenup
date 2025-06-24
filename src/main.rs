@@ -424,4 +424,59 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn rollback_specific_component() {
+        let tmp_home =
+            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
+        let midenup_home = tmp_home.join("midenup");
+
+        const FILE_PRE_UPDATE: &str =
+            "file://tests/data/rollback-component/manifest-pre-component-rollback.json";
+
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+
+        let init = Commands::Init;
+        init.execute(&config, &mut local_manifest).expect("Failed to init");
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
+
+        let install = Commands::Install {
+            channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
+        };
+        install.execute(&config, &mut local_manifest).expect("Failed to install 0.14.0");
+        let version = semver::Version::new(0, 14, 0);
+        let std = local_manifest
+            .get_channel(&UserChannel::Version(version.clone()))
+            .expect("Local manifest didn't register version 0.14.0 despite having being installed")
+            .get_component("std").expect("Local manifest didn't save the std component despite being present in the upstream manifest");
+        if let Authority::Cargo { version, .. } = std.version.clone() {
+            // 0.13.0 is the version of the std library saved in FILE_PRE_UPDATE
+            assert_eq!(version, semver::Version::new(0, 14, 0))
+        } else {
+            panic!("The old std's authority is not Cargo, despite having been installed with it");
+        }
+
+        const FILE_POST_UPDATE: &str =
+            "file://tests/data/rollback-component/manifest-post-component-rollback.json";
+
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
+
+        let update = Commands::Update {
+            channel: Some(UserChannel::Version(semver::Version::new(0, 14, 0))),
+        };
+        update.execute(&config, &mut local_manifest).expect("Failed to update stable");
+        let rolled_back_std = local_manifest
+            .get_channel(&UserChannel::Version(version.clone()))
+            .expect("Local manifest didn't register version 0.14.0 despite having being installed")
+            .get_component("std").expect("Local manifest didn't save the std component despite being present in the upstream manifest");
+
+        if let Authority::Cargo { version, .. } = rolled_back_std.version.clone() {
+            // 0.14.0 is the newer version
+            assert_eq!(version, semver::Version::new(0, 13, 0))
+        } else {
+            panic!(
+                "The updated std's authority is not Cargo, despite having been installed with it"
+            );
+        }
+    }
 }
