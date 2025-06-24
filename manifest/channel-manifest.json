@@ -19,7 +19,8 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.15.0",
-          "features": ["executable", "concurrent"]
+          "features": ["executable", "concurrent"],
+          "installed_file": "miden"
         },
         {
           "name": "midenc",

@@ -153,6 +153,13 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rustup_channel: Option<String>,
+
+    /// This field is used for crates that install files whose name is different than that of the
+    /// crate. For instance: miden-vm's executable is stored as 'miden'.
+    /// NOTE: Check if this example still holds
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_file: Option<String>,
 }
 
 impl Component {
@@ -163,6 +170,7 @@ impl Component {
             features: vec![],
             requires: vec![],
             rustup_channel: None,
+            installed_file: None,
         }
     }
 }

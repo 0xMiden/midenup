@@ -145,29 +145,34 @@ fn main() {
             .expect("failed to install Miden standard library component");
     }
 
+    let bin_dir = miden_sysroot_dir.join("bin");
     {% for component in installable_components %}
-    // Install {{ component.name }}
-    let mut child = Command::new("cargo")
-        .arg(
-          "{{ component.required_toolchain_flag }}",
-        )
-        .arg("install")
-        .args([
-        {%- for arg in component.args %}
-          "{{ arg }}",
-        {%- endfor %}
-        ])
-        // Force the install target directory to be $MIDEN_SYSROOT/bin
-        .arg("--root")
-        .arg(&miden_sysroot_dir)
-        // Spawn command
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .spawn()
-        .expect("failed to install component '{{ component.name }}'");
 
-    // Await results
-    child.wait().expect("failed to install component '{{ component.name }}'");
+    // Install {{ component.name }}
+    let bin_path = bin_dir.join("{{ component.installed_file }}");
+    if !std::fs::exists(&bin_path).expect("Can't check existence of file") {
+        let mut child = Command::new("cargo")
+            .arg(
+            "{{ component.required_toolchain_flag }}",
+            )
+            .arg("install")
+            .args([
+            {%- for arg in component.args %}
+            "{{ arg }}",
+            {%- endfor %}
+            ])
+            // Force the install target directory to be $MIDEN_SYSROOT/bin
+            .arg("--root")
+            .arg(&miden_sysroot_dir)
+            // Spawn command
+            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .spawn()
+            .expect("failed to install component '{{ component.name }}'");
+
+        // Await results
+        child.wait().expect("failed to install component '{{ component.name }}'");
+    }
 
     {% endfor %}
 }
@@ -257,6 +262,7 @@ fn main() {
 
             upon::value! {
                 name: component.name.to_string(),
+                installed_file: component.installed_file.clone().unwrap_or(component.name.to_string()),
                 required_toolchain_flag: required_toolchain_flag,
                 args: args,
             }
