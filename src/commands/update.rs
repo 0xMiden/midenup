@@ -91,7 +91,7 @@ fn get_path_to_component(toolchain_dir: &Path, component_name: &str) -> PathBuf 
     if libs.contains(&component_name) {
         toolchain_dir.join("lib").join(component_name).with_extension("masp")
     } else {
-        toolchain_dir.join("bin").join(component_name).with_extension("masp")
+        toolchain_dir.join("bin").join(component_name)
     }
 }
 
@@ -105,8 +105,15 @@ fn update_channel(
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
     let updates = local_channel.components_to_update(upstream_channel);
-    let files_to_remove: Vec<_> =
-        updates.iter().map(|c| get_path_to_component(&toolchain_dir, &c.name)).collect();
+    let files_to_remove: Vec<_> = updates
+        .iter()
+        .map(|c| {
+            get_path_to_component(
+                &toolchain_dir,
+                &c.installed_file.clone().unwrap_or(c.name.to_string()),
+            )
+        })
+        .collect();
     for file in files_to_remove {
         std::fs::remove_file(file).context("Couldn't delete {file}")?;
     }
