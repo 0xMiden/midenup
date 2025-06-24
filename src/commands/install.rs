@@ -28,17 +28,19 @@ pub fn install(
         std::fs::create_dir_all(&toolchain_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
         })?;
-
-        // Create install script
-        let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
-            format!("failed to create file for install script at '{}'", install_file_path.display())
-        })?;
-
-        let install_script_contents = generate_install_script(channel);
-        install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
-            format!("failed to write install script at '{}'", install_file_path.display())
-        })?;
     }
+
+    // NOTE: Even while updating, we still need to re-generate the install
+    // script; since it has the versions to install hard-coded in Create install
+    // script
+    let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
+        format!("failed to create file for install script at '{}'", install_file_path.display())
+    })?;
+
+    let install_script_contents = generate_install_script(channel);
+    install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
+        format!("failed to write install script at '{}'", install_file_path.display())
+    })?;
 
     let mut child = std::process::Command::new("cargo")
         .env("MIDEN_SYSROOT", &toolchain_dir)
