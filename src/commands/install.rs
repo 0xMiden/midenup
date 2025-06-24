@@ -129,7 +129,7 @@ fn main() {
     let tx_path = lib_dir.join("base").with_extension("masp");
     // NOTE: If the file already exists, then we are running an update and we
     // don't need to update this element
-    if std::fs::exists(&tx_path).expect("Can't check existence of file") == false {
+    if !std::fs::exists(&tx_path).expect("Can't check existence of file") {
         tx.as_ref()
             .write_to_file(&tx_path)
             .expect("failed to install Miden transaction kernel library component");
@@ -138,7 +138,7 @@ fn main() {
     // Write stdlib to $MIDEN_SYSROOT/std.masp
     let stdlib = miden_stdlib::StdLibrary::default();
     let stdlib_path = lib_dir.join("std").with_extension("masp");
-    if std::fs::exists(&stdlib_path).expect("Can't check existence of file") == false {
+    if !std::fs::exists(&stdlib_path).expect("Can't check existence of file") {
         stdlib
             .as_ref()
             .write_to_file(&stdlib_path)
