@@ -101,7 +101,7 @@ fn update_channel(
 
     for lib in libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
-        std::fs::remove_file(lib_path).context("Couldn't delete {lib}")?;
+        std::fs::remove_file(&lib_path).context(format!("Couldn't delete {}", &lib_path.display()))?;
     }
 
     let toolchain_dir = config
