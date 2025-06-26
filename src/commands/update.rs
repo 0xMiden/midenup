@@ -6,6 +6,7 @@ use crate::{
     channel::{Channel, ChannelAlias, UserChannel},
     commands,
     manifest::Manifest,
+    version::Authority,
     Config,
 };
 
@@ -83,18 +84,6 @@ midenup install stable
     Ok(())
 }
 
-// TODO(fabrio): Use this function for path resolution here and in the install
-// script. Move as [Component] associated function
-// TODO(fabrio): Clean up? Use AsRef if possible
-fn get_path_to_component(toolchain_dir: &Path, component_name: &str) -> PathBuf {
-    let libs = ["std", "base"];
-    if libs.contains(&component_name) {
-        toolchain_dir.join("lib").join(component_name).with_extension("masp")
-    } else {
-        toolchain_dir.join("bin").join(component_name)
-    }
-}
-
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
@@ -105,17 +94,43 @@ fn update_channel(
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
     let updates = local_channel.components_to_update(upstream_channel);
-    let files_to_remove: Vec<_> = updates
-        .iter()
-        .map(|c| {
-            get_path_to_component(
-                &toolchain_dir,
-                &c.installed_file.clone().unwrap_or(c.name.to_string()),
-            )
-        })
-        .collect();
-    for file in files_to_remove {
-        std::fs::remove_file(file).context("Couldn't delete {file}")?;
+
+    let libs = ["std", "base"];
+    let (libraries, executables): (Vec<_>, Vec<_>) =
+        updates.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+
+    for lib in libraries {
+        let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
+        std::fs::remove_file(lib_path).context("Couldn't delete {lib}")?;
+    }
+
+    let toolchain_dir = config
+        .midenup_home
+        .join("toolchains")
+        .join(format!("{}", &upstream_channel.name));
+
+    for exe in executables {
+        match &exe.version {
+            Authority::Cargo { package, .. } => {
+                let mut remove_exe = std::process::Command::new("cargo")
+                    .arg("uninstall")
+                    .arg(package.as_deref().unwrap_or(exe.name.as_ref()))
+                    .arg("--root")
+                    .arg(&toolchain_dir)
+                    .stderr(std::process::Stdio::inherit())
+                    .stdout(std::process::Stdio::inherit())
+                    .spawn()
+                    .with_context(|| {
+                        format!(
+                            "failed to uninstall {} via cargo",
+                            package.as_deref().unwrap_or(exe.name.as_ref())
+                        )
+                    })?;
+
+                remove_exe.wait().expect("failed to uninstall component '{{ component.name }}'");
+            },
+            _ => todo!(),
+        }
     }
 
     // Before adding the new stable channel, remove the stable alias from all
