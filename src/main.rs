@@ -92,14 +92,7 @@ impl Commands {
                 };
                 commands::install(config, channel, local_manifest)
             },
-            Self::Update { channel } => {
-                // let channel = channel.as_ref().map(|c| {
-                //     config.manifest.get_channel(c).unwrap_or_else(|| {
-                //         panic!("channel '{}' doesn't exist or is unavailable", c)
-                //     })
-                // });
-                commands::update(config, channel.as_ref(), local_manifest)
-            },
+            Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
             Self::Show(cmd) => cmd.execute(config),
         }
     }
@@ -219,7 +212,6 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    // use std::fs::Path;
     use std::path::Path;
 
     use crate::version::Authority;
@@ -292,8 +284,8 @@ mod tests {
         // correclty saved
         assert_eq!(
             local_manifest
-                .channels
-                .first()
+                .get_channels()
+                .next()
                 .expect(
                     "ERROR: The local_manifest in the filesystem has no alias, when it should have stable alias"
                 )
@@ -333,7 +325,7 @@ mod tests {
 
         // Now there should be two channels. The old stable (no longer marked as
         // such) and the new stable channel
-        assert_eq!(local_manifest.channels.len(), 2);
+        assert_eq!(local_manifest.get_channels().count(), 2);
         let old_stable = local_manifest
             .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
             .expect("Couldn't find old stable channel via version");

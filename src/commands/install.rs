@@ -23,16 +23,17 @@ pub fn install(
 
     let install_file_path = toolchain_dir.join("install").with_extension("rs");
 
-    // NOTE: If it already exists, then we are executing an update
+    // NOTE: If the toolchain directory already exists, then we are executing an
+    // update.
     if !toolchain_dir.exists() {
         std::fs::create_dir_all(&toolchain_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
         })?;
     }
 
-    // NOTE: Even while updating, we still need to re-generate the install
-    // script; since it has the versions to install hard-coded in Create install
-    // script
+    // NOTE: Even when performing an update, we still need to re-generate the
+    // install script.  This is because, the versions that will be installed are
+    // written directly into the file; so the file can't be "re-used".
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;

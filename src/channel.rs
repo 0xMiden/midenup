@@ -43,11 +43,9 @@ impl Channel {
 
     pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
         // NOTE: This wouldn't work if they have different amount of elements
-        // let old_components = self.components.iter();
-        let new_components = newer.components.iter();
-        let mut updates = Vec::new();
 
-        for new_component in new_components {
+        let mut updates = Vec::new();
+        for new_component in newer.components.iter() {
             let old_component = self.components.iter().find(|c| c.name == new_component.name);
             if let Some(old_component) = old_component {
                 if old_component != new_component {
@@ -156,7 +154,6 @@ pub struct Component {
 
     /// This field is used for crates that install files whose name is different than that of the
     /// crate. For instance: miden-vm's executable is stored as 'miden'.
-    /// NOTE: Check if this example still holds
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed_file: Option<String>,

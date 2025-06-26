@@ -16,7 +16,7 @@ pub struct Manifest {
     date: i64,
     /// The channels described in this manifest
     /// NOTE: Changing this to pub momentarily
-    pub channels: Vec<Channel>,
+    channels: Vec<Channel>,
 }
 
 impl Default for Manifest {
@@ -89,6 +89,24 @@ impl Manifest {
     }
 
     pub fn add_channel(&mut self, channel: Channel) {
+        // Before adding the new stable channel, remove the stable alias from
+        // all the channels that have it.
+        // NOTE: This should be only a single channel, we check for multiple
+        // just in case.
+        if self.is_latest_stable(&channel) {
+            for channel in self
+                .channels
+                .iter_mut()
+                .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
+            {
+                channel.alias = None
+            }
+        }
+
+        // NOTE: If the channel already exists in the manifest, remove the old
+        // version. This happens when updating
+        self.channels.retain(|c| c.name != channel.name);
+
         self.channels.push(channel);
     }
     pub fn is_latest_stable(&self, channel: &Channel) -> bool {
@@ -146,12 +164,9 @@ impl Manifest {
         }
     }
 
-    // pub fn check_differences(
-    //     local_manifest: &Manifest,
-    //     upstream_manifest: &Manifest,
-    // ) -> impl Iterator<Item = Channel> {
-    //     todo!()
-    // }
+    pub fn get_channels(&self) -> impl Iterator<Item = &Channel> {
+        self.channels.iter()
+    }
 }
 
 #[cfg(test)]
