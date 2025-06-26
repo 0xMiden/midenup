@@ -1,12 +1,11 @@
-
 use anyhow::Context;
 
 use crate::{
+    Config,
     channel::{Channel, UserChannel},
     commands,
     manifest::Manifest,
     version::Authority,
-    Config,
 };
 
 /// Updates installed toolchains
@@ -45,15 +44,14 @@ midenup install stable
             // manifest was synced
             let local_channel = local_manifest
                 .get_channel(&UserChannel::Version(version.clone()))
-                .context(format!("ERROR: No installed channel found with version {}", version))?
+                .context(format!("ERROR: No installed channel found with version {version}"))?
                 .clone();
 
             let upstream_channel = config
                 .manifest
                 .get_channel(&UserChannel::Version(version.clone()))
                 .context(format!(
-                    "ERROR: Couldn't find a channel upstream with version {}. Maybe it got removed.",
-                    version
+                    "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got removed."
                 ))?;
 
             update_channel(config, &local_channel, upstream_channel, local_manifest)?

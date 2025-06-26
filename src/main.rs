@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
@@ -145,9 +145,7 @@ fn main() -> anyhow::Result<()> {
         );
         match Manifest::load_from(local_manifest_uri) {
             Ok(manifest) => Ok(manifest),
-            Err(ManifestError::EmptyManifest | ManifestError::MissingManifest(_)) => {
-                Ok(Manifest::default())
-            },
+            Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
             Err(err) => Err(err),
         }
         .context("Error parsing local manifest")
@@ -228,9 +226,7 @@ mod tests {
 
             match Manifest::load_from(local_manifest_uri) {
                 Ok(manifest) => Ok(manifest),
-                Err(ManifestError::EmptyManifest | ManifestError::MissingManifest(_)) => {
-                    Ok(Manifest::default())
-                },
+                Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
                 Err(err) => Err(err),
             }
             .unwrap_or_else(|_| {
