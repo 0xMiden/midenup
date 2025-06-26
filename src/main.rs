@@ -441,6 +441,14 @@ mod tests {
         let toolchain_path = midenup_home.join("toolchains").join("0.14.0");
         assert!(toolchain_path.exists());
 
+        let mut show_toolchain_dir = std::process::Command::new("tree")
+            .arg(tmp_home_path)
+            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .spawn()
+            .expect("Couldn't execute tree command");
+
+        let _ = show_toolchain_dir.wait().expect("Failed to execute tree");
 
         let version = semver::Version::new(0, 14, 0);
         let std = local_manifest
