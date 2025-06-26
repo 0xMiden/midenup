@@ -59,6 +59,7 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: actions/checkout@main
       - uses: taiki-e/install-action@nextest
       - uses: Swatinem/rust-cache@v2
@@ -69,4 +70,7 @@ jobs:
       - name: install rust
         run: rustup update --no-self-update
       - name: run tests
+        env:
+          SCCACHE_GHA_ENABLED: "true"
+          RUSTC_WRAPPER: "sccache"
         run: make test
