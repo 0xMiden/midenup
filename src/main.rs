@@ -438,6 +438,10 @@ mod tests {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
         };
         install.execute(&config, &mut local_manifest).expect("Failed to install 0.14.0");
+        let toolchain_path = midenup_home.join("toolchains").join("0.14.0");
+        assert!(toolchain_path.exists());
+
+
         let version = semver::Version::new(0, 14, 0);
         let std = local_manifest
             .get_channel(&UserChannel::Version(version.clone()))
