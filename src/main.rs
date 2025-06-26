@@ -251,9 +251,9 @@ mod tests {
     }
     #[test]
     fn install_stable() {
-        let tmp_home =
-            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
-        let midenup_home = tmp_home.join("midenup");
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
 
         const FILE: &str = "file://manifest/channel-manifest.json";
 
@@ -292,14 +292,17 @@ mod tests {
                 .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
             &ChannelAlias::Stable
         );
+
+        tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
     #[test]
     fn update_stable() {
         // NOTE: Currentlty "update stable" maintains the old stable toolchain
-        let tmp_home =
-            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
-        let midenup_home = tmp_home.join("midenup");
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+
+        let midenup_home = tmp_home_path.join("midenup");
 
         const FILE_PRE_UPDATE: &str = "file://tests/data/update-stable/manifest-pre-update.json";
 
@@ -359,13 +362,16 @@ mod tests {
         let stable_dir = std::fs::read_link(stable_symlink.as_path())
             .expect("Couldn't obtain directory where the stable directory is pointing to");
         assert_eq!(stable_dir, new_stable);
+
+        tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
     #[test]
     fn update_specific_component() {
-        let tmp_home =
-            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
-        let midenup_home = tmp_home.join("midenup");
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+
+        let midenup_home = tmp_home_path.join("midenup");
 
         const FILE_PRE_UPDATE: &str =
             "file://tests/data/update-specific/manifest-pre-component-update.json";
@@ -418,9 +424,9 @@ mod tests {
     }
     #[test]
     fn rollback_specific_component() {
-        let tmp_home =
-            tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir").into_path();
-        let midenup_home = tmp_home.join("midenup");
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
 
         const FILE_PRE_UPDATE: &str =
             "file://tests/data/rollback-component/manifest-pre-component-rollback.json";
