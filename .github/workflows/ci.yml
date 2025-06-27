@@ -71,7 +71,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/sccache/
-          key: ${{ github.event.pull_request.title }}-sccache
+          key: ${{ github.event.number }}-sccache
 
       - uses: taiki-e/install-action@nextest
 
@@ -92,4 +92,4 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/sccache/
-          key: ${{ github.event.pull_request.title }}-sccache
+          key: ${{ github.event.number }}-sccache
