@@ -133,6 +133,14 @@ fn update_channel(
         }
     }
 
+    // NOTE: After deleting the files we need to remove the "all is installed
+    // file" to trigger a re-installation
+    let installation_indicator = toolchain_dir.join("installation-successfull");
+    std::fs::remove_file(&installation_indicator).context(format!(
+        "Couldn't delete installation complete indicator in: {}",
+        &installation_indicator.display()
+    ))?;
+
     commands::install(config, upstream_channel, local_manifest)?;
     Ok(())
 }
