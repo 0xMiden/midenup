@@ -6,6 +6,7 @@ use thiserror::Error;
 use crate::channel::{Channel, ChannelAlias, UserChannel};
 
 const MANIFEST_VERSION: &str = "1.0.0";
+const GITHUB_PAGE_EXISTS_CODE: u32 = 200;
 
 /// The global manifest of all known channels and their toolchains
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,6 +37,8 @@ pub enum ManifestError {
     Empty,
     #[error("Webpage {0} is empty")]
     EmptyWebpage(String),
+    #[error("Webpage returned error. Does {0} exist?")]
+    WebpageError(String),
     #[error("Manifest file is not present in `{0}`")]
     Missing(String),
     #[error("Invalid channel manifest in URI: `{0}`")]
@@ -73,6 +76,10 @@ impl Manifest {
                 ManifestError::InternalCurlError(err)
             })?;
             {
+                if handle.response_code() != Ok(GITHUB_PAGE_EXISTS_CODE) {
+                    return Err(ManifestError::WebpageError(uri.to_string()));
+                }
+
                 let mut transfer = handle.transfer();
                 transfer
                     .write_function(|new_data| {
