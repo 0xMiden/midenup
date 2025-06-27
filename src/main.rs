@@ -395,6 +395,14 @@ mod tests {
             panic!("The old std's authority is not Cargo, despite having been installed with it");
         }
 
+        let mut show_toolchain_dir = std::process::Command::new("tree")
+            .arg(tmp_home_path)
+            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .spawn()
+            .expect("Couldn't execute tree command");
+        let _ = show_toolchain_dir.wait().expect("Failed to execute tree");
+
         const FILE_POST_UPDATE: &str =
             "file://tests/data/update-specific/manifest-post-component-update.json";
 
