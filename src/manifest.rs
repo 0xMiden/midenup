@@ -34,10 +34,14 @@ impl Default for Manifest {
 pub enum ManifestError {
     #[error("Manifest file is empty")]
     Empty,
+    #[error("Webpage {0} is empty")]
+    EmptyWebpage(String),
     #[error("Manifest file is not present in `{0}`")]
     Missing(String),
     #[error("Invalid channel manifest in URI: `{0}`")]
     Invalid(String),
+    #[error("Couldn't reach webpage: `{0}`")]
+    InternalCurlError(String),
     #[error("unsupported channel manifest URI: `{0}`")]
     Unsupported(String),
 }
@@ -61,25 +65,38 @@ impl Manifest {
             serde_json::from_str::<Manifest>(&contents)
                 .map_err(|_| ManifestError::Invalid(String::from("invalid channel manifest")))
         } else if uri.starts_with("https://") {
-            let mut data = Vec::new();
+            let data = Vec::new();
             let mut handle = curl::easy::Easy::new();
-            handle
-                .url(uri)
-                .map_err(|_| ManifestError::Invalid(String::from("invalid channel manifest")))?;
+            handle.url(uri).map_err(|error| {
+                let mut err = format!("Error code {}: ", error.code());
+                err.push_str(error.description());
+                ManifestError::InternalCurlError(err)
+            })?;
             {
                 let mut transfer = handle.transfer();
                 transfer
                     .write_function(|new_data| {
-                        data.extend_from_slice(new_data);
+                        data.clone().extend_from_slice(new_data);
                         Ok(new_data.len())
                     })
                     .unwrap();
-                transfer
-                    .perform()
-                    .map_err(|_| ManifestError::Invalid(String::from("invalid channel manifest")))?
+                transfer.perform().map_err(|error| {
+                    let mut err = format!("Error code {}: ", error.code());
+                    err.push_str(error.description());
+                    ManifestError::InternalCurlError(err)
+                })?
             }
-            serde_json::from_slice::<Manifest>(&data)
-                .map_err(|_| ManifestError::Invalid(uri.to_string()))
+            if data.is_empty() {
+                return Err(ManifestError::EmptyWebpage(uri.to_string()));
+            }
+            serde_json::from_slice::<Manifest>(&data).map_err(|_| {
+                let text = String::from_utf8(data.clone()).unwrap_or_default();
+                ManifestError::Invalid(format!(
+                    "Invalid channel manifest
+{}",
+                    text
+                ))
+            })
         } else {
             return Err(ManifestError::Unsupported(uri.to_string()));
         }?;
