@@ -58,9 +58,9 @@ pub fn install(
         .stderr(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .spawn()
-        .context("error occurred while running install script")?;
+        .expect("failed to install");
 
-    child.wait().context("failed to execute toolchain installer")?;
+    child.wait().expect("failed to wait");
 
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
