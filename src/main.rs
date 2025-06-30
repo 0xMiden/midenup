@@ -246,7 +246,7 @@ mod tests {
         (local_manifest, config)
     }
     #[test]
-    fn install_stable() {
+    fn integration_install_stable() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
@@ -293,7 +293,7 @@ mod tests {
     }
 
     #[test]
-    fn update_stable() {
+    fn integration_update_stable() {
         // NOTE: Currentlty "update stable" maintains the old stable toolchain
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
@@ -363,7 +363,7 @@ mod tests {
     }
 
     #[test]
-    fn update_specific_component() {
+    fn integration_update_specific_component() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
 
@@ -428,7 +428,7 @@ mod tests {
         }
     }
     #[test]
-    fn rollback_specific_component() {
+    fn integration_rollback_specific_component() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
