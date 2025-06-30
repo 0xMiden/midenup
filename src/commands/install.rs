@@ -2,7 +2,13 @@ use std::io::Write;
 
 use anyhow::{Context, bail};
 
-use crate::{Config, channel::Channel, utils, version::Authority};
+use crate::{
+    Config,
+    channel::{Channel, ChannelAlias},
+    manifest::Manifest,
+    utils,
+    version::Authority,
+};
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
@@ -44,8 +50,10 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
 
     child.wait().context("failed to execute toolchain installer")?;
 
+    let is_latest_stable = config.manifest.is_latest_stable(channel);
+
     // If stable is installed, update the symlink
-    if config.manifest.is_latest_stable(channel) {
+    if is_latest_stable {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
         let stable_dir = installed_toolchains_dir.join("stable");
@@ -54,6 +62,38 @@ pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
         }
         utils::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
     }
+
+    // Update local manifest
+    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    let local_manifest_uri = format!(
+        "file://{}",
+        local_manifest_path.to_str().context("Couldn't convert miden directory")?,
+    );
+
+    let mut local_manifest = Manifest::load_from(local_manifest_uri).unwrap_or_default();
+    let channel_to_save = if is_latest_stable {
+        let mut modifiable = channel.clone();
+        modifiable.alias = Some(ChannelAlias::Stable);
+        modifiable
+    } else {
+        channel.clone()
+    };
+    local_manifest.add_channel(channel_to_save);
+
+    let mut local_manifest_file =
+        std::fs::File::create(&local_manifest_path).with_context(|| {
+            format!(
+                "failed to create file for install script at '{}'",
+                local_manifest_path.display()
+            )
+        })?;
+    local_manifest_file
+        .write_all(
+            serde_json::to_string_pretty(&local_manifest)
+                .context("Couldn't serialize local manifest")?
+                .as_bytes(),
+        )
+        .context("Couldn't create local manifest file")?;
 
     Ok(())
 }

@@ -32,16 +32,6 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         })?;
     }
 
-    // The local manifest contains the installed toolchains with the
-    // corresponding components
-    let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
-    std::fs::File::create(&local_manifest_file).with_context(|| {
-        format!(
-            "failed to create local manifest.json file in: '{}'",
-            local_manifest_file.display()
-        )
-    })?;
-
     let bin_dir = config.midenup_home.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {

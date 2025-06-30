@@ -8,10 +8,11 @@ use crate::version::Authority;
 ///
 /// Different channels have different stability guarantees. See the specific details for the
 /// channel you are interested in to learn more.
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
     pub name: semver::Version,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
 
     /// The set of toolchain components available in this channel
@@ -41,8 +42,32 @@ impl Channel {
     }
 }
 
-#[derive(Serialize, Debug, PartialEq, Eq)]
-#[serde(untagged, rename_all = "snake_case")]
+impl PartialEq for Channel {
+    fn eq(&self, other: &Self) -> bool {
+        // NOTE: To channels are equal regardless of their aliases
+        let equal_name = self.name == other.name;
+        if !equal_name {
+            return false;
+        }
+
+        let my_components: std::collections::HashSet<Component> =
+            self.components.clone().into_iter().collect();
+
+        let other_components: std::collections::HashSet<Component> =
+            self.components.clone().into_iter().collect();
+
+        let equal_components = other_components == my_components;
+
+        if !equal_components {
+            return false;
+        }
+
+        true
+    }
+}
+
+#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
     /// Represents `stable`
     Stable,
@@ -86,7 +111,7 @@ impl core::str::FromStr for ChannelAlias {
 }
 
 /// An installable component of a toolchain
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 pub struct Component {
     /// The canonical name of this toolchain component
     pub name: Cow<'static, str>,
@@ -95,12 +120,15 @@ pub struct Component {
     pub version: Authority,
     /// Optional features to enable, if applicable, when installing this component
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
     /// Other components that are required if this component is installed
     #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
     /// If not None, then this component requires a specific toolchain to compile.
     #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rustup_channel: Option<String>,
 }
 
