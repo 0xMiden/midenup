@@ -6,7 +6,7 @@ use thiserror::Error;
 use crate::channel::{Channel, ChannelAlias, UserChannel};
 
 const MANIFEST_VERSION: &str = "1.0.0";
-const GITHUB_PAGE_EXISTS_CODE: u32 = 200;
+const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 /// The global manifest of all known channels and their toolchains
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -68,7 +68,7 @@ impl Manifest {
             serde_json::from_str::<Manifest>(&contents)
                 .map_err(|_| ManifestError::Invalid(String::from("invalid channel manifest")))
         } else if uri.starts_with("https://") {
-            let data = Vec::new();
+            let mut data = Vec::new();
             let mut handle = curl::easy::Easy::new();
             handle.url(uri).map_err(|error| {
                 let mut err = format!("Error code {}: ", error.code());
@@ -76,14 +76,19 @@ impl Manifest {
                 ManifestError::InternalCurlError(err)
             })?;
             {
-                if handle.response_code() != Ok(GITHUB_PAGE_EXISTS_CODE) {
+                let response_code = handle.response_code().map_err(|_| {
+                    ManifestError::InternalCurlError(String::from(
+                        "Failed to get response code; despite HTTP protocol supporting it.",
+                    ))
+                })?;
+                if HTTP_ERROR_CODES.contains(&response_code) {
                     return Err(ManifestError::WebpageError(uri.to_string()));
                 }
 
                 let mut transfer = handle.transfer();
                 transfer
                     .write_function(|new_data| {
-                        data.clone().extend_from_slice(new_data);
+                        data.extend_from_slice(new_data);
                         Ok(new_data.len())
                     })
                     .unwrap();
