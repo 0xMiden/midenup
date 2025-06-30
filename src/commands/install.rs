@@ -100,7 +100,7 @@ pub fn install(
                 .context("Couldn't serialize local manifest")?
                 .as_bytes(),
         )
-        .unwrap();
+        .context("Couldn't create local manifest file")?;
 
     Ok(())
 }
