@@ -17,6 +17,7 @@ pub fn install(
     channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
+    std::dbg!("Install begins");
     config.ensure_midenup_home_exists()?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
@@ -48,6 +49,7 @@ pub fn install(
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
 
+    std::dbg!("Begun installing");
     let mut child = std::process::Command::new("cargo")
         .env("MIDEN_SYSROOT", &toolchain_dir)
         // HACK(pauls): This is for the benefit of the compiler, until it moves to using
@@ -60,6 +62,7 @@ pub fn install(
         .spawn()
         .expect("failed to install");
 
+    std::dbg!("Finished installing");
     child.wait().expect("failed to wait");
 
     let is_latest_stable = config.manifest.is_latest_stable(channel);
@@ -102,6 +105,7 @@ pub fn install(
         )
         .context("Couldn't create local manifest file")?;
 
+    std::dbg!("Install ended");
     Ok(())
 }
 
@@ -310,7 +314,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
