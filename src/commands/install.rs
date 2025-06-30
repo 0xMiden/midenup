@@ -2,21 +2,14 @@ use std::io::Write;
 
 use anyhow::{Context, bail};
 
-use crate::{
-    Config,
-    channel::{Channel, ChannelType},
-    version::Authority,
-};
+use crate::{Config, channel::Channel, utils, version::Authority};
 
 /// Installs a specified toolchain by channel or version.
-pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()> {
-    let Some(channel) = config.manifest.get_channel(channel_type) else {
-        bail!("channel '{}' doesn't exist or is unavailable", channel_type);
-    };
-
+pub fn install(config: &Config, channel: &Channel) -> anyhow::Result<()> {
     config.ensure_midenup_home_exists()?;
 
-    let toolchain_dir = config.midenup_home.join("toolchains").join(format!("{}", &channel.name));
+    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
     if toolchain_dir.exists() {
         bail!("the '{}' toolchain is already installed", &channel.name);
@@ -50,6 +43,17 @@ pub fn install(config: &Config, channel_type: &ChannelType) -> anyhow::Result<()
         .context("error occurred while running install script")?;
 
     child.wait().context("failed to execute toolchain installer")?;
+
+    // If stable is installed, update the symlink
+    if config.manifest.is_latest_stable(channel) {
+        // NOTE: This is an absolute file path, maybe a relative symlink would be more
+        // suitable
+        let stable_dir = installed_toolchains_dir.join("stable");
+        if stable_dir.exists() {
+            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
+        }
+        utils::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+    }
 
     Ok(())
 }
@@ -228,15 +232,17 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manifest::Manifest;
+    use crate::{UserChannel, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
 
-        let stable = manifest.get_channel(&ChannelType::Stable).unwrap();
+        let channel = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("Could not convert UserChannel to internal channel representation");
 
-        let script = generate_install_script(stable);
+        let script = generate_install_script(channel);
 
         println!("{script}");
 
