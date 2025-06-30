@@ -105,8 +105,7 @@ impl Manifest {
                 let text = String::from_utf8(data.clone()).unwrap_or_default();
                 ManifestError::Invalid(format!(
                     "Invalid channel manifest
-{}",
-                    text
+{text}"
                 ))
             })
         } else {
