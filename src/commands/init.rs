@@ -62,5 +62,11 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         bail!("midenup has already been initialized");
     }
 
+    std::println!(
+        "midenup was successfully initialized in:
+{}",
+        config.midenup_home.as_path().display()
+    );
+
     Ok(())
 }
