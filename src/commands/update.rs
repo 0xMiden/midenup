@@ -27,7 +27,7 @@ midenup install stable
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()
-                .expect("ERROR: No stable channel found in upstream");
+                .context("ERROR: No stable channel found in upstream")?;
 
             // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {
@@ -36,9 +36,6 @@ midenup install stable
                 std::println!("Nothing to update, you are all up to date");
             }
         },
-        // NOTE: I'd like to save the enum variant in a variable, like so:
-        // Some(user_channel) if matches!(user_channel, &UserChannel::Version(_)) => {
-        // but the compiler complains that I'm not matching every variant
         Some(UserChannel::Version(version)) => {
             // Check if any individual component changed since the last the
             // manifest was synced
@@ -128,7 +125,9 @@ fn update_channel(
                         )
                     })?;
 
-                remove_exe.wait().expect("failed to uninstall component '{{ component.name }}'");
+                remove_exe
+                    .wait()
+                    .context("failed to uninstall component '{{ component.name }}'")?;
             },
             _ => todo!(),
         }
