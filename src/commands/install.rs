@@ -21,9 +21,9 @@ pub fn install(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
-    // NOTE: The installation indicator is only created after successfull
+    // NOTE: The installation indicator is only created after successful
     // toolchain installation.
-    let installation_indicator = toolchain_dir.join("installation-successfull");
+    let installation_indicator = toolchain_dir.join("installation-successful");
     if installation_indicator.exists() {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
@@ -185,7 +185,7 @@ fn main() {
     {% endfor %}
 
     // This file indicates that installation finished successfully
-    let checkpoint_path = miden_sysroot_dir.join("installation-successfull");
+    let checkpoint_path = miden_sysroot_dir.join("installation-successful");
 
     let mut installed_packages = String::new();
     {% for component in installable_components %}
