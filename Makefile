@@ -26,12 +26,12 @@ test-build: ## Build the test binary
 	cargo nextest run --no-run
 
 .PHONY: test
-test: ## Run all tests
-	cargo nextest run -- --skip install_stable
- 
+test: ## Run all tests, except integration
+	cargo nextest run -- --skip integration
+
 .PHONY: integration-test
-integration-test: ## Run all tests
-	cargo nextest run install_stable
+integration-test: ## Run all integration tests
+	cargo nextest run integration
 
 # --- building ------------------------------------------------------------------------------------
 .PHONY: build
