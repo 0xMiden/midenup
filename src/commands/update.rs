@@ -90,6 +90,14 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
+    // NOTE: After deleting the files we need to remove the "all is installed
+    // file" to trigger a re-installation
+    let installation_indicator = toolchain_dir.join("installation-successful");
+    std::fs::remove_file(&installation_indicator).context(format!(
+        "Couldn't delete installation complete indicator in: {}",
+        &installation_indicator.display()
+    ))?;
+
     let updates = local_channel.components_to_update(upstream_channel);
 
     let libs = ["std", "base"];
@@ -132,14 +140,6 @@ fn update_channel(
             _ => todo!(),
         }
     }
-
-    // NOTE: After deleting the files we need to remove the "all is installed
-    // file" to trigger a re-installation
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    std::fs::remove_file(&installation_indicator).context(format!(
-        "Couldn't delete installation complete indicator in: {}",
-        &installation_indicator.display()
-    ))?;
 
     commands::install(config, upstream_channel, local_manifest)?;
     Ok(())
