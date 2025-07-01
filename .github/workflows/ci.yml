@@ -15,6 +15,10 @@ on:
       - "**.txt"
       - "manifest/**"
       - "docs/**"
+env:
+  # Set the new value when the cache grows too much and we hit the runner's disk space limit
+  # via https://github.com/rust-lang/docs.rs/pull/2433
+  RUST_CACHE_KEY: rust-cache-20250701
 
 jobs:
   lint:
@@ -44,53 +48,77 @@ jobs:
     needs: [lint]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@main
+      - uses: actions/checkout@v4
+
       - uses: Swatinem/rust-cache@v2
         with:
           # Only update the cache on push onto the main branch. This strikes a nice balance between
           # cache hits and cache evictions (github has a 10GB cache limit).
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+
       - name: build
         run: |
           rustup update --no-self-update
           make build
 
-  test:
-    name: test
+  unit_tests:
+    name: unit tests
     runs-on: ubuntu-latest
-    env:
-        SCCACHE_GHA_ENABLED: "true"
-        RUSTC_WRAPPER: "sccache"
     steps:
-      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: actions/checkout@v4
 
-      - uses: actions/checkout@main
-
-      - name: Restore Sccache
-        id: cache-sccache-restore
-        uses: actions/cache/restore@v4
-        with:
-          path: ~/.cache/sccache/
-          key: ${{ github.event.number }}-sccache
+      - name: Install rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
 
       - uses: taiki-e/install-action@nextest
 
       - uses: Swatinem/rust-cache@v2
         with:
-          # Only update the cache on push onto the main branch. This strikes a nice balance between
-          # cache hits and cache evictions (github has a 10GB cache limit).
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          # Use a common cache for the basic compilation/formatter/clippy checks
+          shared-key: ${{ github.workflow }}-shared
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          save-if: ${{ github.ref == 'refs/heads/next' }}
 
-      - name: install rust
-        run: rustup update --no-self-update
+      - name: Check tests
+        # We run `cargo check` to verify that the workspace compiles correctly before attempting
+        # to execute the tests from each crate. This produces easier to read output if a compilation
+        # error occurs
+        run: cargo check --tests
 
-      - name: run tests
+      - name: Run tests
         run: make test
 
-      - name: Save Sccache
-        if: ${{ always() }}
-        id: cache-sccache-save
-        uses: actions/cache/save@v4
+  integration_test:
+    # These tests will
+    name: integration tests
+    # We only want to run the integration tests if the unit tests pass, and that has the added
+    # benefit that we can re-use the cache from the unit test job for all integration tests
+    needs: [unit_tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+
+      - uses: taiki-e/install-action@nextest
+
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: ~/.cache/sccache/
-          key: ${{ github.event.number }}-sccache
+          # Use a common cache for the basic compilation/formatter/clippy checks
+          shared-key: ${{ github.workflow }}-shared
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          save-if: false
+
+      - name: Check tests
+        # We run `cargo check` to verify that the workspace compiles correctly before attempting
+        # to execute the tests from each crate. This produces easier to read output if a compilation
+        # error occurs
+        run: cargo check --tests
+
+      - name: run tests
+        run: make integration-test
