@@ -158,7 +158,7 @@ fn main() {
 
     // Install {{ component.name }}
     let bin_path = bin_dir.join("{{ component.installed_file }}");
-    if !std::fs::exists(&bin_path).expect("Can't check existence of file") {
+    if !std::fs::exists(&bin_path).unwrap_or(false) {
         let mut child = Command::new("cargo")
             .arg(
             "{{ component.required_toolchain_flag }}",
