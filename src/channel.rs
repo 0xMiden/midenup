@@ -1,5 +1,9 @@
-use std::hash::{Hash, Hasher};
-use std::{borrow::Cow, collections::HashSet, fmt};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    fmt,
+    hash::{Hash, Hasher},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -213,17 +217,20 @@ impl Component {
     pub fn is_the_same(&self, other: &Self) -> bool {
         if self.version != other.version {
             return false;
-        } else if self.features != other.features {
-            return false;
-        } else if self.requires != other.requires {
-            return false;
-        } else if self.rustup_channel != other.rustup_channel {
-            return false;
-        } else if self.installed_file != other.installed_file {
-            return false;
-        } else {
-            true
         }
+        if self.features != other.features {
+            return false;
+        }
+        if self.requires != other.requires {
+            return false;
+        }
+        if self.rustup_channel != other.rustup_channel {
+            return false;
+        }
+        if self.installed_file != other.installed_file {
+            return false;
+        }
+        true
     }
 }
 
@@ -283,10 +290,12 @@ impl core::str::FromStr for UserChannel {
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::channel::Channel;
-    use crate::channel::Component;
-    use crate::version::Authority;
+    use crate::{
+        channel::{Channel, Component},
+        version::Authority,
+    };
 
     #[test]
     fn check_components_to_update() {
