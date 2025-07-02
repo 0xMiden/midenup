@@ -1,7 +1,7 @@
 use crate::{
     channel::{Channel, ChannelAlias, UserChannel},
     manifest::Manifest,
-    toolchain::Toolchain,
+    toolchain::{Toolchain, ToolchainFile},
     utils,
     version::Authority,
     Config,
@@ -13,11 +13,6 @@ use std::io::Write;
 use anyhow::{bail, Context};
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
-
-#[derive(Serialize, Debug)]
-struct ToolchainFile {
-    toolchain: Toolchain,
-}
 
 pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_path = config.pwd.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
@@ -32,7 +27,7 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let components: Vec<String> = components.lines().map(String::from).collect();
 
     let installed_toolchain = Toolchain::new(channel.clone(), components);
-    let installed_toolchain = ToolchainFile { toolchain: installed_toolchain };
+    let installed_toolchain = ToolchainFile::new(installed_toolchain);
 
     let mut toolchain_file = std::fs::File::create(toolchain_file_path)
         .context("Failed to create miden-toolchain.toml")?;

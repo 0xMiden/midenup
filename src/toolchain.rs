@@ -5,9 +5,24 @@ use crate::channel::UserChannel;
 
 /// Represents a `miden-toolchain.toml` file
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ToolchainFile {
+    toolchain: Toolchain,
+}
+
+/// The actual contents of the toolchain
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Toolchain {
     pub channel: UserChannel,
     pub components: Vec<String>,
+}
+
+impl ToolchainFile {
+    pub fn new(toolchain: Toolchain) -> Self {
+        ToolchainFile { toolchain }
+    }
+    fn inner_toolchain(self) -> Toolchain {
+        self.toolchain
+    }
 }
 
 impl Default for Toolchain {
@@ -46,6 +61,9 @@ impl Toolchain {
                 format!("unable to read toolchain file '{}'", toolchain_file.display())
             })?;
 
-        toml::from_str(&toolchain_file_contents).context("invalid toolchain file")
+        let toolchain_file: ToolchainFile =
+            toml::from_str(&toolchain_file_contents).context("invalid toolchain file")?;
+
+        Ok(toolchain_file.inner_toolchain())
     }
 }

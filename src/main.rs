@@ -172,6 +172,7 @@ fn main() -> anyhow::Result<()> {
 
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::current()?;
+            std::dbg!(&toolchain);
 
             // Compute the effective PATH for this command
             let toolchain_bin = config
