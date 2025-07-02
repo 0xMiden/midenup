@@ -214,6 +214,9 @@ fn main() {
     let vm = channel
         .get_component("vm")
         .expect("Miden VM is a required component, but isn't available");
+    let midenc = channel
+        .get_component("midenc")
+        .expect("The miden compiler is a required component, but isn't available");
     let cargo_miden = channel
         .get_component("cargo-miden")
         .expect("The cargo-miden extension is a required component, but isn't available");
@@ -251,7 +254,7 @@ fn main() {
         .collect::<Vec<_>>();
 
     // The set of components to be installed with `cargo install`
-    let installable_components = [vm, cargo_miden]
+    let installable_components = [vm, cargo_miden, midenc]
         .into_iter()
         .map(|component| {
             let mut args = vec![];
