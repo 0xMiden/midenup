@@ -23,6 +23,12 @@
           "installed_file": "miden"
         },
         {
+          "name": "miden-client",
+          "package": "miden-cli",
+          "version": "0.9.3",
+          "installed_file": "miden"
+        },
+        {
           "name": "midenc",
           "version": "0.1.0",
           "rustup_channel": "nightly-2025-03-20"
