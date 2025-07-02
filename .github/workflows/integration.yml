@@ -85,4 +85,3 @@ jobs:
       - name: update stable
         run: |
           MIDENUP_MANIFEST_URI=file://tests/data/update-stable/manifest-post-update.json ./midenup update stable
-     # TODO(fabrio): Add filesystem validation

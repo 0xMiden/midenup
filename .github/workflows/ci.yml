@@ -97,6 +97,7 @@ jobs:
     # benefit that we can re-use the cache from the unit test job for all integration tests
     needs: [unit_tests]
     runs-on: ubuntu-latest
+    if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
     steps:
       - uses: actions/checkout@v4
 
