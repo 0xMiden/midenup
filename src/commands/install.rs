@@ -3,11 +3,12 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
+    bail,
     channel::{Channel, ChannelAlias},
     manifest::Manifest,
     utils,
     version::Authority,
+    Config,
 };
 
 /// Installs a specified toolchain by channel or version.
@@ -217,6 +218,9 @@ fn main() {
     let midenc = channel
         .get_component("midenc")
         .expect("The miden compiler is a required component, but isn't available");
+    let client = channel
+        .get_component("miden-client")
+        .expect("Miden client is a required component, but isn't available");
     let cargo_miden = channel
         .get_component("cargo-miden")
         .expect("The cargo-miden extension is a required component, but isn't available");
@@ -254,7 +258,7 @@ fn main() {
         .collect::<Vec<_>>();
 
     // The set of components to be installed with `cargo install`
-    let installable_components = [vm, cargo_miden, midenc]
+    let installable_components = [vm, cargo_miden, midenc, client]
         .into_iter()
         .map(|component| {
             let mut args = vec![];
@@ -312,7 +316,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
