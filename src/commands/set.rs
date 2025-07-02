@@ -1,16 +1,12 @@
-use crate::{
-    channel::{Channel, ChannelAlias, UserChannel},
-    manifest::Manifest,
-    toolchain::{Toolchain, ToolchainFile},
-    utils,
-    version::Authority,
-    Config,
-};
-
-use serde::{Deserialize, Serialize};
 use std::io::Write;
 
-use anyhow::{bail, Context};
+use anyhow::Context;
+
+use crate::{
+    Config,
+    channel::UserChannel,
+    toolchain::{Toolchain, ToolchainFile},
+};
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
 
