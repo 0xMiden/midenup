@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
@@ -56,6 +56,11 @@ enum Commands {
     /// Show information about the midenup environment
     #[command(subcommand)]
     Show(commands::ShowCommand),
+    Set {
+        /// The channel or version to set, e.g. `stable` or `0.15.0`
+        #[arg(required(true), value_name = "CHANNEL", value_parser)]
+        channel: UserChannel,
+    },
     /// Update your installed Miden toolchains
     Update {
         /// If provided, updates only the specified channel.
@@ -94,6 +99,7 @@ impl Commands {
             },
             Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
             Self::Show(cmd) => cmd.execute(config),
+            Self::Set { channel } => commands::set(config, channel),
         }
     }
 }

@@ -236,7 +236,7 @@ impl Component {
 
 /// User-facing channel reference
 #[derive(Serialize, Debug, Clone)]
-#[serde(untagged, rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum UserChannel {
     // This variant is tried first, then stable, then nightly, then fallback
     Version(semver::Version),

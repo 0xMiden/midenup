@@ -6,6 +6,7 @@ use crate::manifest::Manifest;
 
 #[derive(Debug)]
 pub struct Config {
+    pub pwd: PathBuf,
     pub midenup_home: PathBuf,
     pub manifest: Manifest,
 }
@@ -13,8 +14,9 @@ pub struct Config {
 impl Config {
     pub fn init(midenup_home: PathBuf, manifest_uri: impl AsRef<str>) -> anyhow::Result<Config> {
         let manifest = Manifest::load_from(manifest_uri)?;
+        let pwd = std::env::current_dir().context("Could not obtain present working directory")?;
 
-        let config = Config { midenup_home, manifest };
+        let config = Config { midenup_home, manifest, pwd };
 
         Ok(config)
     }

@@ -26,6 +26,9 @@ impl Default for Toolchain {
 }
 
 impl Toolchain {
+    pub fn new(channel: UserChannel, components: Vec<String>) -> Self {
+        Toolchain { channel, components }
+    }
     pub fn current() -> anyhow::Result<Self> {
         // Check for a `miden-toolchain.toml` file in $CWD
         let cwd = std::env::current_dir().context("unable to read current working directory")?;
