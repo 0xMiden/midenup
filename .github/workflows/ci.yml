@@ -90,14 +90,32 @@ jobs:
       - name: Run tests
         run: make test
 
+  define-matrix:
+    runs-on: ubuntu-latest
+
+    outputs:
+      integration_tests_list: ${{ steps.integration_tests_list.outputs.integration_tests_list }}
+
+    steps:
+      - name: Define integration list
+        id: integration_tests_list
+        # This shell script looks for all functions named 'integration' and groups them in an array like, comma separated format.
+        # e.g.: ["integration_install_stable","integration_update_stable","integration_update_specific_component","integration_rollback_specific_component"]
+        # NOTE: This is by no means bulletproof, but as long as only testing functions are named 'integration*', this should work
+        run: |
+          find -H . -name '*.rs' -exec grep 'fn integration' {\} +  | tr -d '()[]{}' | awk 'BEGIN { print "integration_tests_list=[" } {print "\"" $NF "\","} END { print "]" }' | tr -d '\n' | sed 's/,\]/\]/' >> "$GITHUB_OUTPUT"
+
   integration_test:
-    # These tests will
     name: integration tests
     # We only want to run the integration tests if the unit tests pass, and that has the added
     # benefit that we can re-use the cache from the unit test job for all integration tests
-    needs: [unit_tests]
+    needs: [define-matrix, unit_tests]
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+    strategy:
+      matrix:
+        integration_test: ${{ fromJSON(needs.define-matrix.outputs.integration_tests_list) }}
+
     steps:
       - uses: actions/checkout@v4
 
@@ -122,4 +140,4 @@ jobs:
         run: cargo check --tests
 
       - name: run tests
-        run: make integration-test
+        run: cargo nextest run ${{ matrix.integration_test }}
