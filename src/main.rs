@@ -69,6 +69,7 @@ enum Commands {
     },
 }
 
+const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 /// Global configuration options for `midenup`
 #[derive(Debug, Args)]
 struct GlobalArgs {
@@ -80,7 +81,7 @@ struct GlobalArgs {
         long,
         hide(true),
         value_name = "FILE",
-        env = "MIDENUP_MANIFEST_URI",
+        env = MIDENUP_MANIFEST_URI_ENV,
         default_value = manifest::Manifest::PUBLISHED_MANIFEST_URI
     )]
     manifest_uri: String,
@@ -121,7 +122,10 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
-            Config::init(midenup_home, "file://manifest/channel-manifest.json")?
+
+            let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
+                .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
+            Config::init(midenup_home, manifest_uri)?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
@@ -165,9 +169,14 @@ fn main() -> anyhow::Result<()> {
                 // When 'help' is invoked, we should look for the target exe in argv[1], and present
                 // help accordingly
                 "help" => todo!(),
-                "build" => ("cargo", vec!["miden", "build"]),
-                "new" => ("cargo", vec!["miden", "new"]),
-                other => (other, vec![]),
+                "build" => {
+                    (String::from("cargo"), vec![String::from("miden"), String::from("build")])
+                },
+                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
+                other => {
+                    let command = format!("miden-{other}");
+                    (command, vec![])
+                },
             };
 
             // Make sure we know the current toolchain so we can modify the PATH appropriately
