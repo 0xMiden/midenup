@@ -11,7 +11,8 @@ use crate::{
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
 
 pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
-    let toolchain_file_path = config.pwd.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
+    let toolchain_file_path =
+        config.working_directory.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
 
     let current_components_list = config
         .midenup_home
