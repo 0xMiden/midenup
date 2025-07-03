@@ -169,9 +169,14 @@ fn main() -> anyhow::Result<()> {
                 // When 'help' is invoked, we should look for the target exe in argv[1], and present
                 // help accordingly
                 "help" => todo!(),
-                "build" => ("cargo", vec!["miden", "build"]),
-                "new" => ("cargo", vec!["miden", "new"]),
-                other => (other, vec![]),
+                "build" => {
+                    (String::from("cargo"), vec![String::from("miden"), String::from("build")])
+                },
+                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
+                other => {
+                    let command = format!("miden-{other}");
+                    (command, vec![])
+                },
             };
 
             // Make sure we know the current toolchain so we can modify the PATH appropriately
