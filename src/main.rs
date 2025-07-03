@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
