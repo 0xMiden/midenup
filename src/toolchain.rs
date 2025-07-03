@@ -5,7 +5,7 @@ use crate::channel::UserChannel;
 
 /// Represents a `miden-toolchain.toml` file
 #[derive(Serialize, Deserialize, Debug)]
-pub struct ToolchainFile {
+pub(crate) struct ToolchainFile {
     toolchain: Toolchain,
 }
 
