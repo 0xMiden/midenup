@@ -23,6 +23,9 @@ upon = { version = "0.9.0", default-features = false, features = [
     "unicode",
 ] }
 
+[dev-dependencies]
+tempdir = "0.3.7"
+
 [profile.release]
 opt-level = 2
 codegen-units = 1

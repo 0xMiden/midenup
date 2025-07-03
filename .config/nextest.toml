@@ -1,0 +1,11 @@
+[test-groups]
+serial-integration = { max-threads = 1 }
+
+# Rustup does not support concurrent usage.  See issue number 988
+# (https://github.com/rust-lang/rustup/issues/988). Hence, tests that use rustup
+# need to have the "integration-install-serial" prefix in order to force serial
+# execution.
+[[profile.default.overrides]]
+filter = 'test(integration)'
+test-group = 'serial-integration'
+

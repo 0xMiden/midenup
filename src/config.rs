@@ -4,6 +4,7 @@ use anyhow::Context;
 
 use crate::manifest::Manifest;
 
+#[derive(Debug)]
 pub struct Config {
     pub midenup_home: PathBuf,
     pub manifest: Manifest,

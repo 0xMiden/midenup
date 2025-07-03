@@ -60,3 +60,28 @@ jobs:
       - name: install stable
         run: |
           ./midenup install stable
+
+  update:
+    name: install stable, then update it
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download midenup executable
+        uses: actions/download-artifact@v4
+        with:
+          name: midenup_exe
+          path: .
+      - name: Mark midenup it as executable
+        run: |
+          chmod +x midenup
+      - name: initialize midenup directory
+        run: |
+          ./midenup init
+      - name: install old stable
+        run: |
+          MIDENUP_MANIFEST_URI=file://tests/data/update-stable/manifest-pre-update.json ./midenup install stable
+      - name: update stable
+        run: |
+          MIDENUP_MANIFEST_URI=file://tests/data/update-stable/manifest-post-update.json ./midenup update stable

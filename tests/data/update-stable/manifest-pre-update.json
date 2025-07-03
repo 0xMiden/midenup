@@ -1,9 +1,9 @@
 {
   "manifest_version": "1.0",
-  "date": 1749330054,
+  "date": 1745931671,
   "channels": [
     {
-      "name": "0.15.0",
+      "name": "0.14.0",
       "components": [
         {
           "name": "std",
@@ -19,8 +19,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.15.0",
-          "features": ["executable", "concurrent"],
-          "installed_file": "miden"
+          "features": ["executable", "concurrent"]
         },
         {
           "name": "midenc",
