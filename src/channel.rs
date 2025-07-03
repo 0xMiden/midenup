@@ -238,10 +238,11 @@ impl Component {
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum UserChannel {
-    // This variant is tried first, then stable, then nightly, then fallback
-    Version(semver::Version),
     Stable,
     Nightly,
+    #[serde(untagged)]
+    Version(semver::Version),
+    #[serde(untagged)]
     Other(Cow<'static, str>),
 }
 
