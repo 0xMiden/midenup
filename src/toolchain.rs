@@ -20,6 +20,7 @@ impl ToolchainFile {
     pub fn new(toolchain: Toolchain) -> Self {
         ToolchainFile { toolchain }
     }
+
     fn inner_toolchain(self) -> Toolchain {
         self.toolchain
     }
