@@ -97,6 +97,8 @@ jobs:
       integration_tests_list: ${{ steps.integration_tests_list.outputs.integration_tests_list }}
 
     steps:
+      - uses: actions/checkout@v4
+
       - name: Define integration list
         id: integration_tests_list
         # This shell script looks for all functions named 'integration' and groups them in an array like, comma separated format.
