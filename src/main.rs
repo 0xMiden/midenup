@@ -188,11 +188,18 @@ fn main() -> anyhow::Result<()> {
                 .join("toolchains")
                 .join(toolchain.channel.to_string())
                 .join("bin");
+            let path = match std::env::var_os("PATH") {
+                Some(prev_path) => {
+                    let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
+                    path.push(prev_path);
+                    path
+                },
+                None => toolchain_bin.into_os_string(),
+            };
 
-            let target_exe_path = toolchain_bin.join(target_exe);
-
-            let mut output = std::process::Command::new(target_exe_path)
+            let mut output = std::process::Command::new(target_exe)
                 .env("MIDENUP_HOME", &config.midenup_home)
+                .env("PATH", path)
                 .args(prefix_args)
                 .args(argv.iter().skip(2))
                 .stderr(std::process::Stdio::inherit())
