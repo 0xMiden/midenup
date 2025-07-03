@@ -103,7 +103,9 @@ jobs:
         # e.g.: ["integration_install_stable","integration_update_stable","integration_update_specific_component","integration_rollback_specific_component"]
         # NOTE: This is by no means bulletproof, but as long as only testing functions are named 'integration*', this should work
         run: |
-          find -H . -name '*.rs' -exec grep 'fn integration' {\} +  | tr -d '()[]{}' | awk 'BEGIN { print "integration_tests_list=[" } {print "\"" $NF "\","} END { print "]" }' | tr -d '\n' | sed 's/,\]/\]/' >> "$GITHUB_OUTPUT"
+          list=$(find -H . -name '*.rs' -exec grep 'fn integration' {} +  | tr -d '()[]{}' | awk 'BEGIN { print "integration_tests_list=[" } {print "\"" $NF "\","} END { print "]" }' | tr -d '\n' | sed 's/,\]/\]/')
+          echo "$list" >> "$GITHUB_OUTPUT"
+          echo "$list"
 
   integration_test:
     name: integration tests
