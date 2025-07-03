@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
@@ -69,6 +69,7 @@ enum Commands {
     },
 }
 
+const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 /// Global configuration options for `midenup`
 #[derive(Debug, Args)]
 struct GlobalArgs {
@@ -80,7 +81,7 @@ struct GlobalArgs {
         long,
         hide(true),
         value_name = "FILE",
-        env = "MIDENUP_MANIFEST_URI",
+        env = MIDENUP_MANIFEST_URI_ENV,
         default_value = manifest::Manifest::PUBLISHED_MANIFEST_URI
     )]
     manifest_uri: String,
@@ -121,7 +122,10 @@ fn main() -> anyhow::Result<()> {
                 .ok_or_else(|| {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
-            Config::init(midenup_home, "file://manifest/channel-manifest.json")?
+
+            let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
+                .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
+            Config::init(midenup_home, manifest_uri)?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
