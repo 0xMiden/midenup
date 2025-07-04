@@ -238,11 +238,11 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Git(uri) => {
+            Authority::Git { repository_url } => {
                 upon::value! {
                     package: component.name.clone(),
                     version: "> 0.0.0",
-                    git_uri: uri.clone(),
+                    git_uri: repository_url.clone(),
                     path: "",
                 }
             },
@@ -269,9 +269,9 @@ fn main() {
                     args.push("--version".to_string());
                     args.push(version.to_string());
                 },
-                Authority::Git(repo_uri) => {
+                Authority::Git{repository_url} => {
                     args.push("--git".to_string());
-                    args.push(repo_uri.clone());
+                    args.push(repository_url.clone());
                 },
                 Authority::Path(path) => {
                     args.push("--path".to_string());
