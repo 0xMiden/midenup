@@ -25,6 +25,7 @@
         {
           "name": "miden-client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "crate_name": "miden-cli",
           "installed_file": "miden-client"
         },
         {
