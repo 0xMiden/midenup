@@ -279,7 +279,7 @@ mod tests {
         let manifest = Manifest::load_from(FILE).unwrap();
 
         let stable = manifest
-            .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 15, 0)))
             .unwrap_or_else(|| {
                 panic!(
                     "Could not convert UserChannel to internal channel representation from
