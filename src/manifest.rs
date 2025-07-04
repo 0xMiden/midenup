@@ -66,7 +66,7 @@ impl Manifest {
                 return Err(ManifestError::Empty);
             }
             serde_json::from_str::<Manifest>(&contents)
-                .map_err(|_| ManifestError::Invalid(String::from("invalid channel manifest")))
+                .map_err(|e| ManifestError::Invalid(format!("Invalid channel manifest: {e}")))
         } else if uri.starts_with("https://") {
             let mut data = Vec::new();
             let mut handle = curl::easy::Easy::new();
@@ -271,5 +271,37 @@ mod tests {
         );
 
         assert_eq!(stable.alias, Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build"))));
+    }
+
+    #[test]
+    fn component_via_git() {
+        const FILE: &str = "file://tests/data/manifest-with-git.json";
+        let manifest = Manifest::load_from(FILE).unwrap();
+
+        let stable = manifest
+            .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+            .unwrap_or_else(|| {
+                panic!(
+                    "Could not convert UserChannel to internal channel representation from
+        {FILE}"
+                )
+            });
+
+        assert_eq!(
+            stable.name,
+            semver::Version {
+                major: 0,
+                minor: 15,
+                patch: 0,
+                pre: semver::Prerelease::new("custom-dev-build").expect("invalid pre-release"),
+                build: semver::BuildMetadata::EMPTY,
+            }
+        );
+
+        assert_eq!(stable.alias, Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build"))));
+
+        let git_component = stable
+            .get_component("miden-client")
+            .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
     }
 }
