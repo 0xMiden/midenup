@@ -24,9 +24,8 @@
         },
         {
           "name": "miden-client",
-          "package": "miden-cli",
-          "version": "0.9.3",
-          "installed_file": "miden"
+          "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "installed_file": "miden-client"
         },
         {
           "name": "midenc",
