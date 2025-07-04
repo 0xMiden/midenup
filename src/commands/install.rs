@@ -115,7 +115,7 @@ fn generate_install_script(channel: &Channel) -> String {
 [dependencies]
 {%- for dep in dependencies %}
 {{ dep.package }} = { version = "{{ dep.version }}"
-{%- if dep.git_uri %}, git = "{{ dep.uri }}"
+{%- if dep.git_uri %}, git = "{{ dep.git_uri }}"
 {%- else if dep.path %}, path = "{{ dep.path }}"
 {%- endif %} }
 {%- endfor %}
@@ -210,7 +210,7 @@ fn main() {
         .get_component("std")
         .expect("Miden standard library is a required component, but isn't available");
     let base = channel
-        .get_component("base")
+        .get_component("miden-lib")
         .expect("Miden transation kernel library is a required component, but isn't available");
     let vm = channel
         .get_component("vm")
@@ -242,7 +242,7 @@ fn main() {
                 upon::value! {
                     package: component.name.clone(),
                     version: "> 0.0.0",
-                    git_uri: format!("{}, {}", repository_url.clone(), target.to_string()),
+                    git_uri: format!("{}\", {target}", repository_url.clone()),
                     path: "",
                 }
             },

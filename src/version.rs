@@ -21,7 +21,7 @@ impl fmt::Display for GitTarget {
         match &self {
             GitTarget::Branch(branch_name) => write!(f, "branch = {branch_name}"),
             GitTarget::Revision(hash) => write!(f, "rev = {hash}"),
-            GitTarget::Tag(tag) => write!(f, "tag = {tag}"),
+            GitTarget::Tag(tag) => write!(f, "tag = \"{tag}"),
         }
     }
 }
