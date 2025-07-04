@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 /// Used to specify a particular revision of a repository.
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum GitTarget {
     Branch(String),
     Revision(String),
@@ -52,7 +53,7 @@ pub enum Authority {
         crate_name: String,
         /// NOTE: If the target is missing from the [Manifest], then we assume
         /// that it is pointing to the tip of the `main` branch
-        #[serde(default)]
+        #[serde(default, flatten)]
         target: GitTarget,
     },
     /// The authority for this tool/toolchain is crates.io
