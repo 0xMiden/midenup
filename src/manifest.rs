@@ -279,7 +279,7 @@ mod tests {
         let manifest = Manifest::load_from(FILE).unwrap();
 
         let stable = manifest
-            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 15, 0)))
             .unwrap_or_else(|| {
                 panic!(
                     "Could not convert UserChannel to internal channel representation from
@@ -293,18 +293,18 @@ mod tests {
                 major: 0,
                 minor: 15,
                 patch: 0,
-                pre: semver::Prerelease::new("custom-dev-build").expect("invalid pre-release"),
+                pre: semver::Prerelease::EMPTY,
                 build: semver::BuildMetadata::EMPTY,
             }
         );
 
-        assert_eq!(stable.alias, Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build"))));
+        assert_eq!(stable.alias, None);
 
-        let client_via_git = stable
+        let _client_via_git = stable
             .get_component("miden-client")
             .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
 
-        let miden_lib_via_git = stable
+        let _miden_lib_via_git = stable
             .get_component("base")
             .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
     }
