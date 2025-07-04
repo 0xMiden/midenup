@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Authority {
-    /// The authority for this tool/toolchain is a git repository.
-    Git { repository_url: String },
     /// The authority for this tool/toolchain is a local filesystem path
     Path(PathBuf),
+    /// The authority for this tool/toolchain is a git repository.
+    #[serde(untagged)]
+    Git { repository_url: String },
     /// The authority for this tool/toolchain is crates.io
     #[serde(untagged)]
     Cargo {
