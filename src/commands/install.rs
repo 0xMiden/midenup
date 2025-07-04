@@ -319,7 +319,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manifest::Manifest, UserChannel};
+    use crate::{UserChannel, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {
