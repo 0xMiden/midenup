@@ -209,7 +209,7 @@ fn main() {
         .get_component("std")
         .expect("Miden standard library is a required component, but isn't available");
     let base = channel
-        .get_component("miden-lib")
+        .get_component("base")
         .expect("Miden transation kernel library is a required component, but isn't available");
     let vm = channel
         .get_component("vm")
@@ -237,9 +237,9 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Git { repository_url, target, .. } => {
+            Authority::Git { repository_url, crate_name, target } => {
                 upon::value! {
-                    package: component.name.clone(),
+                    package: crate_name,
                     version: "> 0.0.0",
                     git_uri: format!("{}\", {target}", repository_url.clone()),
                     path: "",
@@ -319,7 +319,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
