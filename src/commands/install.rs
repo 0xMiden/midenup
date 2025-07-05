@@ -114,7 +114,7 @@ fn generate_install_script(channel: &Channel) -> String {
 [dependencies]
 {%- for dep in dependencies %}
 {{ dep.package }} = { version = "{{ dep.version }}"
-{%- if dep.git_uri %}, git = "{{ dep.uri }}"
+{%- if dep.git_uri %}, git = "{{ dep.git_uri }}"
 {%- else if dep.path %}, path = "{{ dep.path }}"
 {%- endif %} }
 {%- endfor %}
@@ -214,6 +214,9 @@ fn main() {
     let vm = channel
         .get_component("vm")
         .expect("Miden VM is a required component, but isn't available");
+    let client = channel
+        .get_component("miden-client")
+        .expect("Miden client is a required component, but isn't available");
     let midenc = channel
         .get_component("midenc")
         .expect("The miden compiler is a required component, but isn't available");
@@ -234,11 +237,11 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Git(uri) => {
+            Authority::Git { repository_url, crate_name, target } => {
                 upon::value! {
-                    package: component.name.clone(),
+                    package: crate_name,
                     version: "> 0.0.0",
-                    git_uri: uri.clone(),
+                    git_uri: format!("{}\", {target}", repository_url.clone()),
                     path: "",
                 }
             },
@@ -254,7 +257,8 @@ fn main() {
         .collect::<Vec<_>>();
 
     // The set of components to be installed with `cargo install`
-    let installable_components = [vm, cargo_miden, midenc]
+
+    let installable_components = [vm, cargo_miden, midenc, client]
         .into_iter()
         .map(|component| {
             let mut args = vec![];
@@ -265,9 +269,12 @@ fn main() {
                     args.push("--version".to_string());
                     args.push(version.to_string());
                 },
-                Authority::Git(repo_uri) => {
+                Authority::Git{repository_url, target, crate_name} => {
                     args.push("--git".to_string());
-                    args.push(repo_uri.clone());
+                    args.push(repository_url.clone());
+                    args.push(target.to_cargo_flag()[0].clone());
+                    args.push(target.to_cargo_flag()[1].clone());
+                    args.push(crate_name.clone());
                 },
                 Authority::Path(path) => {
                     args.push("--path".to_string());

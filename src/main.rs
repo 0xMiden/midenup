@@ -260,6 +260,7 @@ mod tests {
 
         (local_manifest, config)
     }
+
     #[test]
     fn integration_install_stable() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
@@ -442,6 +443,7 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn integration_rollback_specific_component() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");

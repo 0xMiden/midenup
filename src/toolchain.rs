@@ -34,6 +34,7 @@ impl Default for Toolchain {
                 "std".to_string(),
                 "base".to_string(),
                 "vm".to_string(),
+                "miden-client".to_string(),
                 "midenc".to_string(),
                 "cargo-miden".to_string(),
             ],
