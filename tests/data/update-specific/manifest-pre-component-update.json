@@ -22,6 +22,13 @@
           "features": ["executable", "concurrent"]
         },
         {
+          "name": "miden-client",
+          "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "branch": "fabrizioorsi/midenup-exe-patch",
+          "crate_name": "miden-client-cli",
+          "installed_file": "miden-client-cli"
+        },
+        {
           "name": "midenc",
           "version": "0.1.0",
           "rustup_channel": "nightly-2025-03-20"
