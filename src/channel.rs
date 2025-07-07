@@ -7,7 +7,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::version::Authority;
+use crate::{
+    utils,
+    version::{Authority, GitTarget},
+};
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -47,25 +50,26 @@ impl Channel {
     }
 
     /// This functions compares the Channel &self, with a newer channel [newer]
-    /// and returns the vector of elements that need to be updated.
+    /// and returns the list of [Components] that need to be updated.
     pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
-        let new: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
+        let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
         let current: HashSet<&Component> = HashSet::from_iter(self.components.iter());
 
         // This is the subset of new components present in the channel since
         // last sync.
-        let new_components = new.difference(&current);
+        // NOTE: Equality between components is done via their name, see
+        // [Component::eq].
+        let new_components = new_channel.difference(&current);
 
         // This is the subset of old components that need to be removed.
-        let old_components = current.difference(&new);
+        let old_components = current.difference(&new_channel);
 
         // These are the elements that are present in boths sets. We need which
         // components need updating.
-        // NOTE: Equality between components is done via their name, see
-        // [Component::eq].
-        let components_to_update = current.intersection(&new).filter(|current_component| {
-            let new_component = new.get(*current_component);
-            // We are only interested in component which are different
+        let components_to_update = current.intersection(&new_channel).filter(|current_component| {
+            let new_component = new_channel.get(*current_component);
+            // We only want to update components that share the same name but
+            // differ in some other field.
             if let Some(new_component) = new_component {
                 !current_component.is_the_same(new_component)
             } else {
@@ -76,10 +80,48 @@ impl Channel {
             }
         });
 
+        // NOTE: Components that are installed via git BRANCHES are a special
+        // case because when to check if new commits have been pushed since the
+        // component was installed.  When these are installed, the lastest
+        // available commit hash is saved with them in the local manifest. We
+        // use this to check if an update is in order.
+        // Do note that the upstream manifest is not needed for these.
+        let git_components = {
+            let mut git_components: HashSet<Component> = HashSet::new();
+            for component in self.components.iter() {
+                if let Authority::Git {
+                    repository_url,
+                    target: GitTarget::Branch { name, latest_revision },
+                    ..
+                } = &component.version
+                {
+                    // If, for whatever reason, we fail to find the latest hash, we
+                    // simply leave it empty. That does mean that an update will be
+                    // triggered even if the component does not need it.
+                    let revision_hash = utils::find_latest_hash(repository_url, name).ok();
+
+                    match (latest_revision, revision_hash) {
+                        (Some(latest_revision), Some(revision_hash)) => {
+                            if *latest_revision != revision_hash {
+                                git_components.insert(component.clone());
+                            }
+                        },
+                        // If either is missing, trigger an update regardless.
+                        _ => {
+                            let _ = git_components.insert(component.clone());
+                        },
+                    }
+                }
+            }
+
+            git_components
+        };
+
         let components = new_components
             .chain(old_components)
             .chain(components_to_update)
-            .map(|c| (*c).clone());
+            .map(|c| (*c).clone())
+            .chain(git_components);
 
         Vec::from_iter(components)
     }

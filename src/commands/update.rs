@@ -137,6 +137,21 @@ fn update_channel(
                     .wait()
                     .context("failed to uninstall component '{{ component.name }}'")?;
             },
+            Authority::Git { crate_name, .. } => {
+                let mut remove_exe = std::process::Command::new("cargo")
+                    .arg("uninstall")
+                    .arg(crate_name)
+                    .arg("--root")
+                    .arg(&toolchain_dir)
+                    .stderr(std::process::Stdio::inherit())
+                    .stdout(std::process::Stdio::inherit())
+                    .spawn()
+                    .with_context(|| format!("failed to uninstall {crate_name} via cargo"))?;
+
+                remove_exe
+                    .wait()
+                    .context("failed to uninstall component '{{ component.name }}'")?;
+            },
             _ => todo!(),
         }
     }

@@ -7,7 +7,7 @@ use crate::{
     channel::{Channel, ChannelAlias},
     manifest::Manifest,
     utils,
-    version::Authority,
+    version::{Authority, GitTarget},
     Config,
 };
 
@@ -76,16 +76,50 @@ pub fn install(
     }
 
     // Update local manifest
+    // -------------------------------------------------------------------------
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    {
+        // Check if the installed channel needs to marked as stable
+        let mut channel_to_save = if is_latest_stable {
+            let mut modifiable = channel.clone();
+            modifiable.alias = Some(ChannelAlias::Stable);
+            modifiable
+        } else {
+            channel.clone()
+        };
 
-    let channel_to_save = if is_latest_stable {
-        let mut modifiable = channel.clone();
-        modifiable.alias = Some(ChannelAlias::Stable);
-        modifiable
-    } else {
-        channel.clone()
-    };
-    local_manifest.add_channel(channel_to_save);
+        // If a component was installed with --branch, then write down the
+        // current commit. This is used on updates to check if any new commits
+        // were pushed and the component thus needs to be updated.
+        // NOTE: To check the latest commit we're using git cli instead. Would
+        // it be prefereable to use git-rs instead?
+        for component in channel_to_save.components.iter_mut() {
+            if let Authority::Git {
+                repository_url,
+                crate_name,
+                // NOTE: latest_revision should be None when installing.
+                target: GitTarget::Branch { name, latest_revision: _ },
+            } = &component.version
+            {
+                // If, for whatever reason, we fail to find the latest hash, we
+                // simply leave it empty. That does mean that an update will be
+                // triggered even if the component does not need it.
+                let revision_hash = utils::find_latest_hash(repository_url, name).ok();
+
+                component.version = Authority::Git {
+                    repository_url: repository_url.clone(),
+                    crate_name: crate_name.clone(),
+                    target: GitTarget::Branch {
+                        name: name.clone(),
+                        latest_revision: revision_hash,
+                    },
+                }
+            }
+        }
+
+        // Now that the channels have been updated, add them to the local manifest.
+        local_manifest.add_channel(channel_to_save);
+    }
 
     let mut local_manifest_file =
         std::fs::File::create(&local_manifest_path).with_context(|| {
@@ -319,7 +353,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
