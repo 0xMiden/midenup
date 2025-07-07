@@ -46,6 +46,8 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
     }
 
+    /// This functions compares the Channel &self, with a newer channel [newer]
+    /// and returns the vector of elements that need to be updated.
     pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
         let new: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
         let current: HashSet<&Component> = HashSet::from_iter(self.components.iter());

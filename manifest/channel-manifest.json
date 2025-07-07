@@ -25,7 +25,7 @@
         {
           "name": "miden-client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "branch": "fabrizioorsi/midenup-exe-patch",
+          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "crate_name": "miden-client-cli",
           "installed_file": "miden-client-cli"
         },
