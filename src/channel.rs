@@ -344,10 +344,16 @@ impl core::str::FromStr for UserChannel {
 mod tests {
     use crate::{
         channel::{Channel, Component},
-        version::Authority,
+        version::{Authority, GitTarget},
     };
 
     #[test]
+    /// This tests checks that the [Channel::components_to_update] functions behaves as intended.
+    /// Here the following updates need to be performed:
+    /// - vm requires update 0.12.0 -> 0.15.0
+    /// - std requires downgrade from 0.15.0 -> 0.12.0
+    /// - a so called "removed-component" needs to be deleted
+    /// - a so called "new-component" needs to be added
     fn check_components_to_update() {
         let old_components = [
             Component {
@@ -374,8 +380,6 @@ mod tests {
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
-                // This should be present in the update vector
-                // Component that got removed
                 version: Authority::Cargo {
                     package: Some(String::from("deleted-repo")),
                     version: semver::Version::new(0, 82, 77),
@@ -401,8 +405,6 @@ mod tests {
         let new_components = [
             Component {
                 name: std::borrow::Cow::Borrowed("vm"),
-                // This should be present in the update vector
-                // Newer version
                 version: Authority::Cargo {
                     package: Some(String::from("miden-vm")),
                     version: semver::Version::new(0, 15, 0),
@@ -414,11 +416,9 @@ mod tests {
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
-                // This should be present in the update vector
-                // Newer version
                 version: Authority::Cargo {
                     package: Some(String::from("miden-stdlib")),
-                    version: semver::Version::new(0, 16, 0),
+                    version: semver::Version::new(0, 12, 0),
                 },
                 features: Vec::new(),
                 requires: Vec::new(),
@@ -427,8 +427,6 @@ mod tests {
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
-                // This should be present in the update vector
-                // New component all together.
                 version: Authority::Cargo {
                     package: Some(String::from("new-repo")),
                     version: semver::Version::new(78, 69, 87),
@@ -464,11 +462,6 @@ mod tests {
         };
 
         let components = old.components_to_update(&new);
-
-        // To see how many elements and a brief explanation regarding why, run
-        // the following command from the project root:
-        // grep "This should be present in the update vector" src/channel.rs -A 1 -B 1
-        // Sidenote: This line will also appear
 
         assert_eq!(components.len(), 4);
         assert!(components.iter().any(|c| c.name == "vm"));
