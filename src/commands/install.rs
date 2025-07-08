@@ -90,7 +90,7 @@ pub fn install(
 
         // If a component was installed with --branch, then write down the
         // current commit. This is used on updates to check if any new commits
-        // were pushed and the component thus needs to be updated.
+        // were pushed since installation.
         // NOTE: To check the latest commit we're using git cli instead. Would
         // it be prefereable to use git-rs instead?
         for component in channel_to_save.components.iter_mut() {
