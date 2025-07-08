@@ -68,9 +68,9 @@ impl Channel {
         // components need updating.
         let components_to_update = current.intersection(&new_channel).filter(|current_component| {
             let new_component = new_channel.get(*current_component);
-            // We only want to update components that share the same name but
-            // differ in some other field.
             if let Some(new_component) = new_component {
+                // We only want to update components that share the same name but
+                // differ in some other field.
                 !current_component.is_the_same(new_component)
             } else {
                 // This should't be possible, but if somehow the component is
@@ -81,28 +81,33 @@ impl Channel {
         });
 
         // NOTE: Components that are installed via git BRANCHES are a special
-        // case because when to check if new commits have been pushed since the
-        // component was installed.  When these are installed, the lastest
-        // available commit hash is saved with them in the local manifest. We
-        // use this to check if an update is in order.
+        // case because we need to check if new commits have been pushed since
+        // the component was installed.  When these components are installed,
+        // the lastest available commit hash is saved with them in the local
+        // manifest. We use this to check if an update is in order.
         // Do note that the upstream manifest is not needed for these.
         let git_components = {
             let mut git_components: HashSet<Component> = HashSet::new();
             for component in self.components.iter() {
                 if let Authority::Git {
                     repository_url,
-                    target: GitTarget::Branch { name, latest_revision },
+                    target:
+                        GitTarget::Branch {
+                            name,
+                            latest_revision: latest_local_revision,
+                        },
                     ..
                 } = &component.version
                 {
-                    // If, for whatever reason, we fail to find the latest hash, we
-                    // simply leave it empty. That does mean that an update will be
-                    // triggered even if the component does not need it.
-                    let revision_hash = utils::find_latest_hash(repository_url, name).ok();
+                    // If, for whatever reason, we fail to find the latest hash,
+                    // we simply leave it empty. That does mean that an update
+                    // will be triggered even if the component does not need it.
+                    let latest_upstream_revision =
+                        utils::find_latest_hash(repository_url, name).ok();
 
-                    match (latest_revision, revision_hash) {
-                        (Some(latest_revision), Some(revision_hash)) => {
-                            if *latest_revision != revision_hash {
+                    match (latest_local_revision, latest_upstream_revision) {
+                        (Some(local_revision), Some(upstream_revision)) => {
+                            if *local_revision != upstream_revision {
                                 git_components.insert(component.clone());
                             }
                         },
