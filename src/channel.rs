@@ -71,7 +71,7 @@ impl Channel {
             if let Some(new_component) = new_component {
                 // We only want to update components that share the same name but
                 // differ in some other field.
-                !current_component.is_the_same(new_component)
+                !current_component.is_up_to_date(new_component)
             } else {
                 // This should't be possible, but if somehow the component is
                 // missing, then we trigger an update for said component
@@ -80,53 +80,10 @@ impl Channel {
             }
         });
 
-        // NOTE: Components that are installed via git BRANCHES are a special
-        // case because we need to check if new commits have been pushed since
-        // the component was installed.  When these components are installed,
-        // the lastest available commit hash is saved with them in the local
-        // manifest. We use this to check if an update is in order.
-        // Do note that the upstream manifest is not needed for these.
-        let git_components = {
-            let mut git_components: HashSet<Component> = HashSet::new();
-            for component in self.components.iter() {
-                if let Authority::Git {
-                    repository_url,
-                    target:
-                        GitTarget::Branch {
-                            name,
-                            latest_revision: latest_local_revision,
-                        },
-                    ..
-                } = &component.version
-                {
-                    // If, for whatever reason, we fail to find the latest hash,
-                    // we simply leave it empty. That does mean that an update
-                    // will be triggered even if the component does not need it.
-                    let latest_upstream_revision =
-                        utils::find_latest_hash(repository_url, name).ok();
-
-                    match (latest_local_revision, latest_upstream_revision) {
-                        (Some(local_revision), Some(upstream_revision)) => {
-                            if *local_revision != upstream_revision {
-                                git_components.insert(component.clone());
-                            }
-                        },
-                        // If either is missing, trigger an update regardless.
-                        _ => {
-                            let _ = git_components.insert(component.clone());
-                        },
-                    }
-                }
-            }
-
-            git_components
-        };
-
         let components = new_components
             .chain(old_components)
             .chain(components_to_update)
-            .map(|c| (*c).clone())
-            .chain(git_components);
+            .map(|c| (*c).clone());
 
         Vec::from_iter(components)
     }
@@ -260,25 +217,85 @@ impl Component {
         }
     }
 
-    /// NOTE: This method is used to check if two components share properties
-    /// BESIDES the name. The [Component::eq] implementation (which only tests
-    /// name equality) is used to comply with the std's requirements.
-    pub fn is_the_same(&self, other: &Self) -> bool {
-        if self.version != other.version {
+    /// NOTE: This method is used to check if the current Component is up to
+    /// date with its upstream equivalent. This is used to check if they
+    /// different in fields BESIDES the name. The [Component::eq] implementation
+    /// only tests name equality and is only used to check for components that
+    /// got added/removed.
+    pub fn is_up_to_date(&self, upstream: &Self) -> bool {
+        match (&self.version, &upstream.version) {
+            // NOTE: Components that are installed via git BRANCHES are a special
+            // case because we need to check if new commits have been pushed since
+            // the component was installed.  When these components are installed,
+            // the lastest available commit hash is saved with them in the local
+            // manifest. We use this to check if an update is in order.
+            // Do note that the upstream manifest is not needed for these.
+            (
+                Authority::Git {
+                    repository_url: repository_url_a,
+                    target:
+                        GitTarget::Branch {
+                            name: name_a,
+                            latest_revision: local_revision,
+                        },
+                    ..
+                },
+                Authority::Git {
+                    repository_url: repository_url_b,
+                    target: GitTarget::Branch { name: name_b, .. },
+                    ..
+                },
+            ) => {
+                if name_a != name_b {
+                    return false;
+                }
+                if repository_url_a != repository_url_b {
+                    return false;
+                }
+
+                // If, for whatever reason, we fail to find the latest hash,
+                // we simply leave it empty. That does mean that an update
+                // will be triggered even if the component does not need it.
+                let latest_upstream_revision =
+                    utils::find_latest_hash(repository_url_b.as_str(), name_b).ok();
+
+                match (local_revision, latest_upstream_revision) {
+                    (Some(local_revision), Some(upstream_revision)) => {
+                        if *local_revision != upstream_revision {
+                            return false;
+                        }
+                    },
+                    // If either is missing, trigger an update regardless.
+                    _ => {
+                        return false;
+                    },
+                };
+
+                return true;
+            },
+            (version_a, version_b) => {
+                if version_a != version_b {
+                    return false;
+                }
+            },
+        };
+
+        if self.features != upstream.features {
             return false;
         }
-        if self.features != other.features {
+
+        if self.requires != upstream.requires {
             return false;
         }
-        if self.requires != other.requires {
+
+        if self.rustup_channel != upstream.rustup_channel {
             return false;
         }
-        if self.rustup_channel != other.rustup_channel {
+
+        if self.installed_file != upstream.installed_file {
             return false;
         }
-        if self.installed_file != other.installed_file {
-            return false;
-        }
+
         true
     }
 }
@@ -468,5 +485,55 @@ mod tests {
         assert!(components.iter().any(|c| c.name == "removed-component"));
         assert!(components.iter().any(|c| c.name == "std"));
         assert!(components.iter().any(|c| c.name == "new-component"));
+    }
+
+    #[test]
+    /// Since the components that are tracked via git branches need special
+    /// treatment, we need to check that their behavior complies even if their
+    /// Authority changes.
+    fn update_component_from_git_to_cargo() {
+        let old_components = [Component {
+            name: std::borrow::Cow::Borrowed("miden-client"),
+            version: Authority::Git {
+                repository_url: String::from("https://github.com/0xMiden/miden-client.git"),
+                crate_name: String::from("miden-client-cli"),
+                target: GitTarget::Branch {
+                    name: String::from("main"),
+                    latest_revision: None,
+                },
+            },
+            features: Vec::new(),
+            requires: Vec::new(),
+            rustup_channel: None,
+            installed_file: None,
+        }];
+
+        let new_components = [Component {
+            name: std::borrow::Cow::Borrowed("miden-client"),
+            version: Authority::Cargo {
+                package: Some(String::from("miden-client-cli")),
+                version: semver::Version::new(0, 15, 0),
+            },
+            features: Vec::new(),
+            requires: Vec::new(),
+            rustup_channel: None,
+            installed_file: None,
+        }];
+
+        let old = Channel {
+            name: semver::Version::new(0, 0, 1),
+            alias: None,
+            components: old_components.to_vec(),
+        };
+
+        let new = Channel {
+            name: semver::Version::new(0, 0, 2),
+            alias: None,
+            components: new_components.to_vec(),
+        };
+
+        let components = old.components_to_update(&new);
+
+        assert_eq!(components.len(), 1);
     }
 }
