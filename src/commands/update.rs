@@ -152,7 +152,11 @@ fn update_channel(
                     .wait()
                     .context("failed to uninstall component '{{ component.name }}'")?;
             },
-            _ => todo!(),
+            Authority::Path(_path) => {
+                // We simply skip components that are pointing to a Path. We
+                // leave it to the user to determine when a component should be
+                // updated. They'd simply need to update the workspace manually.
+            },
         }
     }
 
