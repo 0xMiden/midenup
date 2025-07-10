@@ -53,7 +53,7 @@ impl Channel {
     /// and returns the list of [Components] that need to be updated.
     pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
         let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
-        let current: HashSet<&Component> = HashSet::from_iter(self.components.iter());
+        let current = HashSet::from_iter(self.components.iter());
 
         // This is the subset of new components present in the channel since
         // last sync.
