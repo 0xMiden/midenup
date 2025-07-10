@@ -75,7 +75,6 @@ pub fn install(
     }
 
     // Update local manifest
-    // -------------------------------------------------------------------------
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
     {
         // Check if the installed channel needs to marked as stable
@@ -90,8 +89,6 @@ pub fn install(
         // If a component was installed with --branch, then write down the
         // current commit. This is used on updates to check if any new commits
         // were pushed since installation.
-        // NOTE: To check the latest commit we're using git cli instead. Would
-        // it be prefereable to use git-rs instead?
         for component in channel_to_save.components.iter_mut() {
             if let Authority::Git {
                 repository_url,
