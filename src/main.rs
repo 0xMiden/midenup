@@ -399,7 +399,6 @@ mod tests {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
         };
         install.execute(&config, &mut local_manifest).expect("Failed to install 0.14.0");
-        std::thread::sleep(std::time::Duration::new(5, 5));
         let version = semver::Version::new(0, 14, 0);
         let old_std = local_manifest
             .get_channel(&UserChannel::Version(version.clone()))
@@ -412,6 +411,7 @@ mod tests {
             panic!("The old std's authority is not Cargo, despite having been installed with it");
         }
 
+        // This is used for debugging purposes in case the test fails.
         let mut show_toolchain_dir = std::process::Command::new("tree")
             .arg(tmp_home_path)
             .stderr(std::process::Stdio::inherit())
@@ -468,6 +468,7 @@ mod tests {
         assert!(toolchain_path.join("installation-successful").exists());
         assert!(toolchain_path.exists());
 
+        // This is used for debugging purposes in case the test fails.
         let mut show_toolchain_dir = std::process::Command::new("tree")
             .arg(tmp_home_path)
             .stderr(std::process::Stdio::inherit())

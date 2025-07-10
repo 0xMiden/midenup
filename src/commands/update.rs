@@ -1,4 +1,6 @@
-use anyhow::Context;
+use std::io::Read;
+
+use anyhow::{Context, bail};
 
 use crate::{
     Config,
@@ -118,9 +120,10 @@ fn update_channel(
     for exe in executables {
         match &exe.version {
             Authority::Cargo { package, .. } => {
+                let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
                 let mut remove_exe = std::process::Command::new("cargo")
                     .arg("uninstall")
-                    .arg(package.as_deref().unwrap_or(exe.name.as_ref()))
+                    .arg(package_name)
                     .arg("--root")
                     .arg(&toolchain_dir)
                     .stderr(std::process::Stdio::inherit())
@@ -133,9 +136,33 @@ fn update_channel(
                         )
                     })?;
 
-                remove_exe
-                    .wait()
-                    .context("failed to uninstall component '{{ component.name }}'")?;
+                let status = remove_exe.wait().context(format!(
+                    "Error occurred while waiting to uninstall {package_name}",
+                ))?;
+
+                if !status.success() {
+                    let error = remove_exe.stderr.take();
+
+                    let error_msg = if let Some(mut error) = error {
+                        let mut stderr_msg = String::new();
+                        let read_err_msg = error.read_to_string(&mut stderr_msg);
+
+                        if read_err_msg.is_err() {
+                            String::from("")
+                        } else {
+                            format!("The following error was raised: {stderr_msg}")
+                        }
+                    } else {
+                        String::from("")
+                    };
+
+                    bail!(
+                        "midenup failed to uninstall package {} with status {}. {}",
+                        package_name,
+                        status.code().unwrap_or(1),
+                        error_msg
+                    )
+                }
             },
             Authority::Git { crate_name, .. } => {
                 let mut remove_exe = std::process::Command::new("cargo")
@@ -148,9 +175,33 @@ fn update_channel(
                     .spawn()
                     .with_context(|| format!("failed to uninstall {crate_name} via cargo"))?;
 
-                remove_exe
+                let status = remove_exe
                     .wait()
-                    .context("failed to uninstall component '{{ component.name }}'")?;
+                    .context(format!("Error occurred while waiting to uninstall {crate_name}",))?;
+
+                if !status.success() {
+                    let error = remove_exe.stderr.take();
+
+                    let error_msg = if let Some(mut error) = error {
+                        let mut stderr_msg = String::new();
+                        let read_err_msg = error.read_to_string(&mut stderr_msg);
+
+                        if read_err_msg.is_err() {
+                            String::from("")
+                        } else {
+                            format!("The following error was raised: {stderr_msg}")
+                        }
+                    } else {
+                        String::from("")
+                    };
+
+                    bail!(
+                        "midenup failed to uninstall package {} with status {}. {}",
+                        crate_name,
+                        status.code().unwrap_or(1),
+                        error_msg
+                    )
+                }
             },
             Authority::Path(_path) => {
                 // We simply skip components that are pointing to a Path. We
