@@ -512,4 +512,26 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    #[should_panic]
+    /// This 'midenc' component present in this manifest is lacking its required
+    /// 'rustup_channel" and thus should fail to compile.
+    fn midenup_catches_installation_failure() {
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
+
+        const FILE_PRE_UPDATE: &str = "file://tests/data/manifest-uncompilable-midenc.json";
+
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+
+        let init = Commands::Init;
+        init.execute(&config, &mut local_manifest).expect("Failed to init");
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
+
+        let install = Commands::Install { channel: UserChannel::Stable };
+        install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+    }
 }
