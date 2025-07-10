@@ -7,7 +7,10 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::version::Authority;
+use crate::{
+    utils,
+    version::{Authority, GitTarget},
+};
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -46,26 +49,29 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
     }
 
+    /// This functions compares the Channel &self, with a newer channel [newer]
+    /// and returns the list of [Components] that need to be updated.
     pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
-        let new: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
-        let current: HashSet<&Component> = HashSet::from_iter(self.components.iter());
+        let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
+        let current = HashSet::from_iter(self.components.iter());
 
         // This is the subset of new components present in the channel since
         // last sync.
-        let new_components = new.difference(&current);
+        // NOTE: Equality between components is done via their name, see
+        // [Component::eq].
+        let new_components = new_channel.difference(&current);
 
         // This is the subset of old components that need to be removed.
-        let old_components = current.difference(&new);
+        let old_components = current.difference(&new_channel);
 
         // These are the elements that are present in boths sets. We need which
         // components need updating.
-        // NOTE: Equality between components is done via their name, see
-        // [Component::eq].
-        let components_to_update = current.intersection(&new).filter(|current_component| {
-            let new_component = new.get(*current_component);
-            // We are only interested in component which are different
+        let components_to_update = current.intersection(&new_channel).filter(|current_component| {
+            let new_component = new_channel.get(*current_component);
             if let Some(new_component) = new_component {
-                !current_component.is_the_same(new_component)
+                // We only want to update components that share the same name but
+                // differ in some other field.
+                !current_component.is_up_to_date(new_component)
             } else {
                 // This should't be possible, but if somehow the component is
                 // missing, then we trigger an update for said component
@@ -211,25 +217,85 @@ impl Component {
         }
     }
 
-    /// NOTE: This method is used to check if two components share properties
-    /// BESIDES the name. The [Component::eq] implementation (which only tests
-    /// name equality) is used to comply with the std's requirements.
-    pub fn is_the_same(&self, other: &Self) -> bool {
-        if self.version != other.version {
+    /// NOTE: This method is used to check if the current Component is up to
+    /// date with its upstream equivalent. This is used to check if they
+    /// different in fields BESIDES the name. The [Component::eq] implementation
+    /// only tests name equality and is only used to check for components that
+    /// got added/removed.
+    pub fn is_up_to_date(&self, upstream: &Self) -> bool {
+        match (&self.version, &upstream.version) {
+            // NOTE: Components that are installed via git BRANCHES are a special
+            // case because we need to check if new commits have been pushed since
+            // the component was installed.  When these components are installed,
+            // the lastest available commit hash is saved with them in the local
+            // manifest. We use this to check if an update is in order.
+            // Do note that the upstream manifest is not needed for these.
+            (
+                Authority::Git {
+                    repository_url: repository_url_a,
+                    target:
+                        GitTarget::Branch {
+                            name: name_a,
+                            latest_revision: local_revision,
+                        },
+                    ..
+                },
+                Authority::Git {
+                    repository_url: repository_url_b,
+                    target: GitTarget::Branch { name: name_b, .. },
+                    ..
+                },
+            ) => {
+                if name_a != name_b {
+                    return false;
+                }
+                if repository_url_a != repository_url_b {
+                    return false;
+                }
+
+                // If, for whatever reason, we fail to find the latest hash,
+                // we simply leave it empty. That does mean that an update
+                // will be triggered even if the component does not need it.
+                let latest_upstream_revision =
+                    utils::find_latest_hash(repository_url_b.as_str(), name_b).ok();
+
+                match (local_revision, latest_upstream_revision) {
+                    (Some(local_revision), Some(upstream_revision)) => {
+                        if *local_revision != upstream_revision {
+                            return false;
+                        }
+                    },
+                    // If either is missing, trigger an update regardless.
+                    _ => {
+                        return false;
+                    },
+                };
+
+                return true;
+            },
+            (version_a, version_b) => {
+                if version_a != version_b {
+                    return false;
+                }
+            },
+        };
+
+        if self.features != upstream.features {
             return false;
         }
-        if self.features != other.features {
+
+        if self.requires != upstream.requires {
             return false;
         }
-        if self.requires != other.requires {
+
+        if self.rustup_channel != upstream.rustup_channel {
             return false;
         }
-        if self.rustup_channel != other.rustup_channel {
+
+        if self.installed_file != upstream.installed_file {
             return false;
         }
-        if self.installed_file != other.installed_file {
-            return false;
-        }
+
         true
     }
 }
@@ -295,10 +361,16 @@ impl core::str::FromStr for UserChannel {
 mod tests {
     use crate::{
         channel::{Channel, Component},
-        version::Authority,
+        version::{Authority, GitTarget},
     };
 
     #[test]
+    /// This tests checks that the [Channel::components_to_update] functions behaves as intended.
+    /// Here the following updates need to be performed:
+    /// - vm requires update 0.12.0 -> 0.15.0
+    /// - std requires downgrade from 0.15.0 -> 0.12.0
+    /// - a so called "removed-component" needs to be deleted
+    /// - a so called "new-component" needs to be added
     fn check_components_to_update() {
         let old_components = [
             Component {
@@ -325,8 +397,6 @@ mod tests {
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
-                // This should be present in the update vector
-                // Component that got removed
                 version: Authority::Cargo {
                     package: Some(String::from("deleted-repo")),
                     version: semver::Version::new(0, 82, 77),
@@ -352,8 +422,6 @@ mod tests {
         let new_components = [
             Component {
                 name: std::borrow::Cow::Borrowed("vm"),
-                // This should be present in the update vector
-                // Newer version
                 version: Authority::Cargo {
                     package: Some(String::from("miden-vm")),
                     version: semver::Version::new(0, 15, 0),
@@ -365,11 +433,9 @@ mod tests {
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
-                // This should be present in the update vector
-                // Newer version
                 version: Authority::Cargo {
                     package: Some(String::from("miden-stdlib")),
-                    version: semver::Version::new(0, 16, 0),
+                    version: semver::Version::new(0, 12, 0),
                 },
                 features: Vec::new(),
                 requires: Vec::new(),
@@ -378,8 +444,6 @@ mod tests {
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
-                // This should be present in the update vector
-                // New component all together.
                 version: Authority::Cargo {
                     package: Some(String::from("new-repo")),
                     version: semver::Version::new(78, 69, 87),
@@ -416,15 +480,60 @@ mod tests {
 
         let components = old.components_to_update(&new);
 
-        // To see how many elements and a brief explanation regarding why, run
-        // the following command from the project root:
-        // grep "This should be present in the update vector" src/channel.rs -A 1 -B 1
-        // Sidenote: This line will also appear
-
         assert_eq!(components.len(), 4);
         assert!(components.iter().any(|c| c.name == "vm"));
         assert!(components.iter().any(|c| c.name == "removed-component"));
         assert!(components.iter().any(|c| c.name == "std"));
         assert!(components.iter().any(|c| c.name == "new-component"));
+    }
+
+    #[test]
+    /// Since the components that are tracked via git branches need special
+    /// treatment, we need to check that their behavior complies even if their
+    /// Authority changes.
+    fn update_component_from_git_to_cargo() {
+        let old_components = [Component {
+            name: std::borrow::Cow::Borrowed("miden-client"),
+            version: Authority::Git {
+                repository_url: String::from("https://github.com/0xMiden/miden-client.git"),
+                crate_name: String::from("miden-client-cli"),
+                target: GitTarget::Branch {
+                    name: String::from("main"),
+                    latest_revision: None,
+                },
+            },
+            features: Vec::new(),
+            requires: Vec::new(),
+            rustup_channel: None,
+            installed_file: None,
+        }];
+
+        let new_components = [Component {
+            name: std::borrow::Cow::Borrowed("miden-client"),
+            version: Authority::Cargo {
+                package: Some(String::from("miden-client-cli")),
+                version: semver::Version::new(0, 15, 0),
+            },
+            features: Vec::new(),
+            requires: Vec::new(),
+            rustup_channel: None,
+            installed_file: None,
+        }];
+
+        let old = Channel {
+            name: semver::Version::new(0, 0, 1),
+            alias: None,
+            components: old_components.to_vec(),
+        };
+
+        let new = Channel {
+            name: semver::Version::new(0, 0, 2),
+            alias: None,
+            components: new_components.to_vec(),
+        };
+
+        let components = old.components_to_update(&new);
+
+        assert_eq!(components.len(), 1);
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     channel::{Channel, ChannelAlias},
     manifest::Manifest,
     utils,
-    version::Authority,
+    version::{Authority, GitTarget},
 };
 
 /// Installs a specified toolchain by channel or version.
@@ -76,15 +76,46 @@ pub fn install(
 
     // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    {
+        // Check if the installed channel needs to marked as stable
+        let mut channel_to_save = if is_latest_stable {
+            let mut modifiable = channel.clone();
+            modifiable.alias = Some(ChannelAlias::Stable);
+            modifiable
+        } else {
+            channel.clone()
+        };
 
-    let channel_to_save = if is_latest_stable {
-        let mut modifiable = channel.clone();
-        modifiable.alias = Some(ChannelAlias::Stable);
-        modifiable
-    } else {
-        channel.clone()
-    };
-    local_manifest.add_channel(channel_to_save);
+        // If a component was installed with --branch, then write down the
+        // current commit. This is used on updates to check if any new commits
+        // were pushed since installation.
+        for component in channel_to_save.components.iter_mut() {
+            if let Authority::Git {
+                repository_url,
+                crate_name,
+                // NOTE: latest_revision should be None when installing.
+                target: GitTarget::Branch { name, latest_revision: _ },
+            } = &component.version
+            {
+                // If, for whatever reason, we fail to find the latest hash, we
+                // simply leave it empty. That does mean that an update will be
+                // triggered even if the component does not need it.
+                let revision_hash = utils::find_latest_hash(repository_url, name).ok();
+
+                component.version = Authority::Git {
+                    repository_url: repository_url.clone(),
+                    crate_name: crate_name.clone(),
+                    target: GitTarget::Branch {
+                        name: name.clone(),
+                        latest_revision: revision_hash,
+                    },
+                }
+            }
+        }
+
+        // Now that the channels have been updated, add them to the local manifest.
+        local_manifest.add_channel(channel_to_save);
+    }
 
     let mut local_manifest_file =
         std::fs::File::create(&local_manifest_path).with_context(|| {
@@ -114,7 +145,7 @@ fn generate_install_script(channel: &Channel) -> String {
 [dependencies]
 {%- for dep in dependencies %}
 {{ dep.package }} = { version = "{{ dep.version }}"
-{%- if dep.git_uri %}, git = "{{ dep.uri }}"
+{%- if dep.git_uri %}, git = "{{ dep.git_uri }}"
 {%- else if dep.path %}, path = "{{ dep.path }}"
 {%- endif %} }
 {%- endfor %}
@@ -217,6 +248,9 @@ fn main() {
     let midenc = channel
         .get_component("midenc")
         .expect("The miden compiler is a required component, but isn't available");
+    let client = channel
+        .get_component("miden-client")
+        .expect("Miden client is a required component, but isn't available");
     let cargo_miden = channel
         .get_component("cargo-miden")
         .expect("The cargo-miden extension is a required component, but isn't available");
@@ -234,11 +268,11 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Git(uri) => {
+            Authority::Git { repository_url, crate_name, target } => {
                 upon::value! {
-                    package: component.name.clone(),
+                    package: crate_name,
                     version: "> 0.0.0",
-                    git_uri: uri.clone(),
+                    git_uri: format!("{}\", {target}", repository_url.clone()),
                     path: "",
                 }
             },
@@ -254,7 +288,7 @@ fn main() {
         .collect::<Vec<_>>();
 
     // The set of components to be installed with `cargo install`
-    let installable_components = [vm, cargo_miden, midenc]
+    let installable_components = [vm, cargo_miden, midenc, client]
         .into_iter()
         .map(|component| {
             let mut args = vec![];
@@ -265,9 +299,12 @@ fn main() {
                     args.push("--version".to_string());
                     args.push(version.to_string());
                 },
-                Authority::Git(repo_uri) => {
+                Authority::Git{repository_url, target, crate_name} => {
                     args.push("--git".to_string());
-                    args.push(repo_uri.clone());
+                    args.push(repository_url.clone());
+                    args.push(target.to_cargo_flag()[0].clone());
+                    args.push(target.to_cargo_flag()[1].clone());
+                    args.push(crate_name.clone());
                 },
                 Authority::Path(path) => {
                     args.push("--path".to_string());
