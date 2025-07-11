@@ -184,6 +184,8 @@ miden help"
                     (String::from("cargo"), vec![String::from("miden"), String::from("build")])
                 },
                 "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
+                "account" => (String::from("miden-client"), vec![String::from("account")]),
+                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
                 // WARNING: Not yet present in `main`, will be part of the next release
                 "deploy" => (
                     String::from("miden-client"),
