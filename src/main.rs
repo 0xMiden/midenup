@@ -56,6 +56,8 @@ enum Commands {
     /// Show information about the midenup environment
     #[command(subcommand)]
     Show(commands::ShowCommand),
+    /// Sets the current active miden toolchain for the current project.
+    /// This creates a miden-toolchain.toml file.
     Set {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
@@ -164,7 +166,16 @@ fn main() -> anyhow::Result<()> {
     match cli.behavior {
         Behavior::Miden(argv) => {
             // Extract the target binary to execute from argv[1]
-            let subcommand = argv[1].to_str().expect("invalid command name");
+            let subcommand = argv
+                .get(1)
+                .ok_or(
+                    anyhow!(
+                        "ERROR: No arguments were passed to `miden`. To get a list of available commands, run:
+miden help"
+                    )
+                )?;
+            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+
             let (target_exe, prefix_args) = match subcommand {
                 // When 'help' is invoked, we should look for the target exe in argv[1], and present
                 // help accordingly
@@ -173,6 +184,19 @@ fn main() -> anyhow::Result<()> {
                     (String::from("cargo"), vec![String::from("miden"), String::from("build")])
                 },
                 "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
+                "account" => (String::from("miden-client"), vec![String::from("account")]),
+                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
+                // WARNING: Not yet present in `main`, will be part of the next release
+                "deploy" => (
+                    String::from("miden-client"),
+                    vec![String::from("new-wallet"), String::from("--deploy")],
+                ),
+                // WARNING: Not yet present in `main`, will be part of the next release
+                // NOTE: This commands needs a specific account to be specified
+                "call" => (
+                    String::from("miden-client"),
+                    vec![String::from("account"), String::from("-s")],
+                ),
                 other => {
                     let command = format!("miden-{other}");
                     (command, vec![])
