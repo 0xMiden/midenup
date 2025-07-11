@@ -184,6 +184,17 @@ miden help"
                     (String::from("cargo"), vec![String::from("miden"), String::from("build")])
                 },
                 "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
+                // WARNING: Not yet present in `main`, will be part of the next release
+                "deploy" => (
+                    String::from("miden-client"),
+                    vec![String::from("new-wallet"), String::from("--deploy")],
+                ),
+                // WARNING: Not yet present in `main`, will be part of the next release
+                // NOTE: This commands needs a specific account to be specified
+                "call" => (
+                    String::from("miden-client"),
+                    vec![String::from("account"), String::from("-s")],
+                ),
                 other => {
                     let command = format!("miden-{other}");
                     (command, vec![])
