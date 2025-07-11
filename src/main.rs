@@ -164,7 +164,16 @@ fn main() -> anyhow::Result<()> {
     match cli.behavior {
         Behavior::Miden(argv) => {
             // Extract the target binary to execute from argv[1]
-            let subcommand = argv[1].to_str().expect("invalid command name");
+            let subcommand = argv
+                .get(1)
+                .ok_or(
+                    anyhow!(
+                        "ERROR: No arguments were passed to `miden`. To get a list of available commands, run:
+miden help"
+                    )
+                )?;
+            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+
             let (target_exe, prefix_args) = match subcommand {
                 // When 'help' is invoked, we should look for the target exe in argv[1], and present
                 // help accordingly
