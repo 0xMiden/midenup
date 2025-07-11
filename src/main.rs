@@ -56,6 +56,8 @@ enum Commands {
     /// Show information about the midenup environment
     #[command(subcommand)]
     Show(commands::ShowCommand),
+    /// Sets the current active miden toolchain for the current project.
+    /// This creates a miden-toolchain.toml file.
     Set {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
