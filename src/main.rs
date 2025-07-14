@@ -10,6 +10,8 @@ use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
+use colored::Colorize;
+use commands::INSTALLABLE_COMPONENTS;
 
 pub use self::config::Config;
 use self::{
@@ -175,23 +177,54 @@ miden help"
                     )
                 )?;
             let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+            // Make sure we know the current toolchain so we can modify the PATH appropriately
+            let toolchain = Toolchain::current()?;
 
             let (target_exe, prefix_args) = match subcommand {
                 // When 'help' is invoked, we should look for the target exe in argv[1], and present
                 // help accordingly
-                "help" => todo!(),
+                "help" => {
+                    let available_components: String = toolchain
+                        .components
+                        .iter()
+                        .filter(|c| {
+                            let c = c.as_str();
+                            INSTALLABLE_COMPONENTS.contains(&c)
+                        })
+                        .map(|c| {
+                            let component_name = c.replace("miden-", "");
+                            format!("  {}\n", component_name.bold())
+                        })
+                        .collect();
+                    let help_message = format!(
+                        "The Miden toolchain porcelain
+
+{} {} <COMPONENT>
+
+Available components:
+{}
+
+Help:
+  help                   Print this help message
+  <COMPONENT> help       Print <COMPONENTS>'s help message
+",
+                        "Usage:".bold().underline(),
+                        "miden".bold(),
+                        available_components
+                    );
+                    std::println!("{help_message}");
+                    return Ok(());
+                },
                 "build" => {
                     (String::from("cargo"), vec![String::from("miden"), String::from("build")])
                 },
                 "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
                 "account" => (String::from("miden-client"), vec![String::from("account")]),
                 "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
-                // WARNING: Not yet present in `main`, will be part of the next release
                 "deploy" => (
                     String::from("miden-client"),
                     vec![String::from("new-wallet"), String::from("--deploy")],
                 ),
-                // WARNING: Not yet present in `main`, will be part of the next release
                 // NOTE: This commands needs a specific account to be specified
                 "call" => (
                     String::from("miden-client"),
@@ -202,9 +235,6 @@ miden help"
                     (command, vec![])
                 },
             };
-
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::current()?;
 
             // Compute the effective PATH for this command
             let toolchain_bin = config
