@@ -181,8 +181,6 @@ miden help"
             let toolchain = Toolchain::current()?;
 
             let (target_exe, prefix_args) = match subcommand {
-                // When 'help' is invoked, we should look for the target exe in argv[1], and present
-                // help accordingly
                 "help" => {
                     let available_components: String = toolchain
                         .components
