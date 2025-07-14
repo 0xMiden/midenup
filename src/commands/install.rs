@@ -10,6 +10,10 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
+pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
+
+pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "miden-client", "cargo-miden"];
+
 /// Installs a specified toolchain by channel or version.
 pub fn install(
     config: &Config,
@@ -273,27 +277,22 @@ fn main() {
         .unwrap_or_else(|err| panic!("invalid install script template: {err}"));
 
     // Prepare install script context with available channel components
-    let stdlib = channel
-        .get_component("std")
-        .expect("Miden standard library is a required component, but isn't available");
-    let base = channel
-        .get_component("base")
-        .expect("Miden transation kernel library is a required component, but isn't available");
-    let vm = channel
-        .get_component("vm")
-        .expect("Miden VM is a required component, but isn't available");
-    let midenc = channel
-        .get_component("midenc")
-        .expect("The miden compiler is a required component, but isn't available");
-    let client = channel
-        .get_component("miden-client")
-        .expect("Miden client is a required component, but isn't available");
-    let cargo_miden = channel
-        .get_component("cargo-miden")
-        .expect("The cargo-miden extension is a required component, but isn't available");
+    let dependencies: Vec<_> = DEPENDENCIES
+        .iter()
+        .map(|name| channel.get_component(name))
+        .collect::<Option<Vec<_>>>()
+        // TODO: Explain which
+        .expect("Missing miden dependencies");
+
+    let installable_components: Vec<_> = INSTALLABLE_COMPONENTS
+        .iter()
+        .map(|name| channel.get_component(name))
+        .collect::<Option<Vec<_>>>()
+        // TODO: Explain which
+        .expect("Missing miden installable components");
 
     // The set of cargo dependencies needed for the install script
-    let dependencies = [stdlib, base]
+    let dependencies = dependencies
         .into_iter()
         .map(|component| match &component.version {
             Authority::Cargo { package, version } => {
@@ -325,7 +324,7 @@ fn main() {
         .collect::<Vec<_>>();
 
     // The set of components to be installed with `cargo install`
-    let installable_components = [vm, cargo_miden, midenc, client]
+    let installable_components = installable_components
         .into_iter()
         .map(|component| {
             let mut args = vec![];
