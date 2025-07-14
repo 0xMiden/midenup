@@ -277,19 +277,21 @@ fn main() {
         .unwrap_or_else(|err| panic!("invalid install script template: {err}"));
 
     // Prepare install script context with available channel components
-    let dependencies: Vec<_> = DEPENDENCIES
-        .iter()
-        .map(|name| channel.get_component(name))
-        .collect::<Option<Vec<_>>>()
-        // TODO: Explain which
-        .expect("Missing miden dependencies");
+    let mut dependencies = Vec::new();
+    for dep_name in DEPENDENCIES.iter() {
+        let component = channel
+            .get_component(dep_name)
+            .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
+        dependencies.push(component);
+    }
 
-    let installable_components: Vec<_> = INSTALLABLE_COMPONENTS
-        .iter()
-        .map(|name| channel.get_component(name))
-        .collect::<Option<Vec<_>>>()
-        // TODO: Explain which
-        .expect("Missing miden installable components");
+    let mut installable_components = Vec::new();
+    for dep_name in INSTALLABLE_COMPONENTS.iter() {
+        let component = channel
+            .get_component(dep_name)
+            .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
+        installable_components.push(component);
+    }
 
     // The set of cargo dependencies needed for the install script
     let dependencies = dependencies
