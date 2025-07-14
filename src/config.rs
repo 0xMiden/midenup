@@ -52,13 +52,8 @@ impl Config {
         Ok(config)
     }
 
-    pub fn ensure_midenup_home_exists(&self) -> anyhow::Result<&Path> {
-        if !self.midenup_home.exists() {
-            std::fs::create_dir_all(&self.midenup_home).with_context(|| {
-                format!("failed to create MIDENUP_HOME with path: {}", self.midenup_home.display())
-            })?;
-        }
-
-        Ok(&self.midenup_home)
+    /// This ensures that the midneup directory is properly initialized.
+    pub fn ensure_midenup_home_exists(&self) -> anyhow::Result<()> {
+        commands::init(self)
     }
 }
