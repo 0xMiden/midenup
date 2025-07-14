@@ -231,8 +231,8 @@ Help:
                     String::from("miden-client"),
                     vec![String::from("account"), String::from("-s")],
                 ),
-                // "send" => todo!(),
-                // "simulate" => todo!(),
+                "send" => (String::from("miden-client"), vec![String::from("send")]),
+                "simulate" => (String::from("miden-client"), vec![String::from("exec")]),
                 other => {
                     let command = format!("miden-{other}");
                     (command, vec![])
