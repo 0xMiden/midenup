@@ -213,21 +213,26 @@ Help:
                     std::println!("{help_message}");
                     return Ok(());
                 },
+                "account" => (String::from("miden-client"), vec![String::from("account")]),
+                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
+                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
                 "build" => {
                     (String::from("cargo"), vec![String::from("miden"), String::from("build")])
                 },
-                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
-                "account" => (String::from("miden-client"), vec![String::from("account")]),
-                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
+                "test" => todo!(),
+                // "node" => todo!(),
                 "deploy" => (
                     String::from("miden-client"),
                     vec![String::from("new-wallet"), String::from("--deploy")],
                 ),
+                // "scan" => todo!(),
                 // NOTE: This commands needs a specific account to be specified
                 "call" => (
                     String::from("miden-client"),
                     vec![String::from("account"), String::from("-s")],
                 ),
+                // "send" => todo!(),
+                // "simulate" => todo!(),
                 other => {
                     let command = format!("miden-{other}");
                     (command, vec![])
