@@ -83,6 +83,11 @@ midenup install stable
     Ok(())
 }
 
+/// This function executes the actual update. It is in charge of "preparing the
+/// environmet" to then call [commands::install]. That preparation mainly
+/// consists of:
+/// - Uninstalls components (via cargo uninstall).
+/// - Removes the installation indicator file.
 fn update_channel(
     config: &Config,
     local_channel: &Channel,

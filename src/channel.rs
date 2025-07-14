@@ -18,8 +18,13 @@ use crate::{
 /// channel you are interested in to learn more.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
+    /// Channels are identified by their name. The name corresponds to the
+    /// channel's version.  The version can contain suffixes such as "-custom",
+    /// "-beta".
     pub name: semver::Version,
 
+    /// This is used to tag special channels. Most notably, the current "stable"
+    /// channel is marked with the [ChannelAlias::Stable] alias.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
 
@@ -32,7 +37,9 @@ impl Channel {
         let name = name.as_ref();
         self.components.iter().find(|c| c.name == name)
     }
-    /// Is this channel a stable release? Does not imply that it has the `stable` alias
+    /// Is this channel a stable release? Does not imply that it has the
+    /// `stable` alias.  To find out the latest stable [Channel], use:
+    /// [Manifest::get_latest_stable].
     pub fn is_stable(&self) -> bool {
         self.alias.as_ref().is_none_or(|alias| matches!(alias, ChannelAlias::Stable))
     }
@@ -50,7 +57,15 @@ impl Channel {
     }
 
     /// This functions compares the Channel &self, with a newer channel [newer]
-    /// and returns the list of [Components] that need to be updated.
+    /// and returns the list of [Components] that need to be update.
+    /// NOTE: A component can be marked for update in the following scenarios:
+    /// - The component got removed from the newer channel entirely and thus needs to be removed
+    ///   from the system.
+    /// - A new component is present in the upstream manifest and thus needs to be installed.
+    /// - A newer version of a present component is released and thus an upgrade is due.
+    /// - An *older* version of a component is released and thus a downgrade is due.
+    /// - A components [Authority] got changed and thus needs to be removed and re-installed with
+    ///   the new [Authority]
     pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
         let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
         let current: HashSet<&Component> = HashSet::from_iter(self.components.iter());
@@ -90,13 +105,13 @@ impl Channel {
 }
 
 impl Eq for Component {}
+/// NOTE: Two component are "partially equal" if their names are the
+/// same. This does not mean that they're equal, since they could differ
+/// in fields like versions.
+/// This is implmented manually, in order to make use of HashSets with
+/// components.
 impl PartialEq for Component {
     fn eq(&self, other: &Self) -> bool {
-        // NOTE: Two component are "partially equal" if their names are the
-        // same. This does not mean that they're equal, since they could differ
-        // in fields like versions.
-        // This is implmented manually, in order to make use of HashSets with
-        // components.
         self.name == other.name
     }
 }
@@ -133,14 +148,18 @@ impl PartialEq for Channel {
     }
 }
 
+/// A special alias/tag that a channel can posses. For more information see
+/// [Channel::alias].
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
-    /// Represents `stable`
+    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a
+    /// time.
     Stable,
     /// Represents either `nightly` or `nightly-$SUFFIX`
     Nightly(Option<Cow<'static, str>>),
-    /// An ad-hoc named alias for a channel
+    /// An ad-hoc named alias for a channel. This can be used to tag custom
+    /// channels with names such as `0.15.0-stable`.
     Tag(Cow<'static, str>),
 }
 
@@ -180,26 +199,28 @@ impl core::str::FromStr for ChannelAlias {
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
-    /// The canonical name of this toolchain component
+    /// The canonical name of this toolchain component.
     pub name: Cow<'static, str>,
-    /// The versioning authority for this component
+    /// The versioning authority for this component.
     #[serde(flatten)]
     pub version: Authority,
-    /// Optional features to enable, if applicable, when installing this component
+    /// Optional features to enable, if applicable, when installing this
+    /// component.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
-    /// Other components that are required if this component is installed
+    /// Other components that are required if this component is installed.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
-    /// If not None, then this component requires a specific toolchain to compile.
+    /// If not None, then this component requires a specific toolchain to
+    /// compile.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rustup_channel: Option<String>,
-
-    /// This field is used for crates that install files whose name is different than that of the
-    /// crate. For instance: miden-vm's executable is stored as 'miden'.
+    /// This field is used for crates that install files whose name is different
+    /// than that of the crate. For instance: miden-vm's executable is stored as
+    /// 'miden'.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub installed_file: Option<String>,
@@ -300,7 +321,11 @@ impl Component {
     }
 }
 
-/// User-facing channel reference
+/// User-facing channel reference. The main difference with this and [Channel]
+/// is the definition of "stable". The definition of "stable" 'under the hood'
+/// is the lastest available non-nightly channel. If the user passes
+/// [UserChannel::Stable] as the target channel, we then handle the mapping from
+/// it to the underlying [Channel] representation.
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum UserChannel {
