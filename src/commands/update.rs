@@ -6,6 +6,7 @@ use crate::{
     Config,
     channel::{Channel, UserChannel},
     commands,
+    commands::install::DEPENDENCIES,
     manifest::Manifest,
     version::Authority,
 };
@@ -107,9 +108,8 @@ fn update_channel(
 
     let updates = local_channel.components_to_update(upstream_channel);
 
-    let libs = ["std", "base"];
     let (libraries, executables): (Vec<_>, Vec<_>) =
-        updates.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+        updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
 
     for lib in libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
