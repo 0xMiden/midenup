@@ -31,12 +31,14 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         })?;
     }
     let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
-    std::fs::File::create(&local_manifest_file).with_context(|| {
-        format!(
-            "failed to create local manifest.json file in: '{}'",
-            local_manifest_file.display()
-        )
-    })?;
+    if !local_manifest_file.exists() {
+        std::fs::File::create(&local_manifest_file).with_context(|| {
+            format!(
+                "failed to create local manifest.json file in: '{}'",
+                local_manifest_file.display()
+            )
+        })?;
+    }
 
     let bin_dir = config.midenup_home.join("bin");
     if !bin_dir.exists() {
