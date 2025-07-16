@@ -3,9 +3,9 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
+    Config,
     channel::UserChannel,
     toolchain::{Toolchain, ToolchainFile},
-    Config,
 };
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
