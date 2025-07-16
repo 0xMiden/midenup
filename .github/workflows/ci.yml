@@ -120,8 +120,7 @@ jobs:
 
       - name: Bypass rustup's cargo, use the cargo executable directly
         run: |
-          echo "$(rustc --print sysroot)/bin":"${GITHUB_PATH}" > "${GITHUB_PATH}"
-          cat "${GITHUB_PATH}"
+          source .github/auxiliary_scripts/cargo-wrapper.sh
 
       - name: Check tests
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
