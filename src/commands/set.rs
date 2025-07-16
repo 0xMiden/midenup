@@ -3,9 +3,9 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config,
     channel::UserChannel,
     toolchain::{Toolchain, ToolchainFile},
+    Config,
 };
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
@@ -20,7 +20,17 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
         .join(channel.to_string())
         .join("installation-successful");
 
-    let components = std::fs::read_to_string(current_components_list).unwrap();
+    let components = {
+        match std::fs::read_to_string(current_components_list) {
+            Ok(componets) => componets,
+            Err(_) => {
+                std::println!(
+                    "WARNING: Non present toolchain was set. Component list will be left empty"
+                );
+                String::default()
+            },
+        }
+    };
     let components: Vec<String> = components.lines().map(String::from).collect();
 
     let installed_toolchain = Toolchain::new(channel.clone(), components);
