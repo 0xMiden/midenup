@@ -100,7 +100,7 @@ impl Commands {
     /// Execute the requested subcommand
     fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
         match &self {
-            Self::Init => commands::init(config),
+            Self::Init => commands::init(config, local_manifest),
             Self::Install { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
