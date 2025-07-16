@@ -104,6 +104,9 @@ jobs:
       - name: Install rust
         run: |
           rustup update --no-self-update
+          rustup install stable
+          rustup install nightly
+          rustup install nightly-2025-03-20
           rustc --version
 
       - uses: taiki-e/install-action@nextest
