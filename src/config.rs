@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
 
-use crate::manifest::Manifest;
+use crate::{commands, manifest::Manifest};
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
