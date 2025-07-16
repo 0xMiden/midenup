@@ -66,6 +66,10 @@ impl Toolchain {
         let toolchain_file: ToolchainFile =
             toml::from_str(&toolchain_file_contents).context("invalid toolchain file")?;
 
-        Ok(toolchain_file.inner_toolchain())
+        let present_toolchain = toolchain_file.inner_toolchain();
+
+        Ok(present_toolchain)
+    }
+
     }
 }
