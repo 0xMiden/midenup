@@ -24,7 +24,7 @@ pub fn update(
 midenup install stable
 ",
             )?;
-            // NOTE: This means that there is no stable toolchain upstram.  This
+            // NOTE: This means that there is no stable toolchain upstream.  This
             // is most likely an edge-case that shouldn't happen. If it does
             // happen, it probably means there's an error in midenup's parsing.
             let upstream_stable = config
