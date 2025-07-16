@@ -168,14 +168,10 @@ fn main() -> anyhow::Result<()> {
     match cli.behavior {
         Behavior::Miden(argv) => {
             // Extract the target binary to execute from argv[1]
-            let subcommand = argv
-                .get(1)
-                .ok_or(
-                    anyhow!(
-                        "ERROR: No arguments were passed to `miden`. To get a list of available commands, run:
+            let subcommand = argv.get(1).ok_or(anyhow!(
+                "No arguments were passed to `miden`. To get a list of available commands, run:
 miden help"
-                    )
-                )?;
+            ))?;
             let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::current()?;
