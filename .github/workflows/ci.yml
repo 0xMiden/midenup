@@ -115,6 +115,10 @@ jobs:
           prefix-key: ${{ env.RUST_CACHE_KEY }}
           save-if: false
 
+      - name: Bypass rustup's cargo, use the cargo executable directly
+        run: |
+          echo "$(rustc --print sysroot)/bin":"${GITHUB_PATH}" > "${GITHUB_PATH}"
+
       - name: Check tests
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
