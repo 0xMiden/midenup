@@ -42,6 +42,8 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_contents = toml::to_string_pretty(&installed_toolchain)
         .context("Failed to generate miden-toolchain.toml")?;
 
-    toolchain_file.write_all(&toolchain_file_contents.into_bytes()).unwrap();
+    toolchain_file
+        .write_all(&toolchain_file_contents.into_bytes())
+        .context("Failed to write miden-toolchain.toml")?;
     Ok(())
 }
