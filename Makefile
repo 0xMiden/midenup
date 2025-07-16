@@ -27,7 +27,7 @@ test-build: ## Build the test binary
 
 .PHONY: test
 test: ## Run all tests, except integration
-	cargo nextest run -- --skip integration
+	cargo nextest run  --no-capture -- --skip integration
 
 .PHONY: integration-test
 integration-test: ## Run all integration tests
