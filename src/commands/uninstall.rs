@@ -31,8 +31,8 @@ pub fn uninstall(
             Some(installed_successfully)
         } else if installation_in_progress.exists() {
             // If this file exists, it means that installation got cut off
-            // before finishing.  In this case, we simply delete the files that
-            // were installed.
+            // before finishing.  In this case, we simply delete the components
+            // that managed get installed.
             Some(installation_in_progress)
         } else {
             None
@@ -70,8 +70,8 @@ Contents: {}",
     // Right after reading the components list, we delete the file. This way, if
     // anything goes wrong during uninstallation, a user can simply re-install
     // to get back to a "stable" state.
-    // QUESTION: Should we panic if we fail to delete this file? It is most
-    // likely going to be deleted regardless.
+    // NOTE: We are ignoring errors when deleting this file, since it will
+    // (hopefully) get deleted at the end of this function.
     let _ = std::fs::remove_file(installed_components_path);
 
     // Now that the installation indicator is deleted, we can remove the
@@ -81,7 +81,7 @@ Contents: {}",
         let stable_symlink = installed_toolchains_dir.join("stable");
 
         // If the symlink doesn't exist, then it probably means that
-        // installation got cut off mid way through
+        // installation got cut off mid way through.
         if stable_symlink.exists() {
             std::fs::remove_file(stable_symlink).context("Couldn't remove symlink")?;
         }
