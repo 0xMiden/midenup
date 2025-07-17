@@ -172,6 +172,7 @@ fn generate_install_script(channel: &Channel) -> String {
 
 use std::process::Command;
 use std::io::{Write, Read};
+use std::fs::{OpenOptions, rename};
 
 fn main() {
     // MIDEN_SYSROOT is set by `midenup` when invoking this script, and will contain the resolved
@@ -179,6 +180,12 @@ fn main() {
     // components.
     let miden_sysroot_dir = std::path::Path::new(env!("MIDEN_SYSROOT"));
     let lib_dir = miden_sysroot_dir.join("lib");
+
+    // As we install components, we write them down in this file. This is used
+    // to keep track of successfully installed components in case installation
+    // fails.
+    let progress_path = miden_sysroot_dir.join(".installation-in-progress");
+    let progress_file = std::fs::File::create(progress_path.as_path()).expect("failed to create installation in progress file");
 
     // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
     let tx = miden_lib::MidenLib::default();
@@ -200,6 +207,13 @@ fn main() {
             .write_to_file(&stdlib_path)
             .expect("failed to install Miden standard library component");
     }
+
+    // We'll log which components we have successfully installed.
+    let mut progress_file = OpenOptions::new()
+        .append(true)
+        .open(&progress_path)
+        .expect("Failed to create progress file");
+
 
     let bin_dir = miden_sysroot_dir.join("bin");
     {% for component in installable_components %}
@@ -253,24 +267,14 @@ fn main() {
             );
         }
     }
+    writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
 
     {% endfor %}
 
-    // This file indicates that installation finished successfully
+    // Now that installation finished, we rename the file to indicate that
+    // installation finished successfully.
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
-
-    let mut installed_packages = String::new();
-    {% for component in installable_components %}
-    installed_packages.push_str(String::from("{{component.name}}").clone().as_str());
-    installed_packages.push('\n');
-    {% endfor %}
-    {%- for dep in dependencies %}
-    installed_packages.push_str(String::from("{{dep.package}}").clone().as_str());
-    installed_packages.push('\n');
-    {% endfor %}
-
-    let mut checkpoint = std::fs::File::create(checkpoint_path.as_path()).expect("failed to create installation checkpoint path");
-    checkpoint.write_all(&installed_packages.into_bytes()).expect("Couldn't write to file");
+    rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
 }
 "#,
         )
