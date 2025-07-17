@@ -186,6 +186,12 @@ fn main() {
     // fails.
     let progress_path = miden_sysroot_dir.join(".installation-in-progress");
     let progress_file = std::fs::File::create(progress_path.as_path()).expect("failed to create installation in progress file");
+    // We'll log which components we have successfully installed.
+    let mut progress_file = OpenOptions::new()
+        .append(true)
+        .open(&progress_path)
+        .expect("Failed to create progress file");
+
 
     // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
     let tx = miden_lib::MidenLib::default();
@@ -197,6 +203,7 @@ fn main() {
             .write_to_file(&tx_path)
             .expect("failed to install Miden transaction kernel library component");
     }
+    writeln!(progress_file, "base").expect("Failed to write component name to progress file");
 
     // Write stdlib to $MIDEN_SYSROOT/std.masp
     let stdlib = miden_stdlib::StdLibrary::default();
@@ -207,12 +214,7 @@ fn main() {
             .write_to_file(&stdlib_path)
             .expect("failed to install Miden standard library component");
     }
-
-    // We'll log which components we have successfully installed.
-    let mut progress_file = OpenOptions::new()
-        .append(true)
-        .open(&progress_path)
-        .expect("Failed to create progress file");
+    writeln!(progress_file, "std").expect("Failed to write component name to progress file");
 
 
     let bin_dir = miden_sysroot_dir.join("bin");
