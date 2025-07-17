@@ -2,17 +2,16 @@ use std::{
     ffi::OsStr,
     fmt::Display,
     io::{Read, Write},
-    path::Path,
 };
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 
 use crate::{
+    Config,
     channel::{Channel, Component},
     commands::install::DEPENDENCIES,
     manifest::Manifest,
     version::Authority,
-    Config,
 };
 
 pub fn uninstall(
