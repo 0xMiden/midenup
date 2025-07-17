@@ -157,7 +157,7 @@ fn generate_install_script(channel: &Channel) -> String {
     let engine = upon::Engine::new();
     let template = engine
         .compile(
-            r#"#!/usr/bin/env cargo
+            r##"#!/usr/bin/env cargo
 ---cargo
 [dependencies]
 {%- for dep in dependencies %}
@@ -185,7 +185,8 @@ fn main() {
     // to keep track of successfully installed components in case installation
     // fails.
     let progress_path = miden_sysroot_dir.join(".installation-in-progress");
-    let progress_file = std::fs::File::create(progress_path.as_path()).expect("failed to create installation in progress file");
+    // Done to truncate the file if it exists
+    let _progress_file = std::fs::File::create(progress_path.as_path()).expect("failed to create installation in progress file");
     // We'll log which components we have successfully installed.
     let mut progress_file = OpenOptions::new()
         .append(true)
@@ -277,8 +278,13 @@ fn main() {
     // installation finished successfully.
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
+
+    let channel_json = r#"{{ channel_json }}"#;
+    let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
+    let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
+    installed_json.write_all(&channel_json.as_bytes()).unwrap();
 }
-"#,
+"##,
         )
         .unwrap_or_else(|err| panic!("invalid install script template: {err}"));
 
@@ -384,6 +390,7 @@ fn main() {
             upon::value! {
                 dependencies: dependencies,
                 installable_components: installable_components,
+                channel_json : serde_json::to_string_pretty(channel).unwrap(),
             },
         )
         .to_string()
