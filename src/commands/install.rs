@@ -181,6 +181,12 @@ fn main() {
     let miden_sysroot_dir = std::path::Path::new(env!("MIDEN_SYSROOT"));
     let lib_dir = miden_sysroot_dir.join("lib");
 
+    // We save the state the channel was in when installed. This is used when uninstalling.
+    let channel_json = r#"{{ channel_json }}"#;
+    let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
+    let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
+    installed_json.write_all(&channel_json.as_bytes()).unwrap();
+
     // As we install components, we write them down in this file. This is used
     // to keep track of successfully installed components in case installation
     // fails.
@@ -279,10 +285,6 @@ fn main() {
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
 
-    let channel_json = r#"{{ channel_json }}"#;
-    let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
-    let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
-    installed_json.write_all(&channel_json.as_bytes()).unwrap();
 }
 "##,
         )

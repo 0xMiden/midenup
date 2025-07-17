@@ -2,6 +2,7 @@ use std::io::Read;
 
 use anyhow::{Context, bail};
 
+use super::install::DEPENDENCIES;
 use crate::{
     Config,
     channel::{Channel, UserChannel},
@@ -102,7 +103,7 @@ fn update_channel(
 
     let updates = local_channel.components_to_update(upstream_channel);
 
-    let libs = ["std", "base"];
+    let libs = DEPENDENCIES;
     let (libraries, executables): (Vec<_>, Vec<_>) =
         updates.iter().partition(|c| libs.contains(&(c.name.as_ref())));
 

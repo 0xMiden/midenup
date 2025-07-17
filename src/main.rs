@@ -55,6 +55,12 @@ enum Commands {
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: UserChannel,
     },
+    /// Uninstall a Miden toolchain
+    Uninstall {
+        /// The channel or version to install, e.g. `stable` or `0.15.0`
+        #[arg(required(true), value_name = "CHANNEL", value_parser)]
+        channel: UserChannel,
+    },
     /// Show information about the midenup environment
     #[command(subcommand)]
     Show(commands::ShowCommand),
@@ -101,6 +107,12 @@ impl Commands {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
                 commands::install(config, channel, local_manifest)
+            },
+            Self::Uninstall { channel, .. } => {
+                let Some(channel) = config.manifest.get_channel(channel) else {
+                    bail!("channel '{}' doesn't exist or is unavailable", channel);
+                };
+                commands::uninstall(config, channel, local_manifest)
             },
             Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
             Self::Show(cmd) => cmd.execute(config),
