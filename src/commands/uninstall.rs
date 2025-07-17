@@ -23,7 +23,6 @@ pub fn uninstall(
 
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
-    // let components: Vec<String> = components.lines().map(String::from).collect();
     let installed_components_path = {
         let installed_successfully = toolchain_dir.join("installation-successful");
         let installation_in_progress = toolchain_dir.join(".installation-in-progress");
@@ -48,10 +47,16 @@ pub fn uninstall(
     // reconstruct the Component struct and thus figure out how the component
     // was installed, i.e git, cargo, path.
     let channel_content_path = toolchain_dir.join(".installed_channel.json");
-    // TODO: Handle error
-    let channel_content = std::fs::read_to_string(channel_content_path).unwrap();
-    // TODO: Handle error
-    let channel = serde_json::from_str::<Channel>(&channel_content).unwrap();
+    let channel_content = std::fs::read_to_string(&channel_content_path).context(format!(
+        "Couldn't read channel.json file in {}",
+        channel_content_path.display()
+    ))?;
+    let channel = serde_json::from_str::<Channel>(&channel_content).context(format!(
+        "Ill-formed channel.json in {}.
+Contents: {}",
+        channel_content_path.display(),
+        channel_content
+    ))?;
 
     // We check the existance above
     let components: Vec<&Component> = std::fs::read_to_string(&installed_components_path)
@@ -100,10 +105,8 @@ pub fn uninstall(
             Authority::Git { crate_name, .. } => {
                 uninstall_executable(crate_name, &toolchain_dir)?;
             },
-            Authority::Path(_path) => {
-                // We simply skip components that are pointing to a Path. We
-                // leave it to the user to determine when a component should be
-                // updated. They'd simply need to update the workspace manually.
+            Authority::Path { crate_name, .. } => {
+                uninstall_executable(crate_name, &toolchain_dir)?;
             },
         }
     }

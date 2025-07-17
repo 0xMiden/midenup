@@ -125,7 +125,7 @@ fn update_channel(
             Authority::Git { crate_name, .. } => {
                 uninstall_executable(crate_name, &toolchain_dir)?;
             },
-            Authority::Path(_path) => {
+            Authority::Path { .. } => {
                 // We simply skip components that are pointing to a Path. We
                 // leave it to the user to determine when a component should be
                 // updated. They'd simply need to update the workspace manually.

@@ -328,9 +328,9 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Path(path) => {
+            Authority::Path { crate_name, path } => {
                 upon::value! {
-                    package: component.name.clone(),
+                    package: crate_name,
                     version: "> 0.0.0",
                     git_uri: "",
                     path: path.display().to_string(),
@@ -358,7 +358,7 @@ fn main() {
                     args.push(target.to_cargo_flag()[1].clone());
                     args.push(crate_name.clone());
                 },
-                Authority::Path(path) => {
+                Authority::Path{path, ..} => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
                 },
