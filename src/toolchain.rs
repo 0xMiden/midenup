@@ -98,7 +98,7 @@ impl Toolchain {
 
         let channel_dir = config.midenup_home.join("toolchains").join(format!("{}", channel.name));
         if !channel_dir.exists() {
-            std::println!("Found current toolchain to be {}. Now installing it.", channel.name);
+            println!("Found current toolchain to be {}. Now installing it.", channel.name);
             commands::install(config, channel, local_manifest)?
         }
 

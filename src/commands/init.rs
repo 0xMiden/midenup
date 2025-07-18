@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{Config, utils};
+use crate::{utils, Config};
 
 /// This is the first command the user runs after first installing the midenup. It performs the
 /// following tasks:
