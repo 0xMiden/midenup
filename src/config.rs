@@ -35,10 +35,18 @@ pub struct Config {
     /// For more information about the Manifest's fields and format, see
     /// [Manifest].
     pub manifest: Manifest,
+    /// This flag is used to detect/distinguish when midenup is being used in
+    /// tests. At the time of writing, this is mostly done to install debug
+    /// builds of the various miden components to speed tests up.
+    pub debug: bool,
 }
 
 impl Config {
-    pub fn init(midenup_home: PathBuf, manifest_uri: impl AsRef<str>) -> anyhow::Result<Config> {
+    pub fn init(
+        midenup_home: PathBuf,
+        manifest_uri: impl AsRef<str>,
+        debug: bool,
+    ) -> anyhow::Result<Config> {
         let manifest = Manifest::load_from(manifest_uri)?;
         let working_directory =
             std::env::current_dir().context("Could not obtain present working directory")?;
@@ -47,6 +55,7 @@ impl Config {
             midenup_home,
             manifest,
             working_directory,
+            debug,
         };
 
         Ok(config)

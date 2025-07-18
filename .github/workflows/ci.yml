@@ -101,12 +101,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rust
+      - name: Install rust and all the rust toolchains present in the manifest
         run: |
           rustup update --no-self-update
-          rustup install stable
-          rustup install nightly
-          rustup install nightly-2025-03-20
+          ./.github/auxiliary_scripts/install-toolchains.sh
           rustc --version
 
       - uses: taiki-e/install-action@nextest
@@ -117,12 +115,6 @@ jobs:
           shared-key: ${{ github.workflow }}-shared
           prefix-key: ${{ env.RUST_CACHE_KEY }}
           save-if: false
-
-      - name: Bypass rustup's cargo, use the cargo executable directly
-        run: |
-          # chmod +x .github/auxiliary_scripts/generate-wrapper.sh
-          # ./.github/auxiliary_scripts/generate-wrapper.sh .github/auxiliary_scripts/cargo-wrapper.sh
-          source .github/auxiliary_scripts/cargo-wrapper.sh
 
       - name: Check tests
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
