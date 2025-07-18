@@ -206,7 +206,7 @@ Help:
                         "miden".bold(),
                         available_components
                     );
-                    std::println!("{help_message}");
+                    println!("{help_message}");
                     return Ok(());
                 },
                 "account" => (String::from("miden-client"), vec![String::from("account")]),
