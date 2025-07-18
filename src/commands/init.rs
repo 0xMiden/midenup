@@ -1,4 +1,4 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 
 use crate::{Config, utils};
 
@@ -7,7 +7,6 @@ use crate::{Config, utils};
 ///
 /// - Bootstrap the `midenup` environment (create directories, default config, etc.), if not already
 ///   done.
-/// - Install the stable channel
 pub fn init(config: &Config) -> anyhow::Result<()> {
     // Create the data directory layout.
     //
@@ -62,11 +61,6 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
                 toolchains_dir.display()
             )
         })?;
-    }
-
-    let default_toolchain_dir = toolchains_dir.join("stable");
-    if default_toolchain_dir.exists() {
-        bail!("midenup has already been initialized");
     }
 
     std::println!(

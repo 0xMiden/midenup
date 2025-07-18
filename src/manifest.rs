@@ -16,7 +16,6 @@ pub struct Manifest {
     /// The UTC timestamp at which this manifest was generated
     date: i64,
     /// The channels described in this manifest
-    /// NOTE: Changing this to pub momentarily
     channels: Vec<Channel>,
 }
 
@@ -54,7 +53,7 @@ impl Manifest {
         "https://0xmiden.github.io/midenup/channel-manifest.json";
     pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
 
-    /// Loads a [Manifest] from the given URI
+    /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
         let uri = uri.as_ref();
         let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
@@ -136,6 +135,10 @@ impl Manifest {
 
         self.channels.push(channel);
     }
+
+    /// Determines whether the `channel` is the latest stable version. This can
+    /// only be determined by the [Manifest], since this definition is dependant
+    /// on all the other present [Channels]
     pub fn is_latest_stable(&self, channel: &Channel) -> bool {
         self.channels.iter().filter(|c| c.is_stable()).all(|c| {
             let comparison = channel.name.cmp_precedence(&c.name);
@@ -143,8 +146,8 @@ impl Manifest {
         })
     }
 
-    /// Attempts to fetch the version corresponding to the `stable` [Channel], by definition this is
-    /// the latest version
+    /// Attempts to fetch the version corresponding to the `stable` [Channel],
+    /// by definition this is the latest version.
     pub fn get_latest_stable(&self) -> Option<&Channel> {
         self.channels
             .iter()

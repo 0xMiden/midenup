@@ -152,6 +152,9 @@ pub fn install(
     Ok(())
 }
 
+/// This function generates the install script that will later be saved in
+/// `midenup/toolchains/<version>/install.rs`. This file is then executed by
+/// `cargo -Zscript`.
 fn generate_install_script(channel: &Channel) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
