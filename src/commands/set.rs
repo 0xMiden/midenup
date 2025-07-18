@@ -25,7 +25,7 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
 
     let components = {
         match std::fs::read_to_string(current_components_list) {
-            Ok(componets) => componets,
+            Ok(components) => components,
             Err(_) => {
                 std::println!(
                     "WARNING: Non present toolchain was set. Component list will be left empty"
