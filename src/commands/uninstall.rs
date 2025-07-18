@@ -4,7 +4,7 @@ use std::{
     io::{Read, Write},
 };
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 
 use crate::{
     Config,
@@ -37,81 +37,84 @@ pub fn uninstall(
         } else {
             None
         }
-    }
-    .ok_or(anyhow!(
-        "Neither installation-successful nor .installation-in-progress files were found in {}",
-        toolchain_dir.display()
-    ))?;
-
-    // This is the channel.json at the time of installation. We use this to
-    // reconstruct the Component struct and thus figure out how the component
-    // was installed, i.e git, cargo, path.
-    let channel_content_path = toolchain_dir.join(".installed_channel.json");
-    let channel_content = std::fs::read_to_string(&channel_content_path).context(format!(
-        "Couldn't read channel.json file in {}",
-        channel_content_path.display()
-    ))?;
-    let channel = serde_json::from_str::<Channel>(&channel_content).context(format!(
-        "Ill-formed channel.json in {}.
+    };
+    if let Some(installed_components_path) = installed_components_path {
+        // This is the channel.json at the time of installation. We use this to
+        // reconstruct the Component struct and thus figure out how the component
+        // was installed, i.e git, cargo, path.
+        let channel_content_path = toolchain_dir.join(".installed_channel.json");
+        let channel_content = std::fs::read_to_string(&channel_content_path).context(format!(
+            "Couldn't read channel.json file in {}",
+            channel_content_path.display()
+        ))?;
+        let channel = serde_json::from_str::<Channel>(&channel_content).context(format!(
+            "Ill-formed channel.json in {}.
 Contents: {}",
-        channel_content_path.display(),
-        channel_content
-    ))?;
+            channel_content_path.display(),
+            channel_content
+        ))?;
 
-    // We check the existance above
-    let components: Vec<&Component> = std::fs::read_to_string(&installed_components_path)
-        .unwrap()
-        .lines()
-        .map(String::from)
-        .map(|channel_name| channel.get_component(channel_name))
-        .collect::<Option<Vec<&Component>>>()
-        .expect("Couldn't find installed component in channel");
+        // We check the existance above
+        let components: Vec<&Component> = std::fs::read_to_string(&installed_components_path)
+            .unwrap()
+            .lines()
+            .map(String::from)
+            .map(|channel_name| channel.get_component(channel_name))
+            .collect::<Option<Vec<&Component>>>()
+            .expect("Couldn't find installed component in channel");
 
-    // Right after reading the components list, we delete the file. This way, if
-    // anything goes wrong during uninstallation, a user can simply re-install
-    // to get back to a "stable" state.
-    // NOTE: We are ignoring errors when deleting this file, since it will
-    // (hopefully) get deleted at the end of this function.
-    let _ = std::fs::remove_file(installed_components_path);
+        // Right after reading the components list, we delete the file. This way, if
+        // anything goes wrong during uninstallation, a user can simply re-install
+        // to get back to a "stable" state.
+        // NOTE: We are ignoring errors when deleting this file, since it will
+        // (hopefully) get deleted at the end of this function.
+        let _ = std::fs::remove_file(installed_components_path);
 
-    // Now that the installation indicator is deleted, we can remove the
-    // symlink. If anything goes wrong during this process, re-issuing the
-    // installation should brink the symlink back.
-    if config.manifest.is_latest_stable(&channel) {
-        let stable_symlink = installed_toolchains_dir.join("stable");
+        // Now that the installation indicator is deleted, we can remove the
+        // symlink. If anything goes wrong during this process, re-issuing the
+        // installation should brink the symlink back.
+        if config.manifest.is_latest_stable(&channel) {
+            let stable_symlink = installed_toolchains_dir.join("stable");
 
-        // If the symlink doesn't exist, then it probably means that
-        // installation got cut off mid way through.
-        if stable_symlink.exists() {
-            std::fs::remove_file(stable_symlink).context("Couldn't remove symlink")?;
+            // If the symlink doesn't exist, then it probably means that
+            // installation got cut off mid way through.
+            if stable_symlink.exists() {
+                std::fs::remove_file(stable_symlink).context("Couldn't remove symlink")?;
+            }
         }
-    }
-    let libs = DEPENDENCIES;
-    let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =
-        components.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+        let libs = DEPENDENCIES;
+        let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =
+            components.iter().partition(|c| libs.contains(&(c.name.as_ref())));
 
-    for lib in installed_libraries {
-        let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
-        std::fs::remove_file(&lib_path)
-            .context(format!("Couldn't delete {}", &lib_path.display()))?;
-    }
-
-    for exe in installed_executables {
-        match &exe.version {
-            Authority::Cargo { package, .. } => {
-                let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
-                uninstall_executable(package_name, &toolchain_dir)?;
-            },
-            Authority::Git { crate_name, .. } => {
-                uninstall_executable(crate_name, &toolchain_dir)?;
-            },
-            Authority::Path { crate_name, .. } => {
-                uninstall_executable(crate_name, &toolchain_dir)?;
-            },
+        for lib in installed_libraries {
+            let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
+            std::fs::remove_file(&lib_path)
+                .context(format!("Couldn't delete {}", &lib_path.display()))?;
         }
+
+        for exe in installed_executables {
+            match &exe.version {
+                Authority::Cargo { package, .. } => {
+                    let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
+                    uninstall_executable(package_name, &toolchain_dir)?;
+                },
+                Authority::Git { crate_name, .. } => {
+                    uninstall_executable(crate_name, &toolchain_dir)?;
+                },
+                Authority::Path { crate_name, .. } => {
+                    uninstall_executable(crate_name, &toolchain_dir)?;
+                },
+            }
+        }
+    } else {
+        println!(
+            "WARNING: Could not find installation-successful or .installation-in-progress at {}.
+Uninstallation will proceed by deleting toolchain manually, instead of going through cargo.",
+            toolchain_dir.display()
+        )
     }
 
-    local_manifest.remove_channel(channel.name);
+    local_manifest.remove_channel(channel.name.clone());
 
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
     let mut local_manifest_file =
