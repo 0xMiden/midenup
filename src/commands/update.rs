@@ -1,5 +1,3 @@
-use std::io::Read;
-
 use anyhow::{Context, bail};
 
 use crate::{
@@ -141,27 +139,7 @@ fn update_channel(
                 ))?;
 
                 if !status.success() {
-                    let error = remove_exe.stderr.take();
-
-                    let error_msg = if let Some(mut error) = error {
-                        let mut stderr_msg = String::new();
-                        let read_err_msg = error.read_to_string(&mut stderr_msg);
-
-                        if read_err_msg.is_err() {
-                            String::new()
-                        } else {
-                            format!("The following error was raised: {stderr_msg}")
-                        }
-                    } else {
-                        String::new()
-                    };
-
-                    bail!(
-                        "midenup failed to uninstall package {} with status {}. {}",
-                        package_name,
-                        status.code().unwrap_or(1),
-                        error_msg
-                    )
+                    bail!("midenup failed to uninstall package {}", package_name,)
                 }
             },
             Authority::Git { crate_name, .. } => {
@@ -180,27 +158,7 @@ fn update_channel(
                     .context(format!("Error occurred while waiting to uninstall {crate_name}",))?;
 
                 if !status.success() {
-                    let error = remove_exe.stderr.take();
-
-                    let error_msg = if let Some(mut error) = error {
-                        let mut stderr_msg = String::new();
-                        let read_err_msg = error.read_to_string(&mut stderr_msg);
-
-                        if read_err_msg.is_err() {
-                            String::new()
-                        } else {
-                            format!("The following error was raised: {stderr_msg}")
-                        }
-                    } else {
-                        String::new()
-                    };
-
-                    bail!(
-                        "midenup failed to uninstall package {} with status {}. {}",
-                        crate_name,
-                        status.code().unwrap_or(1),
-                        error_msg
-                    )
+                    bail!("midenup failed to uninstall package {}", crate_name,)
                 }
             },
             Authority::Path(_path) => {

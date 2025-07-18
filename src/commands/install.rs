@@ -227,25 +227,8 @@ fn main() {
 
 
         if !status.success() {
-            let error = child.stderr.take();
-
-            let error_msg = if let Some(mut error) = error {
-                let mut stderr_msg = String::new();
-                let read_err_msg = error.read_to_string(&mut stderr_msg);
-
-                if read_err_msg.is_err() {
-                    String::new()
-                } else {
-                    format!("The following error was raised: {stderr_msg}")
-                }
-            } else {
-                String::new()
-            };
-
             panic!(
-                "midenup failed to uninstall '{{ component.name }}' with status {}. {}",
-                status.code().unwrap_or(1),
-                error_msg
+                "midenup failed to uninstall '{{ component.name }}'"
             );
         }
     }
