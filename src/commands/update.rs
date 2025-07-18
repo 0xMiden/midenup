@@ -148,12 +148,12 @@ fn update_channel(
                         let read_err_msg = error.read_to_string(&mut stderr_msg);
 
                         if read_err_msg.is_err() {
-                            String::from("")
+                            String::new()
                         } else {
                             format!("The following error was raised: {stderr_msg}")
                         }
                     } else {
-                        String::from("")
+                        String::new()
                     };
 
                     bail!(
@@ -187,12 +187,12 @@ fn update_channel(
                         let read_err_msg = error.read_to_string(&mut stderr_msg);
 
                         if read_err_msg.is_err() {
-                            String::from("")
+                            String::new()
                         } else {
                             format!("The following error was raised: {stderr_msg}")
                         }
                     } else {
-                        String::from("")
+                        String::new()
                     };
 
                     bail!(
