@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, bail};
 
 use crate::{
     Config,
@@ -118,9 +118,10 @@ fn update_channel(
     for exe in executables {
         match &exe.version {
             Authority::Cargo { package, .. } => {
+                let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
                 let mut remove_exe = std::process::Command::new("cargo")
                     .arg("uninstall")
-                    .arg(package.as_deref().unwrap_or(exe.name.as_ref()))
+                    .arg(package_name)
                     .arg("--root")
                     .arg(&toolchain_dir)
                     .stderr(std::process::Stdio::inherit())
@@ -133,9 +134,13 @@ fn update_channel(
                         )
                     })?;
 
-                remove_exe
-                    .wait()
-                    .context("failed to uninstall component '{{ component.name }}'")?;
+                let status = remove_exe.wait().context(format!(
+                    "Error occurred while waiting to uninstall {package_name}",
+                ))?;
+
+                if !status.success() {
+                    bail!("midenup failed to uninstall package {}", package_name,)
+                }
             },
             Authority::Git { crate_name, .. } => {
                 let mut remove_exe = std::process::Command::new("cargo")
@@ -148,11 +153,19 @@ fn update_channel(
                     .spawn()
                     .with_context(|| format!("failed to uninstall {crate_name} via cargo"))?;
 
-                remove_exe
+                let status = remove_exe
                     .wait()
-                    .context("failed to uninstall component '{{ component.name }}'")?;
+                    .context(format!("Error occurred while waiting to uninstall {crate_name}",))?;
+
+                if !status.success() {
+                    bail!("midenup failed to uninstall package {}", crate_name,)
+                }
             },
-            _ => todo!(),
+            Authority::Path(_path) => {
+                // We simply skip components that are pointing to a Path. We
+                // leave it to the user to determine when a component should be
+                // updated. They'd simply need to update the workspace manually.
+            },
         }
     }
 
