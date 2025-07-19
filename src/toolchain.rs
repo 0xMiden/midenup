@@ -3,13 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::channel::UserChannel;
 
-/// Represents a `miden-toolchain.toml` file
+/// Represents a `miden-toolchain.toml` file. These file contains the desired
+/// toolchain to be used.
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ToolchainFile {
     toolchain: Toolchain,
 }
 
-/// The actual contents of the toolchain
+/// The actual contents of the toolchain.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Toolchain {
     pub channel: UserChannel,

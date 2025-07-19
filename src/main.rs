@@ -10,6 +10,8 @@ use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
+use colored::Colorize;
+use commands::INSTALLABLE_COMPONENTS;
 
 pub use self::config::Config;
 use self::{
@@ -41,6 +43,7 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
+/// All the available Midenup Commands
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Bootstrap the `midenup` environment.
@@ -56,14 +59,20 @@ enum Commands {
     /// Show information about the midenup environment
     #[command(subcommand)]
     Show(commands::ShowCommand),
+    /// Sets the current active miden toolchain for the current project.
+    /// This creates a miden-toolchain.toml file in the present working directory.
     Set {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: UserChannel,
     },
-    /// Update your installed Miden toolchains
+    /// Update your installed Miden toolchains.
     Update {
-        /// If provided, updates only the specified channel.
+        /// `midenup update`'s behavior differs depending on the specified [CHANNEL]
+        /// - If provided, updates only the specified channel.
+        /// - If left blank, then midenup will check for updates in all the downloaded toolchains.
+        /// - If [CHANNEL] = stable, then it will look for the newest available toolchain and set
+        ///   that to be stable.
         #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<UserChannel>,
     },
@@ -91,7 +100,7 @@ impl Commands {
     /// Execute the requested subcommand
     fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
         match &self {
-            Self::Init { .. } => commands::init(config),
+            Self::Init => commands::init(config),
             Self::Install { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
@@ -164,23 +173,72 @@ fn main() -> anyhow::Result<()> {
     match cli.behavior {
         Behavior::Miden(argv) => {
             // Extract the target binary to execute from argv[1]
-            let subcommand = argv[1].to_str().expect("invalid command name");
+            let subcommand = argv.get(1).ok_or(anyhow!(
+                "No arguments were passed to `miden`. To get a list of available commands, run:
+miden help"
+            ))?;
+            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+            // Make sure we know the current toolchain so we can modify the PATH appropriately
+            let toolchain = Toolchain::current()?;
+
             let (target_exe, prefix_args) = match subcommand {
-                // When 'help' is invoked, we should look for the target exe in argv[1], and present
-                // help accordingly
-                "help" => todo!(),
+                "help" => {
+                    let available_components: String = toolchain
+                        .components
+                        .iter()
+                        .filter(|c| {
+                            let c = c.as_str();
+                            INSTALLABLE_COMPONENTS.contains(&c)
+                        })
+                        .map(|c| {
+                            let component_name = c.replace("miden-", "");
+                            format!("  {}\n", component_name.bold())
+                        })
+                        .collect();
+                    let help_message = format!(
+                        "The Miden toolchain porcelain
+
+{} {} <COMPONENT>
+
+Available components:
+{}
+
+Help:
+  help                   Print this help message
+  <COMPONENT> help       Print <COMPONENTS>'s help message
+",
+                        "Usage:".bold().underline(),
+                        "miden".bold(),
+                        available_components
+                    );
+                    std::println!("{help_message}");
+                    return Ok(());
+                },
+                "account" => (String::from("miden-client"), vec![String::from("account")]),
+                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
+                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
                 "build" => {
                     (String::from("cargo"), vec![String::from("miden"), String::from("build")])
                 },
-                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
+                "test" => todo!(),
+                // "node" => todo!(),
+                "deploy" => (
+                    String::from("miden-client"),
+                    vec![String::from("new-wallet"), String::from("--deploy")],
+                ),
+                // "scan" => todo!(),
+                // NOTE: This commands needs a specific account to be specified
+                "call" => (
+                    String::from("miden-client"),
+                    vec![String::from("account"), String::from("-s")],
+                ),
+                "send" => (String::from("miden-client"), vec![String::from("send")]),
+                "simulate" => (String::from("miden-client"), vec![String::from("exec")]),
                 other => {
                     let command = format!("miden-{other}");
                     (command, vec![])
                 },
             };
-
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::current()?;
 
             // Compute the effective PATH for this command
             let toolchain_bin = config
@@ -231,6 +289,8 @@ mod tests {
     type LocalManifest = Manifest;
     use crate::{channel::*, manifest::*, *};
 
+    /// Simple auxiliary function to setup a midneup directory environment in
+    /// tests.
     fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
         let local_manifest = {
             let local_manifest_path = midenup_home.join("manifest").with_extension("json");
@@ -262,6 +322,7 @@ mod tests {
     }
 
     #[test]
+    /// Tries to install the "stable" toolchain from the present manifest.
     fn integration_install_stable() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
@@ -309,6 +370,9 @@ mod tests {
     }
 
     #[test]
+    /// First, use a manifest file to install the stable toolchain under version
+    /// 0.14.0. Then, update said manifest and try to update stable to the newer
+    /// version
     fn integration_update_stable() {
         // NOTE: Currentlty "update stable" maintains the old stable toolchain
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
@@ -379,6 +443,10 @@ mod tests {
     }
 
     #[test]
+    /// First, use a manifest file to install the version 0.14.0.  Then, use a
+    /// newer manifest to display an update in the std component and a downgrade
+    /// in base. After triggering an update, check if those components got
+    /// updated successfully.
     fn integration_update_specific_component() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
@@ -445,6 +513,8 @@ mod tests {
     }
 
     #[test]
+    /// Install a specific component and then try to check if midenup update
+    /// registers it got rolled back
     fn integration_rollback_specific_component() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
