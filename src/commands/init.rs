@@ -23,5 +23,11 @@ pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()
         commands::install(config, upstream_stable, local_manifest)?;
     }
 
+    println!(
+        "midenup was successfully initialized in:
+{}",
+        config.midenup_home.as_path().display()
+    );
+
     Ok(())
 }

@@ -179,7 +179,7 @@ miden help"
             ))?;
             let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
             // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::current()?;
+            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
 
             let (target_exe, prefix_args) = match subcommand {
                 "help" => {
@@ -211,7 +211,7 @@ Help:
                         "miden".bold(),
                         available_components
                     );
-                    std::println!("{help_message}");
+                    println!("{help_message}");
                     return Ok(());
                 },
                 "account" => (String::from("miden-client"), vec![String::from("account")]),
