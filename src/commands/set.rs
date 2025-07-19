@@ -23,7 +23,17 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
         .join(channel.to_string())
         .join("installation-successful");
 
-    let components = std::fs::read_to_string(current_components_list).unwrap();
+    let components = {
+        match std::fs::read_to_string(current_components_list) {
+            Ok(components) => components,
+            Err(_) => {
+                println!(
+                    "WARNING: Non present toolchain was set. Component list will be left empty"
+                );
+                String::default()
+            },
+        }
+    };
     let components: Vec<String> = components.lines().map(String::from).collect();
 
     let installed_toolchain = Toolchain::new(channel.clone(), components);
@@ -35,6 +45,8 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_contents = toml::to_string_pretty(&installed_toolchain)
         .context("Failed to generate miden-toolchain.toml")?;
 
-    toolchain_file.write_all(&toolchain_file_contents.into_bytes()).unwrap();
+    toolchain_file
+        .write_all(&toolchain_file_contents.into_bytes())
+        .context("Failed to write miden-toolchain.toml")?;
     Ok(())
 }

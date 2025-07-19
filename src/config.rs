@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::Context;
 
-use crate::manifest::Manifest;
+use crate::{manifest::Manifest, utils};
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -51,14 +51,84 @@ impl Config {
 
         Ok(config)
     }
+}
 
-    pub fn ensure_midenup_home_exists(&self) -> anyhow::Result<&Path> {
-        if !self.midenup_home.exists() {
-            std::fs::create_dir_all(&self.midenup_home).with_context(|| {
-                format!("failed to create MIDENUP_HOME with path: {}", self.midenup_home.display())
-            })?;
-        }
+/// This functions bootstrap the `midenup` environment (create directories,
+/// default config, etc.), if not already done.
+/// A message is displayed when the directory is initialized.
+/// NOTE: If at least one element (be it a file, directory, etc) is missing,
+/// then it is considered as "uninitialized".
+pub fn ensure_midenup_home_exists(config: &Config) -> anyhow::Result<()> {
+    // Create the data directory layout.
+    //
+    // The following is a sketch of the directory tree and contents
+    //
+    // $MIDENUP_HOME
+    // |- bin/
+    // | |- miden --> $CARGO_INSTALL_DIR/midenup
+    // |- toolchains
+    // | |- stable/ --> <channel>/
+    // | |- <channel>/
+    // | | |- bin/
+    // | | |- lib/
+    // | | | |- std.masp
+    // |- config.toml
+    // |- manifest.json
+    let mut already_exists = true;
 
-        Ok(&self.midenup_home)
+    let midenhome_dir = &config.midenup_home;
+    if !midenhome_dir.exists() {
+        std::fs::create_dir_all(midenhome_dir).with_context(|| {
+            format!("failed to initialize MIDENUP_HOME directory: '{}'", midenhome_dir.display())
+        })?;
+        already_exists = false;
     }
+    let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
+    if !local_manifest_file.exists() {
+        std::fs::File::create(&local_manifest_file).with_context(|| {
+            format!(
+                "failed to create local manifest.json file in: '{}'",
+                local_manifest_file.display()
+            )
+        })?;
+        already_exists = false;
+    }
+
+    let bin_dir = config.midenup_home.join("bin");
+    if !bin_dir.exists() {
+        std::fs::create_dir_all(&bin_dir).with_context(|| {
+            format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
+        })?;
+        already_exists = false;
+    }
+
+    // Write the symlink for `miden` to $MIDENUP_HOME/bin
+    let current_exe =
+        std::env::current_exe().expect("unable to get location of current executable");
+    let miden_exe = bin_dir.join("miden");
+    if !miden_exe.exists() {
+        utils::symlink(&miden_exe, &current_exe)?;
+        already_exists = false;
+    }
+
+    let toolchains_dir = config.midenup_home.join("toolchains");
+    if !toolchains_dir.exists() {
+        std::fs::create_dir_all(&toolchains_dir).with_context(|| {
+            format!(
+                "failed to initialize MIDENUP_HOME subdirectory: '{}'",
+                toolchains_dir.display()
+            )
+        })?;
+        already_exists = false;
+    }
+
+    if !already_exists {
+        std::println!(
+            "midenup was successfully initialized in:
+{}",
+            config.midenup_home.as_path().display()
+        );
+    }
+
+    Ok(())
 }
