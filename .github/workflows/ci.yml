@@ -101,9 +101,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rust
+      - name: Install rust and all the rust toolchains present in the manifest
         run: |
           rustup update --no-self-update
+          rustup install stable
+          rustup install nightly
+          rustup install nightly-2025-03-20
+          ./.github/auxiliary_scripts/install-toolchains.sh
           rustc --version
 
       - uses: taiki-e/install-action@nextest
