@@ -10,6 +10,9 @@ use crate::{
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
 
+/// This function creates the [miden-toolchain.toml] in the present working
+/// directory. This file contains the desired [Toolchain] with a list of the
+/// components that make it up.
 pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_path =
         config.working_directory.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
@@ -22,9 +25,9 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
 
     let components = {
         match std::fs::read_to_string(current_components_list) {
-            Ok(componets) => componets,
+            Ok(components) => components,
             Err(_) => {
-                std::println!(
+                println!(
                     "WARNING: Non present toolchain was set. Component list will be left empty"
                 );
                 String::default()

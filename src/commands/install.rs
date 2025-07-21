@@ -5,6 +5,7 @@ use anyhow::Context;
 use crate::{
     Config, bail,
     channel::{Channel, ChannelAlias},
+    config::ensure_midenup_home_exists,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
@@ -20,7 +21,7 @@ pub fn install(
     channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    config.ensure_midenup_home_exists()?;
+    ensure_midenup_home_exists(config)?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
@@ -152,6 +153,9 @@ pub fn install(
     Ok(())
 }
 
+/// This function generates the install script that will later be saved in
+/// `midenup/toolchains/<version>/install.rs`. This file is then executed by
+/// `cargo -Zscript`.
 fn generate_install_script(channel: &Channel) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
