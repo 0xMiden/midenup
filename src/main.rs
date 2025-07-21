@@ -44,20 +44,6 @@ enum Behavior {
 }
 
 #[derive(Debug)]
-enum MidenCommands {
-    Help,
-    Account,
-    Faucet,
-    New,
-    Build,
-    Test,
-    Deploy,
-    Call,
-    Send,
-    Simulate,
-}
-
-#[derive(Debug)]
 /// Miden Components managed by Midenup
 enum MidenComponents {
     /// Standard Library in .masp format
@@ -129,12 +115,26 @@ impl FromStr for MidenComponents {
     }
 }
 
+#[derive(Debug)]
+enum MidenCommands {
+    Account,
+    Faucet,
+    New,
+    Build,
+    Test,
+    // Node,
+    Deploy,
+    // Scan,
+    Call,
+    Send,
+    Simulate,
+}
+
 impl FromStr for MidenCommands {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "help" => Ok(MidenCommands::Help),
             "account" => Ok(MidenCommands::Account),
             "faucet" => Ok(MidenCommands::Faucet),
             "new" => Ok(MidenCommands::New),
@@ -150,9 +150,8 @@ impl FromStr for MidenCommands {
 }
 
 impl MidenCommands {
-    fn help_command(&self, toolchain: &Toolchain) -> HelpMessage {
+    fn help_command(&self) -> HelpMessage {
         match self {
-            MidenCommands::Help => HelpMessage::Internal { help_message: default_help(toolchain) },
             MidenCommands::Account => HelpMessage::ShellOut {
                 target_exe: String::from("miden-client"),
                 prefix_args: vec![String::from("account"), String::from("--help")],
@@ -199,6 +198,32 @@ impl MidenCommands {
                 target_exe: String::from("miden-client"),
                 prefix_args: vec![String::from("exec"), String::from("--help")],
             },
+        }
+    }
+
+    /// Get the corresponding executable target executable and prefix arguments
+    /// for each known [MidenCommands]. These can later be used in a subshell to
+    /// execute the underlying component.
+    fn get_command_exec(&self) -> (String, Vec<String>) {
+        match self {
+            MidenCommands::Account => (String::from("miden-client"), vec![String::from("mint")]),
+            MidenCommands::Faucet => (String::from("miden-client"), vec![String::from("mint")]),
+            MidenCommands::New => {
+                (String::from("cargo"), vec![String::from("miden"), String::from("new")])
+            },
+            MidenCommands::Build => {
+                (String::from("cargo"), vec![String::from("miden"), String::from("build")])
+            },
+            MidenCommands::Test => todo!(),
+            MidenCommands::Deploy => (
+                String::from("miden-client"),
+                vec![String::from("new-wallet"), String::from("--deploy")],
+            ),
+            MidenCommands::Call => {
+                (String::from("miden-client"), vec![String::from("account"), String::from("-s")])
+            },
+            MidenCommands::Send => (String::from("miden-client"), vec![String::from("send")]),
+            MidenCommands::Simulate => (String::from("miden-client"), vec![String::from("exec")]),
         }
     }
 }
@@ -353,61 +378,43 @@ fn main() -> anyhow::Result<()> {
                 "No arguments were passed to `miden`. To get a list of available commands, run:
 miden help"
             ))?;
-            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::current()?;
 
-            let (target_exe, prefix_args, include_rest) = match subcommand {
-                "help" => {
-                    // NOTE: This could either be a [MidenCommands] or a
-                    // [MidenComponents].
-                    let component = argv.get(2).and_then(|c| c.to_str());
-                    let help_message = handle_help(component, &toolchain);
-                    match help_message {
-                        HelpMessage::Internal { help_message } => {
-                            std::println!("{help_message}");
-                            return Ok(());
-                        },
-                        HelpMessage::ShellOut { target_exe, prefix_args } => {
-                            (target_exe, prefix_args, false)
-                        },
-                    }
-                },
-                "account" => (String::from("miden-client"), vec![String::from("account")], true),
-                "faucet" => (String::from("miden-client"), vec![String::from("mint")], true),
-                "new" => {
-                    (String::from("cargo"), vec![String::from("miden"), String::from("new")], true)
-                },
-                "build" => (
-                    String::from("cargo"),
-                    vec![String::from("miden"), String::from("build")],
-                    true,
-                ),
-                "test" => todo!(),
-                // "node" => todo!(),
-                "deploy" => (
-                    String::from("miden-client"),
-                    vec![String::from("new-wallet"), String::from("--deploy")],
-                    true,
-                ),
-                // "scan" => todo!(),
-                // NOTE: This commands needs a specific account to be specified
-                "call" => (
-                    String::from("miden-client"),
-                    vec![String::from("account"), String::from("-s")],
-                    true,
-                ),
-                "send" => (String::from("miden-client"), vec![String::from("send")], true),
-                "simulate" => (String::from("miden-client"), vec![String::from("exec")], true),
-                other => {
-                    let command = match other {
-                        "client" => "miden-client",
-                        "vm" => "miden-vm",
-                        subcommand @ ("midenc" | "cargo-miden") => subcommand,
-                        _ => todo!("display help message"),
-                    };
+            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+            let aliased_command = MidenCommands::from_str(subcommand);
 
-                    (command.to_string(), vec![], true)
+            let (target_exe, prefix_args, include_rest) = match aliased_command.ok() {
+                Some(alias) => {
+                    let (target_exe, prefix_args) = alias.get_command_exec();
+                    (target_exe, prefix_args, true)
+                },
+                None => {
+                    if subcommand == "help" {
+                        // NOTE: This could either be a [MidenCommands] or a
+                        // [MidenComponents].
+                        let component = argv.get(2).and_then(|c| c.to_str());
+                        let help_message = handle_help(component, &toolchain);
+                        match help_message {
+                            HelpMessage::Internal { help_message } => {
+                                std::println!("{help_message}");
+                                return Ok(());
+                            },
+                            HelpMessage::ShellOut { target_exe, prefix_args } => {
+                                (target_exe, prefix_args, false)
+                            },
+                        }
+                    } else {
+                        let command = match subcommand {
+                            "client" => "miden-client",
+                            "vm" => "miden-vm",
+                            subcommand @ ("midenc" | "cargo-miden") => subcommand,
+                            _ => todo!("display help message"),
+                        };
+
+                        (command.to_string(), vec![], true)
+                    }
                 },
             };
 
@@ -466,7 +473,7 @@ fn handle_help(component: Option<&str>, toolchain: &Toolchain) -> HelpMessage {
         if let Ok(component) = MidenComponents::from_str(component) {
             component.help_command()
         } else if let Ok(command) = MidenCommands::from_str(component) {
-            command.help_command(toolchain)
+            command.help_command()
         } else {
             HelpMessage::Internal { help_message: default_help(toolchain) }
         }
