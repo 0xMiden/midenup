@@ -400,7 +400,7 @@ miden help"
                         // NOTE: This could either be a [MidenCommands] or a
                         // [MidenComponents].
                         let component = argv.get(2).and_then(|c| c.to_str());
-                        let help_message = handle_help(component, &toolchain);
+                        let help_message = handle_help(component, &toolchain)?;
                         match help_message {
                             HelpMessage::Internal { help_message } => {
                                 std::println!("{help_message}");
@@ -477,17 +477,21 @@ miden help"
 }
 
 /// Wrapper function that handles help messaging dispatch
-fn handle_help(component: Option<&str>, toolchain: &Toolchain) -> HelpMessage {
+fn handle_help(component: Option<&str>, toolchain: &Toolchain) -> anyhow::Result<HelpMessage> {
     if let Some(component) = component {
         if let Ok(component) = MidenComponents::from_str(component) {
-            component.help_command()
+            Ok(component.help_command())
         } else if let Ok(command) = MidenAliasses::from_str(component) {
-            command.help_command()
+            Ok(command.help_command())
         } else {
-            HelpMessage::Internal { help_message: default_help(toolchain) }
+            bail!(
+                "Unrecognized command {}. To see available commands, run:
+miden help",
+                component
+            )
         }
     } else {
-        HelpMessage::Internal { help_message: default_help(toolchain) }
+        Ok(HelpMessage::Internal { help_message: default_help(toolchain) })
     }
 }
 
