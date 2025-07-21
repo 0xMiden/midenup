@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -303,7 +303,7 @@ impl Commands {
 /// messgage. Currently, there are only two.
 enum HelpMessage {
     /// This variant is used when the display message is obtained by shelling
-    /// out to a mide component. For instance: `miden-client account --help`.
+    /// out to a miden component. For instance: `miden-client account --help`.
     ShellOut {
         target_exe: String,
         prefix_args: Vec<String>,
@@ -373,19 +373,21 @@ fn main() -> anyhow::Result<()> {
 
     match cli.behavior {
         Behavior::Miden(argv) => {
-            // Extract the target binary to execute from argv[1]
-            let subcommand = argv.get(1).ok_or(anyhow!(
-                "No arguments were passed to `miden`. To get a list of available commands, run:
-miden help"
-            ))?;
-
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::current()?;
 
-            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
+            // Extract the target binary to execute from argv[1]
+            let subcommand = {
+                let subcommand = argv.get(1).ok_or(anyhow!(
+                    "No arguments were passed to `miden`. To get a list of available commands, run:
+miden help"
+                ))?;
+                subcommand.to_str().expect("Invalid command name: {subcommand}")
+            };
             let aliased_command = MidenCommands::from_str(subcommand);
 
-            let (target_exe, prefix_args, include_rest) = match aliased_command.ok() {
+            let (target_exe, prefix_args, include_rest_of_args) = match aliased_command.ok() {
+                // These are know miden aliasses.
                 Some(alias) => {
                     let (target_exe, prefix_args) = alias.get_command_exec();
                     (target_exe, prefix_args, true)
@@ -410,9 +412,13 @@ miden help"
                             "client" => "miden-client",
                             "vm" => "miden-vm",
                             subcommand @ ("midenc" | "cargo-miden") => subcommand,
-                            _ => todo!("display help message"),
+                            other => {
+                                bail!(
+                                    "Unrecognized command {other}. To see available commands, run:
+miden help"
+                                )
+                            },
                         };
-
                         (command.to_string(), vec![], true)
                     }
                 },
@@ -433,7 +439,7 @@ miden help"
                 None => toolchain_bin.into_os_string(),
             };
 
-            let rest_of_args = if include_rest {
+            let rest_of_args = if include_rest_of_args {
                 argv.iter().skip(2)
             } else {
                 // We don't want to pass the rest of the CLI arguments to the subshell in this case.
@@ -441,11 +447,11 @@ miden help"
                 argv.iter().skip(argv.len())
             };
 
-            let mut output = std::process::Command::new(dbg!(target_exe))
+            let mut output = std::process::Command::new(target_exe)
                 .env("MIDENUP_HOME", &config.midenup_home)
                 .env("PATH", path)
-                .args(dbg!(prefix_args))
-                .args(dbg!(rest_of_args))
+                .args(prefix_args)
+                .args(rest_of_args)
                 .stderr(std::process::Stdio::inherit())
                 .stdout(std::process::Stdio::inherit())
                 .spawn()
