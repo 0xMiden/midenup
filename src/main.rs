@@ -74,6 +74,21 @@ enum MidenComponents {
     CargoMiden,
 }
 
+impl MidenComponents {
+    fn help_command(&self) -> (String, Vec<String>) {
+        match self {
+            MidenComponents::Std => todo!(),
+            MidenComponents::Base => todo!(),
+            MidenComponents::Client => (String::from("miden-client"), vec![String::from("help")]),
+            MidenComponents::VM => (String::from("miden-vm"), vec![String::from("help")]),
+            MidenComponents::Compiler => (String::from("midenc"), vec![String::from("help")]),
+            MidenComponents::CargoMiden => {
+                (String::from("cargo-miden"), vec![String::from("help")])
+            },
+        }
+    }
+}
+
 impl FromStr for MidenComponents {
     type Err = anyhow::Error;
 
@@ -110,8 +125,52 @@ impl FromStr for MidenCommands {
     }
 }
 
-/// All the available Midenup Commands
+impl MidenCommands {
+    fn help_command(&self) -> (String, Vec<String>) {
+        match self {
+            MidenCommands::Help => (String::from("miden"), vec![]),
+            MidenCommands::Account => (
+                String::from("miden-client"),
+                vec![String::from("account"), String::from("--help")],
+            ),
+            MidenCommands::Faucet => (
+                String::from("miden-client"),
+                vec![String::from("faucet"), String::from("--help")],
+            ),
+            MidenCommands::New => (
+                String::from("cargo"),
+                vec![String::from("miden"), String::from("new"), String::from("--help")],
+            ),
+            MidenCommands::Build => (
+                String::from("cargo"),
+                vec![String::from("miden"), String::from("build"), String::from("--help")],
+            ),
+            MidenCommands::Test => todo!(),
+            // NOTE: This help message displays help for every flag.
+            // Maybe return a filter lambda to parse these messages?
+            MidenCommands::Deploy => (
+                String::from("miden-client"),
+                vec![String::from("new-wallet"), String::from("--help")],
+            ),
+            // NOTE: This help message displays help for every flag.
+            // Maybe return a filter lambda to parse these messages?
+            MidenCommands::Call => (
+                String::from("miden-client"),
+                vec![String::from("new-wallet"), String::from("--help")],
+            ),
+
+            MidenCommands::Send => {
+                (String::from("miden-client"), vec![String::from("send"), String::from("--help")])
+            },
+            MidenCommands::Simulate => {
+                (String::from("miden-client"), vec![String::from("exec"), String::from("--help")])
+            },
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
+/// All the available Midenup Commands
 enum Commands {
     /// Bootstrap the `midenup` environment.
     ///
@@ -179,6 +238,22 @@ impl Commands {
             Self::Set { channel } => commands::set(config, channel),
         }
     }
+}
+
+/// This is used to encapsulate the different mechanisms used to display a help
+/// messgage. Currently, there are only two.
+enum HelpMessage {
+    /// This variant is used when the display message is obtained by shelling
+    /// out to a mide component. For instance: `miden-client account --help`.
+    ShellOut {
+        target_exe: String,
+        prefix_args: Vec<String>,
+    },
+    /// This other variant is used when shelling out to the shell is not
+    /// possible. This is mainly done to display the help message of:
+    /// - The `.masp` libraries
+    /// - `miden`'s own 'help' message
+    Internal { help_message: String },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -253,93 +328,16 @@ miden help"
                     // NOTE: This could either be a [MidenCommands] or a
                     // [MidenComponents].
                     let component = argv.get(2).and_then(|c| c.to_str());
-                    let (target_exe, prefix_args) = if let Some(component) = component {
-                        if let Ok(component) = MidenComponents::from_str(component) {
-                            match component {
-                                MidenComponents::Std => {
-                                    // Taken from: https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure
-                                    std::println!(
-                                        "The Miden standard library in masp format. Provides highly-optimized and battle-tested implementations of commonly-used primitives."
-                                    );
-                                    return Ok(());
-                                },
-                                MidenComponents::Base => {
-                                    // Taken from: https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure
-                                    std::println!(
-                                        "The Miden base library in masp format. Contains the code of the Miden rollup kernels and standardized smart contracts."
-                                    );
-                                    return Ok(());
-                                },
-                                MidenComponents::Client => {
-                                    (String::from("miden-client"), vec![String::from("help")])
-                                },
-                                MidenComponents::VM => {
-                                    (String::from("miden-vm"), vec![String::from("help")])
-                                },
-                                MidenComponents::Compiler => {
-                                    (String::from("midenc"), vec![String::from("help")])
-                                },
-                                MidenComponents::CargoMiden => {
-                                    (String::from("cargo-miden"), vec![String::from("help")])
-                                },
-                            }
-                        } else if let Ok(command) = MidenCommands::from_str(component) {
-                            match command {
-                                MidenCommands::Help => return default_help(&toolchain),
-                                MidenCommands::Account => (
-                                    String::from("miden-client"),
-                                    vec![String::from("account"), String::from("--help")],
-                                ),
-                                MidenCommands::Faucet => (
-                                    String::from("miden-client"),
-                                    vec![String::from("faucet"), String::from("--help")],
-                                ),
-                                MidenCommands::New => (
-                                    String::from("cargo"),
-                                    vec![
-                                        String::from("miden"),
-                                        String::from("new"),
-                                        String::from("--help"),
-                                    ],
-                                ),
-                                MidenCommands::Build => (
-                                    String::from("cargo"),
-                                    vec![
-                                        String::from("miden"),
-                                        String::from("build"),
-                                        String::from("--help"),
-                                    ],
-                                ),
-                                MidenCommands::Test => todo!(),
-                                // NOTE: This help message displays help for every flag.
-                                // Maybe return a filter lambda to parse these messages?
-                                MidenCommands::Deploy => (
-                                    String::from("miden-client"),
-                                    vec![String::from("new-wallet"), String::from("--help")],
-                                ),
-                                // NOTE: This help message displays help for every flag.
-                                // Maybe return a filter lambda to parse these messages?
-                                MidenCommands::Call => (
-                                    String::from("miden-client"),
-                                    vec![String::from("new-wallet"), String::from("--help")],
-                                ),
-
-                                MidenCommands::Send => (
-                                    String::from("miden-client"),
-                                    vec![String::from("send"), String::from("--help")],
-                                ),
-                                MidenCommands::Simulate => (
-                                    String::from("miden-client"),
-                                    vec![String::from("exec"), String::from("--help")],
-                                ),
-                            }
-                        } else {
-                            return default_help(&toolchain);
-                        }
-                    } else {
-                        return default_help(&toolchain);
-                    };
-                    (target_exe, prefix_args, false)
+                    let help_message = handle_help(component, &toolchain);
+                    match help_message {
+                        HelpMessage::Internal { help_message } => {
+                            std::println!("{help_message}");
+                            return Ok(());
+                        },
+                        HelpMessage::ShellOut { target_exe, prefix_args } => {
+                            (target_exe, prefix_args, false)
+                        },
+                    }
                 },
                 "account" => (String::from("miden-client"), vec![String::from("account")], true),
                 "faucet" => (String::from("miden-client"), vec![String::from("mint")], true),
@@ -428,7 +426,104 @@ miden help"
     }
 }
 
-fn default_help(current: &Toolchain) -> anyhow::Result<()> {
+fn handle_help(component: Option<&str>, toolchain: &Toolchain) -> HelpMessage {
+    if let Some(component) = component {
+        if let Ok(component) = MidenComponents::from_str(component) {
+            match component {
+                MidenComponents::Std => {
+                    // Taken from: https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure
+                    let help_message = String::from(
+                        "The Miden standard library in masp format.\
+                         Provides highly-optimized and battle-tested implementations of commonly-used primitives.",
+                    );
+                    HelpMessage::Internal { help_message }
+                },
+                MidenComponents::Base => {
+                    // Taken from: https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure
+                    let help_message = String::from(
+                        "The Miden base library in masp format.\
+                        Contains the code of the Miden rollup kernels and standardized smart contracts.",
+                    );
+                    HelpMessage::Internal { help_message }
+                },
+                MidenComponents::Client => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("help")],
+                },
+                MidenComponents::VM => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-vm"),
+                    prefix_args: vec![String::from("help")],
+                },
+                MidenComponents::Compiler => HelpMessage::ShellOut {
+                    target_exe: String::from("midenc"),
+                    prefix_args: vec![String::from("help")],
+                },
+                MidenComponents::CargoMiden => HelpMessage::ShellOut {
+                    target_exe: String::from("cargo-miden"),
+                    prefix_args: vec![String::from("help")],
+                },
+            }
+        } else if let Ok(command) = MidenCommands::from_str(component) {
+            match command {
+                MidenCommands::Help => {
+                    HelpMessage::Internal { help_message: default_help(toolchain) }
+                },
+                MidenCommands::Account => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("account"), String::from("--help")],
+                },
+                MidenCommands::Faucet => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("faucet"), String::from("--help")],
+                },
+                MidenCommands::New => HelpMessage::ShellOut {
+                    target_exe: String::from("cargo"),
+                    prefix_args: vec![
+                        String::from("miden"),
+                        String::from("new"),
+                        String::from("--help"),
+                    ],
+                },
+                MidenCommands::Build => HelpMessage::ShellOut {
+                    target_exe: String::from("cargo"),
+                    prefix_args: vec![
+                        String::from("miden"),
+                        String::from("build"),
+                        String::from("--help"),
+                    ],
+                },
+                MidenCommands::Test => todo!(),
+                // NOTE: This help message displays help for every flag.
+                // Maybe return a filter lambda to parse these messages?
+                MidenCommands::Deploy => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("new-wallet"), String::from("--help")],
+                },
+                // NOTE: This help message displays help for every flag.
+                // Maybe return a filter lambda to parse these messages?
+                MidenCommands::Call => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("new-wallet"), String::from("--help")],
+                },
+
+                MidenCommands::Send => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("send"), String::from("--help")],
+                },
+                MidenCommands::Simulate => HelpMessage::ShellOut {
+                    target_exe: String::from("miden-client"),
+                    prefix_args: vec![String::from("exec"), String::from("--help")],
+                },
+            }
+        } else {
+            HelpMessage::Internal { help_message: default_help(toolchain) }
+        }
+    } else {
+        HelpMessage::Internal { help_message: default_help(toolchain) }
+    }
+}
+
+fn default_help(current: &Toolchain) -> String {
     let available_components: String = current
         .components
         .iter()
@@ -441,7 +536,7 @@ fn default_help(current: &Toolchain) -> anyhow::Result<()> {
             format!("  {}\n", component_name.bold())
         })
         .collect();
-    let help_message = format!(
+    format!(
         "The Miden toolchain porcelain
 
 {} {} <COMPONENT>
@@ -456,10 +551,7 @@ Help:
         "Usage:".bold().underline(),
         "miden".bold(),
         available_components
-    );
-    std::println!("{help_message}");
-
-    Ok(())
+    )
 }
 
 #[cfg(test)]
