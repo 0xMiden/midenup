@@ -511,7 +511,7 @@ Available components:
 
 Help:
   help                   Print this help message
-  <COMPONENT> help       Print <COMPONENTS>'s help message
+  help <COMPONENT>       Print <COMPONENTS>'s help message
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
