@@ -6,9 +6,9 @@ mod toolchain;
 mod utils;
 mod version;
 
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -41,6 +41,73 @@ enum Behavior {
     /// Invoke components of the current Miden toolchain
     #[command(external_subcommand)]
     Miden(Vec<OsString>),
+}
+
+#[derive(Debug)]
+enum MidenCommands {
+    Help,
+    Account,
+    Faucet,
+    New,
+    Build,
+    Test,
+    Deploy,
+    Call,
+    Send,
+    Simulate,
+}
+
+#[derive(Debug)]
+/// Miden Components managed by Midenup
+enum MidenComponents {
+    /// Standard Library in .masp format
+    Std,
+    /// Base Library/Transaction Kernel in .masp format
+    Base,
+    /// Miden Client (executable)
+    Client,
+    /// Miden VM (executable)
+    VM,
+    /// Miden Compiler (executable)
+    Compiler,
+    /// Miden Compiler Cargo extension (executable)
+    CargoMiden,
+}
+
+impl FromStr for MidenComponents {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "std" => Ok(MidenComponents::Std),
+            "base" => Ok(MidenComponents::Base),
+            "client" => Ok(MidenComponents::Client),
+            "vm" => Ok(MidenComponents::VM),
+            "compiler" => Ok(MidenComponents::Compiler),
+            "cargo-miden" | "cargomiden" | "cargo" => Ok(MidenComponents::CargoMiden),
+            _ => bail!("Unknown component {s}"),
+        }
+    }
+}
+
+impl FromStr for MidenCommands {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "help" => Ok(MidenCommands::Help),
+            "account" => Ok(MidenCommands::Account),
+            "faucet" => Ok(MidenCommands::Faucet),
+            "new" => Ok(MidenCommands::New),
+            "build" => Ok(MidenCommands::Build),
+            "test" => Ok(MidenCommands::Test),
+            "deploy" => Ok(MidenCommands::Deploy),
+            "call" => Ok(MidenCommands::Call),
+            "send" => Ok(MidenCommands::Send),
+            "simulate" => Ok(MidenCommands::Simulate),
+            _ => bail!("Unknown subcommand {s}"),
+        }
+    }
 }
 
 /// All the available Midenup Commands
@@ -181,62 +248,134 @@ miden help"
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::current()?;
 
-            let (target_exe, prefix_args) = match subcommand {
+            let (target_exe, prefix_args, include_rest) = match subcommand {
                 "help" => {
-                    let available_components: String = toolchain
-                        .components
-                        .iter()
-                        .filter(|c| {
-                            let c = c.as_str();
-                            INSTALLABLE_COMPONENTS.contains(&c)
-                        })
-                        .map(|c| {
-                            let component_name = c.replace("miden-", "");
-                            format!("  {}\n", component_name.bold())
-                        })
-                        .collect();
-                    let help_message = format!(
-                        "The Miden toolchain porcelain
+                    // NOTE: This could either be a [MidenCommands] or a
+                    // [MidenComponents].
+                    let component = argv.get(2).and_then(|c| c.to_str());
+                    let (target_exe, prefix_args) = if let Some(component) = component {
+                        if let Ok(component) = MidenComponents::from_str(component) {
+                            match component {
+                                MidenComponents::Std => {
+                                    // Taken from: https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure
+                                    std::println!(
+                                        "The Miden standard library in masp format. Provides highly-optimized and battle-tested implementations of commonly-used primitives."
+                                    );
+                                    return Ok(());
+                                },
+                                MidenComponents::Base => {
+                                    // Taken from: https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure
+                                    std::println!(
+                                        "The Miden base library in masp format. Contains the code of the Miden rollup kernels and standardized smart contracts."
+                                    );
+                                    return Ok(());
+                                },
+                                MidenComponents::Client => {
+                                    (String::from("miden-client"), vec![String::from("help")])
+                                },
+                                MidenComponents::VM => {
+                                    (String::from("miden-vm"), vec![String::from("help")])
+                                },
+                                MidenComponents::Compiler => {
+                                    (String::from("midenc"), vec![String::from("help")])
+                                },
+                                MidenComponents::CargoMiden => {
+                                    (String::from("cargo-miden"), vec![String::from("help")])
+                                },
+                            }
+                        } else if let Ok(command) = MidenCommands::from_str(component) {
+                            match command {
+                                MidenCommands::Help => return default_help(&toolchain),
+                                MidenCommands::Account => (
+                                    String::from("miden-client"),
+                                    vec![String::from("account"), String::from("--help")],
+                                ),
+                                MidenCommands::Faucet => (
+                                    String::from("miden-client"),
+                                    vec![String::from("faucet"), String::from("--help")],
+                                ),
+                                MidenCommands::New => (
+                                    String::from("cargo"),
+                                    vec![
+                                        String::from("miden"),
+                                        String::from("new"),
+                                        String::from("--help"),
+                                    ],
+                                ),
+                                MidenCommands::Build => (
+                                    String::from("cargo"),
+                                    vec![
+                                        String::from("miden"),
+                                        String::from("build"),
+                                        String::from("--help"),
+                                    ],
+                                ),
+                                MidenCommands::Test => todo!(),
+                                // NOTE: This help message displays help for every flag.
+                                // Maybe return a filter lambda to parse these messages?
+                                MidenCommands::Deploy => (
+                                    String::from("miden-client"),
+                                    vec![String::from("new-wallet"), String::from("--help")],
+                                ),
+                                // NOTE: This help message displays help for every flag.
+                                // Maybe return a filter lambda to parse these messages?
+                                MidenCommands::Call => (
+                                    String::from("miden-client"),
+                                    vec![String::from("new-wallet"), String::from("--help")],
+                                ),
 
-{} {} <COMPONENT>
-
-Available components:
-{}
-
-Help:
-  help                   Print this help message
-  <COMPONENT> help       Print <COMPONENTS>'s help message
-",
-                        "Usage:".bold().underline(),
-                        "miden".bold(),
-                        available_components
-                    );
-                    std::println!("{help_message}");
-                    return Ok(());
+                                MidenCommands::Send => (
+                                    String::from("miden-client"),
+                                    vec![String::from("send"), String::from("--help")],
+                                ),
+                                MidenCommands::Simulate => (
+                                    String::from("miden-client"),
+                                    vec![String::from("exec"), String::from("--help")],
+                                ),
+                            }
+                        } else {
+                            return default_help(&toolchain);
+                        }
+                    } else {
+                        return default_help(&toolchain);
+                    };
+                    (target_exe, prefix_args, false)
                 },
-                "account" => (String::from("miden-client"), vec![String::from("account")]),
-                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
-                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
-                "build" => {
-                    (String::from("cargo"), vec![String::from("miden"), String::from("build")])
+                "account" => (String::from("miden-client"), vec![String::from("account")], true),
+                "faucet" => (String::from("miden-client"), vec![String::from("mint")], true),
+                "new" => {
+                    (String::from("cargo"), vec![String::from("miden"), String::from("new")], true)
                 },
+                "build" => (
+                    String::from("cargo"),
+                    vec![String::from("miden"), String::from("build")],
+                    true,
+                ),
                 "test" => todo!(),
                 // "node" => todo!(),
                 "deploy" => (
                     String::from("miden-client"),
                     vec![String::from("new-wallet"), String::from("--deploy")],
+                    true,
                 ),
                 // "scan" => todo!(),
                 // NOTE: This commands needs a specific account to be specified
                 "call" => (
                     String::from("miden-client"),
                     vec![String::from("account"), String::from("-s")],
+                    true,
                 ),
-                "send" => (String::from("miden-client"), vec![String::from("send")]),
-                "simulate" => (String::from("miden-client"), vec![String::from("exec")]),
+                "send" => (String::from("miden-client"), vec![String::from("send")], true),
+                "simulate" => (String::from("miden-client"), vec![String::from("exec")], true),
                 other => {
-                    let command = format!("miden-{other}");
-                    (command, vec![])
+                    let command = match other {
+                        "client" => "miden-client",
+                        "vm" => "miden-vm",
+                        subcommand @ ("midenc" | "cargo-miden") => subcommand,
+                        _ => todo!("display help message"),
+                    };
+
+                    (command.to_string(), vec![], true)
                 },
             };
 
@@ -255,11 +394,19 @@ Help:
                 None => toolchain_bin.into_os_string(),
             };
 
-            let mut output = std::process::Command::new(target_exe)
+            let rest_of_args = if include_rest {
+                argv.iter().skip(2)
+            } else {
+                // We don't want to pass the rest of the CLI arguments to the subshell in this case.
+                // This is equivalent to std::iter::empty::<OsString>()
+                argv.iter().skip(argv.len())
+            };
+
+            let mut output = std::process::Command::new(dbg!(target_exe))
                 .env("MIDENUP_HOME", &config.midenup_home)
                 .env("PATH", path)
-                .args(prefix_args)
-                .args(argv.iter().skip(2))
+                .args(dbg!(prefix_args))
+                .args(dbg!(rest_of_args))
                 .stderr(std::process::Stdio::inherit())
                 .stdout(std::process::Stdio::inherit())
                 .spawn()
@@ -279,6 +426,40 @@ Help:
             subcommand.execute(&config, &mut local_manifest)
         },
     }
+}
+
+fn default_help(current: &Toolchain) -> anyhow::Result<()> {
+    let available_components: String = current
+        .components
+        .iter()
+        .filter(|c| {
+            let c = c.as_str();
+            INSTALLABLE_COMPONENTS.contains(&c)
+        })
+        .map(|c| {
+            let component_name = c.replace("miden-", "");
+            format!("  {}\n", component_name.bold())
+        })
+        .collect();
+    let help_message = format!(
+        "The Miden toolchain porcelain
+
+{} {} <COMPONENT>
+
+Available components:
+{}
+
+Help:
+  help                   Print this help message
+  <COMPONENT> help       Print <COMPONENTS>'s help message
+",
+        "Usage:".bold().underline(),
+        "miden".bold(),
+        available_components
+    );
+    std::println!("{help_message}");
+
+    Ok(())
 }
 
 #[cfg(test)]
