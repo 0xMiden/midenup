@@ -1,7 +1,7 @@
-use anyhow::Context;
 use clap::Subcommand;
+use colored::Colorize;
 
-use crate::{toolchain::Toolchain, Config};
+use crate::{Config, manifest::Manifest, toolchain::Toolchain};
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
@@ -15,7 +15,7 @@ pub enum ShowCommand {
 }
 
 impl ShowCommand {
-    pub fn execute(&self, config: &Config) -> anyhow::Result<()> {
+    pub fn execute(&self, config: &Config, local_manifest: &Manifest) -> anyhow::Result<()> {
         match self {
             Self::Current => {
                 let toolchain = Toolchain::current()?;
@@ -30,11 +30,27 @@ impl ShowCommand {
                 Ok(())
             },
             Self::List => {
-                let toolchains_dir = config.midenup_home.join("toolchains");
-                let toolchains = std::fs::read_dir(toolchains_dir)
-                    .context("Couldn't read toolchains directory")?;
-                for toolchain in toolchains {
-                    println!("{}", toolchain.unwrap().file_name().display());
+                let channels = local_manifest.get_channels();
+                let stable_toolchain = local_manifest.get_latest_stable();
+
+                let toolchains_display: Vec<_> = channels
+                    .map(|channel| {
+                        (
+                            &channel.name,
+                            stable_toolchain
+                                .as_ref()
+                                .is_some_and(|stable| stable.name == channel.name),
+                        )
+                    })
+                    .map(|(channel_name, is_stable)| match (channel_name, is_stable) {
+                        (name, false) => format!("{name}"),
+                        (name, true) => format!("{name} {}", "(stable)".bold()),
+                    })
+                    .collect();
+
+                println!("{}", "Installed toolchains:".bold().underline());
+                for toolchain in toolchains_display {
+                    std::println!("{toolchain}");
                 }
 
                 Ok(())
