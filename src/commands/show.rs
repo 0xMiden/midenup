@@ -31,7 +31,7 @@ impl ShowCommand {
             },
             Self::List => {
                 let channels = local_manifest.get_channels();
-                let stable_toolchain = local_manifest.get_latest_stable();
+                let stable_toolchain = config.manifest.get_latest_stable();
 
                 let toolchains_display: Vec<_> = channels
                     .map(|channel| {
