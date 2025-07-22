@@ -1,3 +1,5 @@
+use std::ffi::OsStr;
+
 use anyhow::Context;
 
 use crate::{Config, commands, config::ensure_midenup_home_exists, manifest::Manifest};
@@ -25,9 +27,28 @@ pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()
 
     println!(
         "midenup was successfully initialized in:
-{}",
+{}
+",
         config.midenup_home.as_path().display()
     );
+
+    // We check if the `miden` executable is accessible via the $PATH. This is
+    // most certainly not going to be the case the first time `midenup` is
+    // initialized.
+
+    let miden_is_accessible = std::env::var_os("PATH")
+        .as_ref()
+        .map(|paths| {
+            std::env::split_paths(paths).any(|exe| exe.file_name() == Some(OsStr::new("miden")))
+        })
+        .unwrap_or(false);
+
+    if !miden_is_accessible {
+        std::println!("Could not find `miden` executable in the system's PATH. To enable it, add the following to your shell's config file:
+export MIDENUP_HOME=$XDG_DATA_DIR/midenup
+export PATH=${{MIDENUP_HOME}}/bin:$PATH
+")
+    }
 
     Ok(())
 }
