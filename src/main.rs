@@ -260,6 +260,12 @@ enum Commands {
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: UserChannel,
     },
+    /// Sets the system's default toolchain.
+    Override {
+        /// The channel or version to set, e.g. `stable` or `0.15.0`
+        #[arg(required(true), value_name = "CHANNEL", value_parser)]
+        channel: UserChannel,
+    },
     /// Update your installed Miden toolchains.
     Update {
         /// `midenup update`'s behavior differs depending on the specified [CHANNEL]
@@ -310,6 +316,9 @@ impl Commands {
             Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
             Self::Show(cmd) => cmd.execute(config),
             Self::Set { channel } => commands::set(config, channel),
+            Self::Override { channel } => {
+                commands::override_command(config, channel, local_manifest)
+            },
         }
     }
 }
