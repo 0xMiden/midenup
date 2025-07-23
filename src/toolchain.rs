@@ -58,15 +58,15 @@ impl Toolchain {
     }
 
     /// Returns the current active Toolchain according to the following prescedence:
-    /// 1. The toolchain specified by a `miden-toolchain.toml` file in the
-    ///    present working directory
-    /// 2. The toolchain that has been set as the system's default. If set, a
-    ///    `default` symlink is added to the `midenup` directory.
+    /// 1. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
+    /// 2. The toolchain that has been set as the system's default. If set, a `default` symlink is
+    ///    added to the `midenup` directory.
     ///
     /// If none of the previous conditions are met, then `stable` will be used.
     pub fn current(config: &Config) -> anyhow::Result<Self> {
         let local_toolchain = Self::toolchain_file()?;
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
+
         if local_toolchain.exists() {
             let toolchain_file_contents =
                 std::fs::read_to_string(&local_toolchain).with_context(|| {
@@ -80,24 +80,34 @@ impl Toolchain {
 
             Ok(current_toolchain)
         } else if global_toolchain.exists() {
-            let channel_path = std::fs::read_link(&global_toolchain)
-                .context("Couldn't read default symlink. Is it a symlink?")?;
-            let channel_name =
-                UserChannel::from_str(channel_path.file_name().unwrap().to_str().unwrap())?;
+            let channel_path = std::fs::read_link(&global_toolchain).context(format!(
+                "Couldn't read 'default' symlink. Is {} a symlink?",
+                global_toolchain.as_path().display(),
+            ))?;
+            let channel_name = channel_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("Couldn't read channel name from directory")?;
+            let channel = UserChannel::from_str(channel_name)?;
 
             let installed_components_file = {
-                if channel_path.join("installation-successful").exists() {
-                    "installation-successful"
-                } else if channel_path.join(".installation-in-progress").exists() {
-                    ".installation-in-progress"
-                } else {
-                    bail!("Couldn't file either a .installation-in-progress or a installation-successful file in {}", channel_path.display())
-                }
+                let possible_log_files = ["installation-successful", ".installation-in-progress"];
+
+                let used_log_file = possible_log_files
+                    .iter()
+                    .map(|file| channel_path.join(file))
+                    .find(|log_file| log_file.exists());
+
+                used_log_file
+                    .context(
+                        format!("Couldn't file either a .installation-in-progress or a installation-successful file in {}", channel_path.display())
+                    )?
             };
+
             let components_file = global_toolchain.join(installed_components_file);
-            let components = std::fs::read_to_string(components_file)?;
-            let components: Vec<String> = components.lines().map(String::from).collect();
-            let toolchain = Toolchain { channel: channel_name, components };
+            let components: Vec<String> =
+                std::fs::read_to_string(components_file)?.lines().map(String::from).collect();
+            let toolchain = Toolchain { channel, components };
 
             Ok(toolchain)
         } else {
