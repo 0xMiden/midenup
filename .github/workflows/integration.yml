@@ -54,9 +54,6 @@ jobs:
       - name: Mark midenup it as executable
         run: |
           chmod +x midenup
-      - name: initialize midenup directory
-        run: |
-          ./midenup init
       - name: install stable
         run: |
           ./midenup install stable
