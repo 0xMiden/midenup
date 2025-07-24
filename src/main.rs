@@ -108,7 +108,7 @@ impl FromStr for MidenComponents {
             "base" => Ok(MidenComponents::Base),
             "client" => Ok(MidenComponents::Client),
             "vm" => Ok(MidenComponents::VM),
-            "compiler" => Ok(MidenComponents::Compiler),
+            "compiler" | "midenc" => Ok(MidenComponents::Compiler),
             "cargo-miden" | "cargomiden" | "cargo" => Ok(MidenComponents::CargoMiden),
             _ => bail!("Unknown component {s}"),
         }
