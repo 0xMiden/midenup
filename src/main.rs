@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -395,9 +395,6 @@ fn main() -> anyhow::Result<()> {
 
     match cli.behavior {
         Behavior::Miden(argv) => {
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
-
             // Extract the target binary to execute from argv[1]
             let subcommand = {
                 let subcommand = argv.get(1).ok_or(anyhow!(
@@ -445,6 +442,9 @@ miden help"
                     }
                 },
             };
+
+            // Make sure we know the current toolchain so we can modify the PATH appropriately
+            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
 
             // Compute the effective PATH for this command
             let toolchain_bin = config
