@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -161,7 +161,7 @@ impl MidenAliasses {
             },
             MidenAliasses::Faucet => HelpMessage::ShellOut {
                 target_exe: String::from("miden-client"),
-                prefix_args: vec![String::from("faucet"), String::from("--help")],
+                prefix_args: vec![String::from("mint"), String::from("--help")],
             },
             MidenAliasses::New => HelpMessage::ShellOut {
                 target_exe: String::from("cargo"),
@@ -210,7 +210,7 @@ impl MidenAliasses {
     fn get_command_exec(&self) -> (String, Vec<String>) {
         match self {
             MidenAliasses::Account => (String::from("miden-client"), vec![String::from("account")]),
-            MidenAliasses::Faucet => (String::from("miden-client"), vec![String::from("faucet")]),
+            MidenAliasses::Faucet => (String::from("miden-client"), vec![String::from("mint")]),
             MidenAliasses::New => {
                 (String::from("cargo"), vec![String::from("miden"), String::from("new")])
             },
