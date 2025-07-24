@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -57,34 +57,69 @@ impl Toolchain {
         Ok(toolchain_file)
     }
 
-    pub fn current() -> anyhow::Result<Self> {
-        let toolchain_file = Self::toolchain_file()?;
-        if !toolchain_file.exists() {
-            // The default toolchain is stable
-            //
-            // TODO(pauls): If we support setting global defaults at some point, we'll need
-            // to adjust this.
-            return Ok(Self::default());
+    /// Returns the current active Toolchain according to the following prescedence:
+    /// 1. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
+    /// 2. The toolchain that has been set as the system's default. If set, a `default` symlink is
+    ///    added to the `midenup` directory.
+    ///
+    /// If none of the previous conditions are met, then `stable` will be used.
+    pub fn current(config: &Config) -> anyhow::Result<Self> {
+        let local_toolchain = Self::toolchain_file()?;
+        let global_toolchain = config.midenup_home.join("toolchains").join("default");
+
+        if local_toolchain.exists() {
+            let toolchain_file_contents =
+                std::fs::read_to_string(&local_toolchain).with_context(|| {
+                    format!("unable to read toolchain file '{}'", local_toolchain.display())
+                })?;
+
+            let toolchain_file: ToolchainFile =
+                toml::from_str(&toolchain_file_contents).context("invalid toolchain file")?;
+
+            let current_toolchain = toolchain_file.inner_toolchain();
+
+            Ok(current_toolchain)
+        } else if global_toolchain.exists() {
+            let channel_path = std::fs::read_link(&global_toolchain).context(format!(
+                "Couldn't read 'default' symlink. Is {} a symlink?",
+                global_toolchain.as_path().display(),
+            ))?;
+            let channel_name = channel_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .context("Couldn't read channel name from directory")?;
+            let channel = UserChannel::from_str(channel_name)?;
+
+            let installed_components_file = {
+                let possible_log_files = ["installation-successful", ".installation-in-progress"];
+
+                let used_log_file = possible_log_files
+                    .iter()
+                    .map(|file| channel_path.join(file))
+                    .find(|log_file| log_file.exists());
+
+                used_log_file
+                    .context(
+                        format!("Couldn't file either a .installation-in-progress or a installation-successful file in {}", channel_path.display())
+                    )?
+            };
+
+            let components_file = global_toolchain.join(installed_components_file);
+            let components: Vec<String> =
+                std::fs::read_to_string(components_file)?.lines().map(String::from).collect();
+            let toolchain = Toolchain { channel, components };
+
+            Ok(toolchain)
+        } else {
+            Ok(Self::default())
         }
-
-        let toolchain_file_contents =
-            std::fs::read_to_string(&toolchain_file).with_context(|| {
-                format!("unable to read toolchain file '{}'", toolchain_file.display())
-            })?;
-
-        let toolchain_file: ToolchainFile =
-            toml::from_str(&toolchain_file_contents).context("invalid toolchain file")?;
-
-        let current_toolchain = toolchain_file.inner_toolchain();
-
-        Ok(current_toolchain)
     }
 
     pub fn ensure_current_is_installed(
         config: &Config,
         local_manifest: &mut Manifest,
     ) -> anyhow::Result<Self> {
-        let current_toolchain = Self::current()?;
+        let current_toolchain = Self::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
         let Some(channel) = config.manifest.get_channel(desired_channel) else {
