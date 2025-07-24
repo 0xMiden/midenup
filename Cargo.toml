@@ -22,6 +22,7 @@ upon = { version = "0.9.0", default-features = false, features = [
     "serde",
     "unicode",
 ] }
+colored = "3.0.0"
 
 [dev-dependencies]
 tempdir = "0.3.7"
