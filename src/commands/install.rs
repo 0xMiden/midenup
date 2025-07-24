@@ -250,7 +250,11 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
-            .arg("{{ debug_mode }}")
+            .args([
+            {%- for arg in chosen_profile %}
+            "{{ arg }}",
+            {%- endfor %}
+            ])
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",
@@ -430,10 +434,10 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    let debug_mode = if config.debug {
-        "profile --debug"
+    let chosen_profile = if config.debug {
+        ["--profile", "dev"]
     } else {
-        "profile --release"
+        ["--profile", "release"]
     };
 
     // Render the install script
@@ -445,7 +449,7 @@ fn main() {
                 installable_components: installable_components,
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
                 symlinks: symlinks,
-                debug_mode: debug_mode,
+                chosen_profile: chosen_profile,
             },
         )
         .to_string()
