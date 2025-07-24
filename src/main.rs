@@ -377,7 +377,7 @@ fn main() -> anyhow::Result<()> {
     match cli.behavior {
         Behavior::Miden(argv) => {
             // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::current()?;
+            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
 
             // Extract the target binary to execute from argv[1]
             let subcommand = {
@@ -589,14 +589,12 @@ mod tests {
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
-        let init = Commands::Init;
-        init.execute(&config, &mut local_manifest).expect("Failed to init");
-
-        let manifest = midenup_home.join("manifest").with_extension("json");
-        assert!(manifest.exists());
-
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // After install is executed, the local manifest should be present
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
 
         let stable_dir = midenup_home.join("toolchains").join("stable");
         assert!(stable_dir.exists());
@@ -641,13 +639,11 @@ mod tests {
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
-        let init = Commands::Init;
-        init.execute(&config, &mut local_manifest).expect("Failed to init");
-        let manifest = midenup_home.join("manifest").with_extension("json");
-        assert!(manifest.exists());
-
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+        // After install is executed, the local manifest should be present
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
         let stable_dir = midenup_home.join("toolchains").join("stable");
         assert!(stable_dir.exists());
         assert!(stable_dir.is_symlink());
@@ -715,15 +711,13 @@ mod tests {
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
-        let init = Commands::Init;
-        init.execute(&config, &mut local_manifest).expect("Failed to init");
-        let manifest = midenup_home.join("manifest").with_extension("json");
-        assert!(manifest.exists());
-
         let install = Commands::Install {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
         };
         install.execute(&config, &mut local_manifest).expect("Failed to install 0.14.0");
+        // After install is executed, the local manifest should be present
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
         let version = semver::Version::new(0, 14, 0);
         let old_std = local_manifest
             .get_channel(&UserChannel::Version(version.clone()))
@@ -782,15 +776,14 @@ mod tests {
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
-        let init = Commands::Init;
-        init.execute(&config, &mut local_manifest).expect("Failed to init");
-        let manifest = midenup_home.join("manifest").with_extension("json");
-        assert!(manifest.exists());
-
         let install = Commands::Install {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
         };
         install.execute(&config, &mut local_manifest).expect("Failed to install 0.14.0");
+        // After install is executed, the local manifest should be present
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
+
         let toolchain_path = midenup_home.join("toolchains").join("0.14.0");
         assert!(toolchain_path.join("installation-successful").exists());
         assert!(toolchain_path.exists());
@@ -854,12 +847,10 @@ mod tests {
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
-        let init = Commands::Init;
-        init.execute(&config, &mut local_manifest).expect("Failed to init");
-        let manifest = midenup_home.join("manifest").with_extension("json");
-        assert!(manifest.exists());
-
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+        // After install is executed, the local manifest should be present
+        let manifest = midenup_home.join("manifest").with_extension("json");
+        assert!(manifest.exists());
     }
 }
