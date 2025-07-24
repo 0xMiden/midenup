@@ -308,7 +308,7 @@ impl Commands {
                 commands::uninstall(config, channel, local_manifest)
             },
             Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
-            Self::Show(cmd) => cmd.execute(config),
+            Self::Show(cmd) => cmd.execute(config, local_manifest),
             Self::Set { channel } => commands::set(config, channel),
         }
     }
