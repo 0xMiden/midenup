@@ -378,7 +378,6 @@ fn main() -> anyhow::Result<()> {
         Behavior::Miden(argv) => {
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
-
             // Extract the target binary to execute from argv[1]
             let subcommand = {
                 let subcommand = argv.get(1).ok_or(anyhow!(
