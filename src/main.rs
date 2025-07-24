@@ -395,9 +395,6 @@ fn main() -> anyhow::Result<()> {
 
     match cli.behavior {
         Behavior::Miden(argv) => {
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
-
             // Extract the target binary to execute from argv[1]
             let subcommand = {
                 let subcommand = argv.get(1).ok_or(anyhow!(
@@ -406,6 +403,10 @@ miden help"
                 ))?;
                 subcommand.to_str().expect("Invalid command name: {subcommand}")
             };
+
+            // Make sure we know the current toolchain so we can modify the PATH appropriately
+            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
+
             let aliased_command = MidenAliasses::from_str(subcommand);
 
             let (target_exe, prefix_args, include_rest_of_args) = match aliased_command.ok() {
