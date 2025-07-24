@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -399,7 +399,7 @@ miden help"
                         // NOTE: This could either be a [MidenCommands] or a
                         // [MidenComponents].
                         let component = argv.get(2).and_then(|c| c.to_str());
-                        let help_message = handle_help(component, &toolchain)?;
+                        let help_message = handle_help(component)?;
                         match help_message {
                             HelpMessage::Internal { help_message } => {
                                 std::println!("{help_message}");
@@ -476,7 +476,7 @@ miden help"
 }
 
 /// Wrapper function that handles help messaging dispatch
-fn handle_help(component: Option<&str>, toolchain: &Toolchain) -> anyhow::Result<HelpMessage> {
+fn handle_help(component: Option<&str>) -> anyhow::Result<HelpMessage> {
     if let Some(component) = component {
         if let Ok(component) = MidenComponents::from_str(component) {
             Ok(component.help_command())
@@ -490,11 +490,11 @@ miden help",
             )
         }
     } else {
-        Ok(HelpMessage::Internal { help_message: default_help(toolchain) })
+        Ok(HelpMessage::Internal { help_message: default_help() })
     }
 }
 
-fn default_help(current: &Toolchain) -> String {
+fn default_help() -> String {
     // Note:
     let aliases: String = [
         "account", "faucet", "new", "build", "test", "deploy", "call", "send", "simulate",
@@ -503,13 +503,8 @@ fn default_help(current: &Toolchain) -> String {
     .map(|alias| format!("  {}\n", alias.bold()))
     .collect();
 
-    let available_components: String = current
-        .components
+    let available_components: String = INSTALLABLE_COMPONENTS
         .iter()
-        .filter(|c| {
-            let c = c.as_str();
-            INSTALLABLE_COMPONENTS.contains(&c)
-        })
         .map(|c| {
             let component_name = c.replace("miden-", "");
             format!("  {}\n", component_name.bold())
