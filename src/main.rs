@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -300,7 +300,7 @@ impl Commands {
     /// Execute the requested subcommand
     fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
         match &self {
-            Self::Init => commands::init(config),
+            Self::Init => commands::init(config, false),
             Self::Install { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
@@ -430,7 +430,8 @@ miden help"
                         let command = match subcommand {
                             "client" => "miden-client",
                             "vm" => "miden-vm",
-                            subcommand @ ("midenc" | "cargo-miden") => subcommand,
+                            "midenc" | "compiler" => "midenc",
+                            "cargo-miden" | "cargo" => "cargo-miden",
                             other => {
                                 bail!(
                                     "Unrecognized command {other}. To see available commands, run:

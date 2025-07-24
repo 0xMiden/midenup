@@ -21,7 +21,7 @@ use crate::{Config, utils};
 /// | | | |- std.masp
 /// |- config.toml
 /// |- manifest.json
-pub fn init(config: &Config) -> anyhow::Result<()> {
+pub fn init(config: &Config, display_messages: bool) -> anyhow::Result<()> {
     let mut already_exists = true;
 
     let midenhome_dir = &config.midenup_home;
@@ -70,18 +70,20 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         already_exists = false;
     }
 
-    if !already_exists {
-        std::println!(
-            "midenup was successfully initialized in:
+    if display_messages {
+        if !already_exists {
+            std::println!(
+                "midenup was successfully initialized in:
 {}",
-            config.midenup_home.as_path().display()
-        );
-    } else {
-        std::println!(
-            "midenup already initialized in:
+                config.midenup_home.as_path().display()
+            );
+        } else {
+            std::println!(
+                "midenup already initialized in:
 {}",
-            config.midenup_home.as_path().display()
-        );
+                config.midenup_home.as_path().display()
+            );
+        }
     }
 
     Ok(())
