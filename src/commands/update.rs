@@ -1,10 +1,10 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 
 use crate::{
     Config,
     channel::{Channel, UserChannel},
     commands,
-    commands::install::DEPENDENCIES,
+    commands::{install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
 };
@@ -124,49 +124,12 @@ fn update_channel(
         match &exe.version {
             Authority::Cargo { package, .. } => {
                 let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
-                let mut remove_exe = std::process::Command::new("cargo")
-                    .arg("uninstall")
-                    .arg(package_name)
-                    .arg("--root")
-                    .arg(&toolchain_dir)
-                    .stderr(std::process::Stdio::inherit())
-                    .stdout(std::process::Stdio::inherit())
-                    .spawn()
-                    .with_context(|| {
-                        format!(
-                            "failed to uninstall {} via cargo",
-                            package.as_deref().unwrap_or(exe.name.as_ref())
-                        )
-                    })?;
-
-                let status = remove_exe.wait().context(format!(
-                    "Error occurred while waiting to uninstall {package_name}",
-                ))?;
-
-                if !status.success() {
-                    bail!("midenup failed to uninstall package {}", package_name,)
-                }
+                uninstall_executable(package_name, &toolchain_dir)?;
             },
             Authority::Git { crate_name, .. } => {
-                let mut remove_exe = std::process::Command::new("cargo")
-                    .arg("uninstall")
-                    .arg(crate_name)
-                    .arg("--root")
-                    .arg(&toolchain_dir)
-                    .stderr(std::process::Stdio::inherit())
-                    .stdout(std::process::Stdio::inherit())
-                    .spawn()
-                    .with_context(|| format!("failed to uninstall {crate_name} via cargo"))?;
-
-                let status = remove_exe
-                    .wait()
-                    .context(format!("Error occurred while waiting to uninstall {crate_name}",))?;
-
-                if !status.success() {
-                    bail!("midenup failed to uninstall package {}", crate_name,)
-                }
+                uninstall_executable(crate_name, &toolchain_dir)?;
             },
-            Authority::Path(_path) => {
+            Authority::Path { .. } => {
                 // We simply skip components that are pointing to a Path. We
                 // leave it to the user to determine when a component should be
                 // updated. They'd simply need to update the workspace manually.
