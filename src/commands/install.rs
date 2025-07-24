@@ -161,7 +161,7 @@ fn generate_install_script(channel: &Channel) -> String {
     let engine = upon::Engine::new();
     let template = engine
         .compile(
-            r#"#!/usr/bin/env cargo
+            r##"#!/usr/bin/env cargo
 ---cargo
 [dependencies]
 {%- for dep in dependencies %}
@@ -176,6 +176,7 @@ fn generate_install_script(channel: &Channel) -> String {
 
 use std::process::Command;
 use std::io::{Write, Read};
+use std::fs::{OpenOptions, rename};
 
 fn main() {
     // MIDEN_SYSROOT is set by `midenup` when invoking this script, and will contain the resolved
@@ -183,6 +184,25 @@ fn main() {
     // components.
     let miden_sysroot_dir = std::path::Path::new(env!("MIDEN_SYSROOT"));
     let lib_dir = miden_sysroot_dir.join("lib");
+
+    // We save the state the channel was in when installed. This is used when uninstalling.
+    let channel_json = r#"{{ channel_json }}"#;
+    let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
+    let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
+    installed_json.write_all(&channel_json.as_bytes()).unwrap();
+
+    // As we install components, we write them down in this file. This is used
+    // to keep track of successfully installed components in case installation
+    // fails.
+    let progress_path = miden_sysroot_dir.join(".installation-in-progress");
+    // Done to truncate the file if it exists
+    let _progress_file = std::fs::File::create(progress_path.as_path()).expect("failed to create installation in progress file");
+    // We'll log which components we have successfully installed.
+    let mut progress_file = OpenOptions::new()
+        .append(true)
+        .open(&progress_path)
+        .expect("Failed to create progress file");
+
 
     // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
     let tx = miden_lib::MidenLib::default();
@@ -194,6 +214,7 @@ fn main() {
             .write_to_file(&tx_path)
             .expect("failed to install Miden transaction kernel library component");
     }
+    writeln!(progress_file, "base").expect("Failed to write component name to progress file");
 
     // Write stdlib to $MIDEN_SYSROOT/std.masp
     let stdlib = miden_stdlib::StdLibrary::default();
@@ -204,6 +225,8 @@ fn main() {
             .write_to_file(&stdlib_path)
             .expect("failed to install Miden standard library component");
     }
+    writeln!(progress_file, "std").expect("Failed to write component name to progress file");
+
 
     let bin_dir = miden_sysroot_dir.join("bin");
     {% for component in installable_components %}
@@ -257,26 +280,17 @@ fn main() {
             );
         }
     }
+    writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
 
     {% endfor %}
 
-    // This file indicates that installation finished successfully
+    // Now that installation finished, we rename the file to indicate that
+    // installation finished successfully.
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
+    rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
 
-    let mut installed_packages = String::new();
-    {% for component in installable_components %}
-    installed_packages.push_str(String::from("{{component.name}}").clone().as_str());
-    installed_packages.push('\n');
-    {% endfor %}
-    {%- for dep in dependencies %}
-    installed_packages.push_str(String::from("{{dep.package}}").clone().as_str());
-    installed_packages.push('\n');
-    {% endfor %}
-
-    let mut checkpoint = std::fs::File::create(checkpoint_path.as_path()).expect("failed to create installation checkpoint path");
-    checkpoint.write_all(&installed_packages.into_bytes()).expect("Couldn't write to file");
 }
-"#,
+"##,
         )
         .unwrap_or_else(|err| panic!("invalid install script template: {err}"));
 
@@ -318,9 +332,9 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Path(path) => {
+            Authority::Path { crate_name, path } => {
                 upon::value! {
-                    package: component.name.clone(),
+                    package: crate_name,
                     version: "> 0.0.0",
                     git_uri: "",
                     path: path.display().to_string(),
@@ -348,7 +362,7 @@ fn main() {
                     args.push(target.to_cargo_flag()[1].clone());
                     args.push(crate_name.clone());
                 },
-                Authority::Path(path) => {
+                Authority::Path{path, ..} => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
                 },
@@ -382,6 +396,7 @@ fn main() {
             upon::value! {
                 dependencies: dependencies,
                 installable_components: installable_components,
+                channel_json : serde_json::to_string_pretty(channel).unwrap(),
             },
         )
         .to_string()

@@ -114,6 +114,11 @@ impl Manifest {
         Ok(manifest)
     }
 
+    pub fn remove_channel(&mut self, channel_name: semver::Version) {
+        //
+        self.channels.retain(|c| c.name != channel_name);
+    }
+
     pub fn add_channel(&mut self, channel: Channel) {
         // Before adding the new stable channel, remove the stable alias from
         // all the channels that have it.

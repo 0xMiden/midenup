@@ -92,7 +92,16 @@ impl GitTarget {
 #[serde(rename_all = "snake_case")]
 pub enum Authority {
     /// The authority for this tool/toolchain is a local filesystem path
-    Path(PathBuf),
+    #[serde(untagged)]
+    Path {
+        /// The path to the crate.
+        path: PathBuf,
+
+        /// This is the name of the crate that holds the executable we're going
+        /// to install. This has to be specified because cargo needs the name of
+        /// the crate to handle uninstallation.
+        crate_name: String,
+    },
     /// The authority for this tool/toolchain is a git repository.
     #[serde(untagged)]
     Git {
@@ -126,7 +135,7 @@ impl fmt::Display for Authority {
             Authority::Git { repository_url, target, .. } => {
                 write!(f, "{repository_url}:{target}")
             },
-            Authority::Path(path) => write!(f, "{}", path.display()),
+            Authority::Path { path, .. } => write!(f, "{}", path.display()),
         }
     }
 }
