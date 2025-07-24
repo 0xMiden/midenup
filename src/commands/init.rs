@@ -44,10 +44,33 @@ pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()
         .unwrap_or(false);
 
     if !miden_is_accessible {
-        std::println!("Could not find `miden` executable in the system's PATH. To enable it, add the following to your shell's config file:
+        std::println!(
+            "Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. "
+        );
+        match std::env::consts::OS {
+            "macos" => {
+                std::println!(
+                    "On MacOS, you could try adding:
+
+export MIDENUP_HOME=\"{{$HOME}}/Library/Application Support/midenup\"
+export PATH=${{MIDENUP_HOME}}/bin:$PATH
+
+To your shell's profile file.
+"
+                );
+            },
+            _ => {
+                std::println!(
+                    "You could try adding:
+
 export MIDENUP_HOME=$XDG_DATA_DIR/midenup
 export PATH=${{MIDENUP_HOME}}/bin:$PATH
-")
+
+To your shell's profile file.
+"
+                );
+            },
+        };
     }
 
     Ok(())
