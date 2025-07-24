@@ -108,7 +108,7 @@ impl FromStr for MidenComponents {
             "base" => Ok(MidenComponents::Base),
             "client" => Ok(MidenComponents::Client),
             "vm" => Ok(MidenComponents::VM),
-            "compiler" => Ok(MidenComponents::Compiler),
+            "compiler" | "midenc" => Ok(MidenComponents::Compiler),
             "cargo-miden" | "cargomiden" | "cargo" => Ok(MidenComponents::CargoMiden),
             _ => bail!("Unknown component {s}"),
         }
@@ -161,7 +161,7 @@ impl MidenAliasses {
             },
             MidenAliasses::Faucet => HelpMessage::ShellOut {
                 target_exe: String::from("miden-client"),
-                prefix_args: vec![String::from("faucet"), String::from("--help")],
+                prefix_args: vec![String::from("mint"), String::from("--help")],
             },
             MidenAliasses::New => HelpMessage::ShellOut {
                 target_exe: String::from("cargo"),
@@ -209,7 +209,7 @@ impl MidenAliasses {
     /// execute the underlying component.
     fn get_command_exec(&self) -> (String, Vec<String>) {
         match self {
-            MidenAliasses::Account => (String::from("miden-client"), vec![String::from("mint")]),
+            MidenAliasses::Account => (String::from("miden-client"), vec![String::from("account")]),
             MidenAliasses::Faucet => (String::from("miden-client"), vec![String::from("mint")]),
             MidenAliasses::New => {
                 (String::from("cargo"), vec![String::from("miden"), String::from("new")])
@@ -496,6 +496,14 @@ miden help",
 }
 
 fn default_help(current: &Toolchain) -> String {
+    // Note:
+    let aliasses: String = [
+        "account", "faucet", "new", "build", "test", "deploy", "call", "send", "simulate",
+    ]
+    .iter()
+    .map(|alias| format!("  {}\n", alias.bold()))
+    .collect();
+
     let available_components: String = current
         .components
         .iter()
@@ -516,13 +524,17 @@ fn default_help(current: &Toolchain) -> String {
 Available components:
 {}
 
+Available aliasses:
+{}
+
 Help:
   help                   Print this help message
   help <COMPONENT>       Print <COMPONENTS>'s help message
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
-        available_components
+        available_components,
+        aliasses
     )
 }
 
