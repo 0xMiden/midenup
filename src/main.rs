@@ -2,22 +2,20 @@ mod channel;
 mod commands;
 mod config;
 mod manifest;
+mod miden_porcelain;
 mod toolchain;
 mod utils;
 mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
-use colored::Colorize;
-use commands::INSTALLABLE_COMPONENTS;
 
 pub use self::config::Config;
 use self::{
     channel::UserChannel,
     manifest::{Manifest, ManifestError},
-    toolchain::Toolchain,
 };
 
 #[derive(Debug, Parser)]
@@ -190,110 +188,7 @@ fn main() -> anyhow::Result<()> {
     }?;
 
     match cli.behavior {
-        Behavior::Miden(argv) => {
-            // Extract the target binary to execute from argv[1]
-            let subcommand = argv.get(1).ok_or(anyhow!(
-                "No arguments were passed to `miden`. To get a list of available commands, run:
-miden help"
-            ))?;
-            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
-
-            let (target_exe, prefix_args) = match subcommand {
-                "help" => {
-                    let available_components: String = toolchain
-                        .components
-                        .iter()
-                        .filter(|c| {
-                            let c = c.as_str();
-                            INSTALLABLE_COMPONENTS.contains(&c)
-                        })
-                        .map(|c| {
-                            let component_name = c.replace("miden-", "");
-                            format!("  {}\n", component_name.bold())
-                        })
-                        .collect();
-                    let help_message = format!(
-                        "The Miden toolchain porcelain
-
-{} {} <COMPONENT>
-
-Available components:
-{}
-
-Help:
-  help                   Print this help message
-  <COMPONENT> help       Print <COMPONENTS>'s help message
-",
-                        "Usage:".bold().underline(),
-                        "miden".bold(),
-                        available_components
-                    );
-                    println!("{help_message}");
-                    return Ok(());
-                },
-                "account" => (String::from("miden-client"), vec![String::from("account")]),
-                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
-                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
-                "build" => {
-                    (String::from("cargo"), vec![String::from("miden"), String::from("build")])
-                },
-                "test" => todo!(),
-                // "node" => todo!(),
-                "deploy" => (
-                    String::from("miden-client"),
-                    vec![String::from("new-wallet"), String::from("--deploy")],
-                ),
-                // "scan" => todo!(),
-                // NOTE: This commands needs a specific account to be specified
-                "call" => (
-                    String::from("miden-client"),
-                    vec![String::from("account"), String::from("-s")],
-                ),
-                "send" => (String::from("miden-client"), vec![String::from("send")]),
-                "simulate" => (String::from("miden-client"), vec![String::from("exec")]),
-                other => {
-                    let command = format!("miden-{other}");
-                    (command, vec![])
-                },
-            };
-
-            // Compute the effective PATH for this command
-            let toolchain_bin = config
-                .midenup_home
-                .join("toolchains")
-                .join(toolchain.channel.to_string())
-                .join("bin");
-            let path = match std::env::var_os("PATH") {
-                Some(prev_path) => {
-                    let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
-                    path.push(prev_path);
-                    path
-                },
-                None => toolchain_bin.into_os_string(),
-            };
-
-            let mut output = std::process::Command::new(target_exe)
-                .env("MIDENUP_HOME", &config.midenup_home)
-                .env("PATH", path)
-                .args(prefix_args)
-                .args(argv.iter().skip(2))
-                .stderr(std::process::Stdio::inherit())
-                .stdout(std::process::Stdio::inherit())
-                .spawn()
-                .with_context(|| format!("failed to run 'miden {subcommand}'"))?;
-
-            let status = output.wait().with_context(|| {
-                format!("error occurred while waiting for 'miden {subcommand}' to finish executing")
-            })?;
-
-            if status.success() {
-                Ok(())
-            } else {
-                bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
-            }
-        },
+        Behavior::Miden(argv) => miden_porcelain::execute_miden(argv, &config, &mut local_manifest),
         Behavior::Midenup { command: subcommand, .. } => {
             subcommand.execute(&config, &mut local_manifest)
         },
