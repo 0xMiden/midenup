@@ -220,12 +220,21 @@ mod tests {
     use std::path::Path;
 
     use crate::version::Authority;
+    use clap::{Arg, Command};
     type LocalManifest = Manifest;
+    type MidenupHome = PathBuf;
     use crate::{channel::*, manifest::*, *};
 
-    /// Simple auxiliary function to setup a midneup directory environment in
+    /// Simple auxiliary function to setup a midenup directory environment in
     /// tests.
-    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
+    /// It returns a LocalManifest, and a Config based on the manifest uri. It
+    /// also sets up a temporary directory where the installation will take
+    /// place. The path to this temporary directory is also returned
+    fn test_setup(manifest_uri: &str) -> (LocalManifest, Config, MidenupHome) {
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
+
         let local_manifest = {
             let local_manifest_path = midenup_home.join("manifest").with_extension("json");
             let local_manifest_uri = format!(
@@ -252,19 +261,15 @@ mod tests {
                 )
             });
 
-        (local_manifest, config)
+        (local_manifest, config, midenup_home)
     }
 
     #[test]
     /// Tries to install the "stable" toolchain from the present manifest.
     fn integration_install_stable() {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
-
         const FILE: &str = "file://manifest/channel-manifest.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE);
 
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -297,8 +302,6 @@ mod tests {
                 .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
             &ChannelAlias::Stable
         );
-
-        tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
     #[test]
@@ -314,7 +317,7 @@ mod tests {
 
         const FILE_PRE_UPDATE: &str = "file://tests/data/update-stable/manifest-pre-update.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
 
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -327,7 +330,7 @@ mod tests {
 
         const FILE_POST_UPDATE: &str = "file://tests/data/update-stable/manifest-post-update.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_POST_UPDATE);
 
         let update = Commands::Update { channel: Some(UserChannel::Stable) };
         update.execute(&config, &mut local_manifest).expect("Failed to update stable");
@@ -346,7 +349,7 @@ mod tests {
         assert_eq!(new_stable.alias, Some(ChannelAlias::Stable));
 
         // Now we check if the structure is correclty saved in the filesystem
-        let (local_manifest, _) = test_setup(&midenup_home, FILE_POST_UPDATE);
+        let (local_manifest, _, midenup_home) = test_setup(FILE_POST_UPDATE);
         let old_stable = local_manifest
             .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
             .expect("Couldn't find old stable channel via version");
@@ -386,7 +389,7 @@ mod tests {
         const FILE_PRE_UPDATE: &str =
             "file://tests/data/update-specific/manifest-pre-component-update.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
 
         let install = Commands::Install {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
@@ -419,7 +422,7 @@ mod tests {
         const FILE_POST_UPDATE: &str =
             "file://tests/data/update-specific/manifest-post-component-update.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_POST_UPDATE);
 
         let update = Commands::Update {
             channel: Some(UserChannel::Version(semver::Version::new(0, 14, 0))),
@@ -451,7 +454,7 @@ mod tests {
         const FILE_PRE_UPDATE: &str =
             "file://tests/data/rollback-component/manifest-pre-component-rollback.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
 
         let install = Commands::Install {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
@@ -490,7 +493,7 @@ mod tests {
         const FILE_POST_UPDATE: &str =
             "file://tests/data/rollback-component/manifest-post-component-rollback.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_POST_UPDATE);
 
         let update = Commands::Update {
             channel: Some(UserChannel::Version(semver::Version::new(0, 14, 0))),
@@ -522,7 +525,7 @@ mod tests {
 
         const FILE_PRE_UPDATE: &str = "file://tests/data/manifest-uncompilable-midenc.json";
 
-        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
 
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
