@@ -3,12 +3,13 @@ use std::{
     collections::HashSet,
     fmt,
     hash::{Hash, Hasher},
+    path::PathBuf,
 };
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    utils,
+    Config, utils,
     version::{Authority, GitTarget},
 };
 
@@ -101,6 +102,11 @@ impl Channel {
             .map(|c| (*c).clone());
 
         Vec::from_iter(components)
+    }
+
+    pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
+        let installed_toolchains_dir = config.midenup_home.join("toolchains");
+        installed_toolchains_dir.join(format!("{}", self.name))
     }
 }
 
