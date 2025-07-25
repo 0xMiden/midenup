@@ -1,3 +1,4 @@
+/// This file contains some general purpose functions.
 use anyhow::Context;
 
 #[cfg(unix)]
