@@ -294,6 +294,12 @@ struct GlobalArgs {
         default_value = manifest::Manifest::PUBLISHED_MANIFEST_URI
     )]
     manifest_uri: String,
+
+    /// Determines wether the components are installed in debug mode. Useful for
+    /// debugging and faster installations. This flag is only avaialble to
+    /// `midenup`, not `miden`.
+    #[clap(long, short, action)]
+    debug: bool,
 }
 
 impl Commands {
@@ -357,7 +363,7 @@ fn main() -> anyhow::Result<()> {
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
-            Config::init(midenup_home, manifest_uri)?
+            Config::init(midenup_home, manifest_uri, false)?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
@@ -374,7 +380,7 @@ fn main() -> anyhow::Result<()> {
                     anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
                 })?;
 
-            Config::init(midenup_home, &config.manifest_uri)?
+            Config::init(midenup_home, &config.manifest_uri, config.debug)?
         },
     };
 
@@ -590,8 +596,8 @@ mod tests {
             })
         };
 
-        let config =
-            Config::init(midenup_home.to_path_buf().clone(), manifest_uri).unwrap_or_else(|_| {
+        let config = Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
+            .unwrap_or_else(|_| {
                 panic!(
                     "Failed construct config from manifest {} and midenup_home at {}",
                     manifest_uri,
