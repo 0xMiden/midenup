@@ -269,6 +269,13 @@ Error: {}",
         (local_manifest, config, midenup_home)
     }
 
+    fn get_full_command(argv: Vec<OsString>) -> String {
+        argv.clone()
+            .iter()
+            .map(|arg| format!("{} ", arg.clone().into_string().unwrap()))
+            .collect::<String>()
+    }
+
     #[test]
     /// This tests serves as basic check that the install and uninstall
     /// functionalities of midenup work correctly.
@@ -358,6 +365,111 @@ Error: {}",
         // Similarly, the local manifest should now also reflect the that the
         // older toolchain got uninstalled
         let installed_toolchains = ["0.15.0"].iter().map(|version| {
+            semver::Version::parse(version)
+                .unwrap_or_else(|_| panic!("Failed to turn {version} into semver::Version"))
+        });
+
+        // Besides creating the various directories, the local manifest should
+        // also reflect this structure
+        local_manifest
+            .get_channels()
+            .map(|channel| channel.name.clone())
+            .eq(installed_toolchains);
+    }
+
+    #[test]
+    /// This tests checks that the `miden` utility installs the current active
+    /// toolchain, if not present in the system.
+    fn midenup_unprompted_test() {
+        // SIDENOTE: This tests uses toolchain with version number 0.14.0. This
+        // is simply used for testing purposes and is not a toolchain meant to
+        // be used.
+        const FILE: &str = "file://tests/data/midenup_unprompted_test/channel-manifest.json";
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE);
+        let toolchain_dir = midenup_home.join("toolchains");
+
+        // By default, the active toolchain is the latest stable version. In the
+        // case of the manifest present in FILE, that is version 0.16.0.
+        let command = Midenup::try_parse_from(["miden", "client", "--version"]).unwrap();
+        let Behavior::Miden(argv) = command.behavior else {
+            panic!("Error while parsing test command. Expected Midne Behavior, got Midenup");
+        };
+
+        miden_porcelain::execute_miden(argv.clone(), &config, &mut local_manifest)
+            .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
+
+        // After this, `midenup` should;\
+        // 1. Recognize that the user wants to run a component
+        // 2. Recognize that the active toolchain is not installed, and thus
+        //    trigger an installation
+        // 3. Before issuing the install, it should recognize that midenup
+        //    hasn't been initialized and thus needs to be initialized.
+
+        // midenup initialized check
+        assert!(midenup_home.exists());
+        assert!(midenup_home.join("bin").exists());
+        assert!(toolchain_dir.exists());
+
+        // Stable toolchain installed check
+        let latest_toolchain = toolchain_dir.join("0.16.0");
+        assert!(latest_toolchain.exists());
+
+        // Symlink check
+        let stable_dir = toolchain_dir.join("stable");
+        assert!(stable_dir.exists());
+        assert!(stable_dir.is_symlink());
+
+        // Global default
+
+        // Now, we set a global default toolchain. This should change the
+        // current active toolchain to 0.15.0.
+        let command = Midenup::try_parse_from(["midenup", "override", "0.15.0"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // This should also trigger an install, since toolchain 0.15.0 is
+        // missing and is now the active toolchain.
+        let command = Midenup::try_parse_from(["miden", "client", "--version"]).unwrap();
+        let Behavior::Miden(argv) = command.behavior else {
+            panic!("Error while parsing test command. Expected Midne Behavior, got Midenup");
+        };
+
+        miden_porcelain::execute_miden(argv.clone(), &config, &mut local_manifest)
+            .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
+
+        let older_toolchain = toolchain_dir.join("0.15.0");
+        assert!(older_toolchain.exists());
+
+        // Directory only toolchain
+
+        // Now, we'll create a `miden-toolchain.toml` file. This will change the
+        // current active toolchain.
+        // By default, the active toolchain is the latest stable version. In the
+        // case of the manifest present in FILE, that is version 0.16.0.
+        let command = Midenup::try_parse_from(["midenup", "set", "0.14.0"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // This should also trigger an install, since toolchain 0.14.0 is now
+        // missing
+        let command = Midenup::try_parse_from(["miden", "client", "--version"]).unwrap();
+        let Behavior::Miden(argv) = command.behavior else {
+            panic!("Error while parsing test command. Expected Midne Behavior, got Midenup");
+        };
+
+        miden_porcelain::execute_miden(argv.clone(), &config, &mut local_manifest)
+            .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
+
+        let oldest_toolchain = toolchain_dir.join("0.14.0");
+        assert!(oldest_toolchain.exists());
+
+        // Afterwards, all of the newly installed toolchains should be present
+        // in the local manifest.
+        let installed_toolchains = ["0.14.0", "0.15.0", "0.16.0"].iter().map(|version| {
             semver::Version::parse(version)
                 .unwrap_or_else(|_| panic!("Failed to turn {version} into semver::Version"))
         });
