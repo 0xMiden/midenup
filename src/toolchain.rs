@@ -79,7 +79,7 @@ impl Toolchain {
             let current_toolchain = toolchain_file.inner_toolchain();
 
             Ok(current_toolchain)
-        } else if global_toolchain.exists() {
+        } else if std::fs::read_link(&global_toolchain).is_ok() {
             let channel_path = std::fs::read_link(&global_toolchain).context(format!(
                 "Couldn't read 'default' symlink. Is {} a symlink?",
                 global_toolchain.as_path().display(),
@@ -93,20 +93,24 @@ impl Toolchain {
             let installed_components_file = {
                 let possible_log_files = ["installation-successful", ".installation-in-progress"];
 
-                let used_log_file = possible_log_files
+                possible_log_files
                     .iter()
                     .map(|file| channel_path.join(file))
-                    .find(|log_file| log_file.exists());
-
-                used_log_file
-                    .context(
-                        format!("Couldn't file either a .installation-in-progress or a installation-successful file in {}", channel_path.display())
-                    )?
+                    .find(|log_file| log_file.exists())
             };
 
-            let components_file = global_toolchain.join(installed_components_file);
-            let components: Vec<String> =
-                std::fs::read_to_string(components_file)?.lines().map(String::from).collect();
+            let components: Vec<String> = {
+                if let Some(installed_components_file) = installed_components_file {
+                    let components_file = global_toolchain.join(installed_components_file);
+
+                    std::fs::read_to_string(components_file)?.lines().map(String::from).collect()
+                } else {
+                    println!(
+                        "WARNING: Non present toolchain was set. Component list will be left empty"
+                    );
+                    Vec::new()
+                }
+            };
             let toolchain = Toolchain { channel, components };
 
             Ok(toolchain)
