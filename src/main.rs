@@ -217,10 +217,9 @@ fn main() -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use crate::version::Authority;
-    use clap::{Arg, Command};
+
     type LocalManifest = Manifest;
     type MidenupHome = PathBuf;
     use crate::{channel::*, manifest::*, *};
@@ -253,15 +252,118 @@ mod tests {
         };
 
         let config = Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
-            .unwrap_or_else(|_| {
+            .unwrap_or_else(|err| {
                 panic!(
-                    "Failed construct config from manifest {} and midenup_home at {}",
+                    "Failed to construct config from manifest {} and midenup_home at {}.
+Error: {}",
                     manifest_uri,
                     midenup_home.display(),
+                    err,
                 )
             });
 
         (local_manifest, config, midenup_home)
+    }
+
+    #[test]
+    /// This tests serves as basic check that the install and uninstall
+    /// functionalities of midenup work correctly.
+    fn install_uninstall_test() {
+        const FILE: &str = "file://tests/data/install_uninstall_test/channel-manifest.json";
+        let (mut local_manifest, config, midenup_home) = test_setup(FILE);
+        let toolchain_dir = midenup_home.join("toolchains");
+
+        // We begin by initializing the midenup directory
+        let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // We check that the basic midenup directory structure is present
+        assert!(midenup_home.exists());
+        assert!(midenup_home.join("bin").exists());
+        assert!(toolchain_dir.exists());
+
+        // Now, we install stable
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+
+        // This should install version 0.16.0, since it's the latest available
+        // stable toolchain present in FILE
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        let latest_toolchain = toolchain_dir.join("0.16.0");
+        assert!(latest_toolchain.exists());
+
+        // Besides it should create the `stable` symlink
+        let stable_dir = toolchain_dir.join("stable");
+        assert!(stable_dir.exists());
+        assert!(stable_dir.is_symlink());
+
+        // Stable should point to 0.16.0
+        let stable_toolchain =
+            std::fs::read_link(&stable_dir).expect("Failed to read stable symlink");
+        assert_eq!(stable_toolchain.file_name(), latest_toolchain.file_name());
+
+        // Now we install a separate toolchain.
+        let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // This should install toolchain version 0.15.0.
+
+        let older_toolchain = toolchain_dir.join("0.15.0");
+        assert!(older_toolchain.exists());
+
+        // Besides this new toolchain, all the other directories should still
+        // exists.
+        assert!(stable_dir.exists());
+        assert!(latest_toolchain.exists());
+
+        let installed_toolchains = ["0.15.0", "0.16.0"].iter().map(|version| {
+            semver::Version::parse(version)
+                .unwrap_or_else(|_| panic!("Failed to turn {version} into semver::Version"))
+        });
+
+        // Besides creating the various directories, the local manifest should
+        // also reflect this structure
+        local_manifest
+            .get_channels()
+            .map(|channel| channel.name.clone())
+            .eq(installed_toolchains);
+
+        // Now, we'll uninstall 0.16.0.
+        let command = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // Afterwards, both the 0.16.0 directory and the `stable` symlink should
+        // be deleted. But, 0.15.0 should still remain
+        assert!(!latest_toolchain.exists());
+        assert!(!stable_dir.exists());
+        assert!(older_toolchain.exists());
+
+        // Similarly, the local manifest should now also reflect the that the
+        // older toolchain got uninstalled
+        let installed_toolchains = ["0.15.0"].iter().map(|version| {
+            semver::Version::parse(version)
+                .unwrap_or_else(|_| panic!("Failed to turn {version} into semver::Version"))
+        });
+
+        // Besides creating the various directories, the local manifest should
+        // also reflect this structure
+        local_manifest
+            .get_channels()
+            .map(|channel| channel.name.clone())
+            .eq(installed_toolchains);
     }
 
     #[test]
