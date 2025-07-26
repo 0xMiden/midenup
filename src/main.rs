@@ -275,8 +275,9 @@ Error: {}",
     #[test]
     /// This tests serves as basic check that the install and uninstall
     /// functionalities of midenup work correctly.
-    fn install_uninstall_test() {
-        const FILE: &str = "file://tests/data/install_uninstall_test/channel-manifest.json";
+    fn integration_install_uninstall_test() {
+        const FILE: &str =
+            "file://tests/data/integration_install_uninstall_test/channel-manifest.json";
         let (mut local_manifest, config, midenup_home) = test_setup(FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 
@@ -376,11 +377,12 @@ Error: {}",
     #[test]
     /// This tests checks that the `miden` utility installs the current active
     /// toolchain, if not present in the system.
-    fn midenup_unprompted_test() {
+    fn integration_midenup_unprompted_test() {
         // SIDENOTE: This tests uses toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a toolchain meant to
         // be used.
-        const FILE: &str = "file://tests/data/midenup_unprompted_test/channel-manifest.json";
+        const FILE: &str =
+            "file://tests/data/integration_midenup_unprompted_test/channel-manifest.json";
         let (mut local_manifest, config, midenup_home) = test_setup(FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 
