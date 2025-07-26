@@ -5,7 +5,7 @@ use anyhow::Context;
 use crate::{
     Config, bail,
     channel::{Channel, ChannelAlias},
-    config::ensure_midenup_home_exists,
+    commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
@@ -21,7 +21,7 @@ pub fn install(
     channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    ensure_midenup_home_exists(config)?;
+    commands::init(config)?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
