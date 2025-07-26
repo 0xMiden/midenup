@@ -397,10 +397,10 @@ Error: {}",
             panic!("Error while parsing test command. Expected Midne Behavior, got Midenup");
         };
 
-        miden_porcelain::execute_miden(argv.clone(), &config, &mut local_manifest)
+        miden_wrapper::miden_wrapper(argv.clone(), &config, &mut local_manifest)
             .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
 
-        // After this, `midenup` should;\
+        // After this, `midenup` should:
         // 1. Recognize that the user wants to run a component
         // 2. Recognize that the active toolchain is not installed, and thus
         //    trigger an installation
@@ -438,7 +438,7 @@ Error: {}",
             panic!("Error while parsing test command. Expected Midne Behavior, got Midenup");
         };
 
-        miden_porcelain::execute_miden(argv.clone(), &config, &mut local_manifest)
+        miden_wrapper::miden_wrapper(argv.clone(), &config, &mut local_manifest)
             .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
 
         let older_toolchain = toolchain_dir.join("0.15.0");
@@ -463,7 +463,7 @@ Error: {}",
             panic!("Error while parsing test command. Expected Midne Behavior, got Midenup");
         };
 
-        miden_porcelain::execute_miden(argv.clone(), &config, &mut local_manifest)
+        miden_wrapper::miden_wrapper(argv.clone(), &config, &mut local_manifest)
             .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
 
         let oldest_toolchain = toolchain_dir.join("0.14.0");
@@ -482,6 +482,117 @@ Error: {}",
             .get_channels()
             .map(|channel| channel.name.clone())
             .eq(installed_toolchains);
+    }
+
+    #[test]
+    /// This tests checks that midenup's update behavior works correctly
+    fn integration_update_test() {
+        // SIDENOTE: This test uses toolchain with version number 0.14.0. This
+        // is simply used for testing purposes and is not a toolchain meant to
+        // be used.
+
+        // This manifest contains toolchain version 0.14.0 as its only toolchain
+        let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-1.json";
+        let (mut local_manifest, config, midenup_home) = test_setup(manifest);
+        let toolchain_dir = midenup_home.join("toolchains");
+
+        // We begin by initializing the midenup directory
+        let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to initialize midenup");
+
+        // Now, we install stable. That is going to be version 0.14.0
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // Now, we re-generate the config with a newer manifest that contains
+        // version 0.15.0. This is trying to emulate the release of a new stable
+        // version
+        let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-2.json";
+        let (_, config, _) = test_setup(manifest);
+
+        // Now, we update stable. The stable symlink should point to
+        // version 0.15.0
+        let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to update stable");
+
+        // The original toolchain should still exist
+        let older_toolchain = toolchain_dir.join("0.14.0");
+        assert!(older_toolchain.exists());
+
+        // The newer toolchain should also now be installed
+        let newer_toolchain = toolchain_dir.join("0.15.0");
+        assert!(newer_toolchain.exists());
+
+        // We check that the stable symlink still exits.
+        let stable_dir = toolchain_dir.join("stable");
+        assert!(stable_dir.exists());
+        assert!(stable_dir.is_symlink());
+        // The stable symlink should now point to the newer toolchain
+        let stable_toolchain = std::fs::read_link(stable_dir.as_path())
+            .expect("Couldn't obtain directory where the stable directory is pointing to");
+        assert_eq!(stable_toolchain, newer_toolchain);
+
+        // Now, we perform a "global" update. This performs an update on every
+        // *installed* toolchain. It should perform the following changes:
+        // - Update 0.15.0's miden-vm.
+        // - Downgrade 0.14.0's miden-vm.
+        // However this should *not* update stable.
+        let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-3.json";
+        let (_, config, _) = test_setup(manifest);
+
+        let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to perform global update");
+
+        // We check that the stable symlink still exits and it is still pointing to 0.15.0.
+        assert!(stable_dir.exists());
+        assert!(stable_dir.is_symlink());
+
+        // The stable symlink should now point to the newer toolchain
+        let stable_toolchain = std::fs::read_link(stable_dir.as_path())
+            .expect("Couldn't obtain directory where the stable directory is pointing to");
+        assert_eq!(stable_toolchain, newer_toolchain);
+
+        let vm_exe_v15 = toolchain_dir.join("0.15.0").join("bin").join("miden-vm");
+        let command = std::process::Command::new(vm_exe_v15).arg("--version").output().unwrap();
+        assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.16.2\n");
+
+        let vm_exe_v14 = toolchain_dir.join("0.14.0").join("bin").join("miden");
+        let command = std::process::Command::new(vm_exe_v14).arg("--version").output().unwrap();
+        assert_eq!(String::from_utf8(command.stdout).unwrap(), "Miden 0.13.0\n");
+
+        // Now, we use the same manifest that we used previously to update the
+        // current stable toolchain.
+        let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to perform global update");
+
+        let newest_toolchain = toolchain_dir.join("0.16.0");
+        assert!(newest_toolchain.exists());
+
+        // The stable symlink should now point to the newest toolchain
+        let stable_toolchain = std::fs::read_link(stable_dir.as_path())
+            .expect("Couldn't obtain directory where the stable directory is pointing to");
+        assert_eq!(stable_toolchain, newest_toolchain);
     }
 
     #[test]
