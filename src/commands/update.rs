@@ -6,6 +6,7 @@ use crate::{
     Config,
     channel::{Channel, UserChannel},
     commands,
+    commands::install::DEPENDENCIES,
     manifest::Manifest,
     version::Authority,
 };
@@ -23,7 +24,7 @@ pub fn update(
 midenup install stable
 ",
             )?;
-            // NOTE: This means that there is no stable toolchain upstram.  This
+            // NOTE: This means that there is no stable toolchain upstream.  This
             // is most likely an edge-case that shouldn't happen. If it does
             // happen, it probably means there's an error in midenup's parsing.
             let upstream_stable = config
@@ -35,7 +36,7 @@ midenup install stable
             if upstream_stable.name > local_stable.name {
                 commands::install(config, upstream_stable, local_manifest)?
             } else {
-                std::println!("Nothing to update, you are all up to date");
+                println!("Nothing to update, you are all up to date");
             }
         },
         Some(UserChannel::Version(version)) => {
@@ -107,9 +108,8 @@ fn update_channel(
 
     let updates = local_channel.components_to_update(upstream_channel);
 
-    let libs = ["std", "base"];
     let (libraries, executables): (Vec<_>, Vec<_>) =
-        updates.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+        updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
 
     for lib in libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
