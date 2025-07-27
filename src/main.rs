@@ -223,22 +223,15 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
 
-    use crate::version::Authority;
+    use std::path::Path;
 
+    use crate::version::Authority;
     type LocalManifest = Manifest;
-    type MidenupHome = PathBuf;
     use crate::{channel::*, manifest::*, *};
 
-    /// Simple auxiliary function to setup a midenup directory environment in
+    /// Simple auxiliary function to setup a midneup directory environment in
     /// tests.
-    /// It returns a LocalManifest, and a Config based on the manifest uri. It
-    /// also sets up a temporary directory where the installation will take
-    /// place. The path to this temporary directory is also returned
-    fn test_setup(manifest_uri: &str) -> (LocalManifest, Config, MidenupHome) {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
-
+    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
         let local_manifest = {
             let local_manifest_path = midenup_home.join("manifest").with_extension("json");
             let local_manifest_uri = format!(
@@ -267,7 +260,7 @@ Error: {}",
                 )
             });
 
-        (local_manifest, config, midenup_home)
+        (local_manifest, config)
     }
 
     fn get_full_command(argv: Vec<OsString>) -> String {
@@ -281,9 +274,13 @@ Error: {}",
     /// This tests serves as basic check that the install and uninstall
     /// functionalities of midenup work correctly.
     fn integration_install_uninstall_test() {
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
+
         const FILE: &str =
             "file://tests/data/integration_install_uninstall_test/channel-manifest.json";
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 
         // We begin by initializing the midenup directory
@@ -383,12 +380,16 @@ Error: {}",
     /// This tests checks that the `miden` utility installs the current active
     /// toolchain, if not present in the system.
     fn integration_midenup_unprompted_test() {
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
+
         // SIDENOTE: This tests uses toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a toolchain meant to
         // be used.
         const FILE: &str =
             "file://tests/data/integration_midenup_unprompted_test/channel-manifest.json";
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 
         // By default, the active toolchain is the latest stable version. In the
@@ -403,10 +404,9 @@ Error: {}",
 
         // After this, `midenup` should:
         // 1. Recognize that the user wants to run a component
-        // 2. Recognize that the active toolchain is not installed, and thus
-        //    trigger an installation
-        // 3. Before issuing the install, it should recognize that midenup
-        //    hasn't been initialized and thus needs to be initialized.
+        // 2. Recognize that the active toolchain is not installed, and thus trigger an installation
+        // 3. Before issuing the install, it should recognize that midenup hasn't been initialized
+        //    and thus needs to be initialized.
 
         // midenup initialized check
         assert!(midenup_home.exists());
@@ -488,13 +488,17 @@ Error: {}",
     #[test]
     /// This tests checks that midenup's update behavior works correctly
     fn integration_update_test() {
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
+
         // SIDENOTE: This test uses toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a toolchain meant to
         // be used.
 
         // This manifest contains toolchain version 0.14.0 as its only toolchain
         let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-1.json";
-        let (mut local_manifest, config, midenup_home) = test_setup(manifest);
+        let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
         let toolchain_dir = midenup_home.join("toolchains");
 
         // We begin by initializing the midenup directory
@@ -517,7 +521,7 @@ Error: {}",
         // version 0.15.0. This is trying to emulate the release of a new stable
         // version
         let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-2.json";
-        let (_, config, _) = test_setup(manifest);
+        let (_, config) = test_setup(&midenup_home, manifest);
 
         // Now, we update stable. The stable symlink should point to
         // version 0.15.0
@@ -550,7 +554,7 @@ Error: {}",
         // - Downgrade 0.14.0's miden-vm.
         // However this should *not* update stable.
         let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-3.json";
-        let (_, config, _) = test_setup(manifest);
+        let (_, config) = test_setup(&midenup_home, manifest);
 
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
         let Behavior::Midenup { command, .. } = command.behavior else {
@@ -599,9 +603,13 @@ Error: {}",
     #[test]
     /// Tries to install the "stable" toolchain from the present manifest.
     fn integration_install_stable() {
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let tmp_home_path = tmp_home.path();
+        let midenup_home = tmp_home_path.join("midenup");
+
         const FILE: &str = "file://manifest/channel-manifest.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -634,6 +642,8 @@ Error: {}",
                 .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
             &ChannelAlias::Stable
         );
+
+        tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
     #[test]
@@ -649,7 +659,7 @@ Error: {}",
 
         const FILE_PRE_UPDATE: &str = "file://tests/data/update-stable/manifest-pre-update.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -662,7 +672,7 @@ Error: {}",
 
         const FILE_POST_UPDATE: &str = "file://tests/data/update-stable/manifest-post-update.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_POST_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
 
         let update = Commands::Update { channel: Some(UserChannel::Stable) };
         update.execute(&config, &mut local_manifest).expect("Failed to update stable");
@@ -681,7 +691,7 @@ Error: {}",
         assert_eq!(new_stable.alias, Some(ChannelAlias::Stable));
 
         // Now we check if the structure is correclty saved in the filesystem
-        let (local_manifest, _, midenup_home) = test_setup(FILE_POST_UPDATE);
+        let (local_manifest, _) = test_setup(&midenup_home, FILE_POST_UPDATE);
         let old_stable = local_manifest
             .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
             .expect("Couldn't find old stable channel via version");
@@ -721,7 +731,7 @@ Error: {}",
         const FILE_PRE_UPDATE: &str =
             "file://tests/data/update-specific/manifest-pre-component-update.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
         let install = Commands::Install {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
@@ -754,7 +764,7 @@ Error: {}",
         const FILE_POST_UPDATE: &str =
             "file://tests/data/update-specific/manifest-post-component-update.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_POST_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
 
         let update = Commands::Update {
             channel: Some(UserChannel::Version(semver::Version::new(0, 14, 0))),
@@ -786,7 +796,7 @@ Error: {}",
         const FILE_PRE_UPDATE: &str =
             "file://tests/data/rollback-component/manifest-pre-component-rollback.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
         let install = Commands::Install {
             channel: UserChannel::Version(semver::Version::new(0, 14, 0)),
@@ -825,7 +835,7 @@ Error: {}",
         const FILE_POST_UPDATE: &str =
             "file://tests/data/rollback-component/manifest-post-component-rollback.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_POST_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_POST_UPDATE);
 
         let update = Commands::Update {
             channel: Some(UserChannel::Version(semver::Version::new(0, 14, 0))),
@@ -857,7 +867,7 @@ Error: {}",
 
         const FILE_PRE_UPDATE: &str = "file://tests/data/manifest-uncompilable-midenc.json";
 
-        let (mut local_manifest, config, midenup_home) = test_setup(FILE_PRE_UPDATE);
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
         let install = Commands::Install { channel: UserChannel::Stable };
         install.execute(&config, &mut local_manifest).expect("Failed to install stable");
