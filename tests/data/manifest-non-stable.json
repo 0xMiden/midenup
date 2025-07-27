@@ -8,7 +8,8 @@
       "components": [
         {
           "name": "std",
-          "path": "/path/to/directory"
+          "path": "/path/to/directory",
+          "crate_name": "crate_name"
         }
       ]
     },
