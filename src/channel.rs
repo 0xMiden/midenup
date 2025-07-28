@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashSet,
-    fmt,
+    fmt::{self, Display},
     hash::{Hash, Hasher},
     path::PathBuf,
 };
@@ -202,6 +202,27 @@ impl core::str::FromStr for ChannelAlias {
     }
 }
 
+/// Represents the file that the [[Component]] will install in the system.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InstalledFile {
+    /// Te component installs an executable.
+    #[serde(untagged)]
+    Executable { executable_name: String },
+    /// Te component installs a MaspLibrary.
+    #[serde(untagged)]
+    MaspLibrary { library_name: String },
+}
+
+impl Display for InstalledFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            InstalledFile::Executable { executable_name } => f.write_str(executable_name),
+            InstalledFile::MaspLibrary { library_name } => f.write_str(library_name),
+        }
+    }
+}
+
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -227,9 +248,14 @@ pub struct Component {
     /// This field is used for crates that install files whose name is different
     /// than that of the crate. For instance: miden-vm's executable is stored as
     /// 'miden'.
+    /// This field indicates which type of file the component will install.
+    /// IMPORTANT: If this field is missing from the manifest, then it means
+    /// that the component will install an executable that is named just like
+    /// the crate. To access this value, use [[Component::get_installed_file]].
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub installed_file: Option<String>,
+    #[serde(flatten)]
+    installed_file: Option<InstalledFile>,
 }
 
 impl Component {
@@ -325,6 +351,17 @@ impl Component {
 
         true
     }
+
+    /// Returns the name of the executable corresponding to this component.
+    /// If the component does not specify the installed file name, that means
+    /// that it installs and executable named exactly like the crate.
+    pub fn get_installed_file(&self) -> InstalledFile {
+        if let Some(installed_file) = &self.installed_file {
+            installed_file.clone()
+        } else {
+            InstalledFile::Executable { executable_name: self.name.to_string() }
+        }
+    }
 }
 
 /// User-facing channel reference. The main difference with this and [Channel]
@@ -343,7 +380,7 @@ pub enum UserChannel {
     Other(Cow<'static, str>),
 }
 
-impl fmt::Display for UserChannel {
+impl Display for UserChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Version(version) => write!(f, "{version}"),

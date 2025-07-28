@@ -20,7 +20,7 @@
           "package": "miden-vm",
           "version": "0.15.0",
           "features": ["executable", "concurrent"],
-          "installed_file": "miden"
+          "executable_name": "miden"
         },
         {
           "name": "miden-client",
@@ -63,7 +63,7 @@
           "name": "miden-client",
           "package": "miden-client-cli",
           "version": "0.10.0",
-          "installed_file": "miden-client"
+          "installed_executable": "miden-client"
         },
         {
           "name": "midenc",

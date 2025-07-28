@@ -15,6 +15,7 @@ use commands::INSTALLABLE_COMPONENTS;
 
 pub use self::config::Config;
 use self::{
+    channel::InstalledFile,
     channel::UserChannel,
     manifest::{Manifest, ManifestError},
     toolchain::Toolchain,

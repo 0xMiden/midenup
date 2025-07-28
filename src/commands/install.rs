@@ -335,14 +335,14 @@ fn main() {
                     args.push("--version".to_string());
                     args.push(version.to_string());
                 },
-                Authority::Git{repository_url, target, crate_name} => {
+                Authority::Git { repository_url, target, crate_name } => {
                     args.push("--git".to_string());
                     args.push(repository_url.clone());
                     args.push(target.to_cargo_flag()[0].clone());
                     args.push(target.to_cargo_flag()[1].clone());
                     args.push(crate_name.clone());
                 },
-                Authority::Path{path, ..} => {
+                Authority::Path { path, .. } => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
                 },
@@ -360,9 +360,11 @@ fn main() {
                 args.push(features);
             };
 
+            let installed_file = component.get_installed_file().to_string();
+
             upon::value! {
                 name: component.name.to_string(),
-                installed_file: component.installed_file.clone().unwrap_or(component.name.to_string()),
+                installed_file: installed_file,
                 required_toolchain_flag: required_toolchain_flag,
                 args: args,
             }
