@@ -153,6 +153,11 @@ impl Manifest {
 
     /// Attempts to fetch the version corresponding to the `stable` [Channel],
     /// by definition this is the latest version.
+    /// WARNING: This method is mainly intended to be used with the *Upstream*
+    /// Manifest, not the Local Manifest.  This is because, stable is simply
+    /// defined to be "the latest non-nightly" channel in the [Manifest].
+    /// Therefore, in order to have a unified vision of what "stable" refers,
+    /// refer to the upstream [Manifest].
     pub fn get_latest_stable(&self) -> Option<&Channel> {
         self.channels
             .iter()
