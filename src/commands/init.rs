@@ -35,13 +35,7 @@ pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()
     // We check if the `miden` executable is accessible via the $PATH. This is
     // most certainly not going to be the case the first time `midenup` is
     // initialized.
-
-    let miden_is_accessible = std::env::var_os("PATH")
-        .as_ref()
-        .map(|paths| {
-            std::env::split_paths(paths).any(|exe| exe.file_name() == Some(OsStr::new("miden")))
-        })
-        .unwrap_or(false);
+    let miden_is_accessible = std::process::Command::new("miden").arg("--version").output().is_ok();
 
     if !miden_is_accessible {
         std::println!(
