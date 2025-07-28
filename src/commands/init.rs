@@ -1,8 +1,9 @@
-use std::ffi::OsStr;
-
 use anyhow::Context;
 
-use crate::{Config, commands, config::ensure_midenup_home_exists, manifest::Manifest};
+use crate::{
+    Config, MIDENUP_PARENT_DEFAULT_DIR, commands, config::ensure_midenup_home_exists,
+    manifest::Manifest,
+};
 
 /// This is the first command the user runs after first installing the midenup. It performs the
 /// following tasks:
@@ -38,33 +39,25 @@ pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()
     let miden_is_accessible = std::process::Command::new("miden").arg("--version").output().is_ok();
 
     if !miden_is_accessible {
-        std::println!(
-            "Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. "
-        );
-        match std::env::consts::OS {
-            "macos" => {
-                std::println!(
-                    "On MacOS, you could try adding:
-
-export MIDENUP_HOME=\"{{$HOME}}/Library/Application Support/midenup\"
-export PATH=${{MIDENUP_HOME}}/bin:$PATH
-
-To your shell's profile file.
-"
-                );
-            },
-            _ => {
-                std::println!(
-                    "You could try adding:
-
-export MIDENUP_HOME=$XDG_DATA_DIR/midenup
-export PATH=${{MIDENUP_HOME}}/bin:$PATH
-
-To your shell's profile file.
-"
-                );
-            },
+        let midenup_home_dir = match std::env::var(MIDENUP_PARENT_DEFAULT_DIR) {
+            Ok(_) => String::from("${{XDG_DATA_HOME}}"),
+            // Some OSs, like MacOs, don't define the XDG_* family of
+            // environment variables. In those cases, we fall back on data_dir
+            Err(_) => dirs::data_dir()
+                .and_then(|dir| dir.into_os_string().into_string().ok())
+                .unwrap_or(String::from("${{HOME}}/.local/share")),
         };
+
+        std::println!(
+            "
+Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. 
+
+export MIDENUP_HOME={midenup_home_dir}/midenup
+export PATH=${{MIDENUP_HOME}}/bin:$PATH
+
+To your shell's profile file.
+"
+        );
     }
 
     Ok(())

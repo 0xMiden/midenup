@@ -84,6 +84,8 @@ enum Commands {
     },
 }
 
+const MIDENUP_PARENT_DEFAULT_DIR: &str = "XDG_DATA_HOME";
+
 const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 /// Global configuration options for `midenup`
 #[derive(Debug, Args)]
