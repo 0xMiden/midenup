@@ -82,10 +82,12 @@ information on how to configure the active toolchain, see [Configuring the activ
 toolchain](#configuring-the-active-toolchain)).
 
 ### Updating a toolchain
+
 To update a given toolchain, you can use the `midenup update <TOOLCHAIN>`
 command. This command's behavior differs slightly depending on how it is called.
 
 #### Updating stable
+
 To update stable to the latest release, run:
 ```
 midenup update stable
@@ -94,6 +96,7 @@ midenup update stable
 This will check if there's a newer stable release and will update the toolchain accordingly.
 
 #### Updating a specific toolchain
+
 When updating a versioned toolchain, only updates which are known
 to work with that version of the toolchain will be installed/updated.
 
@@ -115,6 +118,7 @@ can view using `midenup show active-toolchain`. To see how to configure the
 active toolchain, see [Configuring the active toolchain](#configuring-the-active-toolchain) section.
 
 #### Aliasses
+
 To facilitate development, the `miden` command is also aware of a number of
 aliasses. These aliasses exist to facilitate the execution of common miden task.
 
@@ -164,6 +168,7 @@ midenup show home
 If none of the previous conditions are met, then `stable` will be used.
 
 #### Setting a project specific toolchain
+
 To configure a toolchain to be active in the present working directory, you can use the `midenup set <TOOLCHAIN>` command.
 For example, to set `0.16.0` run:
 ```
@@ -176,6 +181,7 @@ Now, whenever `miden` is called in this directory, it will use the specificied t
 > This procedure generates a `miden-toolchain.toml` file in the directory where `midenup set` was invoked.
 
 #### Setting a global default toolchain
+
 You can customize your system's default toolchain with `midenup override <TOOLCHAIN>`. For example, to set `0.16.0` as the default toolchain, run:
 ```
 midenup override 0.16.0
