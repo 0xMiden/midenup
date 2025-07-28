@@ -316,7 +316,7 @@ impl Commands {
             Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
             Self::Show(cmd) => cmd.execute(config),
             Self::Set { channel } => commands::set(config, channel),
-            Self::Override { channel } => commands::override_command(config, channel),
+            Self::Override { channel } => commands::r#override(config, channel),
         }
     }
 }

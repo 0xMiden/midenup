@@ -1,5 +1,4 @@
-// This function is called override_command because "override" is a reserved
-// keyword.
+// This function is called r#override because "override" is a reserved keyword.
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 
 use anyhow::Context;
@@ -9,7 +8,7 @@ use crate::{Config, channel::UserChannel, commands, utils};
 /// This functions sets the system's default toolchain. This is handled
 /// similarly to how we handle the `stable`. We create a symlink called
 /// `default` that points to the desired toolchain directory.
-pub fn override_command(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
+pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     commands::init(config)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");

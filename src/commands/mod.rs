@@ -1,6 +1,6 @@
 mod init;
 mod install;
-mod override_command;
+mod r#override;
 mod set;
 mod show;
 mod uninstall;
@@ -9,7 +9,7 @@ mod update;
 pub use self::{
     init::init,
     install::{INSTALLABLE_COMPONENTS, install},
-    override_command::override_command,
+    r#override::r#override,
     set::set,
     show::ShowCommand,
     uninstall::uninstall,
