@@ -6,7 +6,7 @@ mod toolchain;
 mod utils;
 mod version;
 
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
 use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
@@ -43,8 +43,196 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
-/// All the available Midenup Commands
+#[derive(Debug)]
+/// Miden Components managed by Midenup
+enum MidenComponents {
+    /// Standard Library in .masp format
+    Std,
+    /// Base Library/Transaction Kernel in .masp format
+    Base,
+    /// Miden Client (executable)
+    Client,
+    /// Miden VM (executable)
+    VM,
+    /// Miden Compiler (executable)
+    Compiler,
+    /// Miden Compiler Cargo extension (executable)
+    CargoMiden,
+}
+
+impl MidenComponents {
+    fn help_command(&self) -> HelpMessage {
+        match self {
+            MidenComponents::Std => {
+                // Taken from: https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure
+                let help_message = String::from(
+                    "The Miden standard library in masp format.\
+                         Provides highly-optimized and battle-tested implementations of commonly-used primitives.",
+                );
+                HelpMessage::Internal { help_message }
+            },
+            MidenComponents::Base => {
+                // Taken from: https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure
+                let help_message = String::from(
+                    "The Miden base library in masp format.\
+                        Contains the code of the Miden rollup kernels and standardized smart contracts.",
+                );
+                HelpMessage::Internal { help_message }
+            },
+            MidenComponents::Client => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("help")],
+            },
+            MidenComponents::VM => HelpMessage::ShellOut {
+                target_exe: String::from("miden-vm"),
+                prefix_args: vec![String::from("help")],
+            },
+            MidenComponents::Compiler => HelpMessage::ShellOut {
+                target_exe: String::from("midenc"),
+                prefix_args: vec![String::from("help")],
+            },
+            MidenComponents::CargoMiden => HelpMessage::ShellOut {
+                target_exe: String::from("cargo-miden"),
+                prefix_args: vec![String::from("help")],
+            },
+        }
+    }
+}
+
+impl FromStr for MidenComponents {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "std" => Ok(MidenComponents::Std),
+            "base" => Ok(MidenComponents::Base),
+            "client" => Ok(MidenComponents::Client),
+            "vm" => Ok(MidenComponents::VM),
+            "compiler" | "midenc" => Ok(MidenComponents::Compiler),
+            "cargo-miden" | "cargomiden" | "cargo" => Ok(MidenComponents::CargoMiden),
+            _ => bail!("Unknown component {s}"),
+        }
+    }
+}
+
+#[derive(Debug)]
+/// Enum of all the known "aliases". These are subcommands that have
+/// "abbreviated" versions; these are then mapped to the corresponding "full"
+/// command.
+enum MidenAliases {
+    Account,
+    Faucet,
+    New,
+    Build,
+    Test,
+    // Node,
+    Deploy,
+    // Scan,
+    Call,
+    Send,
+    Simulate,
+}
+
+impl FromStr for MidenAliases {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "account" => Ok(MidenAliases::Account),
+            "faucet" => Ok(MidenAliases::Faucet),
+            "new" => Ok(MidenAliases::New),
+            "build" => Ok(MidenAliases::Build),
+            "test" => Ok(MidenAliases::Test),
+            "deploy" => Ok(MidenAliases::Deploy),
+            "call" => Ok(MidenAliases::Call),
+            "send" => Ok(MidenAliases::Send),
+            "simulate" => Ok(MidenAliases::Simulate),
+            _ => bail!("Unknown subcommand {s}"),
+        }
+    }
+}
+
+impl MidenAliases {
+    fn help_command(&self) -> HelpMessage {
+        match self {
+            MidenAliases::Account => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("account"), String::from("--help")],
+            },
+            MidenAliases::Faucet => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("mint"), String::from("--help")],
+            },
+            MidenAliases::New => HelpMessage::ShellOut {
+                target_exe: String::from("cargo"),
+                prefix_args: vec![
+                    String::from("miden"),
+                    String::from("new"),
+                    String::from("--help"),
+                ],
+            },
+            MidenAliases::Build => HelpMessage::ShellOut {
+                target_exe: String::from("cargo"),
+                prefix_args: vec![
+                    String::from("miden"),
+                    String::from("build"),
+                    String::from("--help"),
+                ],
+            },
+            MidenAliases::Test => todo!(),
+            // NOTE: This help message displays help for every flag.
+            // Maybe return a filter lambda to parse these messages?
+            MidenAliases::Deploy => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("new-wallet"), String::from("--help")],
+            },
+            // NOTE: This help message displays help for every flag.
+            // Maybe return a filter lambda to parse these messages?
+            MidenAliases::Call => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("new-wallet"), String::from("--help")],
+            },
+
+            MidenAliases::Send => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("send"), String::from("--help")],
+            },
+            MidenAliases::Simulate => HelpMessage::ShellOut {
+                target_exe: String::from("miden-client"),
+                prefix_args: vec![String::from("exec"), String::from("--help")],
+            },
+        }
+    }
+
+    /// Get the corresponding executable target executable and prefix arguments
+    /// for each known [MidenCommands]. These can later be used in a subshell to
+    /// execute the underlying component.
+    fn get_command_exec(&self) -> (String, Vec<String>) {
+        match self {
+            MidenAliases::Account => (String::from("miden-client"), vec![String::from("account")]),
+            MidenAliases::Faucet => (String::from("miden-client"), vec![String::from("mint")]),
+            MidenAliases::New => {
+                (String::from("cargo"), vec![String::from("miden"), String::from("new")])
+            },
+            MidenAliases::Build => {
+                (String::from("cargo"), vec![String::from("miden"), String::from("build")])
+            },
+            MidenAliases::Test => todo!(),
+            MidenAliases::Deploy => (
+                String::from("miden-client"),
+                vec![String::from("new-wallet"), String::from("--deploy")],
+            ),
+            MidenAliases::Call => {
+                (String::from("miden-client"), vec![String::from("account"), String::from("-s")])
+            },
+            MidenAliases::Send => (String::from("miden-client"), vec![String::from("send")]),
+            MidenAliases::Simulate => (String::from("miden-client"), vec![String::from("exec")]),
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
+/// All the available Midenup Commands
 enum Commands {
     /// Bootstrap the `midenup` environment.
     ///
@@ -108,7 +296,7 @@ impl Commands {
     /// Execute the requested subcommand
     fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
         match &self {
-            Self::Init => commands::init(config, local_manifest),
+            Self::Init => commands::init(config),
             Self::Install { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
@@ -126,6 +314,22 @@ impl Commands {
             Self::Set { channel } => commands::set(config, channel),
         }
     }
+}
+
+/// This is used to encapsulate the different mechanisms used to display a help
+/// messgage. Currently, there are only two.
+enum HelpMessage {
+    /// This variant is used when the display message is obtained by shelling
+    /// out to a miden component. For instance: `miden-client account --help`.
+    ShellOut {
+        target_exe: String,
+        prefix_args: Vec<String>,
+    },
+    /// This other variant is used when shelling out to the shell is not
+    /// possible. This is mainly done to display the help message of:
+    /// - The `.masp` libraries
+    /// - `miden`'s own 'help' message
+    Internal { help_message: String },
 }
 
 fn main() -> anyhow::Result<()> {
@@ -198,71 +402,53 @@ fn main() -> anyhow::Result<()> {
 
     match cli.behavior {
         Behavior::Miden(argv) => {
-            // Extract the target binary to execute from argv[1]
-            let subcommand = argv.get(1).ok_or(anyhow!(
-                "No arguments were passed to `miden`. To get a list of available commands, run:
-miden help"
-            ))?;
-            let subcommand = subcommand.to_str().expect("Invalid command name: {subcommand}");
             // Make sure we know the current toolchain so we can modify the PATH appropriately
             let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
+            // Extract the target binary to execute from argv[1]
+            let subcommand = {
+                let subcommand = argv.get(1).ok_or(anyhow!(
+                    "No arguments were passed to `miden`. To get a list of available commands, run:
+miden help"
+                ))?;
+                subcommand.to_str().expect("Invalid command name: {subcommand}")
+            };
+            let aliased_command = MidenAliases::from_str(subcommand);
 
-            let (target_exe, prefix_args) = match subcommand {
-                "help" => {
-                    let available_components: String = toolchain
-                        .components
-                        .iter()
-                        .filter(|c| {
-                            let c = c.as_str();
-                            INSTALLABLE_COMPONENTS.contains(&c)
-                        })
-                        .map(|c| {
-                            let component_name = c.replace("miden-", "");
-                            format!("  {}\n", component_name.bold())
-                        })
-                        .collect();
-                    let help_message = format!(
-                        "The Miden toolchain porcelain
-
-{} {} <COMPONENT>
-
-Available components:
-{}
-
-Help:
-  help                   Print this help message
-  <COMPONENT> help       Print <COMPONENTS>'s help message
-",
-                        "Usage:".bold().underline(),
-                        "miden".bold(),
-                        available_components
-                    );
-                    println!("{help_message}");
-                    return Ok(());
+            let (target_exe, prefix_args, include_rest_of_args) = match aliased_command.ok() {
+                // These are know miden aliases.
+                Some(alias) => {
+                    let (target_exe, prefix_args) = alias.get_command_exec();
+                    (target_exe, prefix_args, true)
                 },
-                "account" => (String::from("miden-client"), vec![String::from("account")]),
-                "faucet" => (String::from("miden-client"), vec![String::from("mint")]),
-                "new" => (String::from("cargo"), vec![String::from("miden"), String::from("new")]),
-                "build" => {
-                    (String::from("cargo"), vec![String::from("miden"), String::from("build")])
-                },
-                "test" => todo!(),
-                // "node" => todo!(),
-                "deploy" => (
-                    String::from("miden-client"),
-                    vec![String::from("new-wallet"), String::from("--deploy")],
-                ),
-                // "scan" => todo!(),
-                // NOTE: This commands needs a specific account to be specified
-                "call" => (
-                    String::from("miden-client"),
-                    vec![String::from("account"), String::from("-s")],
-                ),
-                "send" => (String::from("miden-client"), vec![String::from("send")]),
-                "simulate" => (String::from("miden-client"), vec![String::from("exec")]),
-                other => {
-                    let command = format!("miden-{other}");
-                    (command, vec![])
+                None => {
+                    if subcommand == "help" {
+                        // NOTE: This could either be a [MidenCommands] or a
+                        // [MidenComponents].
+                        let component = argv.get(2).and_then(|c| c.to_str());
+                        let help_message = handle_help(component)?;
+                        match help_message {
+                            HelpMessage::Internal { help_message } => {
+                                std::println!("{help_message}");
+                                return Ok(());
+                            },
+                            HelpMessage::ShellOut { target_exe, prefix_args } => {
+                                (target_exe, prefix_args, false)
+                            },
+                        }
+                    } else {
+                        let command = match subcommand {
+                            "client" => "miden-client",
+                            "vm" => "miden-vm",
+                            subcommand @ ("midenc" | "cargo-miden") => subcommand,
+                            other => {
+                                bail!(
+                                    "Unrecognized command {other}. To see available commands, run:
+miden help"
+                                )
+                            },
+                        };
+                        (command.to_string(), vec![], true)
+                    }
                 },
             };
 
@@ -281,11 +467,19 @@ Help:
                 None => toolchain_bin.into_os_string(),
             };
 
+            let rest_of_args = if include_rest_of_args {
+                argv.iter().skip(2)
+            } else {
+                // We don't want to pass the rest of the CLI arguments to the subshell in this case.
+                // This is equivalent to std::iter::empty::<OsString>()
+                argv.iter().skip(argv.len())
+            };
+
             let mut output = std::process::Command::new(target_exe)
                 .env("MIDENUP_HOME", &config.midenup_home)
                 .env("PATH", path)
                 .args(prefix_args)
-                .args(argv.iter().skip(2))
+                .args(rest_of_args)
                 .stderr(std::process::Stdio::inherit())
                 .stdout(std::process::Stdio::inherit())
                 .spawn()
@@ -305,6 +499,63 @@ Help:
             subcommand.execute(&config, &mut local_manifest)
         },
     }
+}
+
+/// Wrapper function that handles help messaging dispatch
+fn handle_help(component: Option<&str>) -> anyhow::Result<HelpMessage> {
+    if let Some(component) = component {
+        if let Ok(component) = MidenComponents::from_str(component) {
+            Ok(component.help_command())
+        } else if let Ok(command) = MidenAliases::from_str(component) {
+            Ok(command.help_command())
+        } else {
+            bail!(
+                "Unrecognized command {}. To see available commands, run:
+miden help",
+                component
+            )
+        }
+    } else {
+        Ok(HelpMessage::Internal { help_message: default_help() })
+    }
+}
+
+fn default_help() -> String {
+    // Note:
+    let aliases: String = [
+        "account", "faucet", "new", "build", "test", "deploy", "call", "send", "simulate",
+    ]
+    .iter()
+    .map(|alias| format!("  {}\n", alias.bold()))
+    .collect();
+
+    let available_components: String = INSTALLABLE_COMPONENTS
+        .iter()
+        .map(|c| {
+            let component_name = c.replace("miden-", "");
+            format!("  {}\n", component_name.bold())
+        })
+        .collect();
+    format!(
+        "The Miden toolchain porcelain
+
+{} {} <COMPONENT>
+
+Available components:
+{}
+
+Available aliases:
+{}
+
+Help:
+  help                   Print this help message
+  help <COMPONENT>       Print <COMPONENTS>'s help message
+",
+        "Usage:".bold().underline(),
+        "miden".bold(),
+        available_components,
+        aliases
+    )
 }
 
 #[cfg(test)]

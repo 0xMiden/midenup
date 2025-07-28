@@ -1,37 +1,74 @@
 use anyhow::Context;
 
-use crate::{
-    Config, MIDENUP_PARENT_DEFAULT_DIR, commands, config::ensure_midenup_home_exists,
-    manifest::Manifest,
-};
+use crate::{Config, MIDENUP_PARENT_DEFAULT_DIR, utils};
 
-/// This is the first command the user runs after first installing the midenup. It performs the
-/// following tasks:
+/// This functions bootstrap the `midenup` environment (creates basic directory
+/// structure, creates the miden executable symlink, etc.), if not already
+/// initialized.
+/// NOTE: An environment is considered to be "uninitialized" if *at least* one element
+/// (be it a file, directory, etc) is missing,
 ///
-/// - Bootstrap the `midenup` environment (create directories, default config, etc.), if not already
-///   done. (done in [ensure_midenup_home_exists]).
-/// - Install the stable channel.
-pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
-    ensure_midenup_home_exists(config)?;
+/// The following is a sketch of the directory tree and contents
+///
+/// $MIDENUP_HOME
+/// |- bin/
+/// | |- miden --> $CARGO_INSTALL_DIR/midenup
+/// |- toolchains
+/// | |- stable/ --> <channel>/
+/// | |- <channel>/
+/// | | |- bin/
+/// | | |- lib/
+/// | | | |- std.masp
+/// |- config.toml
+/// |- manifest.json
+pub fn init(config: &Config) -> anyhow::Result<()> {
+    let mut already_initialized = true;
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
-    let stable = toolchains_dir.join("stable");
-    if !stable.exists() {
-        std::println!("About to install stable toolchain");
-
-        let upstream_stable = config
-            .manifest
-            .get_latest_stable()
-            .context("ERROR: No stable channel found in upstream")?;
-        commands::install(config, upstream_stable, local_manifest)?;
+    let midenhome_dir = &config.midenup_home;
+    if !midenhome_dir.exists() {
+        std::fs::create_dir_all(midenhome_dir).with_context(|| {
+            format!("failed to initialize MIDENUP_HOME directory: '{}'", midenhome_dir.display())
+        })?;
+        already_initialized = false;
+    }
+    let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
+    if !local_manifest_file.exists() {
+        std::fs::File::create(&local_manifest_file).with_context(|| {
+            format!(
+                "failed to create local manifest.json file in: '{}'",
+                local_manifest_file.display()
+            )
+        })?;
+        already_initialized = false;
     }
 
-    println!(
-        "midenup was successfully initialized in:
-{}
-",
-        config.midenup_home.as_path().display()
-    );
+    let bin_dir = config.midenup_home.join("bin");
+    if !bin_dir.exists() {
+        std::fs::create_dir_all(&bin_dir).with_context(|| {
+            format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
+        })?;
+        already_initialized = false;
+    }
+
+    // Write the symlink for `miden` to $MIDENUP_HOME/bin
+    let current_exe =
+        std::env::current_exe().expect("unable to get location of current executable");
+    let miden_exe = bin_dir.join("miden");
+    if !miden_exe.exists() {
+        utils::symlink(&miden_exe, &current_exe)?;
+        already_initialized = false;
+    }
+
+    let toolchains_dir = config.midenup_home.join("toolchains");
+    if !toolchains_dir.exists() {
+        std::fs::create_dir_all(&toolchains_dir).with_context(|| {
+            format!(
+                "failed to initialize MIDENUP_HOME subdirectory: '{}'",
+                toolchains_dir.display()
+            )
+        })?;
+        already_initialized = false;
+    }
 
     // We check if the `miden` executable is accessible via the $PATH. This is
     // most certainly not going to be the case the first time `midenup` is
@@ -43,9 +80,13 @@ pub fn init(config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()
             Ok(_) => String::from("${{XDG_DATA_HOME}}"),
             // Some OSs, like MacOs, don't define the XDG_* family of
             // environment variables. In those cases, we fall back on data_dir
-            Err(_) => dirs::data_dir()
-                .and_then(|dir| dir.into_os_string().into_string().ok())
-                .unwrap_or(String::from("${{HOME}}/.local/share")),
+            Err(_) => {
+                already_initialized = false;
+
+                dirs::data_dir()
+                    .and_then(|dir| dir.into_os_string().into_string().ok())
+                    .unwrap_or(String::from("${{HOME}}/.local/share"))
+            },
         };
 
         std::println!(
@@ -57,6 +98,20 @@ export PATH=${{MIDENUP_HOME}}/bin:$PATH
 
 To your shell's profile file.
 "
+        );
+    }
+
+    if !already_initialized {
+        std::println!(
+            "midenup was successfully initialized in:
+{}",
+            config.midenup_home.as_path().display()
+        );
+    } else {
+        std::println!(
+            "midenup already initialized in:
+{}",
+            config.midenup_home.as_path().display()
         );
     }
 
