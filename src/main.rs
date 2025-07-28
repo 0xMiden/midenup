@@ -142,9 +142,15 @@ fn main() -> anyhow::Result<()> {
                 .map(PathBuf::from)
                 .map(|dir| dir.join("midenup"))
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
-                .ok_or_else(|| {
-                    anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
-                })?;
+                // If for whatever reason, we can't access the data dir, we fall
+                // back to .local/share
+                .unwrap_or({
+                    let home_dir = std::env::home_dir()
+                        .context("Impossible to obtain home directory,\
+                                  Consider setting a value for XDG_DATA_HOME in your shell's profile")?;
+                    home_dir.join(".local").join("share")
+                }
+                );
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
@@ -161,9 +167,15 @@ fn main() -> anyhow::Result<()> {
                         .map(|dir| dir.join("midenup"))
                 })
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
-                .ok_or_else(|| {
-                    anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
-                })?;
+                // If for whatever reason, we can't access the data dir, we fall
+                // back to .local/share
+                .unwrap_or({
+                    let home_dir = std::env::home_dir()
+                        .context("Impossible to obtain home directory,\
+                                  Consider setting a value for XDG_DATA_HOME in your shell's profile")?;
+                    home_dir.join(".local").join("share")
+                }
+                );
 
             Config::init(midenup_home, &config.manifest_uri)?
         },
