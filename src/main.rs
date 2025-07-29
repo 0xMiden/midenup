@@ -348,12 +348,15 @@ fn main() -> anyhow::Result<()> {
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
                 // If for whatever reason, we can't access the data dir, we fall
                 // back to .local/share
-                .ok_or_else(|| {
+                .or_else(|| {
                     std::env::home_dir()
-                        .and_then(|home| home.join(".local").join("share"))
-                        .context("Impossible to obtain home directory,\
-                                  Consider setting a value for XDG_DATA_HOME in your shell's profile")
-                })?;
+                        .map(|home| home.join(".local").join("share"))
+                })
+                .ok_or_else(||
+                            anyhow!("Failed to set midenup directory.\
+                                     Consider setting a value for XDG_DATA_HOME in your shell's profile"
+                            )
+                )?;
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
@@ -372,12 +375,15 @@ fn main() -> anyhow::Result<()> {
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
                 // If for whatever reason, we can't access the data dir, we fall
                 // back to .local/share
-                .ok_or_else(|| {
+                .or_else(|| {
                     std::env::home_dir()
-                        .and_then(|home| home.join(".local").join("share"))
-                        .context("Impossible to obtain home directory,\
-                                  Consider setting a value for XDG_DATA_HOME in your shell's profile")
-                })?;
+                        .map(|home| home.join(".local").join("share"))
+                })
+                .ok_or_else(||
+                            anyhow!("Failed to set midenup directory.\
+                                     Consider setting a value for XDG_DATA_HOME in your shell's profile"
+                            )
+                )?;
 
             Config::init(midenup_home, &config.manifest_uri)?
         },
