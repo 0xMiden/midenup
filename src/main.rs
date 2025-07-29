@@ -372,13 +372,12 @@ fn main() -> anyhow::Result<()> {
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
                 // If for whatever reason, we can't access the data dir, we fall
                 // back to .local/share
-                .unwrap_or({
-                    let home_dir = std::env::home_dir()
+                .ok_or_else(|| {
+                    std::env::home_dir()
+                        .and_then(|home| home.join(".local").join("share"))
                         .context("Impossible to obtain home directory,\
-                                  Consider setting a value for XDG_DATA_HOME in your shell's profile")?;
-                    home_dir.join(".local").join("share")
-                }
-                );
+                                  Consider setting a value for XDG_DATA_HOME in your shell's profile")
+                })?;
 
             Config::init(midenup_home, &config.manifest_uri)?
         },
