@@ -278,6 +278,8 @@ enum Commands {
     },
 }
 
+const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
+
 const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 /// Global configuration options for `midenup`
 #[derive(Debug, Args)]
@@ -351,9 +353,17 @@ fn main() -> anyhow::Result<()> {
                 .map(PathBuf::from)
                 .map(|dir| dir.join("midenup"))
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
-                .ok_or_else(|| {
-                    anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
-                })?;
+                // If for whatever reason, we can't access the data dir, we fall
+                // back to .local/share
+                .or_else(|| {
+                    std::env::home_dir()
+                        .map(|home| home.join(".local").join("share"))
+                })
+                .ok_or_else(||
+                            anyhow!("Failed to set midenup directory.\
+                                     Consider setting a value for XDG_DATA_HOME in your shell's profile"
+                            )
+                )?;
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
@@ -370,9 +380,17 @@ fn main() -> anyhow::Result<()> {
                         .map(|dir| dir.join("midenup"))
                 })
                 .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
-                .ok_or_else(|| {
-                    anyhow!("MIDENUP_HOME is unset, and the default location is unavailable")
-                })?;
+                // If for whatever reason, we can't access the data dir, we fall
+                // back to .local/share
+                .or_else(|| {
+                    std::env::home_dir()
+                        .map(|home| home.join(".local").join("share"))
+                })
+                .ok_or_else(||
+                            anyhow!("Failed to set midenup directory.\
+                                     Consider setting a value for XDG_DATA_HOME in your shell's profile"
+                            )
+                )?;
 
             Config::init(midenup_home, &config.manifest_uri)?
         },
