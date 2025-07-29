@@ -82,17 +82,16 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         .is_ok();
 
     if !miden_is_accessible {
-        let midenup_home_dir = match std::env::var(DEFAULT_USER_DATA_DIR) {
-            Ok(_) => String::from("${{XDG_DATA_HOME}}"),
+        let midenup_home_dir = if std::env::var(DEFAULT_USER_DATA_DIR).is_ok() {
+            String::from("${{XDG_DATA_HOME}}")
+        } else {
             // Some OSs, like MacOs, don't define the XDG_* family of
             // environment variables. In those cases, we fall back on data_dir
-            Err(_) => {
-                already_initialized = false;
+            already_initialized = false;
 
-                dirs::data_dir()
-                    .and_then(|dir| dir.into_os_string().into_string().ok())
-                    .unwrap_or(String::from("${{HOME}}/.local/share"))
-            },
+            dirs::data_dir()
+                .and_then(|dir| dir.into_os_string().into_string().ok())
+                .unwrap_or(String::from("${{HOME}}/.local/share"))
         };
 
         std::println!(
