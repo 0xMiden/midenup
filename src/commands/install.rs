@@ -236,6 +236,7 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
+            .arg("--debug")
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",

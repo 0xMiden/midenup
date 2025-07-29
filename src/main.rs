@@ -8,7 +8,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
 use colored::Colorize;
 use commands::INSTALLABLE_COMPONENTS;
@@ -43,76 +43,8 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
-#[derive(Debug)]
-/// Miden Components managed by Midenup
-enum MidenComponents {
-    /// Standard Library in .masp format
-    Std,
-    /// Base Library/Transaction Kernel in .masp format
-    Base,
-    /// Miden Client (executable)
-    Client,
-    /// Miden VM (executable)
-    VM,
-    /// Miden Compiler (executable)
-    Compiler,
-    /// Miden Compiler Cargo extension (executable)
-    CargoMiden,
-}
-
-impl MidenComponents {
-    fn help_command(&self) -> HelpMessage {
-        match self {
-            MidenComponents::Std => {
-                // Taken from: https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure
-                let help_message = String::from(
-                    "The Miden standard library in masp format.\
-                         Provides highly-optimized and battle-tested implementations of commonly-used primitives.",
-                );
-                HelpMessage::Internal { help_message }
-            },
-            MidenComponents::Base => {
-                // Taken from: https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure
-                let help_message = String::from(
-                    "The Miden base library in masp format.\
-                        Contains the code of the Miden rollup kernels and standardized smart contracts.",
-                );
-                HelpMessage::Internal { help_message }
-            },
-            MidenComponents::Client => HelpMessage::ShellOut {
-                target_exe: String::from("miden-client"),
-                prefix_args: vec![String::from("help")],
-            },
-            MidenComponents::VM => HelpMessage::ShellOut {
-                target_exe: String::from("miden-vm"),
-                prefix_args: vec![String::from("help")],
-            },
-            MidenComponents::Compiler => HelpMessage::ShellOut {
-                target_exe: String::from("midenc"),
-                prefix_args: vec![String::from("help")],
-            },
-            MidenComponents::CargoMiden => HelpMessage::ShellOut {
-                target_exe: String::from("cargo-miden"),
-                prefix_args: vec![String::from("help")],
-            },
-        }
-    }
-}
-
-impl FromStr for MidenComponents {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "std" => Ok(MidenComponents::Std),
-            "base" => Ok(MidenComponents::Base),
-            "client" => Ok(MidenComponents::Client),
-            "vm" => Ok(MidenComponents::VM),
-            "compiler" | "midenc" => Ok(MidenComponents::Compiler),
-            "cargo-miden" | "cargomiden" | "cargo" => Ok(MidenComponents::CargoMiden),
-            _ => bail!("Unknown component {s}"),
-        }
-    }
+enum AliasError {
+    UnrecognizedSubcommand,
 }
 
 #[derive(Debug)]
@@ -134,7 +66,7 @@ enum MidenAliases {
 }
 
 impl FromStr for MidenAliases {
-    type Err = anyhow::Error;
+    type Err = AliasError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
@@ -147,7 +79,7 @@ impl FromStr for MidenAliases {
             "call" => Ok(MidenAliases::Call),
             "send" => Ok(MidenAliases::Send),
             "simulate" => Ok(MidenAliases::Simulate),
-            _ => bail!("Unknown subcommand {s}"),
+            _ => Err(AliasError::UnrecognizedSubcommand),
         }
     }
 }
@@ -423,45 +355,71 @@ miden help"
                 ))?;
                 subcommand.to_str().expect("Invalid command name: {subcommand}")
             };
-            let aliased_command = MidenAliases::from_str(subcommand);
 
-            let (target_exe, prefix_args, include_rest_of_args) = match aliased_command.ok() {
-                // These are know miden aliases.
-                Some(alias) => {
-                    let (target_exe, prefix_args) = alias.get_command_exec();
-                    (target_exe, prefix_args, true)
-                },
-                None => {
-                    if subcommand == "help" {
-                        // NOTE: This could either be a [MidenCommands] or a
-                        // [MidenComponents].
-                        let component = argv.get(2).and_then(|c| c.to_str());
-                        let help_message = handle_help(component)?;
-                        match help_message {
-                            HelpMessage::Internal { help_message } => {
-                                println!("{help_message}");
-                                return Ok(());
-                            },
-                            HelpMessage::ShellOut { target_exe, prefix_args } => {
-                                (target_exe, prefix_args, false)
-                            },
-                        }
-                    } else {
-                        let command = match subcommand {
-                            "client" => "miden-client",
-                            "vm" => "miden-vm",
-                            subcommand @ ("midenc" | "cargo-miden") => subcommand,
-                            other => {
-                                bail!(
-                                    "Unrecognized command {other}. To see available commands, run:
-miden help"
-                                )
-                            },
-                        };
-                        (command.to_string(), vec![], true)
-                    }
-                },
-            };
+            let channel = local_manifest
+                .get_channel(&toolchain.channel)
+                .context("Couldn't find active toolchain in the manifest.")?;
+
+            let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) =
+                if let Ok(alias) = MidenAliases::from_str(subcommand) {
+                    todo!()
+                } else if subcommand == "help" {
+                    todo!()
+                } else if let Some(component) = channel.get_component(subcommand) {
+                    std::dbg!(&channel);
+                    let installed_file = component.get_installed_file();
+                    let InstalledFile::Executable { executable_name: binary } = installed_file
+                    else {
+                        bail!(
+                            "Can't execute component {}; since it is not an executable ",
+                            component.name
+                        )
+                    };
+                    (binary, vec![], true)
+                } else {
+                    todo!()
+                };
+            std::dbg!((&target_exe, &prefix_args, include_rest_of_args));
+
+            // let aliased_command = MidenAliases::from_str(subcommand);
+
+            //             let (target_exe, prefix_args, include_rest_of_args) = match aliased_command.ok() {
+            //                 // These are know miden aliases.
+            //                 Some(alias) => {
+            //                     let (target_exe, prefix_args) = alias.get_command_exec();
+            //                     (target_exe, prefix_args, true)
+            //                 },
+            //                 None => {
+            //                     if subcommand == "help" {
+            //                         // NOTE: This could either be a [MidenCommands] or a
+            //                         // [MidenComponents].
+            //                         let component = argv.get(2).and_then(|c| c.to_str());
+            //                         let help_message = handle_help(component)?;
+            //                         match help_message {
+            //                             HelpMessage::Internal { help_message } => {
+            //                                 std::println!("{help_message}");
+            //                                 return Ok(());
+            //                             },
+            //                             HelpMessage::ShellOut { target_exe, prefix_args } => {
+            //                                 (target_exe, prefix_args, false)
+            //                             },
+            //                         }
+            //                     } else {
+            //                         let command = match subcommand {
+            //                             "client" => "miden-client",
+            //                             "vm" => "miden-vm",
+            //                             subcommand @ ("midenc" | "cargo-miden") => subcommand,
+            //                             other => {
+            //                                 bail!(
+            //                                     "Unrecognized command {other}. To see available commands, run:
+            // miden help"
+            //                                 )
+            //                             },
+            //                         };
+            //                         (command.to_string(), vec![], true)
+            //                     }
+            //                 },
+            //             };
 
             // Compute the effective PATH for this command
             let toolchain_bin = config
@@ -515,9 +473,10 @@ miden help"
 /// Wrapper function that handles help messaging dispatch
 fn handle_help(component: Option<&str>) -> anyhow::Result<HelpMessage> {
     if let Some(component) = component {
-        if let Ok(component) = MidenComponents::from_str(component) {
-            Ok(component.help_command())
-        } else if let Ok(command) = MidenAliases::from_str(component) {
+        // if let Ok(component) = MidenComponents::from_str(component) {
+        //     Ok(component.help_command())
+        // } else
+        if let Ok(command) = MidenAliases::from_str(component) {
             Ok(command.help_command())
         } else {
             bail!(
