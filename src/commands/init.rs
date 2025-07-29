@@ -73,7 +73,13 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
     // We check if the `miden` executable is accessible via the $PATH. This is
     // most certainly not going to be the case the first time `midenup` is
     // initialized.
-    let miden_is_accessible = std::process::Command::new("miden").arg("--version").output().is_ok();
+    let miden_is_accessible = std::process::Command::new("miden")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .stdin(std::process::Stdio::null())
+        .arg("--version")
+        .output()
+        .is_ok();
 
     if !miden_is_accessible {
         let midenup_home_dir = match std::env::var(MIDENUP_PARENT_DEFAULT_DIR) {
