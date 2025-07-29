@@ -15,7 +15,6 @@ use commands::INSTALLABLE_COMPONENTS;
 
 pub use self::config::Config;
 use self::{
-    channel::InstalledFile,
     channel::UserChannel,
     manifest::{Manifest, ManifestError},
     toolchain::Toolchain,
@@ -440,7 +439,7 @@ miden help"
                         let help_message = handle_help(component)?;
                         match help_message {
                             HelpMessage::Internal { help_message } => {
-                                std::println!("{help_message}");
+                                println!("{help_message}");
                                 return Ok(());
                             },
                             HelpMessage::ShellOut { target_exe, prefix_args } => {

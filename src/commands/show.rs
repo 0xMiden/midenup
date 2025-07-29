@@ -50,7 +50,7 @@ impl ShowCommand {
 
                 println!("{}", "Installed toolchains:".bold().underline());
                 for toolchain in toolchains_display {
-                    std::println!("{toolchain}");
+                    println!("{toolchain}");
                 }
 
                 Ok(())

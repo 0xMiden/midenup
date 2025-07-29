@@ -94,7 +94,7 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
                 .unwrap_or(String::from("${{HOME}}/.local/share"))
         };
 
-        std::println!(
+        println!(
             "
 Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. 
 
@@ -107,13 +107,13 @@ To your shell's profile file.
     }
 
     if !already_initialized {
-        std::println!(
+        println!(
             "midenup was successfully initialized in:
 {}",
             config.midenup_home.as_path().display()
         );
     } else {
-        std::println!(
+        println!(
             "midenup already initialized in:
 {}",
             config.midenup_home.as_path().display()

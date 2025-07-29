@@ -32,7 +32,7 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
         std::fs::remove_file(&default_path).context("Couldn't remove 'default' symlink")?;
     }
 
-    std::println!("Setting {channel} as the new default toolchain");
+    println!("Setting {channel} as the new default toolchain");
     utils::symlink(&default_path, &channel_dir)?;
 
     Ok(())
