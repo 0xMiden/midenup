@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{Config, MIDENUP_PARENT_DEFAULT_DIR, utils};
+use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 
 /// This functions bootstrap the `midenup` environment (creates basic directory
 /// structure, creates the miden executable symlink, etc.), if not already
@@ -82,7 +82,7 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         .is_ok();
 
     if !miden_is_accessible {
-        let midenup_home_dir = match std::env::var(MIDENUP_PARENT_DEFAULT_DIR) {
+        let midenup_home_dir = match std::env::var(DEFAULT_USER_DATA_DIR) {
             Ok(_) => String::from("${{XDG_DATA_HOME}}"),
             // Some OSs, like MacOs, don't define the XDG_* family of
             // environment variables. In those cases, we fall back on data_dir
