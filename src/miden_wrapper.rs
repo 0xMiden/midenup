@@ -18,17 +18,23 @@ enum AliasError {
 /// This is used to encapsulate the different mechanisms used to display a help
 /// messgage. Currently, there are only two.
 enum HelpMessage {
-    /// This variant is used when the display message is obtained by shelling
-    /// out to a miden component. For instance: `miden-client account --help`.
-    ShellOut {
-        target_exe: String,
-        prefix_args: Vec<String>,
-    },
-    /// This other variant is used when shelling out to the shell is not
-    /// possible. This is mainly done to display the help message of:
-    /// - The `.masp` libraries
-    /// - `miden`'s own 'help' message
-    Internal { help_message: String },
+    // /// This variant is used when the display message is obtained by shelling
+    // /// out to a miden component. For instance: `miden-client account --help`.
+    // ShellOut {
+    //     target_exe: String,
+    //     prefix_args: Vec<String>,
+    // },
+    Toolchain,
+    // /// This other variant is used when shelling out to the shell is not
+    // /// possible. This is mainly done to display the help message of:
+    // /// - The `.masp` libraries
+    // /// - `miden`'s own 'help' message
+    // Internal {
+    //     help_message: String,
+    // },
+    Default,
+
+    Other(String),
 }
 
 #[derive(Debug)]
@@ -208,7 +214,7 @@ impl MidenAliases {
 }
 
 enum MidenWrapper {
-    Help { args: Vec<OsString> },
+    Help(HelpMessage),
     MidenComponent(Component),
     Alias(MidenAliases),
 }
@@ -229,7 +235,11 @@ miden help"
     };
 
     let command = if subcommand == "help" {
-        MidenWrapper::Help { args: argv.clone() }
+        match argv.get(2).and_then(|c| c.to_str()) {
+            None => MidenWrapper::Help(HelpMessage::Default),
+            Some("toolchain") => MidenWrapper::Help(HelpMessage::Toolchain),
+            Some(other) => MidenWrapper::Help(HelpMessage::Other(other.to_string())),
+        }
     } else {
         // Make sure we know the current toolchain so we can modify the PATH appropriately
         let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
@@ -261,34 +271,34 @@ pub fn miden_wrapper(
 ) -> anyhow::Result<()> {
     let (subcommand, command) = process_input(&argv, config, local_manifest)?;
 
-    let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) = match command {
-        MidenWrapper::Help { args } => {
-            match args.get(2).and_then(|c| c.to_str()) {
-                None => {
-                    std::println!("{}", default_help());
-                    return Ok(());
-                },
-                Some("toolchain") => {
-                    // Make sure we know the current toolchain so we can modify the PATH appropriately
-                    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-                    let channel = local_manifest
-                        .get_channel(&toolchain.channel)
-                        .context("Couldn't find active toolchain in the manifest.")?;
+    if matches!(command, MidenWrapper::Help(HelpMessage::Default)) {
+        std::println!("{}", default_help());
+        return Ok(());
+    }
 
+    // Make sure we know the current toolchain so we can modify the PATH appropriately
+    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
+    let channel = local_manifest
+        .get_channel(&toolchain.channel)
+        .context("Couldn't find active toolchain in the manifest.")?;
+
+    let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) = match command {
+        MidenWrapper::Help(message) => {
+            match message {
+                // NOTE: We handle the default help message case first. This is
+                // done in order to avoid installing a toolchain when a user
+                // runs `miden help` (which could happen if
+                // [[Toolchain::ensure_current_is_installed]] get called).
+                HelpMessage::Default => unreachable!(),
+                HelpMessage::Toolchain => {
                     let help = components_help(channel);
 
                     std::println!("{help}");
 
                     return Ok(());
                 },
-                Some(component) => {
-                    // Make sure we know the current toolchain so we can modify the PATH appropriately
-                    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-                    let channel = local_manifest
-                        .get_channel(&toolchain.channel)
-                        .context("Couldn't find active toolchain in the manifest.")?;
-
-                    let component = channel.get_component(component).with_context(|| {
+                HelpMessage::Other(component) => {
+                    let component = channel.get_component(&component).with_context(|| {
                         format!(
                             "Couldn't find component {} in the current channel: {}.",
                             component, channel.name
@@ -298,7 +308,7 @@ pub fn miden_wrapper(
                     let installed_file = component.get_installed_file();
                     let InstalledFile::InstalledExecutable(binary) = installed_file else {
                         bail!(
-                            "Can't execute component {}; since it is not an executable ",
+                            "Can't show help for {} since it is not an executable.",
                             component.name
                         )
                     };
@@ -313,12 +323,6 @@ pub fn miden_wrapper(
             }
         },
         MidenWrapper::Alias(alias) => {
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-            let channel = local_manifest
-                .get_channel(&toolchain.channel)
-                .context("Couldn't find active toolchain in the manifest.")?;
-
             let command = alias.resolve(channel);
             let (target_exe, prefix_args) = command.get_exe(channel)?;
 
@@ -332,9 +336,6 @@ pub fn miden_wrapper(
             (binary, vec![], true)
         },
     };
-
-    std::dbg!(&target_exe, &prefix_args, &include_rest_of_args);
-    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
 
     // Compute the effective PATH for this command
     let toolchain_bin = config
@@ -401,12 +402,16 @@ Available components:
 
 Help:
   help                   Print this help message
-  help components        Print this help message
-  help <COMPONENT>       Print <COMPONENTS>'s help message
+  help components        Print this help message {}
+  help <COMPONENT>       Print <COMPONENTS>'s help message {}
+
+*: NOTE: These commands will install the currently present toolchain if not installed.
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
         available_components,
+        "*".bold(),
+        "*".bold(),
     )
 }
 
@@ -428,13 +433,15 @@ Available aliases:
 
 Help:
   help                   Print this help message
-  help toolchain         Print help about the current toolchain *
-  help <COMPONENT>       Print <COMPONENTS>'s help message *
+  help toolchain         Print help about the current toolchain {}
+  help <COMPONENT>       Print <COMPONENTS>'s help message {}
 
 *: NOTE: These commands will install the currently present toolchain if not installed.
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
-        aliases
+        aliases,
+        "*".bold(),
+        "*".bold(),
     )
 }
