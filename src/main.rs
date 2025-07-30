@@ -430,8 +430,23 @@ miden help"
                     match argv.get(2).and_then(|c| c.to_str()) {
                         None => todo!("TODO: Default help message"),
                         Some(component) => {
-                            let component = channel.get_component(subcommand);
-                            todo!()
+                            // TODO: Component not found
+                            let component = channel.get_component(component).expect("Context");
+
+                            let installed_file = component.get_installed_file();
+                            let InstalledFile::InstalledExecutable(binary) = installed_file else {
+                                bail!(
+                                    "Can't execute component {}; since it is not an executable ",
+                                    component.name
+                                )
+                            };
+
+                            // NOTE: We rely on the different compponent's CLI
+                            // interfaces to recognize the "--help" flag. At the
+                            // minute, this relies on the fact that clap, by
+                            // default, recognizes said flag. Source:
+                            // https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
+                            (binary, vec!["--help".to_string()], false)
                         },
                     }
                 } else if let Some(component) = channel.get_component(subcommand) {
