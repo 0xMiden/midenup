@@ -215,16 +215,32 @@ impl MidenAliases {
 
 enum MidenWrapper {
     Help(HelpMessage),
-    MidenComponent(Component),
     Alias(MidenAliases),
+    Resolve(String),
 }
 
 type MidenSubcommand = String;
-fn process_input(
-    argv: &Vec<OsString>,
+fn process_input(subcommand: &str, argv: &Vec<OsString>) -> MidenWrapper {
+    if subcommand == "help" {
+        match argv.get(2).and_then(|c| c.to_str()) {
+            None => MidenWrapper::Help(HelpMessage::Default),
+            Some("toolchain") => MidenWrapper::Help(HelpMessage::Toolchain),
+            Some(other) => MidenWrapper::Help(HelpMessage::Other(other.to_string())),
+        }
+    } else {
+        if let Ok(alias) = MidenAliases::from_str(subcommand) {
+            MidenWrapper::Alias(alias)
+        } else {
+            MidenWrapper::Resolve(subcommand.to_string())
+        }
+    }
+}
+
+pub fn miden_wrapper(
+    argv: Vec<OsString>,
     config: &Config,
     local_manifest: &mut Manifest,
-) -> anyhow::Result<(MidenSubcommand, MidenWrapper)> {
+) -> anyhow::Result<()> {
     // Extract the target binary to execute from argv[1]
     let subcommand = {
         let subcommand = argv.get(1).ok_or(anyhow!(
@@ -234,42 +250,8 @@ miden help"
         subcommand.to_str().expect("Invalid command name: {subcommand}")
     };
 
-    let command = if subcommand == "help" {
-        match argv.get(2).and_then(|c| c.to_str()) {
-            None => MidenWrapper::Help(HelpMessage::Default),
-            Some("toolchain") => MidenWrapper::Help(HelpMessage::Toolchain),
-            Some(other) => MidenWrapper::Help(HelpMessage::Other(other.to_string())),
-        }
-    } else {
-        // Make sure we know the current toolchain so we can modify the PATH appropriately
-        let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-        let channel = local_manifest
-            .get_channel(&toolchain.channel)
-            .context("Couldn't find active toolchain in the manifest.")?;
-
-        if let Ok(alias) = MidenAliases::from_str(subcommand) {
-            MidenWrapper::Alias(alias)
-        } else if let Some(component) = channel.get_component(subcommand) {
-            MidenWrapper::MidenComponent(component.clone())
-        } else {
-            bail!(
-                "Unknown subcommand: {}. \
-            To get a full list of available commmands, run:\
-            miden help",
-                subcommand
-            );
-        }
-    };
-
-    Ok((subcommand.to_string(), command))
-}
-
-pub fn miden_wrapper(
-    argv: Vec<OsString>,
-    config: &Config,
-    local_manifest: &mut Manifest,
-) -> anyhow::Result<()> {
-    let (subcommand, command) = process_input(&argv, config, local_manifest)?;
+    // TODO: Check for known command
+    let command = process_input(subcommand, &argv);
 
     if matches!(command, MidenWrapper::Help(HelpMessage::Default)) {
         std::println!("{}", default_help());
@@ -328,7 +310,17 @@ pub fn miden_wrapper(
 
             (target_exe, prefix_args, true)
         },
-        MidenWrapper::MidenComponent(component) => {
+        MidenWrapper::Resolve(component) => {
+            let component = channel.get_component(component);
+            let Some(component) = component else {
+                bail!(
+                    "Unknown subcommand: {}. \
+            To get a full list of available commmands, run:\
+            miden help",
+                    subcommand
+                );
+            };
+
             let installed_file = component.get_installed_file();
             let InstalledFile::InstalledExecutable(binary) = installed_file else {
                 bail!("Can't execute component {}; since it is not an executable ", component.name)
