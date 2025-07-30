@@ -13,7 +13,7 @@ use crate::{
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
 
-pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "miden-client", "cargo-miden"];
+pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "client", "cargo-miden"];
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(

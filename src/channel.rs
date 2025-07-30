@@ -254,7 +254,6 @@ pub struct Component {
     /// the crate. To access this value, use [[Component::get_installed_file]].
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(flatten)]
     installed_file: Option<InstalledFile>,
 }
 

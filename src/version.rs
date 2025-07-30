@@ -113,7 +113,7 @@ pub enum Authority {
         crate_name: String,
         /// NOTE: If the target is missing from the [Manifest], then we assume
         /// that it is pointing to the tip of the `main` branch
-        #[serde(default, flatten)]
+        #[serde(default)]
         target: GitTarget,
     },
     /// The authority for this tool/toolchain is crates.io

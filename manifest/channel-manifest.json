@@ -23,10 +23,12 @@
           "executable_name": "miden"
         },
         {
-          "name": "miden",
+          "name": "client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
           "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
+          "target": {
+                "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b"
+          },
           "executable_name": "miden-client"
         },
         {
