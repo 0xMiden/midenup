@@ -385,10 +385,8 @@ fn components_help(channel: &Channel) -> String {
     let available_components: String = channel
         .components
         .iter()
-        .map(|c| {
-            let component_name = c.name.replace("miden-", "");
-            format!("  {}\n", component_name.bold())
-        })
+        .filter(|c| !matches!(c.get_installed_file(), InstalledFile::InstalledLibrary(_)))
+        .map(|c| format!("  {}\n", c.name.bold()))
         .collect();
     format!(
         "The Miden toolchain porcelain

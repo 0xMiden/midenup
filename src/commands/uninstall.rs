@@ -50,7 +50,7 @@ pub fn uninstall(
         Err(UninstallError::MissingInstalledComponentsFile(path)) => {
             println!(
                 "WARNING: Could not find installation-successful or .installation-in-progress at {}.
-Uninstallation will procede by deleting toolchain manually, instead of going through cargo."
+Uninstallation will procede by deleting toolchain manually, instead of going through cargo.\n"
             ,path.display())
         },
         Err(err) => bail!("Failed to uninstall {err}"),

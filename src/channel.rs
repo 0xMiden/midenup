@@ -211,14 +211,14 @@ pub enum InstalledFile {
     InstalledExecutable(String),
     /// Te component installs a MaspLibrary.
     // #[serde(rename = "installed_library")]
-    InstalledMaspLibrary(String),
+    InstalledLibrary(String),
 }
 
 impl Display for InstalledFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             InstalledFile::InstalledExecutable(executable_name) => f.write_str(executable_name),
-            InstalledFile::InstalledMaspLibrary(library_name) => f.write_str(library_name),
+            InstalledFile::InstalledLibrary(library_name) => f.write_str(library_name),
         }
     }
 }

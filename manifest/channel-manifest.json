@@ -8,12 +8,18 @@
         {
           "name": "std",
           "package": "miden-stdlib",
-          "version": "0.15.0"
+          "version": "0.15.0",
+          "installed_file": {
+                "installed_library": "std.masp"
+          }
         },
         {
           "name": "base",
           "package": "miden-lib",
-          "version": "0.9.0"
+          "version": "0.9.0",
+          "installed_file": {
+                "installed_library": "base.masp"
+          }
         },
         {
           "name": "vm",
@@ -53,12 +59,18 @@
         {
           "name": "std",
           "package": "miden-stdlib",
-          "version": "0.16.0"
+          "version": "0.16.0",
+          "installed_file": {
+                "installed_library": "std.masp"
+          }
         },
         {
           "name": "base",
           "package": "miden-lib",
-          "version": "0.10.0"
+          "version": "0.10.0",
+          "installed_file": {
+                "installed_library": "base.masp"
+          }
         },
         {
           "name": "vm",
