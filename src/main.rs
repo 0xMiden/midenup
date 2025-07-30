@@ -109,6 +109,7 @@ enum CommandToExecute {
         arguments: Vec<String>,
     },
 }
+
 impl CommandToExecute {
     fn get_exe(self, channel: &Channel) -> anyhow::Result<(String, Vec<String>)> {
         match self {
@@ -387,6 +388,7 @@ fn main() -> anyhow::Result<()> {
             Config::init(midenup_home, &config.manifest_uri)?
         },
     };
+    std::dbg!(&config.manifest);
 
     // Manifest that stores locally installed toolchains
     let mut local_manifest = {
@@ -405,8 +407,8 @@ fn main() -> anyhow::Result<()> {
 
     match cli.behavior {
         Behavior::Miden(argv) => {
-            // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
+            // // Make sure we know the current toolchain so we can modify the PATH appropriately
+            // let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
             // Extract the target binary to execute from argv[1]
             let subcommand = {
                 let subcommand = argv.get(1).ok_or(anyhow!(
@@ -416,22 +418,46 @@ miden help"
                 subcommand.to_str().expect("Invalid command name: {subcommand}")
             };
 
-            let channel = local_manifest
-                .get_channel(&toolchain.channel)
-                .context("Couldn't find active toolchain in the manifest.")?;
-
-            let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) =
-                if let Ok(alias) = MidenAliases::from_str(subcommand) {
-                    let command = alias.resolve(channel);
-                    let (target_exe, prefix_args) = command.get_exe(channel)?;
-
-                    (target_exe, prefix_args, true)
-                } else if subcommand == "help" {
+            let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) = {
+                if subcommand == "help" {
                     match argv.get(2).and_then(|c| c.to_str()) {
-                        None => todo!("TODO: Default help message"),
+                        None => {
+                            std::println!("{}", default_help());
+                            return Ok(());
+                        },
+                        Some("components") => {
+                            // Make sure we know the current toolchain so we can modify the PATH appropriately
+                            let toolchain = Toolchain::ensure_current_is_installed(
+                                &config,
+                                &mut local_manifest,
+                            )?;
+                            let channel = local_manifest
+                                .get_channel(&toolchain.channel)
+                                .context("Couldn't find active toolchain in the manifest.")?;
+
+                            let help = components_help(channel);
+
+                            std::println!("{}", help);
+
+                            return Ok(());
+                        },
                         Some(component) => {
-                            // TODO: Component not found
-                            let component = channel.get_component(component).expect("Context");
+                            // Make sure we know the current toolchain so we can modify the PATH appropriately
+                            let toolchain = Toolchain::ensure_current_is_installed(
+                                &config,
+                                &mut local_manifest,
+                            )?;
+                            let channel = local_manifest
+                                .get_channel(&toolchain.channel)
+                                .context("Couldn't find active toolchain in the manifest.")?;
+
+                            let component =
+                                channel.get_component(component).with_context(|| {
+                                    format!(
+                                        "Couldn't find component {} in the current channel: {}.",
+                                        component, channel.name
+                                    )
+                                })?;
 
                             let installed_file = component.get_installed_file();
                             let InstalledFile::InstalledExecutable(binary) = installed_file else {
@@ -449,65 +475,42 @@ miden help"
                             (binary, vec!["--help".to_string()], false)
                         },
                     }
-                } else if let Some(component) = channel.get_component(subcommand) {
-                    std::dbg!(&channel);
-                    let installed_file = component.get_installed_file();
-                    let InstalledFile::InstalledExecutable(binary) = installed_file else {
-                        bail!(
-                            "Can't execute component {}; since it is not an executable ",
-                            component.name
-                        )
-                    };
-                    (binary, vec![], true)
                 } else {
-                    bail!(
-                        "Unknown subcommand: {}. \
+                    // Make sure we know the current toolchain so we can modify the PATH appropriately
+                    let toolchain =
+                        Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
+                    let channel = local_manifest
+                        .get_channel(&toolchain.channel)
+                        .context("Couldn't find active toolchain in the manifest.")?;
+
+                    if let Ok(alias) = MidenAliases::from_str(subcommand) {
+                        let command = alias.resolve(channel);
+                        let (target_exe, prefix_args) = command.get_exe(channel)?;
+
+                        (target_exe, prefix_args, true)
+                    } else if let Some(component) = channel.get_component(subcommand) {
+                        std::dbg!(&channel);
+                        let installed_file = component.get_installed_file();
+                        let InstalledFile::InstalledExecutable(binary) = installed_file else {
+                            bail!(
+                                "Can't execute component {}; since it is not an executable ",
+                                component.name
+                            )
+                        };
+                        (binary, vec![], true)
+                    } else {
+                        bail!(
+                            "Unknown subcommand: {}. \
                          To get a full list of available commmands, run:\
                          miden help",
-                        subcommand
-                    );
-                };
-            // std::dbg!((&target_exe, &prefix_args, include_rest_of_args));
+                            subcommand
+                        );
+                    }
+                }
+            };
 
-            // let aliased_command = MidenAliases::from_str(subcommand);
-
-            //             let (target_exe, prefix_args, include_rest_of_args) = match
-            // aliased_command.ok() {                 // These are know miden aliases.
-            //                 Some(alias) => {
-            //                     let (target_exe, prefix_args) = alias.get_command_exec();
-            //                     (target_exe, prefix_args, true)
-            //                 },
-            //                 None => {
-            //                     if subcommand == "help" {
-            //                         // NOTE: This could either be a [MidenCommands] or a
-            //                         // [MidenComponents].
-            //                         let component = argv.get(2).and_then(|c| c.to_str());
-            //                         let help_message = handle_help(component)?;
-            //                         match help_message {
-            //                             HelpMessage::Internal { help_message } => {
-            //                                 std::println!("{help_message}");
-            //                                 return Ok(());
-            //                             },
-            //                             HelpMessage::ShellOut { target_exe, prefix_args } => {
-            //                                 (target_exe, prefix_args, false)
-            //                             },
-            //                         }
-            //                     } else {
-            //                         let command = match subcommand {
-            //                             "client" => "miden-client",
-            //                             "vm" => "miden-vm",
-            //                             subcommand @ ("midenc" | "cargo-miden") => subcommand,
-            //                             other => {
-            //                                 bail!(
-            //                                     "Unrecognized command {other}. To see available
-            // commands, run: miden help"
-            //                                 )
-            //                             },
-            //                         };
-            //                         (command.to_string(), vec![], true)
-            //                     }
-            //                 },
-            //             };
+            let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
+            std::dbg!(&target_exe, &prefix_args, &include_rest_of_args);
 
             // Compute the effective PATH for this command
             let toolchain_bin = config
@@ -558,6 +561,8 @@ miden help"
     }
 }
 
+fn handle_miden_command(args: Vec<OsString>) {}
+
 /// Wrapper function that handles help messaging dispatch
 // fn handle_help(component: Option<&str>) -> anyhow::Result<HelpMessage> {
 //     if let Some(component) = component {
@@ -577,6 +582,35 @@ miden help"
 //         Ok(HelpMessage::Internal { help_message: default_help() })
 //     }
 // }
+fn components_help(channel: &Channel) -> String {
+    let available_components: String = channel
+        .components
+        .iter()
+        .map(|c| {
+            let component_name = c.name.replace("miden-", "");
+            format!("  {}\n", component_name.bold())
+        })
+        .collect();
+    format!(
+        "The Miden toolchain porcelain
+
+The currently available components are:
+
+{} {} <COMPONENT>
+
+Available components:
+{}
+
+Help:
+  help                   Print this help message
+  help components        Print this help message
+  help <COMPONENT>       Print <COMPONENTS>'s help message
+",
+        "Usage:".bold().underline(),
+        "miden".bold(),
+        available_components,
+    )
+}
 
 fn default_help() -> String {
     // Note:
