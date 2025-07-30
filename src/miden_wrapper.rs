@@ -5,7 +5,7 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Channel, InstalledFile, UserChannel},
+    channel::{Channel, Component, InstalledFile, UserChannel},
     commands::INSTALLABLE_COMPONENTS,
     manifest::{Manifest, ManifestError},
     toolchain::Toolchain,
@@ -85,7 +85,7 @@ enum CommandToExecute {
         /// the underlying executable, that information is obtained from the
         /// Manifest.
         name: String,
-        arguments: Vec<String>,
+        prefix: Vec<String>,
     },
     ExternalCommand {
         name: String,
@@ -96,7 +96,7 @@ enum CommandToExecute {
 impl CommandToExecute {
     fn get_exe(self, channel: &Channel) -> anyhow::Result<(String, Vec<String>)> {
         match self {
-            CommandToExecute::MidenComponent { name, arguments } => {
+            CommandToExecute::MidenComponent { name, prefix: arguments } => {
                 // In reality, this error shouldn't occur since the components are baked into the compiler
                 let component = channel.get_component(&name).with_context(|| {
                     format!(
@@ -128,11 +128,11 @@ impl MidenAliases {
         match self {
             MidenAliases::Account => CommandToExecute::MidenComponent {
                 name: String::from("client"),
-                arguments: vec![String::from("account")],
+                prefix: vec![String::from("account")],
             },
             MidenAliases::Faucet => CommandToExecute::MidenComponent {
                 name: String::from("client"),
-                arguments: vec![String::from("mint")],
+                prefix: vec![String::from("mint")],
             },
             MidenAliases::New => CommandToExecute::ExternalCommand {
                 name: String::from("cargo"),
@@ -145,19 +145,19 @@ impl MidenAliases {
             MidenAliases::Test => todo!(),
             MidenAliases::Deploy => CommandToExecute::MidenComponent {
                 name: String::from("client"),
-                arguments: vec![String::from("new-wallet"), String::from("--deploy")],
+                prefix: vec![String::from("new-wallet"), String::from("--deploy")],
             },
             MidenAliases::Call => CommandToExecute::MidenComponent {
                 name: String::from("call"),
-                arguments: vec![String::from("new-wallet"), String::from("--show")],
+                prefix: vec![String::from("new-wallet"), String::from("--show")],
             },
             MidenAliases::Send => CommandToExecute::MidenComponent {
                 name: String::from("client"),
-                arguments: vec![String::from("send")],
+                prefix: vec![String::from("send")],
             },
             MidenAliases::Simulate => CommandToExecute::MidenComponent {
                 name: String::from("client"),
-                arguments: vec![String::from("exec")],
+                prefix: vec![String::from("exec")],
             },
         }
     }
@@ -207,13 +207,18 @@ impl MidenAliases {
     }
 }
 
-pub fn miden_wrapper(
-    argv: Vec<OsString>,
+enum MidenWrapper {
+    Help { args: Vec<OsString> },
+    MidenComponent(Component),
+    Alias(MidenAliases),
+}
+
+type MidenSubcommand = String;
+fn process_input(
+    argv: &Vec<OsString>,
     config: &Config,
     local_manifest: &mut Manifest,
-) -> anyhow::Result<()> {
-    // // Make sure we know the current toolchain so we can modify the PATH appropriately
-    // let toolchain = Toolchain::ensure_current_is_installed(&config, &mut local_manifest)?;
+) -> anyhow::Result<(MidenSubcommand, MidenWrapper)> {
     // Extract the target binary to execute from argv[1]
     let subcommand = {
         let subcommand = argv.get(1).ok_or(anyhow!(
@@ -223,31 +228,62 @@ miden help"
         subcommand.to_str().expect("Invalid command name: {subcommand}")
     };
 
-    let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) = {
-        if subcommand == "help" {
-            match argv.get(2).and_then(|c| c.to_str()) {
+    let command = if subcommand == "help" {
+        MidenWrapper::Help { args: argv.clone() }
+    } else {
+        // Make sure we know the current toolchain so we can modify the PATH appropriately
+        let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
+        let channel = local_manifest
+            .get_channel(&toolchain.channel)
+            .context("Couldn't find active toolchain in the manifest.")?;
+
+        if let Ok(alias) = MidenAliases::from_str(subcommand) {
+            MidenWrapper::Alias(alias)
+        } else if let Some(component) = channel.get_component(subcommand) {
+            MidenWrapper::MidenComponent(component.clone())
+        } else {
+            bail!(
+                "Unknown subcommand: {}. \
+            To get a full list of available commmands, run:\
+            miden help",
+                subcommand
+            );
+        }
+    };
+
+    Ok((subcommand.to_string(), command))
+}
+
+pub fn miden_wrapper(
+    argv: Vec<OsString>,
+    config: &Config,
+    local_manifest: &mut Manifest,
+) -> anyhow::Result<()> {
+    let (subcommand, command) = process_input(&argv, config, local_manifest)?;
+
+    let (target_exe, prefix_args, include_rest_of_args): (String, Vec<String>, _) = match command {
+        MidenWrapper::Help { args } => {
+            match args.get(2).and_then(|c| c.to_str()) {
                 None => {
                     std::println!("{}", default_help());
                     return Ok(());
                 },
-                Some("components") => {
+                Some("toolchain") => {
                     // Make sure we know the current toolchain so we can modify the PATH appropriately
-                    let toolchain =
-                        Toolchain::ensure_current_is_installed(&config, local_manifest)?;
+                    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
                     let channel = local_manifest
                         .get_channel(&toolchain.channel)
                         .context("Couldn't find active toolchain in the manifest.")?;
 
                     let help = components_help(channel);
 
-                    std::println!("{}", help);
+                    std::println!("{help}");
 
                     return Ok(());
                 },
                 Some(component) => {
                     // Make sure we know the current toolchain so we can modify the PATH appropriately
-                    let toolchain =
-                        Toolchain::ensure_current_is_installed(&config, local_manifest)?;
+                    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
                     let channel = local_manifest
                         .get_channel(&toolchain.channel)
                         .context("Couldn't find active toolchain in the manifest.")?;
@@ -275,41 +311,30 @@ miden help"
                     (binary, vec!["--help".to_string()], false)
                 },
             }
-        } else {
+        },
+        MidenWrapper::Alias(alias) => {
             // Make sure we know the current toolchain so we can modify the PATH appropriately
-            let toolchain = Toolchain::ensure_current_is_installed(&config, local_manifest)?;
+            let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
             let channel = local_manifest
                 .get_channel(&toolchain.channel)
                 .context("Couldn't find active toolchain in the manifest.")?;
 
-            if let Ok(alias) = MidenAliases::from_str(subcommand) {
-                let command = alias.resolve(channel);
-                let (target_exe, prefix_args) = command.get_exe(channel)?;
+            let command = alias.resolve(channel);
+            let (target_exe, prefix_args) = command.get_exe(channel)?;
 
-                (target_exe, prefix_args, true)
-            } else if let Some(component) = channel.get_component(subcommand) {
-                std::dbg!(&channel);
-                let installed_file = component.get_installed_file();
-                let InstalledFile::InstalledExecutable(binary) = installed_file else {
-                    bail!(
-                        "Can't execute component {}; since it is not an executable ",
-                        component.name
-                    )
-                };
-                (binary, vec![], true)
-            } else {
-                bail!(
-                    "Unknown subcommand: {}. \
-                         To get a full list of available commmands, run:\
-                         miden help",
-                    subcommand
-                );
-            }
-        }
+            (target_exe, prefix_args, true)
+        },
+        MidenWrapper::MidenComponent(component) => {
+            let installed_file = component.get_installed_file();
+            let InstalledFile::InstalledExecutable(binary) = installed_file else {
+                bail!("Can't execute component {}; since it is not an executable ", component.name)
+            };
+            (binary, vec![], true)
+        },
     };
 
-    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
     std::dbg!(&target_exe, &prefix_args, &include_rest_of_args);
+    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
 
     // Compute the effective PATH for this command
     let toolchain_bin = config
@@ -386,7 +411,6 @@ Help:
 }
 
 fn default_help() -> String {
-    // Note:
     let aliases: String = [
         "account", "faucet", "new", "build", "test", "deploy", "call", "send", "simulate",
     ]
@@ -394,31 +418,23 @@ fn default_help() -> String {
     .map(|alias| format!("  {}\n", alias.bold()))
     .collect();
 
-    let available_components: String = INSTALLABLE_COMPONENTS
-        .iter()
-        .map(|c| {
-            let component_name = c.replace("miden-", "");
-            format!("  {}\n", component_name.bold())
-        })
-        .collect();
     format!(
         "The Miden toolchain porcelain
 
-{} {} <COMPONENT>
-
-Available components:
-{}
+{} {} <ALIAS>
 
 Available aliases:
 {}
 
 Help:
   help                   Print this help message
-  help <COMPONENT>       Print <COMPONENTS>'s help message
+  help toolchain         Print help about the current toolchain *
+  help <COMPONENT>       Print <COMPONENTS>'s help message *
+
+*: NOTE: These commands will install the currently present toolchain if not installed.
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
-        available_components,
         aliases
     )
 }
