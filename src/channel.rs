@@ -207,18 +207,18 @@ impl core::str::FromStr for ChannelAlias {
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
     /// Te component installs an executable.
-    #[serde(untagged)]
-    Executable { executable_name: String },
+    #[serde(rename = "installed_executable")]
+    Executable(String),
     /// Te component installs a MaspLibrary.
-    #[serde(untagged)]
-    MaspLibrary { library_name: String },
+    #[serde(rename = "installed_library")]
+    MaspLibrary(String),
 }
 
 impl Display for InstalledFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            InstalledFile::Executable { executable_name } => f.write_str(executable_name),
-            InstalledFile::MaspLibrary { library_name } => f.write_str(library_name),
+            InstalledFile::Executable(executable_name) => f.write_str(executable_name),
+            InstalledFile::MaspLibrary(library_name) => f.write_str(library_name),
         }
     }
 }
@@ -254,6 +254,7 @@ pub struct Component {
     /// the crate. To access this value, use [[Component::get_installed_file]].
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(flatten)]
     installed_file: Option<InstalledFile>,
 }
 
@@ -358,7 +359,7 @@ impl Component {
         if let Some(installed_file) = &self.installed_file {
             installed_file.clone()
         } else {
-            InstalledFile::Executable { executable_name: self.name.to_string() }
+            InstalledFile::Executable(self.name.to_string())
         }
     }
 }
