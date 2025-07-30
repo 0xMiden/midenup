@@ -121,7 +121,8 @@ impl CommandToExecute {
                     )
                 })?;
 
-                let InstalledFile::Executable(binary) = component.get_installed_file() else {
+                let InstalledFile::InstalledExecutable(binary) = component.get_installed_file()
+                else {
                     bail!(
                         "Can't execute component {}; since it is not an executable ",
                         component.name
@@ -436,7 +437,7 @@ miden help"
                 } else if let Some(component) = channel.get_component(subcommand) {
                     std::dbg!(&channel);
                     let installed_file = component.get_installed_file();
-                    let InstalledFile::Executable(binary) = installed_file else {
+                    let InstalledFile::InstalledExecutable(binary) = installed_file else {
                         bail!(
                             "Can't execute component {}; since it is not an executable ",
                             component.name
