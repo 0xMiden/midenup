@@ -23,12 +23,9 @@ enum HelpMessage {
     /// [[Toolchain]] is not installed.
     Toolchain,
 
-    /// This variant represents a "fallback" option where we may need to shell
-    /// out to a [[Component]].  It holds the argument passed in by the user;
-    /// which is later on attempted to get mapped to an existing [[Component]].
-    /// This mapping is dependant on the currently active [[Toolchain]]'s
-    /// [[Channel]].  Since accessing the [[Channel]] could potentially trigger
-    /// an install, we postpone resolution.
+    /// This variant represents a "fallback" option where we save the user's
+    /// input so that we later on try to map it to a [[Component]].  This
+    /// mapping is dependent on the currently active [[Toolchain]].
     /// NOTE: This help message *could* trigger an install if the active
     /// [[Toolchain]] is not installed.
     Resolve(String),
@@ -36,7 +33,7 @@ enum HelpMessage {
 
 #[derive(Debug, EnumIter, Display, EnumMessage, EnumString)]
 #[strum(serialize_all = "snake_case")]
-/// All the known, hardcoded, "aliases". These are subcommands that serve as a
+/// All the known, hard-coded, "aliases". These are subcommands that serve as a
 /// short form version of a different command from a specific component.
 enum MidenAliases {
     /// Create local account
@@ -67,7 +64,7 @@ enum AliasCommands {
         /// This is the name of the component. NOTE: This is *NOT* the name of
         /// the underlying executable, that information is obtained from the
         /// locally installed [[Manifest]]. To get the name of the executable,
-        /// use the [[CommandToExecute::get_exe]] funciton.
+        /// use the [[CommandToExecute::get_exe]] function.
         name: String,
         prefix: Vec<String>,
     },
@@ -105,10 +102,12 @@ impl AliasCommands {
     }
 }
 impl MidenAliases {
+    /// This functions returns the underlying command corresponding to a given
+    /// alias. For more information about the resulting mapping, see
+    /// [[AliasCommands]].
     /// NOTE: The [[Channel]] argument is left in case one of these
-    /// functionalitites migrates [[Components]].  If that ever happens, then
-    /// the mapping from alias to [[Component]] name can be conditioned over the
-    /// [[Channel::name]]
+    /// functionalities migrates [[Component]].  If that ever happens, then the
+    /// mapping can be conditioned over the [[Channel::name]] (a.k.a. the version).
     fn resolve(&self, _channel: &Channel) -> AliasCommands {
         match self {
             MidenAliases::Account => AliasCommands::MidenComponent {
@@ -160,6 +159,8 @@ enum MidenSubcommand {
     /// NOTE: With the exception of [[HelpMessage::Default]], this command
     /// *could* trigger an install if the active [[Toolchain]] is not installed.
     Help(HelpMessage),
+    /// The user passed in a subcommand that needs to be resolved using the
+    /// currently active [[Toolchain]].
     /// NOTE: This command *could* trigger an install if the active
     /// [[Toolchain]] is not installed.
     Resolve(String),
@@ -236,10 +237,10 @@ miden help"
                         )
                     };
 
-                    // NOTE: We rely on the different compponent's CLI
-                    // interfaces to recognize the "--help" flag. At the
-                    // minute, this relies on the fact that clap, by
-                    // default, recognizes said flag. Source:
+                    // NOTE: We rely on the different component's CLI interfaces
+                    // to recognize the "--help" flag. Currently, this relies on
+                    // the fact that clap recognizes said flag by
+                    // default. Source:
                     // https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
                     (binary, vec!["--help".to_string()], false)
                 },
@@ -256,7 +257,7 @@ miden help"
             let Some(component) = component else {
                 bail!(
                     "Unknown subcommand: {}. \
-            To get a full list of available commmands, run:\
+            To get a full list of available commands, run:\
             miden help",
                     subcommand
                 );

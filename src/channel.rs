@@ -58,7 +58,7 @@ impl Channel {
     }
 
     /// This functions compares the Channel &self, with a newer channel [newer]
-    /// and returns the list of [Components] that need to be update.
+    /// and returns the list of [Components] that need to be updated.
     /// NOTE: A component can be marked for update in the following scenarios:
     /// - The component got removed from the newer channel entirely and thus needs to be removed
     ///   from the system.
