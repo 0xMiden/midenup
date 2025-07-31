@@ -3,7 +3,7 @@ use std::{ffi::OsString, str::FromStr, string::ToString};
 use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
 use strum::{EnumMessage, IntoEnumIterator};
-use strum_macros::{Display, EnumIter, EnumMessage};
+use strum_macros::{Display, EnumIter, EnumMessage, EnumString};
 
 pub use crate::config::Config;
 use crate::{
@@ -34,7 +34,7 @@ enum HelpMessage {
     Resolve(String),
 }
 
-#[derive(Debug, EnumIter, Display, EnumMessage)]
+#[derive(Debug, EnumIter, Display, EnumMessage, EnumString)]
 #[strum(serialize_all = "snake_case")]
 /// All the known, hardcoded, "aliases". These are subcommands that serve as a
 /// short form version of a different command from a specific component.
@@ -59,28 +59,6 @@ enum MidenAliases {
     Send,
     /// Simulate transaction (no commit)
     Simulate,
-}
-
-enum AliasError {
-    UnrecognizedSubcommand,
-}
-impl FromStr for MidenAliases {
-    type Err = AliasError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "account" => Ok(MidenAliases::Account),
-            "faucet" => Ok(MidenAliases::Faucet),
-            "new" => Ok(MidenAliases::New),
-            "build" => Ok(MidenAliases::Build),
-            "test" => Ok(MidenAliases::Test),
-            "deploy" => Ok(MidenAliases::Deploy),
-            "call" => Ok(MidenAliases::Call),
-            "send" => Ok(MidenAliases::Send),
-            "simulate" => Ok(MidenAliases::Simulate),
-            _ => Err(AliasError::UnrecognizedSubcommand),
-        }
-    }
 }
 
 /// These are the know mappings from [[MidenAliases]].
