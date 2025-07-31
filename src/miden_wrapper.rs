@@ -1,7 +1,9 @@
-use std::{ffi::OsString, str::FromStr};
+use std::{ffi::OsString, str::FromStr, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
+use strum::{EnumMessage, IntoEnumIterator};
+use strum_macros::{Display, EnumIter, EnumMessage};
 
 pub use crate::config::Config;
 use crate::{
@@ -32,7 +34,8 @@ enum HelpMessage {
     Resolve(String),
 }
 
-#[derive(Debug)]
+#[derive(Debug, EnumIter, Display, EnumMessage)]
+#[strum(serialize_all = "snake_case")]
 /// All the known, hardcoded, "aliases". These are subcommands that serve as a
 /// short form version of a different command from a specific component.
 enum MidenAliases {
@@ -347,50 +350,77 @@ The currently available components are:
 
 {} {} <COMPONENT>
 
-Available components:
+{}
 {}
 
-Help:
+{}
   help                   Print this help message
   help components        Print this help message {}
   help <COMPONENT>       Print <COMPONENTS>'s help message {}
 
-*: NOTE: Most of these commands will trigger an installation of the current toolchain if not already installed
+{}: These commands will install the currently present toolchain if not installed.
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
+        "Available components:".bold().underline(),
         available_components,
+        "Help:".bold().underline(),
+        "*".bold(),
         "*".bold(),
         "*".bold(),
     )
 }
 
 fn default_help() -> String {
-    let aliases: String = [
-        "account", "faucet", "new", "build", "test", "deploy", "call", "send", "simulate",
-    ]
-    .iter()
-    .map(|alias| format!("  {}\n", alias.bold()))
-    .collect();
+    // SAFETY: This unwrap is safe under the assumption that the MidenAliases
+    // enum has at least one variant
+    let longest_alias = MidenAliases::iter()
+        .map(|a| a.to_string())
+        .max_by(|x, y| x.len().cmp(&y.len()))
+        .unwrap_or_else(|| panic!("ERROR: MidenAliases enum is empty"));
+
+    let aliases: String = MidenAliases::iter()
+        .map(|a| {
+            (
+                a.to_string(),
+                a.get_documentation()
+                    // SAFETY: This unwrap is safe as long as every
+                    // [[MidenAliases]] variant has a doc comment
+                    .unwrap_or_else(|| panic!("Enum {a} is lacking a doc comment")),
+            )
+        })
+        .map(|(alias, description)| {
+            let spacing = longest_alias.len() - alias.len();
+            // NOTE: This value was added in order to both:
+            // - Emulate clap's padding
+            // - Improve readability
+            let padding = 3;
+            let spaces = String::from(' ').repeat(spacing + padding);
+            format!("  {}{}{}\n", alias.bold(), spaces, description)
+        })
+        .collect();
 
     format!(
         "The Miden toolchain porcelain
 
 {} {} <ALIAS>
 
-Available aliases:
+{}
 {}
 
-Help:
+{}
   help                   Print this help message
   help toolchain         Print help about the current toolchain {}
   help <COMPONENT>       Print <COMPONENTS>'s help message {}
 
-*: NOTE: These commands will install the currently present toolchain if not installed.
+{}: These commands will install the currently present toolchain if not installed.
 ",
         "Usage:".bold().underline(),
         "miden".bold(),
+        "Available aliases:".bold().underline(),
         aliases,
+        "Help:".bold().underline(),
+        "*".bold(),
         "*".bold(),
         "*".bold(),
     )
