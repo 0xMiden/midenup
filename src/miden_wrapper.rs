@@ -1,6 +1,6 @@
 use std::{ffi::OsString, str::FromStr, string::ToString};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 use strum::{EnumMessage, IntoEnumIterator};
 use strum_macros::{Display, EnumIter, EnumMessage, EnumString};
@@ -89,7 +89,8 @@ impl AliasCommands {
                     )
                 })?;
 
-                let InstalledFile::InstalledExecutable(binary) = component.get_installed_file()
+                let InstalledFile::Executable { binary_name: binary } =
+                    component.get_installed_file()
                 else {
                     bail!(
                         "Can't execute component {}; since it is not an executable ",
@@ -228,7 +229,7 @@ miden help"
                     })?;
 
                     let installed_file = component.get_installed_file();
-                    let InstalledFile::InstalledExecutable(binary) = installed_file else {
+                    let InstalledFile::Executable { binary_name: binary } = installed_file else {
                         bail!(
                             "Can't show help for {} since it is not an executable.",
                             component.name
@@ -262,7 +263,7 @@ miden help"
             };
 
             let installed_file = component.get_installed_file();
-            let InstalledFile::InstalledExecutable(binary) = installed_file else {
+            let InstalledFile::Executable { binary_name: binary } = installed_file else {
                 bail!("Can't execute component {}; since it is not an executable ", component.name)
             };
             (binary, vec![], true)
@@ -318,7 +319,7 @@ fn toolchain_help(channel: &Channel) -> String {
     let available_components: String = channel
         .components
         .iter()
-        .filter(|c| !matches!(c.get_installed_file(), InstalledFile::InstalledLibrary(_)))
+        .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
         .map(|c| format!("  {}\n", c.name.bold()))
         .collect();
     format!(
