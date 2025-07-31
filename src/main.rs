@@ -7,20 +7,16 @@ mod toolchain;
 mod utils;
 mod version;
 
-use std::{ffi::OsString, path::PathBuf, str::FromStr};
+use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context};
-use channel::{Channel, InstalledFile};
+use anyhow::{Context, anyhow, bail};
 use clap::{Args, FromArgMatches, Parser, Subcommand};
-use colored::Colorize;
-use commands::INSTALLABLE_COMPONENTS;
 
 pub use self::config::Config;
 use self::{
     channel::UserChannel,
     manifest::{Manifest, ManifestError},
     miden_wrapper::miden_wrapper,
-    toolchain::Toolchain,
 };
 
 #[derive(Debug, Parser)]
@@ -194,7 +190,6 @@ fn main() -> anyhow::Result<()> {
             Config::init(midenup_home, &config.manifest_uri)?
         },
     };
-    std::dbg!(&config.manifest);
 
     // Manifest that stores locally installed toolchains
     let mut local_manifest = {
@@ -218,28 +213,6 @@ fn main() -> anyhow::Result<()> {
         },
     }
 }
-
-fn handle_miden_command(args: Vec<OsString>) {}
-
-/// Wrapper function that handles help messaging dispatch
-// fn handle_help(component: Option<&str>) -> anyhow::Result<HelpMessage> {
-//     if let Some(component) = component {
-//         // if let Ok(component) = MidenComponents::from_str(component) {
-//         //     Ok(component.help_command())
-//         // } else
-//         if let Ok(command) = MidenAliases::from_str(component) {
-//             Ok(command.help_command())
-//         } else {
-//             bail!(
-//                 "Unrecognized command {}. To see available commands, run:
-// miden help",
-//                 component
-//             )
-//         }
-//     } else {
-//         Ok(HelpMessage::Internal { help_message: default_help() })
-//     }
-// }
 
 #[cfg(test)]
 mod tests {
