@@ -314,7 +314,7 @@ mod tests {
         assert_eq!(stable.alias, None);
 
         let _client_via_git = stable
-            .get_component("miden-client")
+            .get_component("client")
             .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
 
         let _miden_lib_via_git = stable

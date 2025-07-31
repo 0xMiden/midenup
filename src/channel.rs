@@ -576,7 +576,7 @@ mod tests {
     /// Authority changes.
     fn update_component_from_git_to_cargo() {
         let old_components = [Component {
-            name: std::borrow::Cow::Borrowed("miden-client"),
+            name: std::borrow::Cow::Borrowed("client"),
             version: Authority::Git {
                 repository_url: String::from("https://github.com/0xMiden/miden-client.git"),
                 crate_name: String::from("miden-client-cli"),
@@ -592,7 +592,7 @@ mod tests {
         }];
 
         let new_components = [Component {
-            name: std::borrow::Cow::Borrowed("miden-client"),
+            name: std::borrow::Cow::Borrowed("client"),
             version: Authority::Cargo {
                 package: Some(String::from("miden-client-cli")),
                 version: semver::Version::new(0, 15, 0),
