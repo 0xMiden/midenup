@@ -21,7 +21,7 @@ pub fn install(
     channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    commands::init(config)?;
+    commands::setup_midenup(config)?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));

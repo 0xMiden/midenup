@@ -4,7 +4,8 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 
 /// This functions bootstrap the `midenup` environment (creates basic directory
 /// structure, creates the miden executable symlink, etc.), if not already
-/// initialized.
+/// initialized. The boolean represents whether midenup had already been
+/// initalized or not.
 /// NOTE: An environment is considered to be "uninitialized" if *at least* one element
 /// (be it a file, directory, etc) is missing,
 ///
@@ -21,7 +22,7 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 /// | | | |- std.masp
 /// |- config.toml
 /// |- manifest.json
-pub fn init(config: &Config) -> anyhow::Result<()> {
+pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     let mut already_initialized = true;
 
     let midenhome_dir = &config.midenup_home;
@@ -105,6 +106,12 @@ To your shell's profile file.
 "
         );
     }
+
+    Ok(already_initialized)
+}
+
+pub fn init(config: &Config) -> anyhow::Result<()> {
+    let already_initialized = setup_midenup(config)?;
 
     if !already_initialized {
         println!(

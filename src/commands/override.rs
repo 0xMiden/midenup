@@ -9,7 +9,7 @@ use crate::{Config, channel::UserChannel, commands, utils};
 /// similarly to how we handle the `stable`. We create a symlink called
 /// `default` that points to the desired toolchain directory.
 pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
-    commands::init(config)?;
+    commands::setup_midenup(config)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let channel_dir = match channel {
