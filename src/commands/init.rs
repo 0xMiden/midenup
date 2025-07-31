@@ -99,7 +99,7 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
             "
 Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. 
 
-export MIDENUP_HOME={midenup_home_dir}/midenup
+export MIDENUP_HOME='{midenup_home_dir}/midenup'
 export PATH=${{MIDENUP_HOME}}/bin:$PATH
 
 To your shell's profile file.
