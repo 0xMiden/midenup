@@ -132,8 +132,8 @@ impl MidenAliases {
                 prefix: vec![String::from("new-wallet"), String::from("--deploy")],
             },
             MidenAliases::Call => AliasCommands::MidenComponent {
-                name: String::from("call"),
-                prefix: vec![String::from("new-wallet"), String::from("--show")],
+                name: String::from("client"),
+                prefix: vec![String::from("call"), String::from("--show")],
             },
             MidenAliases::Send => AliasCommands::MidenComponent {
                 name: String::from("client"),
