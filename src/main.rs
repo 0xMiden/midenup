@@ -10,7 +10,7 @@ mod version;
 use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use clap::{Args, FromArgMatches, Parser, Subcommand};
+use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
 use self::{
@@ -115,7 +115,7 @@ struct GlobalArgs {
     /// Determines wether the components are installed in debug mode. Useful for
     /// debugging and faster installations. This flag is only avaialble to
     /// `midenup`, not `miden`.
-    #[clap(long, short, action)]
+    #[clap(env = "MIDENUP_DEBUG_MODE", action = ArgAction::Set, default_value = "false", hide = true)]
     debug: bool,
 }
 
