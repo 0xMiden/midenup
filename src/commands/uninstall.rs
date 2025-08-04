@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::{
     Config,
-    channel::{Channel, Component},
+    channel::{Channel, Component, UserChannel},
     commands::install::DEPENDENCIES,
     manifest::Manifest,
     version::Authority,
@@ -34,12 +34,19 @@ pub enum UninstallError {
 
 pub fn uninstall(
     config: &Config,
-    channel: &Channel,
+    channel: &UserChannel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
+    let Some(internal_channel) = config.manifest.get_channel(channel) else {
+        bail!("channel '{}' doesn't exist or is unavailable", channel);
+    };
+
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
 
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
+    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &internal_channel.name));
+    if !toolchain_dir.exists() {
+        bail!("Channel {} is not installed, nothing to uninstall.", channel);
+    };
 
     // NOTE: If either of the installed components files are missing, we
     // continue with the uninstall process regardless. All the installed
@@ -59,7 +66,7 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
     // Now that the installation indicator is deleted, we can remove the
     // symlink. If anything goes wrong during this process, re-issuing the
     // installation should brink the symlink back.
-    if config.manifest.is_latest_stable(channel) {
+    if config.manifest.is_latest_stable(internal_channel) {
         let stable_symlink = installed_toolchains_dir.join("stable");
 
         // If the symlink doesn't exist, then it probably means that
@@ -69,7 +76,7 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
         }
     }
 
-    local_manifest.remove_channel(channel.name.clone());
+    local_manifest.remove_channel(internal_channel.name.clone());
 
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
     let mut local_manifest_file =
