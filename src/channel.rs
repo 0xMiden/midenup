@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::PathBuf,
@@ -231,6 +231,27 @@ impl Display for InstalledFile {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+/// Arguments that are passed to the CLI to execute the original [[Alias]].
+pub enum CliArgument {
+    #[serde(untagged)]
+    /// A command that is passed verbatim, as is.
+    Verbatim {
+        #[serde(rename = "verbatim")]
+        name: String,
+    },
+    #[serde(untagged)]
+    /// The name of the command is not known ahead of time and is dependent on
+    /// the current active toolchain. Mostly used for executable names.
+    Resolve {
+        #[serde(rename = "resolve")]
+        name: String,
+    },
+}
+type Alias = String;
+/// List of the commands that need to be run when [[Alias]] is called.
+type AliasResolution = Vec<CliArgument>;
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -264,6 +285,10 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
+    /// List of all the different aliases that use this component under the hood.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    aliases: HashMap<Alias, AliasResolution>,
 }
 
 impl Component {
@@ -275,6 +300,7 @@ impl Component {
             requires: vec![],
             rustup_channel: None,
             installed_file: None,
+            aliases: HashMap::new(),
         }
     }
 
