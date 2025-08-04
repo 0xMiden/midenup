@@ -29,7 +29,15 @@
           "repository_url": "https://github.com/0xMiden/miden-client.git",
           "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
+          "installed_executable": "miden-client",
+          "aliases": {
+              "account": [{"resolve": "client"}, {"verbatim": "new-account"}],
+              "faucet": [{"resolve": "client"}, {"verbatim": "mint"}],
+              "deploy": [{"resolve": "client"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
+              "call": [{"resolve": "client"}, {"verbatim": "call"}, {"verbatim": "--show"}],
+              "send": [{"resolve": "client"}, {"verbatim": "send"}],
+              "simulate": [{"resolve": "client"}, {"verbatim": "exec"}]
+            }
         },
         {
           "name": "midenc",
@@ -39,7 +47,11 @@
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "rustup_channel": "nightly-2025-03-20",
+          "aliases": {
+              "new": [{"verbatim": "cargo"}, {"verbatim": "miden"}, {"verbatim": "new"}],
+              "build": [{"verbatim": "cargo"}, {"verbatim": "miden"}, {"verbatim": "build"}]
+            }
         }
       ]
     },
@@ -69,7 +81,15 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.10.0",
-          "installed_executable": "miden-client"
+          "installed_executable": "miden-client",
+          "aliases": {
+              "account": [{"resolve": "client"}, {"verbatim": "new-account"}],
+              "faucet": [{"resolve": "client"}, {"verbatim": "mint"}],
+              "deploy": [{"resolve": "client"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
+              "call": [{"resolve": "client"}, {"verbatim": "call"}, {"verbatim": "--show"}],
+              "send": [{"resolve": "client"}, {"verbatim": "send"}],
+              "simulate": [{"resolve": "client"}, {"verbatim": "exec"}]
+            }
         },
         {
           "name": "midenc",
@@ -79,7 +99,11 @@
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "rustup_channel": "nightly-2025-03-20",
+          "aliases": {
+              "new": [{"verbatim": "cargo"}, {"verbatim": "miden"}, {"verbatim": "new"}],
+              "build": [{"verbatim": "cargo"}, {"verbatim": "miden"}, {"verbatim": "build"}]
+            }
         }
       ]
     }

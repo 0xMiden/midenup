@@ -1,13 +1,12 @@
-use std::{ffi::OsString, str::FromStr, string::ToString};
+use std::{collections::HashMap, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
-use strum::{EnumMessage, IntoEnumIterator};
-use strum_macros::{Display, EnumIter, EnumMessage, EnumString};
+use strum::IntoEnumIterator;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Channel, InstalledFile},
+    channel::{Alias, AliasResolution, Channel, Component, InstalledFile},
     manifest::Manifest,
     toolchain::Toolchain,
 };
@@ -31,118 +30,32 @@ enum HelpMessage {
     Resolve(String),
 }
 
-#[derive(Debug, EnumIter, Display, EnumMessage, EnumString)]
-#[strum(serialize_all = "snake_case")]
-/// All the known, hard-coded, "aliases". These are subcommands that serve as a
-/// short form version of a different command from a specific component.
-enum MidenAliases {
-    /// Create local account
-    Account,
-    /// Fund account via faucet
-    Faucet,
-    /// Create new project
-    New,
-    /// Build project
-    Build,
-    /// Test project
-    Test,
-    // Node,
-    /// Deploy contract
-    Deploy,
-    // Scan,
-    /// Call view function (read-only)
-    Call,
-    /// Send transaction (state-changing)
-    Send,
-    /// Simulate transaction (no commit)
-    Simulate,
+enum MidenArgument {
+    Alias(AliasResolution),
+    Component(String),
 }
 
-/// These are the know mappings from [[MidenAliases]].
-enum AliasCommands {
-    MidenComponent {
-        /// This is the name of the component. NOTE: This is *NOT* the name of
-        /// the underlying executable, that information is obtained from the
-        /// locally installed [[Manifest]]. To get the name of the executable,
-        /// use the [[CommandToExecute::get_exe]] function.
-        name: String,
-        prefix: Vec<String>,
-    },
-    /// This represents a command whose binary is not handled by the
-    /// [[Manifest]], for instance, `miden new` maps to a call to `cargo`.
-    ExternalCommand { name: String, arguments: Vec<String> },
+enum EnvironmentError {
+    UnkownArgument,
 }
-
-impl AliasCommands {
-    fn get_exe(self, channel: &Channel) -> anyhow::Result<(String, Vec<String>)> {
-        match self {
-            AliasCommands::MidenComponent { name, prefix: arguments } => {
-                // SAFETY: This could only get triggered if there's an error in
-                // hardcoded mappings present in [[MidenAliases::resolve]].
-                let component = channel.get_component(&name).with_context(|| {
-                    format!(
-                        "Component named {} is not present in toolchain version {}",
-                        name, channel.name
-                    )
-                })?;
-
-                let InstalledFile::Executable { binary_name: binary } =
-                    component.get_installed_file()
-                else {
-                    bail!(
-                        "Can't execute component {}; since it is not an executable ",
-                        component.name
-                    )
-                };
-
-                Ok((binary, arguments))
-            },
-            AliasCommands::ExternalCommand { name, arguments } => Ok((name, arguments)),
-        }
+struct ToolchainEnvironment {
+    aliases: HashMap<Alias, AliasResolution>,
+    components: Vec<Component>,
+}
+impl ToolchainEnvironment {
+    fn new(channel: &Channel) -> Self {
+        let aliases = channel.get_aliases();
+        let components = channel.components.clone();
+        ToolchainEnvironment { aliases, components }
     }
-}
-impl MidenAliases {
-    /// This functions returns the underlying command corresponding to a given
-    /// alias. For more information about the resulting mapping, see
-    /// [[AliasCommands]].
-    /// NOTE: The [[Channel]] argument is left in case one of these
-    /// functionalities migrates [[Component]].  If that ever happens, then the
-    /// mapping can be conditioned over the [[Channel::name]] (a.k.a. the version).
-    fn resolve(&self, _channel: &Channel) -> AliasCommands {
-        match self {
-            MidenAliases::Account => AliasCommands::MidenComponent {
-                name: String::from("client"),
-                prefix: vec![String::from("account")],
-            },
-            MidenAliases::Faucet => AliasCommands::MidenComponent {
-                name: String::from("client"),
-                prefix: vec![String::from("mint")],
-            },
-            MidenAliases::New => AliasCommands::ExternalCommand {
-                name: String::from("cargo"),
-                arguments: vec![String::from("miden"), String::from("new")],
-            },
-            MidenAliases::Build => AliasCommands::ExternalCommand {
-                name: String::from("cargo"),
-                arguments: vec![String::from("miden"), String::from("build")],
-            },
-            MidenAliases::Test => todo!(),
-            MidenAliases::Deploy => AliasCommands::MidenComponent {
-                name: String::from("client"),
-                prefix: vec![String::from("new-wallet"), String::from("--deploy")],
-            },
-            MidenAliases::Call => AliasCommands::MidenComponent {
-                name: String::from("client"),
-                prefix: vec![String::from("call"), String::from("--show")],
-            },
-            MidenAliases::Send => AliasCommands::MidenComponent {
-                name: String::from("client"),
-                prefix: vec![String::from("send")],
-            },
-            MidenAliases::Simulate => AliasCommands::MidenComponent {
-                name: String::from("client"),
-                prefix: vec![String::from("exec")],
-            },
+
+    fn resolve(&self, argument: String) -> Result<MidenArgument, EnvironmentError> {
+        if let Some(resolution) = self.aliases.get(&argument) {
+            Ok(MidenArgument::Alias(resolution.clone()))
+        } else if self.components.iter().map(|c| c.name.to_string()).any(|c| c == argument) {
+            Ok(MidenArgument::Component(argument))
+        } else {
+            Err(EnvironmentError::UnkownArgument)
         }
     }
 }
@@ -151,16 +64,17 @@ impl MidenAliases {
 enum MidenSubcommand {
     /// Aliases that correspond to a tuple of a known component + a set of
     /// prefixed arguments. For more information, see [[MidenAliases]].
-    /// NOTE: This command *could* trigger an install if the active
-    /// [[Toolchain]] is not installed.
-    Alias(MidenAliases),
-    /// Aliases that correspond to a tuple of a known component + a set of
-    /// prefixed arguments. For more information, see [[MidenAliases]].
     /// NOTE: With the exception of [[HelpMessage::Default]], this command
     /// *could* trigger an install if the active [[Toolchain]] is not installed.
     Help(HelpMessage),
     /// The user passed in a subcommand that needs to be resolved using the
-    /// currently active [[Toolchain]].
+    /// currently active [[Toolchain]]. Resolution can result in one of the
+    /// following elements:
+    /// - An alias
+    /// - A [[Component]]
+    ///
+    /// If it's none of those, then we error out.
+    ///
     /// NOTE: This command *could* trigger an install if the active
     /// [[Toolchain]] is not installed.
     Resolve(String),
@@ -173,8 +87,6 @@ fn process_input(subcommand: &str, argv: &[OsString]) -> MidenSubcommand {
             Some("toolchain") => MidenSubcommand::Help(HelpMessage::Toolchain),
             Some(other) => MidenSubcommand::Help(HelpMessage::Resolve(other.to_string())),
         }
-    } else if let Ok(alias) = MidenAliases::from_str(subcommand) {
-        MidenSubcommand::Alias(alias)
     } else {
         MidenSubcommand::Resolve(subcommand.to_string())
     }
@@ -196,6 +108,13 @@ miden help"
 
     let parsed_subcommand = process_input(subcommand, &argv);
 
+    // Make sure we know the current toolchain so we can modify the PATH appropriately
+    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
+    let channel = local_manifest
+        .get_channel(&toolchain.channel)
+        .context("Couldn't find active toolchain in the manifest.")?;
+    let toolchain_environment = ToolchainEnvironment::new(channel);
+
     // NOTE: We handle this case first to avoid triggering an install when
     // `miden help` gets run.
     if matches!(parsed_subcommand, MidenSubcommand::Help(HelpMessage::Default)) {
@@ -203,19 +122,13 @@ miden help"
         return Ok(());
     }
 
-    // Make sure we know the current toolchain so we can modify the PATH appropriately
-    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-    let channel = local_manifest
-        .get_channel(&toolchain.channel)
-        .context("Couldn't find active toolchain in the manifest.")?;
-
     let (target_exe, prefix_args, include_rest_of_args) = match parsed_subcommand {
         MidenSubcommand::Help(message) => {
             match message {
                 // Handled in the matches! above.
                 HelpMessage::Default => unreachable!(),
                 HelpMessage::Toolchain => {
-                    let help = toolchain_help(channel);
+                    let help = toolchain_help(&toolchain_environment);
 
                     std::println!("{help}");
 
@@ -246,28 +159,62 @@ miden help"
                 },
             }
         },
-        MidenSubcommand::Alias(alias) => {
-            let command = alias.resolve(channel);
-            let (target_exe, prefix_args) = command.get_exe(channel)?;
+        MidenSubcommand::Resolve(argument) => match toolchain_environment.resolve(argument.clone())
+        {
+            Ok(MidenArgument::Alias(alias_resolutions)) => {
+                let commands = alias_resolutions
+                    .iter()
+                    .map(|description| description.get_executable(channel))
+                    .collect::<Result<Vec<String>, _>>()?;
 
-            (target_exe, prefix_args, true)
-        },
-        MidenSubcommand::Resolve(component) => {
-            let component = channel.get_component(component);
-            let Some(component) = component else {
-                bail!(
-                    "Unknown subcommand: {}. \
+                let command = commands.first().unwrap().clone();
+                let prefix_args: Vec<String> = commands.into_iter().skip(1).collect();
+
+                (command, prefix_args, false)
+            },
+            Ok(MidenArgument::Component(component)) => {
+                let component = channel.get_component(component);
+                let Some(component) = component else {
+                    bail!(
+                        "Unknown subcommand: {}. \
             To get a full list of available commands, run:\
             miden help",
-                    subcommand
-                );
-            };
+                        subcommand
+                    );
+                };
 
-            let installed_file = component.get_installed_file();
-            let InstalledFile::Executable { binary_name: binary } = installed_file else {
-                bail!("Can't execute component {}; since it is not an executable ", component.name)
-            };
-            (binary, vec![], true)
+                let installed_file = component.get_installed_file();
+                let InstalledFile::Executable { binary_name: binary } = installed_file else {
+                    bail!(
+                        "Can't execute component {}; since it is not an executable ",
+                        component.name
+                    )
+                };
+                (binary, vec![], true)
+            },
+            Err(_) => {
+                let components = toolchain_environment
+                    .components
+                    .iter()
+                    .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
+                    .map(|c| format!("  {}\n", c.name.bold()))
+                    .collect::<String>();
+                let aliases = toolchain_environment
+                    .aliases
+                    .keys()
+                    .map(|alias| format!("  {}\n", alias.bold()))
+                    .collect::<String>();
+                bail!(
+                    "Failed to resolve {}: Neither known alias or component.
+
+These are the known aliases:
+{components}
+And these are the known components:
+{aliases}
+",
+                    argument.clone(),
+                );
+            },
         },
     };
 
@@ -316,92 +263,58 @@ miden help"
     }
 }
 
-fn toolchain_help(channel: &Channel) -> String {
-    let available_components: String = channel
+fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
+    let available_components: String = toolchain_environment
         .components
         .iter()
         .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
         .map(|c| format!("  {}\n", c.name.bold()))
         .collect();
+    let available_aliases: String = toolchain_environment
+        .aliases
+        .keys()
+        .map(|alias| format!("  {}\n", alias.bold()))
+        .collect();
+
+    let usage = "Usage:".bold().underline();
+    let miden = "miden".bold();
+    let asterisk = "*".bold();
+    let available_aliases_text = "Available aliases:".bold().underline();
+    let available_components_text = "Available components:".bold().underline();
+    let help = "Help:".bold().underline();
+
     format!(
         "The Miden toolchain porcelain
 
-The currently available components are:
+{usage} {miden} <ALIAS|COMPONENT>
 
-{} {} <COMPONENT>
+{available_aliases_text}
+{available_aliases}
+{available_components_text}
+{available_components}
 
-{}
-{}
-
-{}
+{help}
   help                   Print this help message
-  help components        Print this help message {}
-  help <COMPONENT>       Print <COMPONENTS>'s help message {}
+  help toolchain         Print this help message {asterisk}
+  help <COMPONENT>       Print <COMPONENTS>'s help message {asterisk}
 
-{}: These commands will install the currently present toolchain if not installed.
+{asterisk}: These commands will install the currently present toolchain if not installed.
 ",
-        "Usage:".bold().underline(),
-        "miden".bold(),
-        "Available components:".bold().underline(),
-        available_components,
-        "Help:".bold().underline(),
-        "*".bold(),
-        "*".bold(),
-        "*".bold(),
     )
 }
 
 fn default_help() -> String {
-    // SAFETY: This unwrap is safe under the assumption that the MidenAliases
-    // enum has at least one variant
-    let longest_alias = MidenAliases::iter()
-        .map(|a| a.to_string())
-        .max_by(|x, y| x.len().cmp(&y.len()))
-        .unwrap_or_else(|| panic!("ERROR: MidenAliases enum is empty"));
-
-    let aliases: String = MidenAliases::iter()
-        .map(|a| {
-            (
-                a.to_string(),
-                a.get_documentation()
-                    // SAFETY: This unwrap is safe as long as every
-                    // [[MidenAliases]] variant has a doc comment
-                    .unwrap_or_else(|| panic!("Enum {a} is lacking a doc comment")),
-            )
-        })
-        .map(|(alias, description)| {
-            let spacing = longest_alias.len() - alias.len();
-            // NOTE: This value was added in order to both:
-            // - Emulate clap's padding
-            // - Improve readability
-            let padding = 3;
-            let spaces = String::from(' ').repeat(spacing + padding);
-            format!("  {}{}{}\n", alias.bold(), spaces, description)
-        })
-        .collect();
-
+    let asterisk = "*".bold();
     format!(
         "The Miden toolchain porcelain
 
-{} {} <ALIAS>
-
-{}
-{}
-
 {}
   help                   Print this help message
-  help toolchain         Print help about the current toolchain {}
-  help <COMPONENT>       Print <COMPONENTS>'s help message {}
+  help toolchain         Print help about the current toolchain {asterisk}
+  help <COMPONENT>       Print <COMPONENTS>'s help message {asterisk}
 
-{}: These commands will install the currently present toolchain if not installed.
+{asterisk}: These commands will install the currently present toolchain if not installed.
 ",
-        "Usage:".bold().underline(),
-        "miden".bold(),
-        "Available aliases:".bold().underline(),
-        aliases,
         "Help:".bold().underline(),
-        "*".bold(),
-        "*".bold(),
-        "*".bold(),
     )
 }
