@@ -199,7 +199,7 @@ miden help"
     // NOTE: We handle this case first to avoid triggering an install when
     // `miden help` gets run.
     if matches!(parsed_subcommand, MidenSubcommand::Help(HelpMessage::Default)) {
-        std::println!("{}", default_help());
+        println!("{}", default_help());
         return Ok(());
     }
 
