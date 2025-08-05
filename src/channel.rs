@@ -261,11 +261,11 @@ pub enum CliArgument {
 }
 
 impl CliArgument {
-    pub fn get_executable(&self, channel: &Channel) -> anyhow::Result<String> {
+    pub fn resolve_command(&self, channel: &Channel) -> anyhow::Result<String> {
         match self {
             CliArgument::Verbatim { name } => Ok(name.to_string()),
             CliArgument::Resolve { name } => {
-                let component = channel.get_component(&name).with_context(|| {
+                let component = channel.get_component(name).with_context(|| {
                     format!(
                         "Component named {} is not present in toolchain version {}",
                         name, channel.name
