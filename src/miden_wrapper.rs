@@ -147,7 +147,7 @@ miden help"
         MidenSubcommand::Help(HelpMessage::Toolchain) => {
             let help = toolchain_help(&toolchain_environment);
 
-            std::println!("{help}");
+            println!("{help}");
 
             return Ok(());
         },
