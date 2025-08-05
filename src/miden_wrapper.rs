@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -23,15 +23,21 @@ enum HelpMessage {
 
     /// This variant represents a "fallback" option where we save the user's
     /// input so that we later on try to map it to a [[Component]].  This
-    /// mapping is dependent on the currently active [[Toolchain]].
+    /// mapping is dependent on the currently active [[Toolchain]]. These will
+    /// try to be resolved into a [[MidenArgument]].
     /// NOTE: This help message *could* trigger an install if the active
     /// [[Toolchain]] is not installed.
     Resolve(String),
 }
 
-enum MidenArgument {
+/// The possible non-help commands that a user's input can be resolved into.
+enum MidenArgument<'a> {
+    /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
+    /// represents the list of commands that need to be executed. NOTE: Some of these might need
+    /// to get resolved.
     Alias(AliasResolution),
-    Component(String),
+    /// The argument was the name of a component stored in the [[Manifest]].
+    Component(&'a Component),
 }
 
 enum EnvironmentError {
@@ -51,11 +57,26 @@ impl ToolchainEnvironment {
     fn resolve(&self, argument: String) -> Result<MidenArgument, EnvironmentError> {
         if let Some(resolution) = self.aliases.get(&argument) {
             Ok(MidenArgument::Alias(resolution.clone()))
-        } else if self.components.iter().map(|c| c.name.to_string()).any(|c| c == argument) {
-            Ok(MidenArgument::Component(argument))
+        } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
+            Ok(MidenArgument::Component(component))
         } else {
             Err(EnvironmentError::UnkownArgument)
         }
+    }
+
+    fn get_components_display(&self) -> String {
+        self.components
+            .iter()
+            .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
+            .map(|c| format!("  {}\n", c.name.bold()))
+            .collect::<String>()
+    }
+
+    fn get_aliases_display(&self) -> String {
+        self.aliases
+            .keys()
+            .map(|alias| format!("  {}\n", alias.bold()))
+            .collect::<String>()
     }
 }
 
@@ -79,7 +100,7 @@ enum MidenSubcommand {
     Resolve(String),
 }
 
-fn process_input(subcommand: &str, argv: &[OsString]) -> MidenSubcommand {
+fn parse_subcommand(subcommand: &str, argv: &[OsString]) -> MidenSubcommand {
     if subcommand == "help" {
         match argv.get(2).and_then(|c| c.to_str()) {
             None => MidenSubcommand::Help(HelpMessage::Default),
@@ -105,14 +126,7 @@ miden help"
         subcommand.to_str().expect("Invalid command name: {subcommand}")
     };
 
-    let parsed_subcommand = process_input(subcommand, &argv);
-
-    // Make sure we know the current toolchain so we can modify the PATH appropriately
-    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-    let channel = local_manifest
-        .get_channel(&toolchain.channel)
-        .context("Couldn't find active toolchain in the manifest.")?;
-    let toolchain_environment = ToolchainEnvironment::new(channel);
+    let parsed_subcommand = parse_subcommand(subcommand, &argv);
 
     // NOTE: We handle this case first to avoid triggering an install when
     // `miden help` gets run.
@@ -121,101 +135,80 @@ miden help"
         return Ok(());
     }
 
-    let (target_exe, prefix_args, include_rest_of_args) = match parsed_subcommand {
-        MidenSubcommand::Help(message) => {
-            match message {
-                // Handled in the matches! above.
-                HelpMessage::Default => unreachable!(),
-                HelpMessage::Toolchain => {
-                    let help = toolchain_help(&toolchain_environment);
+    // Make sure we know the current toolchain so we can modify the PATH appropriately
+    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
+    let channel = local_manifest
+        .get_channel(&toolchain.channel)
+        .context("Couldn't find active toolchain in the manifest.")?;
+    let toolchain_environment = ToolchainEnvironment::new(channel);
 
-                    std::println!("{help}");
+    let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
+        MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
+        MidenSubcommand::Help(HelpMessage::Toolchain) => {
+            let help = toolchain_help(&toolchain_environment);
 
-                    return Ok(());
+            std::println!("{help}");
+
+            return Ok(());
+        },
+        // If a call to help is issued, we ignore the rest of the arguments passed.
+        MidenSubcommand::Help(HelpMessage::Resolve(_)) => (vec!["--help".to_string()], false),
+        _ => (vec![], true),
+    };
+
+    // We obtain the target executable and prefixes that are associated with the
+    // passed subcommand.
+    let (target_exe, mut prefix_args) = match parsed_subcommand {
+        MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
+        MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
+        // Resolution, either for help or for actual execution is the same. The
+        // only difference is wheter you append "--help" at the end and if we
+        // process additional arguments.
+        MidenSubcommand::Help(HelpMessage::Resolve(resolve))
+        | MidenSubcommand::Resolve(resolve) => {
+            match toolchain_environment.resolve(resolve.clone()) {
+                Ok(MidenArgument::Alias(alias_resolutions)) => {
+                    let commands = alias_resolutions
+                        .iter()
+                        .map(|description| description.resolve_command(channel))
+                        .collect::<Result<Vec<String>, _>>()?;
+
+                    let command = commands.first().unwrap().clone();
+                    let prefix_args: Vec<String> = commands.into_iter().skip(1).collect();
+
+                    (command, prefix_args)
                 },
-                HelpMessage::Resolve(component) => {
-                    let component = channel.get_component(&component).with_context(|| {
-                        format!(
-                            "Couldn't find component {} in the current channel: {}.",
-                            component, channel.name
-                        )
-                    })?;
-
+                Ok(MidenArgument::Component(component)) => {
                     let installed_file = component.get_installed_file();
                     let InstalledFile::Executable { binary_name: binary } = installed_file else {
                         bail!(
-                            "Can't show help for {} since it is not an executable.",
+                            "Can't execute component {}; since it is not an executable ",
                             component.name
                         )
                     };
+                    (binary, vec![])
+                },
+                Err(_) => {
+                    let components = toolchain_environment.get_components_display();
+                    let aliases = toolchain_environment.get_aliases_display();
+                    bail!(
+                        "Failed to resolve {}: Neither known alias or component.
 
-                    // NOTE: We rely on the different component's CLI interfaces
-                    // to recognize the "--help" flag. Currently, this relies on
-                    // the fact that clap recognizes said flag by
-                    // default. Source:
-                    // https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
-                    (binary, vec!["--help".to_string()], false)
+        These are the known aliases:
+        {components}
+        And these are the known components:
+        {aliases}
+        ",
+                        resolve.clone(),
+                    );
                 },
             }
         },
-        MidenSubcommand::Resolve(argument) => match toolchain_environment.resolve(argument.clone())
-        {
-            Ok(MidenArgument::Alias(alias_resolutions)) => {
-                let commands = alias_resolutions
-                    .iter()
-                    .map(|description| description.get_executable(channel))
-                    .collect::<Result<Vec<String>, _>>()?;
-
-                let command = commands.first().unwrap().clone();
-                let prefix_args: Vec<String> = commands.into_iter().skip(1).collect();
-
-                (command, prefix_args, false)
-            },
-            Ok(MidenArgument::Component(component)) => {
-                let component = channel.get_component(component);
-                let Some(component) = component else {
-                    bail!(
-                        "Unknown subcommand: {}. \
-            To get a full list of available commands, run:\
-            miden help",
-                        subcommand
-                    );
-                };
-
-                let installed_file = component.get_installed_file();
-                let InstalledFile::Executable { binary_name: binary } = installed_file else {
-                    bail!(
-                        "Can't execute component {}; since it is not an executable ",
-                        component.name
-                    )
-                };
-                (binary, vec![], true)
-            },
-            Err(_) => {
-                let components = toolchain_environment
-                    .components
-                    .iter()
-                    .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
-                    .map(|c| format!("  {}\n", c.name.bold()))
-                    .collect::<String>();
-                let aliases = toolchain_environment
-                    .aliases
-                    .keys()
-                    .map(|alias| format!("  {}\n", alias.bold()))
-                    .collect::<String>();
-                bail!(
-                    "Failed to resolve {}: Neither known alias or component.
-
-These are the known aliases:
-{components}
-And these are the known components:
-{aliases}
-",
-                    argument.clone(),
-                );
-            },
-        },
     };
+
+    // Now that executable resolution is done, we append the extra arguments we
+    // obtained in the beginning.
+    prefix_args.extend(extra_arguments);
 
     // Compute the effective PATH for this command
     let toolchain_bin = config
@@ -263,17 +256,8 @@ And these are the known components:
 }
 
 fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
-    let available_components: String = toolchain_environment
-        .components
-        .iter()
-        .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
-        .map(|c| format!("  {}\n", c.name.bold()))
-        .collect();
-    let available_aliases: String = toolchain_environment
-        .aliases
-        .keys()
-        .map(|alias| format!("  {}\n", alias.bold()))
-        .collect();
+    let available_components: String = toolchain_environment.get_components_display();
+    let available_aliases: String = toolchain_environment.get_aliases_display();
 
     let usage = "Usage:".bold().underline();
     let miden = "miden".bold();
