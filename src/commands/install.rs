@@ -1,10 +1,10 @@
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 use anyhow::Context;
 
 use crate::{
     Config, bail,
-    channel::{Channel, ChannelAlias},
+    channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
@@ -175,6 +175,19 @@ use std::process::Command;
 use std::io::{Write};
 use std::fs::{OpenOptions, rename};
 
+// Utility functions
+mod utility {
+    #[cfg(unix)]
+    pub fn symlink(from: &std::path::Path, to: &std::path::Path) {
+        std::os::unix::fs::symlink(to, from).expect("could not create symlink")
+    }
+
+    #[cfg(windows)]
+    pub fn symlink(from: &std::path::Path, to: &std::path::Path) {
+        std::os::windows::fs::symlink_file(to, from).expect("could not create symlink")
+    }
+}
+
 fn main() {
     // MIDEN_SYSROOT is set by `midenup` when invoking this script, and will contain the resolved
     // (and prepared) sysroot path to which this script will install the desired toolchain
@@ -269,6 +282,14 @@ fn main() {
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
 
+   // We install the symlinks associated with the aliases
+   {%- for link in symlinks %}
+
+   let new_link = bin_dir.join("{{ link.alias }}");
+   let executable = bin_dir.join("{{ link.binary }}");
+   utility::symlink(&new_link, &executable);
+
+   {%- endfor %}
 }
 "##,
         )
@@ -290,6 +311,29 @@ fn main() {
             .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
         installable_components.push(component);
     }
+
+    // Mapping of alias -> execuable
+    let symlinks = channel
+        .components
+        .iter()
+        .fold(HashMap::new(), |mut acc, component| {
+            let aliases = component.aliases.keys();
+            let exe_name = component.get_installed_file();
+            for alias in aliases {
+                if let InstalledFile::Executable { ref binary_name } = exe_name {
+                    acc.insert(alias.clone(), binary_name.clone());
+                }
+            }
+            acc
+        })
+        .iter()
+        .map(|(alias, binary)| {
+            upon::value! {
+                alias: alias,
+                binary: binary,
+            }
+        })
+        .collect::<Vec<_>>();
 
     // The set of cargo dependencies needed for the install script
     let dependencies = dependencies
@@ -379,6 +423,7 @@ fn main() {
                 dependencies: dependencies,
                 installable_components: installable_components,
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
+                symlinks: symlinks
             },
         )
         .to_string()

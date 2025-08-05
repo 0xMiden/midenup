@@ -6,13 +6,12 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    utils,
+    Config, utils,
     version::{Authority, GitTarget},
-    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -502,7 +501,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        channel::{Alias, AliasResolution, Channel, CliArgument, Component},
+        channel::{Channel, Component},
         version::{Authority, GitTarget},
     };
 
