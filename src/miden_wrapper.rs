@@ -189,15 +189,16 @@ miden help"
                     (binary, vec![])
                 },
                 Err(_) => {
-                    let components = toolchain_environment.get_components_display();
                     let aliases = toolchain_environment.get_aliases_display();
+                    let components = toolchain_environment.get_components_display();
                     bail!(
                         "Failed to resolve {}: Neither known alias or component.
 
-        These are the known aliases:
-        {components}
-        And these are the known components:
-        {aliases}
+These are the known aliases:
+{aliases}
+And these are the known components:
+{components}
+
         ",
                         resolve.clone(),
                     );
@@ -288,16 +289,16 @@ fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
 
 fn default_help() -> String {
     let asterisk = "*".bold();
+    let help = "Help:".bold().underline();
     format!(
         "The Miden toolchain porcelain
 
-{}
+{help}
   help                   Print this help message
-  help toolchain         Print help about the current toolchain {asterisk}
-  help <COMPONENT>       Print <COMPONENTS>'s help message {asterisk}
+  help toolchain         Print help about the currently available aliases and components {asterisk}
+  help <COMPONENT>       Print a specific <COMPONENTS>'s help message {asterisk}
 
 {asterisk}: These commands will install the currently present toolchain if not installed.
 ",
-        "Help:".bold().underline(),
     )
 }
