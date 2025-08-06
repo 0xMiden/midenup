@@ -54,7 +54,7 @@ impl ToolchainEnvironment {
         ToolchainEnvironment { aliases, components }
     }
 
-    fn resolve(&self, argument: String) -> Result<MidenArgument, EnvironmentError> {
+    fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
         if let Some(resolution) = self.aliases.get(&argument) {
             Ok(MidenArgument::Alias(resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
@@ -73,10 +73,9 @@ impl ToolchainEnvironment {
     }
 
     fn get_aliases_display(&self) -> String {
-        self.aliases
-            .keys()
-            .map(|alias| format!("  {}\n", alias.bold()))
-            .collect::<String>()
+        let mut aliases: Vec<_> = self.aliases.keys().collect();
+        aliases.sort();
+        aliases.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
     }
 }
 
@@ -151,8 +150,13 @@ miden help"
 
             return Ok(());
         },
-        // If a call to help is issued, we ignore the rest of the arguments passed.
-        MidenSubcommand::Help(HelpMessage::Resolve(_)) => (vec!["--help".to_string()], false),
+        MidenSubcommand::Help(HelpMessage::Resolve(_)) => {
+            // NOTE: We rely on the different component's CLI interfaces to
+            // recognize the "--help" flag. Currently, this relies on the fact
+            // that clap recognizes said flag by default.
+            // Source: https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
+            (vec!["--help".to_string()], false)
+        },
         _ => (vec![], true),
     };
 
@@ -173,20 +177,15 @@ miden help"
                         .map(|description| description.resolve_command(channel))
                         .collect::<Result<Vec<String>, _>>()?;
 
+                    // SAFETY: Safe under the assumption that every alias has an
+                    // associated command.
                     let command = commands.first().unwrap().clone();
-                    let prefix_args: Vec<String> = commands.into_iter().skip(1).collect();
+                    let aliased_arguments: Vec<String> = commands.into_iter().skip(1).collect();
 
-                    (command, prefix_args)
+                    (command, aliased_arguments)
                 },
                 Ok(MidenArgument::Component(component)) => {
-                    let installed_file = component.get_installed_file();
-                    let InstalledFile::Executable { binary_name: binary } = installed_file else {
-                        bail!(
-                            "Can't execute component {}; since it is not an executable ",
-                            component.name
-                        )
-                    };
-                    (binary, vec![])
+                    (format!("miden {}", component.name), vec![])
                 },
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();

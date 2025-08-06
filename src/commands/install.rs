@@ -277,19 +277,22 @@ fn main() {
 
     {% endfor %}
 
+    // We install the symlinks associated with the aliases
+    {%- for link in symlinks %}
+
+    let new_link = bin_dir.join("{{ link.alias }}");
+    let executable = bin_dir.join("{{ link.binary }}");
+    if std::fs::read_link(&new_link).is_err() {
+         utility::symlink(&new_link, &executable);
+    }
+
+    {%- endfor %}
+
+
     // Now that installation finished, we rename the file to indicate that
     // installation finished successfully.
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
-
-   // We install the symlinks associated with the aliases
-   {%- for link in symlinks %}
-
-   let new_link = bin_dir.join("{{ link.alias }}");
-   let executable = bin_dir.join("{{ link.binary }}");
-   utility::symlink(&new_link, &executable);
-
-   {%- endfor %}
 }
 "##,
         )
@@ -312,17 +315,24 @@ fn main() {
         installable_components.push(component);
     }
 
-    // Mapping of alias -> execuable
+    // List of all the symlinks that need to be installed.
+    // Currently, these includes:
+    // - A symlink that adds the 'miden ' prefix to the corresponding executable,
+    //   done in order to "trick" clap into displaying midenup compatile messages,
+    //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
+    // - A symlink from all the aliases to the the corresponding executable
     let symlinks = channel
         .components
         .iter()
         .fold(HashMap::new(), |mut acc, component| {
             let aliases = component.aliases.keys();
             let exe_name = component.get_installed_file();
-            for alias in aliases {
-                if let InstalledFile::Executable { ref binary_name } = exe_name {
-                    acc.insert(alias.clone(), binary_name.clone());
+            if let InstalledFile::Executable { ref binary_name } = exe_name {
+                let miden_prefix = format!("miden {}", component.name);
+                for alias in aliases {
+                    acc.insert(alias.clone(), miden_prefix.clone());
                 }
+                acc.insert(miden_prefix, binary_name.clone());
             }
             acc
         })
@@ -389,6 +399,7 @@ fn main() {
                 Authority::Path { path, .. } => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
+                    args.push("--locked".to_string());
                 },
             }
 
