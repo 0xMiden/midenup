@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -243,9 +243,9 @@ impl Display for InstalledFile {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 /// Arguments that are passed to the CLI to execute the original [[Alias]].
-pub enum CliArgument {
+pub enum CliCommand {
     #[serde(untagged)]
-    /// A command that is passed verbatim, as is.
+    /// An argument that is passed verbatim, as is.
     Verbatim {
         #[serde(rename = "verbatim")]
         name: String,
@@ -259,11 +259,11 @@ pub enum CliArgument {
     },
 }
 
-impl CliArgument {
+impl CliCommand {
     pub fn resolve_command(&self, channel: &Channel) -> anyhow::Result<String> {
         match self {
-            CliArgument::Verbatim { name } => Ok(name.to_string()),
-            CliArgument::Resolve { name } => {
+            CliCommand::Verbatim { name } => Ok(name.to_string()),
+            CliCommand::Resolve { name } => {
                 let component = channel.get_component(name).with_context(|| {
                     format!(
                         "Component named {} is not present in toolchain version {}",
@@ -271,16 +271,7 @@ impl CliArgument {
                     )
                 })?;
 
-                let InstalledFile::Executable { binary_name: binary } =
-                    component.get_installed_file()
-                else {
-                    bail!(
-                        "Can't execute component {}; since it is not an executable ",
-                        component.name
-                    )
-                };
-
-                Ok(binary)
+                Ok(format!("miden {}", component.name))
             },
         }
     }
@@ -288,7 +279,7 @@ impl CliArgument {
 
 pub type Alias = String;
 /// List of the commands that need to be run when [[Alias]] is called.
-pub type AliasResolution = Vec<CliArgument>;
+pub type AliasResolution = Vec<CliCommand>;
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
