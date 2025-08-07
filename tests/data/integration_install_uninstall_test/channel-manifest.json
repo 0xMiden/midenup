@@ -67,7 +67,7 @@
         {
           "name": "client",
           "package": "miden-client-cli",
-          "version": "0.10.0",
+          "version": "0.10.2",
           "installed_executable": "miden-client"
         },
         {

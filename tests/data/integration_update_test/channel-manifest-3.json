@@ -22,10 +22,11 @@
           "installed_file": "miden"
         },
         {
-          "name": "miden-client",
+          "name": "client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "crate_name": "miden-client-cli"
+          "installed_executable": "miden-client"
         },
         {
           "name": "midenc",
@@ -58,10 +59,11 @@
           "features": ["executable", "concurrent"]
         },
         {
-          "name": "miden-client",
+          "name": "client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "crate_name": "miden-client-cli"
+          "installed_executable": "miden-client"
         },
         {
           "name": "midenc",
@@ -95,9 +97,9 @@
           "features": ["executable", "concurrent"]
         },
         {
-          "name": "miden-client",
+          "name": "client",
           "package": "miden-client-cli",
-          "version": "0.10.0",
+          "version": "0.10.2",
           "installed_file": "miden-client"
         },
         {
