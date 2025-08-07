@@ -135,8 +135,13 @@ impl Toolchain {
             );
         };
 
-        let channel_dir = config.midenup_home.join("toolchains").join(format!("{}", channel.name));
-        if !channel_dir.exists() {
+        let installation_indicator = config
+            .midenup_home
+            .join("toolchains")
+            .join(format!("{}", channel.name))
+            .join("installation-successful");
+
+        if !installation_indicator.exists() {
             println!("Found current toolchain to be {desired_channel}. Now installing it.",);
             commands::install(config, channel, local_manifest)?
         }
