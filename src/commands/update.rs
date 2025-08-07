@@ -1,12 +1,12 @@
 use anyhow::Context;
 
 use crate::{
-    Config,
     channel::{Channel, UserChannel},
     commands,
     commands::{install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
+    Config,
 };
 
 /// Updates installed toolchains
@@ -93,7 +93,7 @@ fn update_channel(
     upstream_channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
     // NOTE: After deleting the files we need to remove the "all is installed
@@ -115,10 +115,7 @@ fn update_channel(
             .context(format!("Couldn't delete {}", &lib_path.display()))?;
     }
 
-    let toolchain_dir = config
-        .midenup_home
-        .join("toolchains")
-        .join(format!("{}", &upstream_channel.name));
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(upstream_channel);
 
     for exe in executables {
         match &exe.version {

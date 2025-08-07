@@ -3,7 +3,7 @@
 
 use anyhow::Context;
 
-use crate::{Config, channel::UserChannel, commands, utils};
+use crate::{channel::UserChannel, commands, utils, Config};
 
 /// This functions sets the system's default toolchain. This is handled
 /// similarly to how we handle the `stable`. We create a symlink called
@@ -11,7 +11,7 @@ use crate::{Config, channel::UserChannel, commands, utils};
 pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchains_dir = config.midenup_home_2.get_toolchains_dir();
     let channel_dir = match channel {
         // If a user sets `stable` to be the default; then we need to point to
         // the `stable` symlink itself and *not* the underlying toolchain
@@ -23,7 +23,7 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
                 "Failed to set {channel} as the system default. Try installing it:
         midenup install {channel}",
             )?;
-            inner_channel.get_channel_dir(config)
+            config.midenup_home_2.get_toolchain_dir(inner_channel)
         },
     };
 

@@ -3,12 +3,13 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
+    bail,
     channel::{Channel, ChannelAlias},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -23,7 +24,7 @@ pub fn install(
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
     // NOTE: The installation indicator is only created after successful
@@ -90,7 +91,7 @@ pub fn install(
     }
 
     // Update local manifest
-    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    let local_manifest_path = config.midenup_home_2.get_manifest();
     {
         // Check if the installed channel needs to marked as stable
         let mut channel_to_save = if is_latest_stable {
@@ -388,7 +389,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {

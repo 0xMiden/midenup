@@ -1,9 +1,11 @@
 use std::{path::PathBuf, str::FromStr};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
-use crate::{Config, channel::UserChannel, commands, manifest::Manifest};
+use crate::{
+    channel::UserChannel, commands, config::ToolchainInstallation, manifest::Manifest, Config,
+};
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
 /// toolchain to be used.
@@ -65,7 +67,7 @@ impl Toolchain {
     /// If none of the previous conditions are met, then `stable` will be used.
     pub fn current(config: &Config) -> anyhow::Result<Self> {
         let local_toolchain = Self::toolchain_file()?;
-        let global_toolchain = config.midenup_home.join("toolchains").join("default");
+        let global_toolchain = config.midenup_home_2.get_default_dir();
 
         if local_toolchain.exists() {
             let toolchain_file_contents =
@@ -135,13 +137,13 @@ impl Toolchain {
             );
         };
 
-        let installation_indicator = config
-            .midenup_home
-            .join("toolchains")
-            .join(format!("{}", channel.name))
-            .join("installation-successful");
+        let is_channel_installed = {
+            let installation_indicator =
+                config.midenup_home_2.check_toolchain_installation(channel);
+            matches!(installation_indicator, ToolchainInstallation::FullyInstalled(..))
+        };
 
-        if !installation_indicator.exists() {
+        if !is_channel_installed {
             println!("Found current toolchain to be {desired_channel}. Now installing it.",);
             commands::install(config, channel, local_manifest)?
         }

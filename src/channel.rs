@@ -103,11 +103,6 @@ impl Channel {
 
         Vec::from_iter(components)
     }
-
-    pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
-        let installed_toolchains_dir = config.midenup_home.join("toolchains");
-        installed_toolchains_dir.join(format!("{}", self.name))
-    }
 }
 
 impl Eq for Component {}

@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use colored::Colorize;
 
-use crate::{Config, manifest::Manifest, toolchain::Toolchain};
+use crate::{manifest::Manifest, toolchain::Toolchain, Config};
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
@@ -25,7 +25,7 @@ impl ShowCommand {
                 Ok(())
             },
             Self::Home => {
-                println!("{}", config.midenup_home.display());
+                println!("{}", config.midenup_home_2);
 
                 Ok(())
             },
