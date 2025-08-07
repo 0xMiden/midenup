@@ -1,8 +1,100 @@
-use std::path::PathBuf;
+use std::{fmt::Display, path::PathBuf};
 
 use anyhow::Context;
 
-use crate::manifest::Manifest;
+use crate::{
+    channel::{Channel, UserChannel},
+    manifest::Manifest,
+};
+
+pub enum ToolchainInstallation {
+    FullyInstalled(PathBuf),
+    PartiallyInstalled(PathBuf),
+    NotInstalled,
+}
+
+/// Struct that handles Midneup's home
+#[derive(Debug)]
+pub struct Home {
+    midenup_home: PathBuf,
+}
+impl Home {
+    fn new(midenup_home: PathBuf) -> Self {
+        Home { midenup_home }
+    }
+
+    /// Function that ensures that the Midenup Home directory exists. Returns
+    /// whether it already existed or not.
+    pub fn ensure_exists(&self) -> anyhow::Result<bool> {
+        if !self.midenup_home.exists() {
+            std::fs::create_dir_all(&self.midenup_home).with_context(|| {
+                format!(
+                    "failed to initialize MIDENUP_HOME directory: '{}'",
+                    self.midenup_home.display()
+                )
+            })?;
+            Ok(false)
+        } else {
+            Ok(true)
+        }
+    }
+
+    pub fn check_toolchain_installation(&self, channel: &Channel) -> ToolchainInstallation {
+        let channel_dir = self.midenup_home.join("toolchains").join(format!("{}", channel.name));
+        let installation_complete = channel_dir.join("installation-successful");
+        let installation_in_progress = channel_dir.join(".installation-in-progress");
+
+        if installation_complete.exists() {
+            ToolchainInstallation::FullyInstalled(installation_complete)
+        } else if installation_in_progress.exists() {
+            ToolchainInstallation::PartiallyInstalled(installation_in_progress)
+        } else {
+            ToolchainInstallation::NotInstalled
+        }
+    }
+
+    pub fn get_manifest(&self) -> PathBuf {
+        self.midenup_home.join("manifest").with_extension(".json")
+    }
+
+    /// The location of the installed [[Toolchain]] directory.
+    pub fn get_toolchains_dir(&self) -> PathBuf {
+        self.midenup_home.join("toolchains")
+    }
+
+    /// The location of the installed [[Toolchain]] directory.
+    pub fn get_bin_dir(&self) -> PathBuf {
+        self.midenup_home.join("bin")
+    }
+
+    /// Get the toolchain directory associated with a specific [[Channel]].
+    pub fn get_toolchain_dir(&self, channel: &Channel) -> PathBuf {
+        let installed_toolchains_dir = self.midenup_home.join("toolchains");
+        installed_toolchains_dir.join(format!("{}", channel.name))
+    }
+
+    /// The location of the stable symlink
+    pub fn get_stable_dir(&self) -> PathBuf {
+        self.get_toolchains_dir().join("stable")
+    }
+
+    /// The location of the stable symlink
+    pub fn get_default_dir(&self) -> PathBuf {
+        self.get_toolchains_dir().join("default")
+    }
+}
+
+impl Display for Home {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.midenup_home.as_path().display())
+    }
+}
+
+impl AsRef<std::ffi::OsStr> for Home {
+    fn as_ref(&self) -> &std::ffi::OsStr {
+        self.midenup_home.as_os_str()
+    }
+}
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -20,7 +112,8 @@ pub struct Config {
     /// so:
     ///
     /// MIDENUP_HOME=/path/to/custom/home midenup
-    pub midenup_home: PathBuf,
+    // pub midenup_home: PathBuf,
+    pub midenup_home_2: Home,
     /// This represents the upstream manifest, which contains the state of all
     /// the available toolchains with their respective components.
     ///
@@ -53,7 +146,7 @@ impl Config {
 
         let config = Config {
             working_directory,
-            midenup_home,
+            midenup_home_2: Home::new(midenup_home),
             manifest,
             debug,
         };

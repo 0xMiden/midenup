@@ -2,9 +2,9 @@ use clap::Subcommand;
 use colored::Colorize;
 
 use crate::{
-    Config,
     manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
+    Config,
 };
 
 #[derive(Debug, Subcommand)]
@@ -52,7 +52,7 @@ midenup override
                 Ok(())
             },
             Self::Home => {
-                println!("{}", config.midenup_home.display());
+                println!("{}", config.midenup_home_2);
 
                 Ok(())
             },

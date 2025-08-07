@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -246,12 +246,13 @@ And these are the known components:
     // obtained in the beginning.
     prefix_args.extend(extra_arguments);
 
+    let Some(internal_channel) = config.manifest.get_channel(&toolchain.channel) else {
+        bail!("channel '{}' doesn't exist or is unavailable", &toolchain.channel);
+    };
+
     // Compute the effective PATH for this command
-    let toolchain_bin = config
-        .midenup_home
-        .join("toolchains")
-        .join(toolchain.channel.to_string())
-        .join("bin");
+    let toolchain_bin = config.midenup_home_2.get_toolchain_dir(internal_channel).join("bin");
+
     let path = match std::env::var_os("PATH") {
         Some(prev_path) => {
             let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
@@ -271,7 +272,7 @@ And these are the known components:
     };
 
     let mut output = std::process::Command::new(target_exe)
-        .env("MIDENUP_HOME", &config.midenup_home)
+        .env("MIDENUP_HOME", &config.midenup_home_2)
         .env("PATH", path)
         .args(prefix_args)
         .args(rest_of_args)

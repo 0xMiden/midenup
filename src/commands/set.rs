@@ -1,11 +1,12 @@
 use std::io::Write;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 
 use crate::{
-    Config,
     channel::UserChannel,
+    config::ToolchainInstallation,
     toolchain::{Toolchain, ToolchainFile},
+    Config,
 };
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
@@ -17,16 +18,24 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_path =
         config.working_directory.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
 
-    let current_components_list = config
-        .midenup_home
-        .join("toolchains")
-        .join(channel.to_string())
-        .join("installation-successful");
+    let Some(internal_channel) = config.manifest.get_channel(channel) else {
+        bail!("channel '{}' doesn't exist or is unavailable", channel);
+    };
+
+    let installation_indicator =
+        config.midenup_home_2.check_toolchain_installation(internal_channel);
 
     let components = {
-        match std::fs::read_to_string(current_components_list) {
-            Ok(components) => components,
-            Err(_) => {
+        match installation_indicator {
+            ToolchainInstallation::FullyInstalled(path) => std::fs::read_to_string(path)
+                .unwrap_or_else(|e| {
+                    println!(
+                        "WARNING: Failed to read installed components file. Defaulting to empty components list\
+                         ERROR encountered: {e}"
+                    );
+                    String::default()
+                }),
+            _ => {
                 println!(
                     "WARNING: Non present toolchain was set. Component list will be left empty"
                 );
@@ -34,6 +43,7 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
             },
         }
     };
+
     let components: Vec<String> = components.lines().map(String::from).collect();
 
     let installed_toolchain = Toolchain::new(channel.clone(), components);

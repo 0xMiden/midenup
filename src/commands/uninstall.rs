@@ -5,15 +5,15 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use thiserror::Error;
 
 use crate::{
-    Config,
     channel::{Channel, Component, UserChannel},
     commands::install::DEPENDENCIES,
     manifest::Manifest,
     version::Authority,
+    Config,
 };
 
 #[derive(Error, Debug)]
@@ -41,7 +41,7 @@ pub fn uninstall(
         bail!("channel '{}' doesn't exist or is unavailable", channel);
     };
 
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
 
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &internal_channel.name));
     if !toolchain_dir.exists() {
@@ -78,7 +78,7 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
 
     local_manifest.remove_channel(internal_channel.name.clone());
 
-    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    let local_manifest_path = config.midenup_home_2.get_manifest();
     let mut local_manifest_file =
         std::fs::File::create(&local_manifest_path).with_context(|| {
             format!(

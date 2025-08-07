@@ -1,12 +1,12 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 
 use crate::{
-    Config, PathUpdate, UpdateOptions,
     channel::{Channel, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
+    Config, PathUpdate, UpdateOptions,
 };
 
 /// Updates installed toolchains
@@ -100,7 +100,7 @@ fn update_channel(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
+    let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
     let mut channel_to_install = upstream_channel.clone();
@@ -109,6 +109,8 @@ fn update_channel(
     if components_to_delete.is_empty() {
         return Ok(());
     }
+
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(upstream_channel);
 
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
