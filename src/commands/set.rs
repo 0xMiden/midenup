@@ -1,12 +1,12 @@
 use std::io::Write;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::{
-    channel::UserChannel,
-    config::ToolchainInstallation,
-    toolchain::{Toolchain, ToolchainFile},
     Config,
+    channel::UserChannel,
+    config::ToolchainInstallationStatus,
+    toolchain::{Toolchain, ToolchainFile},
 };
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
@@ -27,7 +27,7 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
 
     let components = {
         match installation_indicator {
-            ToolchainInstallation::FullyInstalled(path) => std::fs::read_to_string(path)
+            ToolchainInstallationStatus::FullyInstalled(path) => std::fs::read_to_string(path)
                 .unwrap_or_else(|e| {
                     println!(
                         "WARNING: Failed to read installed components file. Defaulting to empty components list\

@@ -1,10 +1,10 @@
 use std::{path::PathBuf, str::FromStr};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::UserChannel, commands, config::ToolchainInstallation, manifest::Manifest, Config,
+    Config, channel::UserChannel, commands, config::ToolchainInstallationStatus, manifest::Manifest,
 };
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
@@ -95,11 +95,11 @@ impl Toolchain {
             let installation_status = config.midenup_home_2.check_toolchain_installation(channel);
 
             let components = match installation_status {
-                ToolchainInstallation::FullyInstalled(path)
-                | ToolchainInstallation::PartiallyInstalled(path) => {
+                ToolchainInstallationStatus::FullyInstalled(path)
+                | ToolchainInstallationStatus::PartiallyInstalled(path) => {
                     std::fs::read_to_string(path)?.lines().map(String::from).collect()
                 },
-                ToolchainInstallation::NotInstalled => Vec::new(),
+                ToolchainInstallationStatus::NotInstalled => Vec::new(),
             };
 
             let toolchain = Toolchain { channel: user_channel, components };
@@ -129,7 +129,7 @@ impl Toolchain {
         let is_channel_installed = {
             let installation_indicator =
                 config.midenup_home_2.check_toolchain_installation(channel);
-            matches!(installation_indicator, ToolchainInstallation::FullyInstalled(..))
+            matches!(installation_indicator, ToolchainInstallationStatus::FullyInstalled(..))
         };
 
         if !is_channel_installed {

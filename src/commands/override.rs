@@ -3,7 +3,7 @@
 
 use anyhow::Context;
 
-use crate::{channel::UserChannel, commands, utils, Config};
+use crate::{Config, channel::UserChannel, commands, utils};
 
 /// This functions sets the system's default toolchain. This is handled
 /// similarly to how we handle the `stable`. We create a symlink called

@@ -3,13 +3,13 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    bail,
+    Config, bail,
     channel::{Channel, ChannelAlias},
     commands,
+    config::ToolchainInstallationStatus,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
-    Config,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -29,8 +29,8 @@ pub fn install(
 
     // NOTE: The installation indicator is only created after successful
     // toolchain installation.
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    if installation_indicator.exists() {
+    let installation_indicator = config.midenup_home_2.check_toolchain_installation(channel);
+    if matches!(installation_indicator, ToolchainInstallationStatus::FullyInstalled(_)) {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
@@ -389,7 +389,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manifest::Manifest, UserChannel};
+    use crate::{UserChannel, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {

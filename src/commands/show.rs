@@ -1,7 +1,7 @@
 use clap::Subcommand;
 use colored::Colorize;
 
-use crate::{manifest::Manifest, toolchain::Toolchain, Config};
+use crate::{Config, manifest::Manifest, toolchain::Toolchain};
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {

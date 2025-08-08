@@ -1,12 +1,12 @@
 use anyhow::Context;
 
 use crate::{
+    Config,
     channel::{Channel, UserChannel},
-    commands,
-    commands::{install::DEPENDENCIES, uninstall::uninstall_executable},
+    commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
+    config::ToolchainInstallationStatus,
     manifest::Manifest,
     version::Authority,
-    Config,
 };
 
 /// Updates installed toolchains
@@ -93,16 +93,27 @@ fn update_channel(
     upstream_channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(upstream_channel);
 
     // NOTE: After deleting the files we need to remove the "all is installed
     // file" to trigger a re-installation
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    std::fs::remove_file(&installation_indicator).context(format!(
-        "Couldn't delete installation complete indicator in: {}",
-        &installation_indicator.display()
-    ))?;
+    let installation_indicator = config.midenup_home_2.check_toolchain_installation(local_channel);
+    match installation_indicator {
+        ToolchainInstallationStatus::FullyInstalled(path)
+        | ToolchainInstallationStatus::PartiallyInstalled(path) => {
+            std::fs::remove_file(&path).context(format!(
+                "Couldn't delete installation indicator in: {}",
+                &path.display()
+            ))?;
+        },
+        ToolchainInstallationStatus::NotInstalled => {
+            // NOTE: This case is technically unreachable since a channel is
+            // only considered installed if it is registered in the local
+            // [[Manifest]]. This registration is (currently) done after
+            // installation is finalized.  However, since the user is updating
+            // the toolchain we simply install the updates.
+        },
+    };
 
     let updates = local_channel.components_to_update(upstream_channel);
 
@@ -115,8 +126,6 @@ fn update_channel(
             .context(format!("Couldn't delete {}", &lib_path.display()))?;
     }
 
-    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(upstream_channel);
-
     for exe in executables {
         match &exe.version {
             Authority::Cargo { package, .. } => {
@@ -126,10 +135,15 @@ fn update_channel(
             Authority::Git { crate_name, .. } => {
                 uninstall_executable(crate_name, &toolchain_dir)?;
             },
-            Authority::Path { .. } => {
+            Authority::Path { path, .. } => {
                 // We simply skip components that are pointing to a Path. We
                 // leave it to the user to determine when a component should be
                 // updated. They'd simply need to update the workspace manually.
+                std::println!(
+                    "WARNING: component {} is installed from this path: {} and is thus not going to be updated.",
+                    exe.name,
+                    path.display()
+                )
             },
         }
     }

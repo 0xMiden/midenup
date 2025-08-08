@@ -3,13 +3,12 @@ use std::{
     collections::HashSet,
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
 };
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    utils,
     version::{Authority, GitTarget},
 };
 
@@ -430,13 +429,7 @@ impl core::str::FromStr for UserChannel {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs::File,
-        io::{BufReader, Write},
-        path::Path,
-    };
 
-    use super::InstalledFile;
     use crate::{
         channel::{Channel, Component},
         version::{Authority, GitTarget},
