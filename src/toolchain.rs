@@ -81,39 +81,28 @@ impl Toolchain {
             let current_toolchain = toolchain_file.inner_toolchain();
 
             Ok(current_toolchain)
-        } else if std::fs::read_link(&global_toolchain).is_ok() {
-            let channel_path = std::fs::read_link(&global_toolchain).context(format!(
-                "Couldn't read 'default' symlink. Is {} a symlink?",
-                global_toolchain.as_path().display(),
-            ))?;
+        } else if let Ok(channel_path) = std::fs::read_link(&global_toolchain) {
             let channel_name = channel_path
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("Couldn't read channel name from directory")?;
-            let channel = UserChannel::from_str(channel_name)?;
 
-            let installed_components_file = {
-                let possible_log_files = ["installation-successful", ".installation-in-progress"];
-
-                possible_log_files
-                    .iter()
-                    .map(|file| channel_path.join(file))
-                    .find(|log_file| log_file.exists())
+            let user_channel = UserChannel::from_str(channel_name)?;
+            let Some(channel) = config.manifest.get_channel(&user_channel) else {
+                bail!("channel '{}' doesn't exist or is unavailable", user_channel);
             };
 
-            let components: Vec<String> = {
-                if let Some(installed_components_file) = installed_components_file {
-                    let components_file = global_toolchain.join(installed_components_file);
+            let installation_status = config.midenup_home_2.check_toolchain_installation(channel);
 
-                    std::fs::read_to_string(components_file)?.lines().map(String::from).collect()
-                } else {
-                    println!(
-                        "WARNING: Non present toolchain was set. Component list will be left empty"
-                    );
-                    Vec::new()
-                }
+            let components = match installation_status {
+                ToolchainInstallation::FullyInstalled(path)
+                | ToolchainInstallation::PartiallyInstalled(path) => {
+                    std::fs::read_to_string(path)?.lines().map(String::from).collect()
+                },
+                ToolchainInstallation::NotInstalled => Vec::new(),
             };
-            let toolchain = Toolchain { channel, components };
+
+            let toolchain = Toolchain { channel: user_channel, components };
 
             Ok(toolchain)
         } else {
