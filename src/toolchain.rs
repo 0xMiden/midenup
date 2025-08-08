@@ -116,32 +116,25 @@ impl Toolchain {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("Couldn't read channel name from directory")?;
+
             // NOTE: This has to be a UserChannel because the default channel
             // could be a channel like "stable"
-            let channel = UserChannel::from_str(channel_name)?;
-
-            let installed_components_file = {
-                let possible_log_files = ["installation-successful", ".installation-in-progress"];
-
-                possible_log_files
-                    .iter()
-                    .map(|file| channel_path.join(file))
-                    .find(|log_file| log_file.exists())
+            let user_channel = UserChannel::from_str(channel_name)?;
+            let Some(channel) = config.manifest.get_channel(&user_channel) else {
+                bail!("channel '{}' doesn't exist or is unavailable", user_channel);
             };
 
-            let components: Vec<String> = {
-                if let Some(installed_components_file) = installed_components_file {
-                    let components_file = global_toolchain.join(installed_components_file);
+            let installation_status = config.midenup_home_2.check_toolchain_installation(channel);
 
-                    std::fs::read_to_string(components_file)?.lines().map(String::from).collect()
-                } else {
-                    println!(
-                        "WARNING: Non present toolchain was set. Component list will be left empty"
-                    );
-                    Vec::new()
-                }
+            let components = match installation_status {
+                ToolchainInstallation::FullyInstalled(path)
+                | ToolchainInstallation::PartiallyInstalled(path) => {
+                    std::fs::read_to_string(path)?.lines().map(String::from).collect()
+                },
+                ToolchainInstallation::NotInstalled => Vec::new(),
             };
-            let toolchain = Toolchain { channel, components };
+
+            let toolchain = Toolchain { channel: user_channel, components };
 
             Ok((toolchain, ToolchainJustification::Override))
         } else {
