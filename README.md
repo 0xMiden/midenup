@@ -1,5 +1,9 @@
 # midenup
 
+> [!WARNING]
+> This branch is not meant to be merged. It exists simply to test all the
+> available functionalities from the different PRs.
+
 The Miden toolchain installer.
 
 > [!WARNING]
