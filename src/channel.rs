@@ -264,6 +264,11 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
+    /// If the component requires initialization, this field holds the
+    /// initialization subcommand(s).
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub initialization: Vec<String>,
 }
 
 impl Component {
@@ -275,6 +280,7 @@ impl Component {
             requires: vec![],
             rustup_channel: None,
             installed_file: None,
+            initialization: vec![],
         }
     }
 
@@ -460,6 +466,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -471,6 +478,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
@@ -482,6 +490,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -493,6 +502,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
         ];
 
@@ -507,6 +517,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -518,6 +529,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
@@ -529,6 +541,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -540,6 +553,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
             },
         ];
 
@@ -583,6 +597,7 @@ mod tests {
             requires: Vec::new(),
             rustup_channel: None,
             installed_file: None,
+            initialization: vec![],
         }];
 
         let new_components = [Component {
@@ -595,6 +610,7 @@ mod tests {
             requires: Vec::new(),
             rustup_channel: None,
             installed_file: None,
+            initialization: vec![],
         }];
 
         let old = Channel {
