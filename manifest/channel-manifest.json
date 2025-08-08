@@ -87,7 +87,7 @@
               "account": [{"resolve": "client"}, {"verbatim": "new-account"}],
               "faucet": [{"resolve": "client"}, {"verbatim": "mint"}],
               "deploy": [{"resolve": "client"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
-              "call": [{"resolve": "client"}, {"verbatim": "call"}, {"verbatim": "--show"}],
+              "call": [{"resolve": "client"}, {"verbatim": "account"}, {"verbatim": "--show"}],
               "send": [{"resolve": "client"}, {"verbatim": "send"}],
               "simulate": [{"resolve": "client"}, {"verbatim": "exec"}]
           },
