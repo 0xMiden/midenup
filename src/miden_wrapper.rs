@@ -1,6 +1,6 @@
-use std::{borrow::Cow, collections::HashMap, ffi::OsString, str::FromStr, string::ToString};
+use std::{borrow::Cow, collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -54,7 +54,7 @@ impl ToolchainEnvironment {
         ToolchainEnvironment { aliases, components }
     }
 
-    fn resolve(&self, argument: String) -> Result<MidenArgument, EnvironmentError> {
+    fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
         if let Some(resolution) = self.aliases.get(&argument) {
             Ok(MidenArgument::Alias(resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {

@@ -10,9 +10,8 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    utils,
+    Config, utils,
     version::{Authority, GitTarget},
-    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
