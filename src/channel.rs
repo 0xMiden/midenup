@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
 };
 
 use anyhow::Context;

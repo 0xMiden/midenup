@@ -11,6 +11,7 @@ use thiserror::Error;
 use crate::{
     channel::{Channel, Component, UserChannel},
     commands::install::DEPENDENCIES,
+    config::ToolchainInstallationStatus,
     manifest::Manifest,
     version::Authority,
     Config,
@@ -52,13 +53,10 @@ pub fn uninstall(
     // continue with the uninstall process regardless. All the installed
     // components and additional files are going to get deleted by
     // remove_dir_all.
-    match uninstall_channel(&toolchain_dir) {
+    match uninstall_channel(config, internal_channel) {
         Ok(()) => (),
-        Err(UninstallError::MissingInstalledComponentsFile(path)) => {
-            println!(
-                "WARNING: Could not find installation-successful or .installation-in-progress at {}.
-Uninstallation will procede by deleting toolchain manually, instead of going through cargo.\n"
-            ,path.display())
+        Err(ref err @ UninstallError::MissingInstalledComponentsFile(_)) => {
+            println!("{}", err);
         },
         Err(err) => bail!("Failed to uninstall {err}"),
     }
@@ -105,30 +103,22 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
     Ok(())
 }
 
-fn uninstall_channel(toolchain_dir: &PathBuf) -> Result<(), UninstallError> {
-    let installed_components_path = {
-        let installed_successfully = toolchain_dir.join("installation-successful");
-        let installation_in_progress = toolchain_dir.join(".installation-in-progress");
+fn uninstall_channel(config: &Config, channel: &Channel) -> Result<(), UninstallError> {
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(channel);
 
-        if installed_successfully.exists() {
-            installed_successfully
-        } else if installation_in_progress.exists() {
-            // If this file exists, it means that installation got cut off
-            // before finishing.  In this case, we simply delete the components
-            // that managed to get installed.
-            installation_in_progress
-        } else {
-            // If neither of those files are present, then we will rely on
-            // remove_dir_all to handle deletion
-            return Err(UninstallError::MissingInstalledComponentsFile(
-                toolchain_dir.to_path_buf(),
-            ));
+    let installation_indicator = config.midenup_home_2.check_toolchain_installation(channel);
+    let installed_components_path = {
+        match installation_indicator {
+            ToolchainInstallationStatus::FullyInstalled(path)
+            | ToolchainInstallationStatus::PartiallyInstalled(path) => path,
+            ToolchainInstallationStatus::NotInstalled => {
+                return Err(UninstallError::MissingInstalledComponentsFile(toolchain_dir));
+            },
         }
     };
-    // This is the channel.json at the time of installation. We use this to
-    // reconstruct the Component struct and thus figure out how the component
-    // was installed, i.e git, cargo, path.
-    let channel_content_path = toolchain_dir.join(".installed_channel.json");
+
+    let channel_content_path = config.midenup_home_2.get_installed_channel(channel);
+
     let channel_content = std::fs::read_to_string(&channel_content_path).map_err(|err| {
         UninstallError::ChannelJsonMissing(channel_content_path.clone(), err.to_string())
     })?;
@@ -167,13 +157,13 @@ fn uninstall_channel(toolchain_dir: &PathBuf) -> Result<(), UninstallError> {
         match &exe.version {
             Authority::Cargo { package, .. } => {
                 let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
-                uninstall_executable(package_name, toolchain_dir)?;
+                uninstall_executable(package_name, &toolchain_dir)?;
             },
             Authority::Git { crate_name, .. } => {
-                uninstall_executable(crate_name, toolchain_dir)?;
+                uninstall_executable(crate_name, &toolchain_dir)?;
             },
             Authority::Path { crate_name, .. } => {
-                uninstall_executable(crate_name, toolchain_dir)?;
+                uninstall_executable(crate_name, &toolchain_dir)?;
             },
         }
     }

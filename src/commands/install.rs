@@ -5,6 +5,7 @@ use anyhow::{bail, Context};
 use crate::{
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
+    config::ToolchainInstallationStatus,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
@@ -29,8 +30,8 @@ pub fn install(
 
     // NOTE: The installation indicator is only created after successful
     // toolchain installation.
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    if installation_indicator.exists() {
+    let installation_indicator = config.midenup_home_2.check_toolchain_installation(channel);
+    if matches!(installation_indicator, ToolchainInstallationStatus::FullyInstalled(_)) {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 

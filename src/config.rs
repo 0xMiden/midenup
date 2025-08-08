@@ -2,12 +2,10 @@ use std::{fmt::Display, path::PathBuf};
 
 use anyhow::Context;
 
-use crate::{
-    channel::{Channel, UserChannel},
-    manifest::Manifest,
-};
+use crate::{channel::Channel, manifest::Manifest};
 
-pub enum ToolchainInstallation {
+#[allow(clippy::enum_variant_names)]
+pub enum ToolchainInstallationStatus {
     FullyInstalled(PathBuf),
     PartiallyInstalled(PathBuf),
     NotInstalled,
@@ -39,22 +37,22 @@ impl Home {
         }
     }
 
-    pub fn check_toolchain_installation(&self, channel: &Channel) -> ToolchainInstallation {
+    pub fn check_toolchain_installation(&self, channel: &Channel) -> ToolchainInstallationStatus {
         let channel_dir = self.midenup_home.join("toolchains").join(format!("{}", channel.name));
         let installation_complete = channel_dir.join("installation-successful");
         let installation_in_progress = channel_dir.join(".installation-in-progress");
 
         if installation_complete.exists() {
-            ToolchainInstallation::FullyInstalled(installation_complete)
+            ToolchainInstallationStatus::FullyInstalled(installation_complete)
         } else if installation_in_progress.exists() {
-            ToolchainInstallation::PartiallyInstalled(installation_in_progress)
+            ToolchainInstallationStatus::PartiallyInstalled(installation_in_progress)
         } else {
-            ToolchainInstallation::NotInstalled
+            ToolchainInstallationStatus::NotInstalled
         }
     }
 
     pub fn get_manifest(&self) -> PathBuf {
-        self.midenup_home.join("manifest").with_extension(".json")
+        self.midenup_home.join("manifest").with_extension("json")
     }
 
     /// The location of the installed [[Toolchain]] directory.
@@ -71,6 +69,11 @@ impl Home {
     pub fn get_toolchain_dir(&self, channel: &Channel) -> PathBuf {
         let installed_toolchains_dir = self.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", channel.name))
+    }
+
+    /// Get the toolchain directory associated with a specific [[Channel]].
+    pub fn get_installed_channel(&self, channel: &Channel) -> PathBuf {
+        self.get_toolchain_dir(channel).join(".installed_channel.json")
     }
 
     /// The location of the stable symlink
