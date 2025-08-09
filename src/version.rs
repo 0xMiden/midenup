@@ -10,10 +10,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum GitTarget {
+    #[serde(untagged)]
     /// The components is pointing to a specific revision in the repository.
-    Revision(String),
+    Revision {
+        #[serde(rename = "revision")]
+        hash: String,
+    },
     /// The components is pointing to a specific tag in the repository.
-    Tag(String),
+    #[serde(untagged)]
+    Tag {
+        #[serde(rename = "tag")]
+        name: String,
+    },
     #[serde(untagged)]
     /// The components is pointing to a specific *branch* in the repository.
     /// NOTE: When an update is issued, these type of components will trigger an
@@ -42,8 +50,8 @@ impl Eq for GitTarget {}
 impl PartialEq for GitTarget {
     fn eq(&self, other: &Self) -> bool {
         match (&self, other) {
-            (Self::Revision(hasha), Self::Revision(hashb)) => hasha == hashb,
-            (Self::Tag(taga), Self::Tag(tagb)) => taga == tagb,
+            (Self::Revision { hash: hasha }, Self::Revision { hash: hashb }) => hasha == hashb,
+            (Self::Tag { name: taga }, Self::Tag { name: tagb }) => taga == tagb,
             // Two components are "equal" if they are pointing to the same
             // branch. Comparison between latest available commit is done ad-hoc
             (Self::Branch { name: name_a, .. }, Self::Branch { name: name_b, .. }) => {
@@ -60,8 +68,8 @@ impl Hash for GitTarget {
         H: Hasher,
     {
         match &self {
-            Self::Revision(hash_a) => hash_a.hash(state),
-            Self::Tag(tag_a) => tag_a.hash(state),
+            Self::Revision { hash: hash_a } => hash_a.hash(state),
+            Self::Tag { name: tag_a } => tag_a.hash(state),
             Self::Branch { name, .. } => name.hash(state),
         }
     }
@@ -71,8 +79,8 @@ impl fmt::Display for GitTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             GitTarget::Branch { name, .. } => write!(f, "branch = {name}"),
-            GitTarget::Revision(hash) => write!(f, "rev = {hash}"),
-            GitTarget::Tag(tag) => write!(f, "tag = \"{tag}"),
+            GitTarget::Revision { hash } => write!(f, "rev = {hash}"),
+            GitTarget::Tag { name: tag } => write!(f, "tag = \"{tag}"),
         }
     }
 }
@@ -81,8 +89,8 @@ impl GitTarget {
     pub fn to_cargo_flag(&self) -> [String; 2] {
         match &self {
             GitTarget::Branch { name, .. } => [String::from("--branch"), String::from(name)],
-            GitTarget::Revision(hash) => [String::from("--rev"), String::from(hash)],
-            GitTarget::Tag(tag) => [String::from("--tag"), String::from(tag)],
+            GitTarget::Revision { hash } => [String::from("--rev"), String::from(hash)],
+            GitTarget::Tag { name: tag } => [String::from("--tag"), String::from(tag)],
         }
     }
 }
@@ -92,7 +100,16 @@ impl GitTarget {
 #[serde(rename_all = "snake_case")]
 pub enum Authority {
     /// The authority for this tool/toolchain is a local filesystem path
-    Path(PathBuf),
+    #[serde(untagged)]
+    Path {
+        /// The path to the crate.
+        path: PathBuf,
+
+        /// This is the name of the crate that holds the executable we're going
+        /// to install. This has to be specified because cargo needs the name of
+        /// the crate to handle uninstallation.
+        crate_name: String,
+    },
     /// The authority for this tool/toolchain is a git repository.
     #[serde(untagged)]
     Git {
@@ -104,7 +121,8 @@ pub enum Authority {
         crate_name: String,
         /// NOTE: If the target is missing from the [Manifest], then we assume
         /// that it is pointing to the tip of the `main` branch
-        #[serde(default, flatten)]
+        #[serde(default)]
+        #[serde(flatten)]
         target: GitTarget,
     },
     /// The authority for this tool/toolchain is crates.io
@@ -126,7 +144,7 @@ impl fmt::Display for Authority {
             Authority::Git { repository_url, target, .. } => {
                 write!(f, "{repository_url}:{target}")
             },
-            Authority::Path(path) => write!(f, "{}", path.display()),
+            Authority::Path { path, .. } => write!(f, "{}", path.display()),
         }
     }
 }

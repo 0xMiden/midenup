@@ -16,11 +16,11 @@
           "version": "0.9.0"
         },
         {
-          "name": "miden-client",
+          "name": "client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
           "branch": "fabrizioorsi/midenup-exe-patch",
           "crate_name": "miden-client-cli",
-          "installed_file": "miden-client-cli"
+          "installed_executable": "miden-client"
         },
         {
           "name": "vm",

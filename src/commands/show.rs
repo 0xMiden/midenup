@@ -18,7 +18,7 @@ impl ShowCommand {
     pub fn execute(&self, config: &Config, local_manifest: &Manifest) -> anyhow::Result<()> {
         match self {
             Self::Current => {
-                let toolchain = Toolchain::current()?;
+                let toolchain = Toolchain::current(config)?;
 
                 println!("{}", &toolchain.channel);
 
@@ -50,7 +50,7 @@ impl ShowCommand {
 
                 println!("{}", "Installed toolchains:".bold().underline());
                 for toolchain in toolchains_display {
-                    std::println!("{toolchain}");
+                    println!("{toolchain}");
                 }
 
                 Ok(())

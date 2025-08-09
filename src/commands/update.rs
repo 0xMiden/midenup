@@ -1,9 +1,10 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 
 use crate::{
     Config,
     channel::{Channel, UserChannel},
     commands,
+    commands::{install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
 };
@@ -21,7 +22,7 @@ pub fn update(
 midenup install stable
 ",
             )?;
-            // NOTE: This means that there is no stable toolchain upstram.  This
+            // NOTE: This means that there is no stable toolchain upstream.  This
             // is most likely an edge-case that shouldn't happen. If it does
             // happen, it probably means there's an error in midenup's parsing.
             let upstream_stable = config
@@ -33,7 +34,7 @@ midenup install stable
             if upstream_stable.name > local_stable.name {
                 commands::install(config, upstream_stable, local_manifest)?
             } else {
-                std::println!("Nothing to update, you are all up to date");
+                println!("Nothing to update, you are all up to date");
             }
         },
         Some(UserChannel::Version(version)) => {
@@ -81,6 +82,11 @@ midenup install stable
     Ok(())
 }
 
+/// This function executes the actual update. It is in charge of "preparing the
+/// environmet" to then call [commands::install]. That preparation mainly
+/// consists of:
+/// - Uninstalls components (via cargo uninstall).
+/// - Removes the installation indicator file.
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
@@ -100,9 +106,8 @@ fn update_channel(
 
     let updates = local_channel.components_to_update(upstream_channel);
 
-    let libs = ["std", "base"];
     let (libraries, executables): (Vec<_>, Vec<_>) =
-        updates.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+        updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
 
     for lib in libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
@@ -119,49 +124,12 @@ fn update_channel(
         match &exe.version {
             Authority::Cargo { package, .. } => {
                 let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
-                let mut remove_exe = std::process::Command::new("cargo")
-                    .arg("uninstall")
-                    .arg(package_name)
-                    .arg("--root")
-                    .arg(&toolchain_dir)
-                    .stderr(std::process::Stdio::inherit())
-                    .stdout(std::process::Stdio::inherit())
-                    .spawn()
-                    .with_context(|| {
-                        format!(
-                            "failed to uninstall {} via cargo",
-                            package.as_deref().unwrap_or(exe.name.as_ref())
-                        )
-                    })?;
-
-                let status = remove_exe.wait().context(format!(
-                    "Error occurred while waiting to uninstall {package_name}",
-                ))?;
-
-                if !status.success() {
-                    bail!("midenup failed to uninstall package {}", package_name,)
-                }
+                uninstall_executable(package_name, &toolchain_dir)?;
             },
             Authority::Git { crate_name, .. } => {
-                let mut remove_exe = std::process::Command::new("cargo")
-                    .arg("uninstall")
-                    .arg(crate_name)
-                    .arg("--root")
-                    .arg(&toolchain_dir)
-                    .stderr(std::process::Stdio::inherit())
-                    .stdout(std::process::Stdio::inherit())
-                    .spawn()
-                    .with_context(|| format!("failed to uninstall {crate_name} via cargo"))?;
-
-                let status = remove_exe
-                    .wait()
-                    .context(format!("Error occurred while waiting to uninstall {crate_name}",))?;
-
-                if !status.success() {
-                    bail!("midenup failed to uninstall package {}", crate_name,)
-                }
+                uninstall_executable(crate_name, &toolchain_dir)?;
             },
-            Authority::Path(_path) => {
+            Authority::Path { .. } => {
                 // We simply skip components that are pointing to a Path. We
                 // leave it to the user to determine when a component should be
                 // updated. They'd simply need to update the workspace manually.

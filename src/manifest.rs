@@ -16,7 +16,6 @@ pub struct Manifest {
     /// The UTC timestamp at which this manifest was generated
     date: i64,
     /// The channels described in this manifest
-    /// NOTE: Changing this to pub momentarily
     channels: Vec<Channel>,
 }
 
@@ -54,7 +53,7 @@ impl Manifest {
         "https://0xmiden.github.io/midenup/channel-manifest.json";
     pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
 
-    /// Loads a [Manifest] from the given URI
+    /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
         let uri = uri.as_ref();
         let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
@@ -115,6 +114,11 @@ impl Manifest {
         Ok(manifest)
     }
 
+    pub fn remove_channel(&mut self, channel_name: semver::Version) {
+        //
+        self.channels.retain(|c| c.name != channel_name);
+    }
+
     pub fn add_channel(&mut self, channel: Channel) {
         // Before adding the new stable channel, remove the stable alias from
         // all the channels that have it.
@@ -136,6 +140,10 @@ impl Manifest {
 
         self.channels.push(channel);
     }
+
+    /// Determines whether the `channel` is the latest stable version. This can
+    /// only be determined by the [Manifest], since this definition is dependant
+    /// on all the other present [Channels]
     pub fn is_latest_stable(&self, channel: &Channel) -> bool {
         self.channels.iter().filter(|c| c.is_stable()).all(|c| {
             let comparison = channel.name.cmp_precedence(&c.name);
@@ -306,7 +314,7 @@ mod tests {
         assert_eq!(stable.alias, None);
 
         let _client_via_git = stable
-            .get_component("miden-client")
+            .get_component("client")
             .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
 
         let _miden_lib_via_git = stable

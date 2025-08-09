@@ -20,10 +20,10 @@
           "package": "miden-vm",
           "version": "0.15.0",
           "features": ["executable", "concurrent"],
-          "installed_file": "miden"
+          "installed_executable": "miden"
         },
         {
-          "name": "miden-client",
+          "name": "client",
           "repository_url": "https://github.com/0xMiden/miden-client.git",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "crate_name": "miden-client-cli"
