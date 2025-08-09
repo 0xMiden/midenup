@@ -1,13 +1,20 @@
 use clap::Subcommand;
 use colored::Colorize;
 
-use crate::{Config, manifest::Manifest, toolchain::Toolchain};
+use crate::{
+    Config,
+    manifest::Manifest,
+    toolchain::{Toolchain, ToolchainJustification},
+};
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
     /// Show the active toolchain
     #[command(name = "active-toolchain")]
-    Current,
+    Current {
+        #[arg(long, action)]
+        verbose: bool,
+    },
     /// Display the computed value of MIDENUP_HOME
     Home,
     /// List installed toolchains
@@ -17,10 +24,30 @@ pub enum ShowCommand {
 impl ShowCommand {
     pub fn execute(&self, config: &Config, local_manifest: &Manifest) -> anyhow::Result<()> {
         match self {
-            Self::Current => {
-                let toolchain = Toolchain::current(config)?;
+            Self::Current { verbose } => {
+                let (toolchain, justification) = Toolchain::current(config)?;
 
-                println!("{}", &toolchain.channel);
+                if !verbose {
+                    println!("{}", &toolchain.channel);
+                } else {
+                    println!("The current active toolchain is {}", &toolchain.channel);
+                    match justification {
+                        ToolchainJustification::MidenToolchainFile { path } => {
+                            println!(
+                                "This is because there exits a miden-toolchain.toml file in {}",
+                                path.display()
+                            )
+                        },
+                        ToolchainJustification::Override => {
+                            println!("This is because the system's default has been overriden. You can change to a different toolchain with:
+midenup override
+")
+                        },
+                        ToolchainJustification::Default => {
+                            println!("This is because not other toolchain was specified")
+                        },
+                    }
+                }
 
                 Ok(())
             },
