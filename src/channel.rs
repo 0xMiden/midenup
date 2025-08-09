@@ -435,13 +435,7 @@ impl core::str::FromStr for UserChannel {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs::File,
-        io::{BufReader, Write},
-        path::Path,
-    };
 
-    use super::InstalledFile;
     use crate::{
         channel::{Channel, Component},
         version::{Authority, GitTarget},
