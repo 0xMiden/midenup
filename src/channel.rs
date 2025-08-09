@@ -1,11 +1,12 @@
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::PathBuf,
 };
 
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -107,6 +108,14 @@ impl Channel {
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
         let installed_toolchains_dir = config.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", self.name))
+    }
+
+    /// Get all the aliases that the Channel is aware of
+    pub fn get_aliases(&self) -> HashMap<Alias, AliasResolution> {
+        self.components.iter().fold(HashMap::new(), |mut acc, component| {
+            acc.extend(component.aliases.clone());
+            acc
+        })
     }
 }
 
@@ -231,6 +240,46 @@ impl Display for InstalledFile {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+/// Arguments that are passed to the CLI to execute the original [[Alias]].
+pub enum CliCommand {
+    #[serde(untagged)]
+    /// An argument that is passed verbatim, as is.
+    Verbatim {
+        #[serde(rename = "verbatim")]
+        name: String,
+    },
+    #[serde(untagged)]
+    /// The name of the command is not known ahead of time and is dependent on
+    /// the current active toolchain. Mostly used for executable names.
+    Resolve {
+        #[serde(rename = "resolve")]
+        name: String,
+    },
+}
+
+impl CliCommand {
+    pub fn resolve_command(&self, channel: &Channel) -> anyhow::Result<String> {
+        match self {
+            CliCommand::Verbatim { name } => Ok(name.to_string()),
+            CliCommand::Resolve { name } => {
+                let component = channel.get_component(name).with_context(|| {
+                    format!(
+                        "Component named {} is not present in toolchain version {}",
+                        name, channel.name
+                    )
+                })?;
+
+                Ok(format!("miden {}", component.name))
+            },
+        }
+    }
+}
+
+pub type Alias = String;
+/// List of the commands that need to be run when [[Alias]] is called.
+pub type AliasResolution = Vec<CliCommand>;
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -264,6 +313,10 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
+    /// List of all the different aliases that use this component under the hood.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub aliases: HashMap<Alias, AliasResolution>,
 }
 
 impl Component {
@@ -275,6 +328,7 @@ impl Component {
             requires: vec![],
             rustup_channel: None,
             installed_file: None,
+            aliases: HashMap::new(),
         }
     }
 
@@ -435,13 +489,8 @@ impl core::str::FromStr for UserChannel {
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        fs::File,
-        io::{BufReader, Write},
-        path::Path,
-    };
+    use std::collections::HashMap;
 
-    use super::InstalledFile;
     use crate::{
         channel::{Channel, Component},
         version::{Authority, GitTarget},
@@ -466,6 +515,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -477,6 +527,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
@@ -488,6 +539,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -499,6 +551,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
         ];
 
@@ -513,6 +566,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -524,6 +578,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
@@ -535,6 +590,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -546,6 +602,7 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                aliases: HashMap::new(),
             },
         ];
 
@@ -589,6 +646,7 @@ mod tests {
             requires: Vec::new(),
             rustup_channel: None,
             installed_file: None,
+            aliases: HashMap::new(),
         }];
 
         let new_components = [Component {
@@ -601,6 +659,7 @@ mod tests {
             requires: Vec::new(),
             rustup_channel: None,
             installed_file: None,
+            aliases: HashMap::new(),
         }];
 
         let old = Channel {
