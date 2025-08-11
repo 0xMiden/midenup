@@ -9,7 +9,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
@@ -225,7 +225,6 @@ mod tests {
 
     use std::path::Path;
 
-    use crate::version::Authority;
     type LocalManifest = Manifest;
     use crate::{channel::*, manifest::*, *};
 
