@@ -224,7 +224,6 @@ mod tests {
 
     use std::path::Path;
 
-    use crate::version::Authority;
     type LocalManifest = Manifest;
     use crate::{channel::*, manifest::*, *};
 
