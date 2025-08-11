@@ -29,7 +29,8 @@
           "repository_url": "https://github.com/0xMiden/miden-client.git",
           "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
+          "installed_executable": "miden-client",
+          "initialization": ["init"]
         },
         {
           "name": "midenc",
@@ -69,7 +70,8 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.10.0",
-          "installed_executable": "miden-client"
+          "installed_executable": "miden-client",
+          "initialization": ["init"]
         },
         {
           "name": "midenc",
