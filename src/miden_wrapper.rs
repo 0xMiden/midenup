@@ -195,18 +195,20 @@ For more information, try 'miden help'.
                 "
 The Miden toolchain porcelain:
 
-Current cargo version: {cargo_version}.
+Environment:
+- cargo version: {cargo_version}.
 
-Current midenup + miden version: {midenup_version}.
-Current toolchain version: {toolchain_version}.
-It was compiled with {compiled_cargo_version}, from this revision: {git_revision}.
-The commit can be found in: https://github.com/0xMiden/midenup/commit/{git_revision}
+Midenup:
+- midenup + miden version: {midenup_version}.
+- active toolchain version: {toolchain_version}.
+- midenup revision: {git_revision}.
+- midenup was compiled with {compiled_cargo_version}.
 "
             );
 
             let github_issue = {
                 let short_body = format!(
-                    "<!--- (leave this at the bottom) --> midenup:{midenup_version}, cargo:{cargo_version}, rev:{git_revision}"
+                    "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
                 );
                 format!(
                     "https://github.com/0xMiden/midenup/issues/new?title=bug:<YOUR_ISSUE>&body={short_body}"
