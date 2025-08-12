@@ -178,12 +178,24 @@ For more information, try 'miden help'.
                 String::from_utf8(cargo_command.stdout)
                     .inspect_err(|err| {
                         println!(
-                            "failed to parse cargo version because of {err}, leaving as unknown"
+                            "failed to parse cargo version because of: {err}, leaving as unknown"
                         )
                     })
                     .unwrap_or("unknown".to_string())
             };
             let cargo_version = cargo_version.trim();
+
+            let toolchain_version = Toolchain::current(config)
+                .and_then(|(toolchain, _)| {
+                    config.manifest.get_channel(&toolchain.channel).map(|channel|
+                        channel.name.to_string()
+                    ).ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
+                })
+                .inspect_err(|err| {
+                    println!("failed to obtain current toolchain error because of: {err}, leaving as unknown")
+                })
+                .unwrap_or("unknown".to_string())
+                ;
 
             println!(
                 "
@@ -192,6 +204,7 @@ The Miden toolchain porcelain:
 Current cargo version: {cargo_version}.
 
 Current midenup + miden version: {midenup_version}.
+Current toolchain version: {toolchain_version}.
 It was compiled with {compiled_cargo_version}, from this revision: {git_revision}.
 The commit can be found in: https://github.com/0xMiden/midenup/commit/{git_revision}
 "
