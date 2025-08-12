@@ -152,17 +152,11 @@ For more information, try 'miden help'.
             return Ok(());
         },
         MidenSubcommand::Version => {
-            // NOTE: These environment variable are defined in the project's
-            // Makefile. This will not compile with a normal `cargo build`
-            // invocation, use `make build`.
-            let compiled_cargo_version = env!(
-                "COMPILED_CARGO_VERSION",
-                "COMPILED_CARGO_VERSION environment variable not set. Is this being compiled from the Makefile?"
-            );
-            let git_revision = env!(
-                "GIT_REV",
-                "GIT_REV environment variable not set. Is this being compiled from the Makefile?"
-            );
+            // NOTE: These files are generated in the project's build.rs.
+            let compiled_cargo_version = include_str!("../build/cargo_version.in");
+
+            let git_revision = include_str!("../build/git_revision.in");
+
             let midenup_version = env!(
                 "CARGO_PKG_VERSION",
                 "CARGO_PKG_VERSION environment variable not set.\

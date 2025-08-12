@@ -35,9 +35,6 @@ integration-test: ## Run all integration tests
 
 # --- building ------------------------------------------------------------------------------------
 
-export GIT_REV=$(shell git rev-parse --verify HEAD)
-export COMPILED_CARGO_VERSION=$(shell cargo --version)
-
 .PHONY: build
 build: ## Builds with default parameters
 	cargo build
