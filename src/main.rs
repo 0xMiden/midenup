@@ -222,13 +222,23 @@ fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
 
+    #[macro_export]
+    macro_rules! full_path_manifest {
+        ($file:expr) => {
+            concat!("file://", env!("CARGO_MANIFEST_DIR"), "/", $file)
+        };
+    }
+
     use std::path::Path;
 
     type LocalManifest = Manifest;
+    use tempdir::TempDir;
+
     use crate::{channel::*, manifest::*, *};
 
     /// Simple auxiliary function to setup a midneup directory environment in
     /// tests.
+    /// Additionally, it changes the PWD to a new temp dir to isolate test execution.
     fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
         let local_manifest = {
             let local_manifest_path = midenup_home.join("manifest").with_extension("json");
@@ -261,6 +271,33 @@ Error: {}",
         (local_manifest, config)
     }
 
+    // NOTE: We save this variables in this struct because if they ever go out
+    // of scope, the created directory get deleted.
+    struct TestEnvironment {
+        midenup_dir: TempDir,
+        #[allow(dead_code)]
+        present_working_dir: TempDir,
+    }
+
+    fn environment_setup() -> TestEnvironment {
+        let tmp_present_working_directory = tempdir::TempDir::new("midneup-test-working-directory")
+            .expect("Couldn't create temp-dir");
+        std::env::set_current_dir(dbg!(tmp_present_working_directory.path())).unwrap_or_else(
+            |err| {
+                panic!(
+                    "Failed to switch to {}, because of {err}",
+                    tmp_present_working_directory.path().display()
+                )
+            },
+        );
+        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+
+        TestEnvironment {
+            midenup_dir: tmp_home,
+            present_working_dir: tmp_present_working_directory,
+        }
+    }
+
     fn get_full_command(argv: Vec<OsString>) -> String {
         argv.clone()
             .iter()
@@ -273,12 +310,15 @@ Error: {}",
     /// to install a toolchain under a [[UserChannel]] (via the `stable` alias)
     /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let test_env = environment_setup();
+
+        let tmp_home = test_env.midenup_dir;
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
 
-        const FILE: &str =
-            "file://tests/data/integration_install_uninstall_test/channel-manifest.json";
+        const FILE: &str = full_path_manifest!(
+            "tests/data/integration_install_uninstall_test/channel-manifest.json"
+        );
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 
@@ -380,14 +420,17 @@ Error: {}",
     /// active toolchain is not installed, and then installing it before
     /// executing the passed in command.
     fn integration_miden_test() {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let test_env = environment_setup();
+
+        let tmp_home = test_env.midenup_dir;
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
 
-        // SIDENOTE: This tests uses toolchain with version number 0.14.0. This
-        // is simply used for testing purposes and is not a toolchain meant to
-        // be used.
-        const FILE: &str = "file://tests/data/integration_miden_test/channel-manifest.json";
+        // SIDENOTE: This tests uses a toolchain with version number 0.14.0. This
+        // is simply used for testing purposes and is not a "real" toolchain.
+        const FILE: &str =
+            full_path_manifest!("tests/data/integration_miden_test/channel-manifest.json");
+
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 
@@ -487,7 +530,9 @@ Error: {}",
     #[test]
     /// This tests checks that midenup's update behavior works correctly
     fn integration_update_test() {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let test_env = environment_setup();
+
+        let tmp_home = test_env.midenup_dir;
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
 
@@ -496,7 +541,8 @@ Error: {}",
         // be used.
 
         // This manifest contains toolchain version 0.14.0 as its only toolchain
-        let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-1.json";
+        let manifest: &str =
+            full_path_manifest!("tests/data/integration_update_test/channel-manifest-1.json");
         let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
         let toolchain_dir = midenup_home.join("toolchains");
 
@@ -519,7 +565,8 @@ Error: {}",
         // Now, we re-generate the config with a newer manifest that contains
         // version 0.15.0. This is trying to emulate the release of a new stable
         // version
-        let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-2.json";
+        let manifest: &str =
+            full_path_manifest!("tests/data/integration_update_test/channel-manifest-2.json");
         let (_, config) = test_setup(&midenup_home, manifest);
 
         // Now, we update stable. The stable symlink should point to
@@ -552,7 +599,8 @@ Error: {}",
         // - Update 0.15.0's miden-vm.
         // - Downgrade 0.14.0's miden-vm.
         // However this should *not* update stable.
-        let manifest: &str = "file://tests/data/integration_update_test/channel-manifest-3.json";
+        let manifest: &str =
+            full_path_manifest!("tests/data/integration_update_test/channel-manifest-3.json");
         let (_, config) = test_setup(&midenup_home, manifest);
 
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
@@ -602,11 +650,13 @@ Error: {}",
     #[test]
     /// Tries to install the "stable" toolchain from the present manifest.
     fn integration_install_stable() {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let test_env = environment_setup();
+
+        let tmp_home = test_env.midenup_dir;
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
 
-        const FILE: &str = "file://manifest/channel-manifest.json";
+        const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
@@ -650,11 +700,14 @@ Error: {}",
     /// This 'midenc' component present in this manifest is lacking its required
     /// 'rustup_channel" and thus should fail to compile.
     fn midenup_catches_installation_failure() {
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+        let test_env = environment_setup();
+
+        let tmp_home = test_env.midenup_dir;
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
 
-        const FILE_PRE_UPDATE: &str = "file://tests/data/manifest-uncompilable-midenc.json";
+        const FILE_PRE_UPDATE: &str =
+            full_path_manifest!("file://tests/data/manifest-uncompilable-midenc.json");
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
