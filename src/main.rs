@@ -265,8 +265,9 @@ Error: {}",
     }
 
     #[test]
-    /// This tests serves as basic check that the install and uninstall
-    /// functionalities of midenup work correctly.
+    /// Integration test to check that installing and uninstalling works. Tries
+    /// to install a toolchain under a [[UserChannel]] (via the `stable` alias)
+    /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
@@ -371,9 +372,10 @@ Error: {}",
     }
 
     #[test]
-    /// This tests checks that the `miden` utility installs the current active
-    /// toolchain, if not present in the system.
-    fn integration_midenup_unprompted_test() {
+    /// Checks that the `miden` utility is able to recognize when the currently
+    /// active toolchain is not installed, and then installing it before
+    /// executing the passed in command.
+    fn integration_miden_test() {
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
@@ -381,8 +383,7 @@ Error: {}",
         // SIDENOTE: This tests uses toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a toolchain meant to
         // be used.
-        const FILE: &str =
-            "file://tests/data/integration_midenup_unprompted_test/channel-manifest.json";
+        const FILE: &str = "file://tests/data/integration_miden_test/channel-manifest.json";
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
 

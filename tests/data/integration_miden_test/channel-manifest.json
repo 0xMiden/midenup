@@ -94,7 +94,7 @@
         {
           "name": "base",
           "package": "miden-lib",
-          "version": "0.10.2",
+          "version": "0.10.0",
           "installed_library": "base.masp"
         },
         {

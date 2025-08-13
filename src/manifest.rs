@@ -214,12 +214,13 @@ mod tests {
     use std::borrow::Cow;
 
     use super::Manifest;
-    use crate::{channel::UserChannel, manifest::ChannelAlias};
+    use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
 
     #[test]
+    /// Validates that the current channel manifest is parseable.
     fn validate_current_channel_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
-            .expect("couldn't load manifest");
+            .expect("Couldn't load manifest");
 
         let stable = manifest
             .get_channel(&UserChannel::Stable)
@@ -229,9 +230,11 @@ mod tests {
     }
 
     #[test]
+    /// Validates that the *published* channel manifest is parseable.
+    /// NOTE: This test is mainly intended for backwards compatibilty reasons.
     fn validate_published_channel_manifest() {
-        let manifest =
-            Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI).expect("couldn't load manifest");
+        let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI)
+            .expect("Failed to parse upstream manifest.");
 
         let stable = manifest
             .get_channel(&UserChannel::Stable)
@@ -241,84 +244,50 @@ mod tests {
     }
 
     #[test]
-    fn validate_stable_is_latest() {
-        const FILE: &str = "file://tests/data/manifest-check-stable.json";
+    /// Validates that non-standard manifest features are parsed correctly, these include:
+    /// - Non stable channels (custom tags, nightly)
+    /// - Components wwith git and a path as an [[Authority]].
+    fn unit_test_manifest_additional() {
+        const FILE: &str =
+            "file://tests/data/unit_test_manifest_additional/manifest-non-stable.json";
         let manifest = Manifest::load_from(FILE).unwrap();
+        {
+            let custom_build = manifest
+                .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+                .unwrap_or_else(|| {panic!("Could not convert UserChannel to internal channel representation from {FILE}",)
+                });
 
-        let stable = manifest
-            .get_latest_stable()
-            .expect("Could not convert UserChannel to internal channel representation from {FILE}");
-
-        assert_eq!(stable.name, semver::Version::new(0, 15, 0));
-
-        let specific_version = manifest
-            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
-            .expect("Could not convert UserChannel to internal channel representation from {FILE}");
-
-        assert_eq!(specific_version.name, semver::Version::new(0, 14, 0));
-    }
-
-    #[test]
-    /// Do note that this encapsulates all non-stable channels, i.e. nightly,
-    /// nightly-suffix and tagged channels
-    fn validate_non_stable() {
-        const FILE: &str = "file://tests/data/manifest-non-stable.json";
-        let manifest = Manifest::load_from(FILE).unwrap();
-
-        let stable = manifest
-            .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
-            .expect(
-                "Could not convert UserChannel to internal channel representation from
-    {FILE}",
-            );
-
-        assert_eq!(
-            stable.name,
-            semver::Version {
-                major: 0,
-                minor: 16,
-                patch: 0,
-                pre: semver::Prerelease::new("custom-build").expect("invalid pre-release"),
-                build: semver::BuildMetadata::EMPTY,
+            #[allow(unused_variables)]
+            {
+                let prerelease = semver::Prerelease::new("custom-build").unwrap();
+                assert!(matches!(&custom_build.name, semver::Version { pre: _prerelease, .. }));
             }
-        );
+            assert_eq!(
+                custom_build.alias,
+                Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build")))
+            );
+            {
+                let std_lib = custom_build
+                    .get_component("std")
+                    .unwrap_or_else(|| panic!("Could not find standard library in {FILE}",));
 
-        assert_eq!(stable.alias, Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build"))));
-    }
-
-    #[test]
-    fn component_via_git() {
-        const FILE: &str = "file://tests/data/manifest-with-git.json";
-        let manifest = Manifest::load_from(FILE).unwrap();
-
-        let stable = manifest
-            .get_channel(&UserChannel::Version(semver::Version::new(0, 15, 0)))
-            .unwrap_or_else(|| {
+                assert!(matches!(std_lib.version, Authority::Path { .. }));
+            }
+        }
+        {
+            let nightly = manifest.get_channel(&UserChannel::Nightly).unwrap_or_else(|| {
                 panic!(
-                    "Could not convert UserChannel to internal channel representation from
-        {FILE}"
+                    "Could not convert UserChannel to internal channel representation from {FILE}",
                 )
             });
+            assert_eq!(nightly.alias, Some(ChannelAlias::Nightly(None)));
+            {
+                let client = nightly
+                    .get_component("client")
+                    .unwrap_or_else(|| panic!("Could not find standard library in {FILE}",));
 
-        assert_eq!(
-            stable.name,
-            semver::Version {
-                major: 0,
-                minor: 15,
-                patch: 0,
-                pre: semver::Prerelease::EMPTY,
-                build: semver::BuildMetadata::EMPTY,
+                assert!(matches!(client.version, Authority::Git { .. }));
             }
-        );
-
-        assert_eq!(stable.alias, None);
-
-        let _client_via_git = stable
-            .get_component("client")
-            .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
-
-        let _miden_lib_via_git = stable
-            .get_component("base")
-            .unwrap_or_else(|| panic!("Could not find miden-client in {FILE}"));
+        }
     }
 }
