@@ -261,8 +261,17 @@ pub enum CliCommand {
     },
 }
 
+enum Resolvable {
+    Executable,
+    ToolchainPath,
+}
+
 impl CliCommand {
-    pub fn resolve_command(&self, channel: &Channel) -> anyhow::Result<String> {
+    pub fn resolve_command(
+        &self,
+        channel: &Channel,
+        component: &Component,
+    ) -> anyhow::Result<String> {
         match self {
             CliCommand::Verbatim { name } => Ok(name.to_string()),
             CliCommand::Resolve { name } => {
