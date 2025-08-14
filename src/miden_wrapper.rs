@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -184,9 +184,7 @@ miden help"
 
                     (command, aliased_arguments)
                 },
-                Ok(MidenArgument::Component(component)) => {
-                    (format!("miden {}", component.name), vec![])
-                },
+                Ok(MidenArgument::Component(component)) => (component.get_cli_display(), vec![]),
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();
                     let components = toolchain_environment.get_components_display();

@@ -10,8 +10,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -271,7 +272,7 @@ impl CliCommand {
                     )
                 })?;
 
-                Ok(format!("miden {}", component.name))
+                Ok(component.get_cli_display())
             },
         }
     }
@@ -423,6 +424,11 @@ impl Component {
         } else {
             InstalledFile::Executable { binary_name: self.name.to_string() }
         }
+    }
+
+    /// Returns the Srting representation under which midenup calls a component.
+    pub fn get_cli_display(&self) -> String {
+        format!("miden {}", self.name)
     }
 }
 
