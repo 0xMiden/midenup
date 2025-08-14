@@ -240,29 +240,26 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 /// Represents each possible "word" variant that is passed to the Command
 /// line. These are used to resolve an [[Alias]] to its associated command.
 /// NOTE: In the manifest
 pub enum CliCommand {
-    #[serde(untagged)]
-    /// The name of the command is not known ahead of time and is dependent on
-    /// the current active toolchain. Mostly used for executable names.
-    Resolve { resolve: Resolvable },
-    #[serde(untagged)]
+    Executable,
+    LibPath,
     /// An argument that is passed verbatim, as is.
-    Verbatim {
-        #[serde(rename = "verbatim")]
-        name: String,
-    },
+    #[serde(untagged)]
+    Verbatim(String),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Resolvable {
-    Executable,
-    LibPath,
+    #[serde(untagged)]
+    Executable { executable: String },
+    #[serde(untagged)]
+    LibPath { libpath: String },
 }
 
 impl CliCommand {
@@ -273,27 +270,25 @@ impl CliCommand {
         config: &Config,
     ) -> anyhow::Result<String> {
         match self {
-            CliCommand::Verbatim { name } => Ok(name.to_string()),
-            CliCommand::Resolve { resolve } => match resolve {
-                Resolvable::Executable => {
-                    let name = &component.name;
-                    let component = channel.get_component(name).with_context(|| {
-                        format!(
-                            "Component named {} is not present in toolchain version {}",
-                            name, channel.name
-                        )
-                    })?;
+            CliCommand::Executable => {
+                let name = &component.name;
+                let component = channel.get_component(name).with_context(|| {
+                    format!(
+                        "Component named {} is not present in toolchain version {}",
+                        name, channel.name
+                    )
+                })?;
 
-                    Ok(component.get_cli_display())
-                },
-                Resolvable::LibPath => {
-                    let channel_dir = channel.get_channel_dir(config);
-
-                    let toolchain_path = channel_dir.join("lib");
-
-                    Ok(toolchain_path.to_string_lossy().to_string())
-                },
+                Ok(component.get_cli_display())
             },
+            CliCommand::LibPath => {
+                let channel_dir = channel.get_channel_dir(config);
+
+                let toolchain_path = channel_dir.join("lib");
+
+                Ok(toolchain_path.to_string_lossy().to_string())
+            },
+            CliCommand::Verbatim(name) => Ok(name.to_string()),
         }
     }
 }
@@ -318,6 +313,10 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+    /// Additional parameters to pass
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub call_format: Vec<CliCommand>,
     /// If not None, then this component requires a specific toolchain to
     /// compile.
     #[serde(default)]
@@ -366,6 +365,7 @@ impl Component {
             version,
             features: vec![],
             requires: vec![],
+            call_format: vec![],
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
