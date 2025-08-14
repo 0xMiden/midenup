@@ -247,23 +247,22 @@ impl Display for InstalledFile {
 /// NOTE: In the manifest
 pub enum CliCommand {
     #[serde(untagged)]
+    /// The name of the command is not known ahead of time and is dependent on
+    /// the current active toolchain. Mostly used for executable names.
+    Resolve { resolve: Resolvable },
+    #[serde(untagged)]
     /// An argument that is passed verbatim, as is.
     Verbatim {
         #[serde(rename = "verbatim")]
         name: String,
     },
-    #[serde(untagged)]
-    /// The name of the command is not known ahead of time and is dependent on
-    /// the current active toolchain. Mostly used for executable names.
-    Resolve {
-        #[serde(rename = "resolve")]
-        name: String,
-    },
 }
 
-enum Resolvable {
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Resolvable {
     Executable,
-    ToolchainPath,
+    LibPath,
 }
 
 impl CliCommand {
@@ -271,18 +270,29 @@ impl CliCommand {
         &self,
         channel: &Channel,
         component: &Component,
+        config: &Config,
     ) -> anyhow::Result<String> {
         match self {
             CliCommand::Verbatim { name } => Ok(name.to_string()),
-            CliCommand::Resolve { name } => {
-                let component = channel.get_component(name).with_context(|| {
-                    format!(
-                        "Component named {} is not present in toolchain version {}",
-                        name, channel.name
-                    )
-                })?;
+            CliCommand::Resolve { resolve } => match resolve {
+                Resolvable::Executable => {
+                    let name = &component.name;
+                    let component = channel.get_component(name).with_context(|| {
+                        format!(
+                            "Component named {} is not present in toolchain version {}",
+                            name, channel.name
+                        )
+                    })?;
 
-                Ok(component.get_cli_display())
+                    Ok(component.get_cli_display())
+                },
+                Resolvable::LibPath => {
+                    let channel_dir = channel.get_channel_dir(config);
+
+                    let toolchain_path = channel_dir.join("lib");
+
+                    Ok(toolchain_path.to_string_lossy().to_string())
+                },
             },
         }
     }
@@ -527,7 +537,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        channel::{Channel, Component},
+        channel::{Channel, CliCommand, Component},
         version::{Authority, GitTarget},
     };
 
@@ -539,6 +549,17 @@ mod tests {
     /// - a so called "removed-component" needs to be deleted
     /// - a so called "new-component" needs to be added
     fn check_components_to_update() {
+        let alias = vec![
+            CliCommand::Verbatim { name: "new-wallet".to_string() },
+            CliCommand::Resolve {
+                resolve: crate::channel::Resolvable::Executable,
+            },
+            CliCommand::Resolve {
+                resolve: crate::channel::Resolvable::LibPath,
+            },
+        ];
+        let mut aliases = HashMap::new();
+        aliases.insert("my alias".to_string(), alias);
         let old_components = [
             Component {
                 name: std::borrow::Cow::Borrowed("vm"),
@@ -586,9 +607,10 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
-                aliases: HashMap::new(),
+                aliases,
             },
         ];
+        println!("{}", serde_json::to_string_pretty(&old_components).unwrap());
 
         let new_components = [
             Component {

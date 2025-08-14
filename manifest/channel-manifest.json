@@ -31,12 +31,12 @@
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": [{"resolve": "client"}, {"verbatim": "new-account"}],
-              "faucet": [{"resolve": "client"}, {"verbatim": "mint"}],
-              "deploy": [{"resolve": "client"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
-              "call": [{"resolve": "client"}, {"verbatim": "call"}, {"verbatim": "--show"}],
-              "send": [{"resolve": "client"}, {"verbatim": "send"}],
-              "simulate": [{"resolve": "client"}, {"verbatim": "exec"}]
+              "account": [{"resolve": "executable"}, {"verbatim": "new-account"}],
+              "faucet": [{"resolve": "executable"}, {"verbatim": "mint"}],
+              "deploy": [{"resolve": "executable"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
+              "call": [{"resolve": "executable"}, {"verbatim": "call"}, {"verbatim": "--show"}],
+              "send": [{"resolve": "executable"}, {"verbatim": "send"}],
+              "simulate": [{"resolve": "executable"}, {"verbatim": "exec"}]
             }
         },
         {
@@ -83,12 +83,12 @@
           "version": "0.10.2",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": [{"resolve": "client"}, {"verbatim": "new-account"}],
-              "faucet": [{"resolve": "client"}, {"verbatim": "mint"}],
-              "deploy": [{"resolve": "client"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
-              "call": [{"resolve": "client"}, {"verbatim": "call"}, {"verbatim": "--show"}],
-              "send": [{"resolve": "client"}, {"verbatim": "send"}],
-              "simulate": [{"resolve": "client"}, {"verbatim": "exec"}]
+              "account": [{"resolve": "executable"}, {"verbatim": "new-account"}],
+              "faucet": [{"resolve": "executable"}, {"verbatim": "mint"}],
+              "deploy": [{"resolve": "executable"}, {"verbatim": "new-wallet"}, {"verbatim": "--deploy"}],
+              "call": [{"resolve": "executable"}, {"verbatim": "call"}, {"verbatim": "--show"}],
+              "send": [{"resolve": "executable"}, {"verbatim": "send"}],
+              "simulate": [{"resolve": "executable"}, {"verbatim": "exec"}]
             }
         },
         {

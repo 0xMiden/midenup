@@ -177,7 +177,7 @@ miden help"
                 Ok(MidenArgument::Alias(component, alias_resolutions)) => {
                     let commands = alias_resolutions
                         .iter()
-                        .map(|description| description.resolve_command(channel, component))
+                        .map(|description| description.resolve_command(channel, component, config))
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every alias has an
