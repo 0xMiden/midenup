@@ -184,9 +184,7 @@ miden help"
 
                     (command, aliased_arguments)
                 },
-                Ok(MidenArgument::Component(component)) => {
-                    (format!("miden {}", component.name), vec![])
-                },
+                Ok(MidenArgument::Component(component)) => (component.get_cli_display(), vec![]),
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();
                     let components = toolchain_environment.get_components_display();
