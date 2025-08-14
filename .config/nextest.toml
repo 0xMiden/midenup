@@ -1,0 +1,7 @@
+[test-groups]
+serial-integration = { max-threads = 2 }
+
+# Done to minimize disk usage during test runs
+[[profile.default.overrides]]
+filter = 'test(integration)'
+test-group = 'serial-integration'
