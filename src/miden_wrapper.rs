@@ -187,7 +187,14 @@ miden help"
 
                     (command, aliased_arguments)
                 },
-                Ok(MidenArgument::Component(component)) => (component.get_cli_display(), vec![]),
+                Ok(MidenArgument::Component(component)) => (
+                    component.get_cli_display(),
+                    component
+                        .call_format
+                        .iter()
+                        .map(|argument| argument.resolve_command(channel, component, config))
+                        .collect::<Result<Vec<String>, _>>()?,
+                ),
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();
                     let components = toolchain_environment.get_components_display();
