@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -35,7 +35,7 @@ enum MidenArgument<'a> {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(AliasResolution),
+    Alias(&'a Component, AliasResolution),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(&'a Component),
 }
@@ -55,8 +55,11 @@ impl ToolchainEnvironment {
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(resolution) = self.aliases.get(&argument) {
-            Ok(MidenArgument::Alias(resolution.clone()))
+        if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
+        {
+            let resolution = component.aliases.get(&argument).unwrap();
+            // if let Some(resolution) = self.aliases.get(&argument) {
+            Ok(MidenArgument::Alias(component, resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
             Ok(MidenArgument::Component(component))
         } else {
@@ -171,10 +174,10 @@ miden help"
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
         | MidenSubcommand::Resolve(resolve) => {
             match toolchain_environment.resolve(resolve.clone()) {
-                Ok(MidenArgument::Alias(alias_resolutions)) => {
+                Ok(MidenArgument::Alias(component, alias_resolutions)) => {
                     let commands = alias_resolutions
                         .iter()
-                        .map(|description| description.resolve_command(channel))
+                        .map(|description| description.resolve_command(channel, component, config))
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every alias has an
@@ -184,9 +187,14 @@ miden help"
 
                     (command, aliased_arguments)
                 },
-                Ok(MidenArgument::Component(component)) => {
-                    (format!("miden {}", component.name), vec![])
-                },
+                Ok(MidenArgument::Component(component)) => (
+                    component.get_cli_display(),
+                    component
+                        .call_format
+                        .iter()
+                        .map(|argument| argument.resolve_command(channel, component, config))
+                        .collect::<Result<Vec<String>, _>>()?,
+                ),
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();
                     let components = toolchain_environment.get_components_display();

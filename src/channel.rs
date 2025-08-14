@@ -10,8 +10,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -240,30 +241,36 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 /// Arguments that are passed to the CLI to execute the original [[Alias]].
 pub enum CliCommand {
-    #[serde(untagged)]
+    Executable,
+    LibPath,
     /// An argument that is passed verbatim, as is.
-    Verbatim {
-        #[serde(rename = "verbatim")]
-        name: String,
-    },
     #[serde(untagged)]
-    /// The name of the command is not known ahead of time and is dependent on
-    /// the current active toolchain. Mostly used for executable names.
-    Resolve {
-        #[serde(rename = "resolve")]
-        name: String,
-    },
+    Verbatim(String),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum Resolvable {
+    #[serde(untagged)]
+    Executable { executable: String },
+    #[serde(untagged)]
+    LibPath { libpath: String },
 }
 
 impl CliCommand {
-    pub fn resolve_command(&self, channel: &Channel) -> anyhow::Result<String> {
+    pub fn resolve_command(
+        &self,
+        channel: &Channel,
+        component: &Component,
+        config: &Config,
+    ) -> anyhow::Result<String> {
         match self {
-            CliCommand::Verbatim { name } => Ok(name.to_string()),
-            CliCommand::Resolve { name } => {
+            CliCommand::Executable => {
+                let name = &component.name;
                 let component = channel.get_component(name).with_context(|| {
                     format!(
                         "Component named {} is not present in toolchain version {}",
@@ -271,8 +278,16 @@ impl CliCommand {
                     )
                 })?;
 
-                Ok(format!("miden {}", component.name))
+                Ok(component.get_cli_display())
             },
+            CliCommand::LibPath => {
+                let channel_dir = channel.get_channel_dir(config);
+
+                let toolchain_path = channel_dir.join("lib");
+
+                Ok(toolchain_path.to_string_lossy().to_string())
+            },
+            CliCommand::Verbatim(name) => Ok(name.to_string()),
         }
     }
 }
@@ -297,6 +312,10 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+    /// Additional parameters to pass
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub call_format: Vec<CliCommand>,
     /// If not None, then this component requires a specific toolchain to
     /// compile.
     #[serde(default)]
@@ -326,6 +345,7 @@ impl Component {
             version,
             features: vec![],
             requires: vec![],
+            call_format: vec![],
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
@@ -424,6 +444,11 @@ impl Component {
             InstalledFile::Executable { binary_name: self.name.to_string() }
         }
     }
+
+    /// Returns the Srting representation under which midenup calls a component.
+    pub fn get_cli_display(&self) -> String {
+        format!("miden {}", self.name)
+    }
 }
 
 /// User-facing channel reference. The main difference with this and [Channel]
@@ -492,7 +517,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        channel::{Channel, Component},
+        channel::{Channel, CliCommand, Component},
         version::{Authority, GitTarget},
     };
 
@@ -504,6 +529,17 @@ mod tests {
     /// - a so called "removed-component" needs to be deleted
     /// - a so called "new-component" needs to be added
     fn check_components_to_update() {
+        let alias = vec![
+            CliCommand::Verbatim { name: "new-wallet".to_string() },
+            CliCommand::Resolve {
+                resolve: crate::channel::Resolvable::Executable,
+            },
+            CliCommand::Resolve {
+                resolve: crate::channel::Resolvable::LibPath,
+            },
+        ];
+        let mut aliases = HashMap::new();
+        aliases.insert("my alias".to_string(), alias);
         let old_components = [
             Component {
                 name: std::borrow::Cow::Borrowed("vm"),
@@ -551,9 +587,10 @@ mod tests {
                 requires: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
-                aliases: HashMap::new(),
+                aliases,
             },
         ];
+        println!("{}", serde_json::to_string_pretty(&old_components).unwrap());
 
         let new_components = [
             Component {

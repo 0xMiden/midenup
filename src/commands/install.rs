@@ -3,12 +3,13 @@ use std::{collections::HashMap, io::Write};
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
+    bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -328,11 +329,11 @@ fn main() {
             let aliases = component.aliases.keys();
             let exe_name = component.get_installed_file();
             if let InstalledFile::Executable { ref binary_name } = exe_name {
-                let miden_prefix = format!("miden {}", component.name);
+                let miden_display = component.get_cli_display();
                 for alias in aliases {
-                    acc.insert(alias.clone(), miden_prefix.clone());
+                    acc.insert(alias.clone(), miden_display.clone());
                 }
-                acc.insert(miden_prefix, binary_name.clone());
+                acc.insert(miden_display, binary_name.clone());
             }
             acc
         })
@@ -444,7 +445,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
