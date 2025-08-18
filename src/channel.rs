@@ -246,7 +246,10 @@ impl Display for InstalledFile {
 /// line. These are used to resolve an [[Alias]] to its associated command.
 /// NOTE: In the manifest
 pub enum CliCommand {
+    /// Resolve the command to a [[Component]]'s corresponding executable.
     Executable,
+    /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
+    #[serde(rename = "lib_path")]
     LibPath,
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
@@ -537,7 +540,7 @@ mod tests {
     use std::collections::HashMap;
 
     use crate::{
-        channel::{Channel, CliCommand, Component},
+        channel::{Channel, Component},
         version::{Authority, GitTarget},
     };
 
@@ -549,17 +552,6 @@ mod tests {
     /// - a so called "removed-component" needs to be deleted
     /// - a so called "new-component" needs to be added
     fn check_components_to_update() {
-        let alias = vec![
-            CliCommand::Verbatim { name: "new-wallet".to_string() },
-            CliCommand::Resolve {
-                resolve: crate::channel::Resolvable::Executable,
-            },
-            CliCommand::Resolve {
-                resolve: crate::channel::Resolvable::LibPath,
-            },
-        ];
-        let mut aliases = HashMap::new();
-        aliases.insert("my alias".to_string(), alias);
         let old_components = [
             Component {
                 name: std::borrow::Cow::Borrowed("vm"),
@@ -569,6 +561,7 @@ mod tests {
                 },
                 features: vec![String::from("executable"), String::from("concurrent")],
                 requires: Vec::new(),
+                call_format: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
                 aliases: HashMap::new(),
@@ -582,6 +575,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -594,6 +588,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -606,11 +601,11 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
-                aliases,
+                aliases: HashMap::new(),
             },
         ];
-        println!("{}", serde_json::to_string_pretty(&old_components).unwrap());
 
         let new_components = [
             Component {
@@ -622,6 +617,7 @@ mod tests {
                 features: vec![String::from("executable"), String::from("concurrent")],
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -634,6 +630,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -646,6 +643,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -658,6 +656,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -701,6 +700,7 @@ mod tests {
             },
             features: Vec::new(),
             requires: Vec::new(),
+            call_format: Vec::new(),
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
@@ -715,6 +715,7 @@ mod tests {
             features: Vec::new(),
             requires: Vec::new(),
             rustup_channel: None,
+            call_format: Vec::new(),
             installed_file: None,
             aliases: HashMap::new(),
         }];
