@@ -39,6 +39,9 @@ pub struct Config {
     /// tests. At the time of writing, this is mostly done to install debug
     /// builds of the various miden components to speed tests up.
     pub debug: bool,
+    /// Display more verbose output, like cargo's compilation logs when
+    /// installing.
+    pub verbose: bool,
 }
 
 impl Config {
@@ -46,16 +49,18 @@ impl Config {
         midenup_home: PathBuf,
         manifest_uri: impl AsRef<str>,
         debug: bool,
+        verbose: bool,
     ) -> anyhow::Result<Config> {
         let manifest = Manifest::load_from(manifest_uri)?;
         let working_directory =
             std::env::current_dir().context("Could not obtain present working directory")?;
 
         let config = Config {
+            working_directory,
             midenup_home,
             manifest,
-            working_directory,
             debug,
+            verbose,
         };
 
         Ok(config)

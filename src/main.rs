@@ -113,6 +113,10 @@ struct GlobalArgs {
     /// `midenup`, not `miden`.
     #[clap(env = "MIDENUP_DEBUG_MODE", action = ArgAction::Set, default_value = "false", hide = true)]
     debug: bool,
+
+    /// Display verbose output, mainly used during install.
+    #[clap(short, long, action, default_value_t = false)]
+    verbose: bool,
 }
 
 impl Commands {
@@ -163,7 +167,7 @@ fn main() -> anyhow::Result<()> {
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
-            Config::init(midenup_home, manifest_uri, false)?
+            Config::init(midenup_home, manifest_uri, false, false)?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
@@ -188,7 +192,7 @@ fn main() -> anyhow::Result<()> {
                             )
                 )?;
 
-            Config::init(midenup_home, &config.manifest_uri, config.debug)?
+            Config::init(midenup_home, &config.manifest_uri, config.debug, config.verbose)?
         },
     };
 
@@ -253,7 +257,7 @@ mod tests {
             })
         };
 
-        let config = Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
+        let config = Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true, true)
             .unwrap_or_else(|err| {
                 panic!(
                     "Failed to construct config from manifest {} and midenup_home at {}.
