@@ -58,7 +58,6 @@ impl ToolchainEnvironment {
         if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
         {
             let resolution = component.aliases.get(&argument).unwrap();
-            // if let Some(resolution) = self.aliases.get(&argument) {
             Ok(MidenArgument::Alias(component, resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
             Ok(MidenArgument::Component(component))

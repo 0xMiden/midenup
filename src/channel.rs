@@ -256,15 +256,6 @@ pub enum CliCommand {
     Verbatim(String),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Resolvable {
-    #[serde(untagged)]
-    Executable { executable: String },
-    #[serde(untagged)]
-    LibPath { libpath: String },
-}
-
 impl CliCommand {
     pub fn resolve_command(
         &self,
@@ -468,7 +459,7 @@ impl Component {
         }
     }
 
-    /// Returns the Srting representation under which midenup calls a component.
+    /// Returns the String representation under which midenup calls a component.
     pub fn get_cli_display(&self) -> String {
         format!("miden {}", self.name)
     }
