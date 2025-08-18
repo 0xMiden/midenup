@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -187,14 +187,19 @@ miden help"
 
                     (command, aliased_arguments)
                 },
-                Ok(MidenArgument::Component(component)) => (
-                    component.get_cli_display(),
-                    component
-                        .call_format
+                Ok(MidenArgument::Component(component)) => {
+                    let call_convention = dbg!(&component.call_format)
                         .iter()
                         .map(|argument| argument.resolve_command(channel, component, config))
-                        .collect::<Result<Vec<String>, _>>()?,
-                ),
+                        .collect::<Result<Vec<String>, _>>()?;
+
+                    // SAFETY: Safe under the assumption that every call_format has at least one
+                    // argument
+                    let command = call_convention.first().unwrap().clone();
+                    let args: Vec<String> = call_convention.into_iter().skip(1).collect();
+
+                    (command, args)
+                },
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();
                     let components = toolchain_environment.get_components_display();
