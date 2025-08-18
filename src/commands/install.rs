@@ -243,6 +243,7 @@ fn main() {
     {% for component in installable_components %}
 
     // Install {{ component.name }}
+    println!("Installing: {{ component.name }}");
     let bin_path = bin_dir.join("{{ component.installed_file }}");
     if !std::fs::exists(&bin_path).unwrap_or(false) {
         let mut child = Command::new("cargo")
@@ -255,6 +256,9 @@ fn main() {
             "{{ arg }}",
             {%- endfor %}
             ])
+            {%- if verbosity.quiet_flag %}
+            .arg("{{ verbosity.quiet_flag }}")
+            {%- endif %}
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",
@@ -280,6 +284,7 @@ fn main() {
         }
     }
     writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
+    println!("Done!");
 
     {% endfor %}
 
@@ -440,6 +445,18 @@ fn main() {
         ["--profile", "release"]
     };
 
+    // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of
+    // information.
+    let verbosity = if !config.verbose {
+        upon::value! {
+            quiet_flag: "--quiet"
+        }
+    } else {
+        upon::value! {
+            quiet_flag: ""
+        }
+    };
+
     // Render the install script
     template
         .render(
@@ -450,6 +467,7 @@ fn main() {
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
                 symlinks: symlinks,
                 chosen_profile: chosen_profile,
+                verbosity: verbosity,
             },
         )
         .to_string()
