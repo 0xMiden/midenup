@@ -30,7 +30,7 @@
           "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client",
-          "initialization": ["init"]
+          "initialization": ["init"],
           "aliases": {
               "account": ["executable", "new-account"],
               "faucet": ["executable", "mint"],
@@ -84,7 +84,7 @@
           "package": "miden-client-cli",
           "version": "0.10.2",
           "installed_executable": "miden-client",
-          "initialization": ["init"]
+          "initialization": ["init"],
           "aliases": {
               "account": ["executable", "new-account"],
               "faucet": ["executable", "mint"],
