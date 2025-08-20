@@ -78,7 +78,7 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .stdin(std::process::Stdio::null())
-        .arg("help")
+        .arg("--version")
         .output()
         .is_ok();
 

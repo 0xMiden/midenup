@@ -34,6 +34,7 @@ integration-test: ## Run all integration tests
 	cargo nextest run integration
 
 # --- building ------------------------------------------------------------------------------------
+
 .PHONY: build
 build: ## Builds with default parameters
 	cargo build
