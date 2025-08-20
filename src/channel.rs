@@ -307,10 +307,12 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
-    /// Additional parameters to pass
+    /// Commands used to call the [[Component]]'s associated executable.
+    /// IMPORTANT: This requires the [[Component::installed_file]] field to be
+    /// an [[InstalledFile::Executable]] either explicitly or implicitly.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub call_format: Vec<CliCommand>,
+    call_format: Vec<CliCommand>,
     /// If not None, then this component requires a specific toolchain to
     /// compile.
     #[serde(default)]
@@ -462,6 +464,15 @@ impl Component {
     /// Returns the String representation under which midenup calls a component.
     pub fn get_cli_display(&self) -> String {
         format!("miden {}", self.name)
+    }
+
+    /// Returns the String representation under which midenup calls a component.
+    pub fn get_call_format(&self) -> Vec<CliCommand> {
+        if self.call_format.is_empty() {
+            vec![CliCommand::Executable]
+        } else {
+            self.call_format.clone()
+        }
     }
 }
 
