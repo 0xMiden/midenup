@@ -187,7 +187,8 @@ miden help"
                     (command, aliased_arguments)
                 },
                 Ok(MidenArgument::Component(component)) => {
-                    let call_convention = dbg!(&component.call_format)
+                    let call_convention = component
+                        .get_call_format()
                         .iter()
                         .map(|argument| argument.resolve_command(channel, component, config))
                         .collect::<Result<Vec<String>, _>>()?;
