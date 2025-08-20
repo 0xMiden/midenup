@@ -276,7 +276,7 @@ Error: {}",
     }
 
     fn environment_setup() -> TestEnvironment {
-        let tmp_present_working_directory = tempdir::TempDir::new("midneup-test-working-directory")
+        let tmp_present_working_directory = tempdir::TempDir::new("midenup-test-working-directory")
             .expect("Couldn't create temp-dir");
         std::env::set_current_dir(dbg!(tmp_present_working_directory.path())).unwrap_or_else(
             |err| {
@@ -356,7 +356,7 @@ Error: {}",
         // Now we install a separate toolchain.
         let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
         let Behavior::Midenup { command, .. } = command.behavior else {
-            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
 
