@@ -152,75 +152,7 @@ For more information, try 'miden help'.
             return Ok(());
         },
         MidenSubcommand::Version => {
-            // NOTE: These files are generated in the project's build.rs.
-            let compiled_cargo_version = include_str!("../build/cargo_version.in");
-
-            let git_revision = include_str!("../build/git_revision.in");
-
-            let midenup_version = env!(
-                "CARGO_PKG_VERSION",
-                "CARGO_PKG_VERSION environment variable not set.\
-                 This should be set by cargo by default; however, if not, it can be manually set using the `version` field in the Cargo.toml file"
-            );
-            let cargo_version = {
-                let cargo_command =
-                    std::process::Command::new("cargo")
-                        .arg("--version")
-                        .output()
-                        .with_context(|| "failed to run 'cargo --version'".to_string())?;
-
-                String::from_utf8(cargo_command.stdout)
-                    .inspect_err(|err| {
-                        println!(
-                            "failed to parse cargo version because of: {err}, leaving as unknown"
-                        )
-                    })
-                    .unwrap_or("unknown".to_string())
-            };
-            let cargo_version = cargo_version.trim();
-
-            let toolchain_version = Toolchain::current(config)
-                .and_then(|(toolchain, _)| {
-                    config.manifest.get_channel(&toolchain.channel).map(|channel|
-                        channel.name.to_string()
-                    ).ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
-                })
-                .inspect_err(|err| {
-                    println!("failed to obtain current toolchain error because of: {err}, leaving as unknown")
-                })
-                .unwrap_or("unknown".to_string())
-                ;
-
-            println!(
-                "
-The Miden toolchain porcelain:
-
-Environment:
-- cargo version: {cargo_version}.
-
-Midenup:
-- midenup + miden version: {midenup_version}.
-- active toolchain version: {toolchain_version}.
-- midenup revision: {git_revision}.
-- midenup was compiled with {compiled_cargo_version}.
-"
-            );
-
-            let github_issue = {
-                let short_body = format!(
-                    "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
-                );
-                format!(
-                    "https://github.com/0xMiden/midenup/issues/new?title=bug:<YOUR_ISSUE>&body={short_body}"
-                )
-            };
-
-            println!(
-                "Found a bug? Create an issue by copying this into your browser:
-{github_issue}
-"
-            );
-
+            println!("{}", display_version(config));
             return Ok(());
         },
         _ => (),
@@ -357,6 +289,81 @@ And these are the known components:
     } else {
         bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
     }
+}
+
+fn display_version(config: &Config) -> String {
+    // NOTE: These files are generated in the project's build.rs.
+    let compiled_cargo_version = include_str!("../build/cargo_version.in");
+
+    let git_revision = include_str!("../build/git_revision.in");
+
+    let midenup_version = env!(
+        "CARGO_PKG_VERSION",
+        "CARGO_PKG_VERSION environment variable not set.\
+                 This should be set by cargo by default; however, if not, it can be manually set using the `version` field in the Cargo.toml file"
+    );
+    let cargo_version = {
+        std::process::Command::new("cargo")
+            .arg("--version")
+            .output()
+            .map_err(|err| anyhow::anyhow!("failed to run 'cargo --version' because of {err}"))
+            .and_then(|output| {
+                String::from_utf8(output.stdout).map_err(|err| {
+                    anyhow::anyhow!("failed to parse cargo version because of: {err}")
+                })
+            })
+            .inspect_err(|e| {
+                println!("Failed to obtain cargo version:");
+                println!("{}", e);
+                println!("Leaving as unknown")
+            })
+            .unwrap_or("unknown".to_string())
+    };
+    let cargo_version = cargo_version.trim();
+
+    let toolchain_version = Toolchain::current(config)
+        .and_then(|(toolchain, _)| {
+            config
+                .manifest
+                .get_channel(&toolchain.channel)
+                .map(|channel| channel.name.to_string())
+                .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
+        })
+        .inspect_err(|err| {
+            println!(
+                "failed to obtain current toolchain error because of: {err}, leaving as unknown"
+            )
+        })
+        .unwrap_or("unknown".to_string());
+
+    let github_issue = {
+        let short_body = format!(
+            "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
+        );
+        format!(
+            "https://github.com/0xMiden/midenup/issues/new?title=bug:<YOUR_ISSUE>&body={short_body}"
+        )
+    };
+
+    format!(
+        "
+The Miden toolchain porcelain:
+
+Environment:
+- cargo version: {cargo_version}.
+
+Midenup:
+- midenup + miden version: {midenup_version}.
+- active toolchain version: {toolchain_version}.
+- midenup revision: {git_revision}.
+- midenup was compiled with {compiled_cargo_version}.
+
+
+Found a bug? Create an issue by copying this into your browser:
+
+{github_issue}
+"
+    )
 }
 
 fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
