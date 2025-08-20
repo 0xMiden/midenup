@@ -1,4 +1,4 @@
-use std::{borrow::Cow, path::PathBuf, str::FromStr};
+use std::{borrow::Cow, io::Write, path::PathBuf, str::FromStr};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -179,7 +179,52 @@ impl Toolchain {
             commands::install(config, channel, local_manifest, &InstallationOptions::default())?
         }
 
+        // If the current active toolchain is set due to the prescence of a
+        // miden-toolchain.toml, we make sure to update the component list.
+        // However, if anything fails, we simply leave the file as is.
+        if let ToolchainJustification::MidenToolchainFile { path } = justification {
+            let _ = update_toolchain_file(path, installation_indicator);
+        }
+
         // Now installed
         Ok(current_toolchain)
     }
+}
+
+fn update_toolchain_file(
+    miden_toolchain_path: PathBuf,
+    installation_indicator: PathBuf,
+) -> anyhow::Result<()> {
+    let contents = std::fs::read_to_string(&miden_toolchain_path)
+        .context("Failed to read miden-toolchain.toml")?;
+
+    let mut miden_toolchain_file = toml::from_str::<ToolchainFile>(&contents)
+        .context("Failed to parse miden-toolchain.toml")?;
+    miden_toolchain_file.toolchain.components.sort();
+
+    let mut installed_components = std::fs::read_to_string(installation_indicator)
+        .map(|a| a.lines().map(String::from).collect::<Vec<String>>())
+        .context("Failed to read installation-successful file after installation")?;
+    installed_components.sort();
+
+    if miden_toolchain_file.toolchain.components != installed_components {
+        println!(
+            "miden-toolchain.toml file was outdated, updating with latest installed components"
+        );
+
+        miden_toolchain_file.toolchain.components = installed_components;
+
+        let mut toolchain_file = std::fs::File::create(miden_toolchain_path)
+            .context("Failed to create miden-toolchain.toml")?;
+
+        let toolchain_file_contents = toml::to_string_pretty(&miden_toolchain_file)
+            .context("Failed to generate miden-toolchain.toml")?;
+
+        toolchain_file
+            .write_all(&toolchain_file_contents.into_bytes())
+            .context("Failed to write miden-toolchain.toml")?;
+        println!("Done");
+    }
+
+    Ok(())
 }
