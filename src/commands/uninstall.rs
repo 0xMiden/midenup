@@ -9,8 +9,7 @@ use anyhow::{bail, Context};
 use thiserror::Error;
 
 use crate::{
-    channel::{Channel, Component, UserChannel},
-    commands::install::DEPENDENCIES,
+    channel::{Channel, Component, InstalledFile, UserChannel},
     config::ToolchainInstallationStatus,
     manifest::Manifest,
     version::Authority,
@@ -143,12 +142,13 @@ fn uninstall_channel(config: &Config, channel: &Channel) -> Result<(), Uninstall
     // (hopefully) get deleted at the end of this function.
     let _ = std::fs::remove_file(installed_components_path);
 
-    let libs = DEPENDENCIES;
     let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =
-        components.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+        components
+            .iter()
+            .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
     for lib in installed_libraries {
-        let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
+        let lib_path = config.midenup_home_2.get_installed_file(&channel, lib);
         std::fs::remove_file(&lib_path)
             .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
     }

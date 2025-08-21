@@ -27,7 +27,7 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
         // the `stable` symlink itself and *not* the underlying toolchain
         // directory. In effect, this allows the user to always be using the
         // stable toolchain, even after updates occur.
-        UserChannel::Stable => toolchains_dir.join("stable"),
+        UserChannel::Stable => config.midenup_home_2.get_stable_dir(),
         _ => {
             let inner_channel = config.manifest.get_channel(channel).context(
                 "Failed to set {channel} as the system default. Try installing it:
@@ -37,14 +37,14 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
         },
     };
 
-    let default_path = toolchains_dir.join("default");
+    let default_path = config.midenup_home_2.get_default_dir();
     if default_path.exists() {
         std::fs::remove_file(&default_path).context("Couldn't remove 'default' symlink")?;
     }
 
     println!("Setting {channel} as the new default toolchain\n");
     if let ToolchainJustification::MidenToolchainFile { path } = justification {
-        std::println!("{}: There is a toolchain file present in {}, which sets the current active toolchain to be {}.
+        println!("{}: There is a toolchain file present in {}, which sets the current active toolchain to be {}.
 This will take prescedence over the configuration done by `midenup override`.", "WARNING".yellow(), path.display(), active.channel);
     };
     utils::fs::symlink(&default_path, &channel_dir)?;

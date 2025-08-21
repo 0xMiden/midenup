@@ -503,7 +503,7 @@ impl Component {
         true
     }
 
-    /// Returns the name of the executable corresponding to this component.
+    /// Returns the PathBuf corresponding to the installed file from this component.
     /// If the component does not specify the installed file name, that means
     /// that it installs and executable named exactly like the crate.
     pub fn get_installed_file(&self) -> InstalledFile {

@@ -2,7 +2,10 @@ use std::{fmt::Display, path::PathBuf};
 
 use anyhow::Context;
 
-use crate::{channel::Channel, manifest::Manifest};
+use crate::{
+    channel::{Channel, Component, InstalledFile},
+    manifest::Manifest,
+};
 
 #[allow(clippy::enum_variant_names)]
 pub enum ToolchainInstallationStatus {
@@ -71,6 +74,11 @@ impl Home {
         installed_toolchains_dir.join(format!("{}", channel.name))
     }
 
+    /// Get the [[Channel]]'s bin directory
+    pub fn get_bin_dir_from(&self, channel: &Channel) -> PathBuf {
+        self.get_toolchain_dir(channel).join("bin")
+    }
+
     /// Get the toolchain directory associated with a specific [[Channel]].
     pub fn get_installed_channel(&self, channel: &Channel) -> PathBuf {
         self.get_toolchain_dir(channel).join(".installed_channel.json")
@@ -84,6 +92,19 @@ impl Home {
     /// The location of the stable symlink
     pub fn get_default_dir(&self) -> PathBuf {
         self.get_toolchains_dir().join("default")
+    }
+
+    /// The location of the stable symlink
+    pub fn get_installed_file(&self, channel: &Channel, component: &Component) -> PathBuf {
+        let toolchain_dir = self.get_toolchain_dir(channel);
+
+        let installed_file = component.get_installed_file();
+        match installed_file {
+            InstalledFile::Executable { binary_name } => {
+                toolchain_dir.join("bin").join(binary_name)
+            },
+            InstalledFile::Library { library_name } => toolchain_dir.join("lib").join(library_name),
+        }
     }
 }
 

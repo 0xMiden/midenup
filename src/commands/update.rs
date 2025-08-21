@@ -3,11 +3,13 @@ use colored::Colorize;
 
 use crate::{
     channel::{Channel, UserChannel},
-    commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
+    commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
     Config, PathUpdate, UpdateOptions,
 };
+
+use super::install::DEPENDENCIES;
 
 /// Updates installed toolchains
 pub fn update(
