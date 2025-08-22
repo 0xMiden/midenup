@@ -256,6 +256,7 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
+            .arg("--locked")
             .args([
             {%- for arg in chosen_profile %}
             "{{ arg }}",
