@@ -25,8 +25,7 @@ pub fn install(
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(channel);
 
     // NOTE: The installation indicator is only created after successful
     // toolchain installation.
@@ -84,7 +83,7 @@ pub fn install(
     if is_latest_stable {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
-        let stable_dir = installed_toolchains_dir.join("stable");
+        let stable_dir = config.midenup_home_2.get_stable_dir();
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }

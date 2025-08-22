@@ -1,4 +1,8 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{
+    fmt::Display,
+    ops::Deref,
+    path::{Path, PathBuf},
+};
 
 use anyhow::Context;
 
@@ -9,16 +13,34 @@ use crate::{
 
 #[allow(clippy::enum_variant_names)]
 pub enum ToolchainInstallationStatus {
-    FullyInstalled(PathBuf),
-    PartiallyInstalled(PathBuf),
+    FullyInstalled(File),
+    PartiallyInstalled(File),
     NotInstalled,
 }
+
+pub struct File(PathBuf);
+impl Deref for File {
+    type Target = PathBuf;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+// Implement AsRef<Path> for your struct
+impl AsRef<Path> for File {
+    fn as_ref(&self) -> &Path {
+        self.0.as_path()
+    }
+}
+
+pub struct Directory(PathBuf);
 
 /// Struct that handles Midneup's home
 #[derive(Debug)]
 pub struct Home {
     midenup_home: PathBuf,
 }
+
 impl Home {
     fn new(midenup_home: PathBuf) -> Self {
         Home { midenup_home }
@@ -46,9 +68,9 @@ impl Home {
         let installation_in_progress = channel_dir.join(".installation-in-progress");
 
         if installation_complete.exists() {
-            ToolchainInstallationStatus::FullyInstalled(installation_complete)
+            ToolchainInstallationStatus::FullyInstalled(File(installation_complete))
         } else if installation_in_progress.exists() {
-            ToolchainInstallationStatus::PartiallyInstalled(installation_in_progress)
+            ToolchainInstallationStatus::PartiallyInstalled(File(installation_in_progress))
         } else {
             ToolchainInstallationStatus::NotInstalled
         }

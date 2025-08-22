@@ -1,12 +1,12 @@
 use std::io::Write;
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
 use crate::{
-    Config,
     channel::UserChannel,
     config::ToolchainInstallationStatus,
     toolchain::{Toolchain, ToolchainFile},
+    Config,
 };
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
