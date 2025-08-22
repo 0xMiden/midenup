@@ -90,6 +90,7 @@ impl Home {
         }
     }
 
+    /// Check to what degree a [[Toolchain]] has been installed.
     pub fn check_toolchain_installation(&self, channel: &Channel) -> ToolchainInstallationStatus {
         let channel_dir = self.midenup_home.join("toolchains").join(format!("{}", channel.name));
         let installation_complete = channel_dir.join("installation-successful");

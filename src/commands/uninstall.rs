@@ -44,7 +44,11 @@ pub fn uninstall(
     let installed_toolchains_dir = config.midenup_home_2.get_toolchains_dir();
 
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &internal_channel.name));
-    if !toolchain_dir.exists() {
+
+    if !matches!(
+        config.midenup_home_2.check_toolchain_installation(internal_channel),
+        ToolchainInstallationStatus::NotInstalled,
+    ) {
         bail!("Channel {} is not installed, nothing to uninstall.", channel);
     };
 
