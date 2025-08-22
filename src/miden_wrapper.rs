@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -251,7 +251,7 @@ And these are the known components:
         .midenup_home
         .join("toolchains")
         .join(toolchain.channel.to_string())
-        .join("bin");
+        .join("opt");
     let path = match std::env::var_os("PATH") {
         Some(prev_path) => {
             let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
