@@ -5,11 +5,10 @@ use anyhow::Context;
 use colored::Colorize;
 
 use crate::{
-    Config,
     channel::UserChannel,
     commands,
     toolchain::{Toolchain, ToolchainJustification},
-    utils,
+    utils, Config,
 };
 
 /// This functions sets the system's default toolchain. This is handled
@@ -22,7 +21,6 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
     // the `override` command won't take effect.
     let (active, justification) = Toolchain::current(config)?;
 
-    let toolchains_dir = config.midenup_home_2.get_toolchains_dir();
     let channel_dir = match channel {
         // If a user sets `stable` to be the default; then we need to point to
         // the `stable` symlink itself and *not* the underlying toolchain
