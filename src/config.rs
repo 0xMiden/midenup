@@ -35,6 +35,12 @@ impl AsRef<Path> for File {
     }
 }
 
+impl AsRef<OsStr> for File {
+    fn as_ref(&self) -> &OsStr {
+        self.0.as_os_str()
+    }
+}
+
 #[derive(Debug)]
 pub struct Directory(PathBuf);
 impl Deref for Directory {
@@ -156,6 +162,10 @@ impl Home {
         };
 
         File(installed_file)
+    }
+
+    pub fn get_miden_executable(&self) -> File {
+        File(self.get_bin_dir().join("miden"))
     }
 }
 

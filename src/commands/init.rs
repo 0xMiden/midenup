@@ -40,7 +40,7 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
 
     let bin_dir = config.midenup_home_2.get_bin_dir();
     if !bin_dir.exists() {
-        std::fs::create_dir_all(&*bin_dir).with_context(|| {
+        std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
         })?;
         already_initialized = false;
@@ -49,7 +49,8 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     // Write the symlink for `miden` to $MIDENUP_HOME/bin
     let current_exe =
         std::env::current_exe().expect("unable to get location of current executable");
-    let miden_exe = bin_dir.join("miden");
+    let miden_exe = config.midenup_home_2.get_miden_executable();
+
     if !miden_exe.exists() {
         utils::fs::symlink(&miden_exe, &current_exe)?;
         already_initialized = false;
