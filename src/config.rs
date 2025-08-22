@@ -102,12 +102,13 @@ impl Home {
         File(self.midenup_home.join("manifest").with_extension("json"))
     }
 
-    /// The location of the installed [[Toolchain]] directory.
+    /// The location of the toolchains/ directory, where all the toolchains are
+    /// installed.
     pub fn get_toolchains_dir(&self) -> File {
         File(self.midenup_home.join("toolchains"))
     }
 
-    /// The location of the installed [[Toolchain]] directory.
+    /// The location of Midenup's bin directory.
     pub fn get_bin_dir(&self) -> Directory {
         Directory(self.midenup_home.join("bin"))
     }
@@ -136,6 +137,11 @@ impl Home {
     /// The location of the stable symlink
     pub fn get_default_dir(&self) -> Directory {
         Directory(self.get_toolchains_dir().join("default"))
+    }
+
+    /// Get the intall.rs file for a corresponding channel.
+    pub fn get_installer(&self, channel: &Channel) -> File {
+        File(self.get_toolchain_dir(channel).join("install").with_extension("rs"))
     }
 
     /// The location of the stable symlink

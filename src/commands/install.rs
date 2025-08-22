@@ -40,7 +40,7 @@ pub fn install(
         })?;
     }
 
-    let install_file_path = toolchain_dir.join("install").with_extension("rs");
+    let install_file_path = config.midenup_home_2.get_installer(channel);
     // NOTE: Even when performing an update, we still need to re-generate the
     // install script.  This is because, the versions that will be installed are
     // written directly into the file; so the file can't be "re-used".
@@ -59,7 +59,7 @@ pub fn install(
         // MIDEN_SYSROOT instead.
         .env("MIDENC_SYSROOT", &toolchain_dir)
         .args(["+nightly", "-Zscript"])
-        .arg(&install_file_path)
+        .arg(&*install_file_path)
         .stderr(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .spawn()

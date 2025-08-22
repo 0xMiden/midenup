@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
+use crate::{utils, Config, DEFAULT_USER_DATA_DIR};
 
 /// This functions bootstrap the `midenup` environment (creates basic directory
 /// structure, creates the miden executable symlink, etc.), if not already
@@ -40,7 +40,7 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
 
     let bin_dir = config.midenup_home_2.get_bin_dir();
     if !bin_dir.exists() {
-        std::fs::create_dir_all(&bin_dir).with_context(|| {
+        std::fs::create_dir_all(&*bin_dir).with_context(|| {
             format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
         })?;
         already_initialized = false;
