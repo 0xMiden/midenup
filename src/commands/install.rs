@@ -9,7 +9,7 @@ use crate::{
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
-    Config,
+    Config, InstallationOptions,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -21,6 +21,7 @@ pub fn install(
     config: &Config,
     channel: &Channel,
     local_manifest: &mut Manifest,
+    options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
@@ -48,7 +49,7 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel);
+    let install_script_contents = generate_install_script(config, channel, options);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
@@ -154,7 +155,11 @@ pub fn install(
 /// This function generates the install script that will later be saved in
 /// `midenup/toolchains/<version>/install.rs`. This file is then executed by
 /// `cargo -Zscript`.
-fn generate_install_script(config: &Config, channel: &Channel) -> String {
+fn generate_install_script(
+    config: &Config,
+    channel: &Channel,
+    options: &InstallationOptions,
+) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
     let template = engine
@@ -447,7 +452,7 @@ fn main() {
 
     // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of
     // information.
-    let verbosity = if !config.verbose {
+    let verbosity = if !options.verbose {
         upon::value! {
             quiet_flag: "--quiet"
         }
