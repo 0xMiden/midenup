@@ -648,7 +648,9 @@ Error: {}",
     }
 
     #[test]
-    /// Tries to install the "stable" toolchain from the present manifest.
+    /// Tries to install the "stable" toolchain from the present manifest. This
+    /// differs from the test present in the .github directory which tries to
+    /// install the stable toolchain from published manifest.
     fn integration_install_stable() {
         let test_env = environment_setup();
 
@@ -660,8 +662,11 @@ Error: {}",
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
-        let install = Commands::Install { channel: UserChannel::Stable };
-        install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
 
         // After install is executed, the local manifest should be present
         let manifest = midenup_home.join("manifest").with_extension("json");
@@ -698,7 +703,7 @@ Error: {}",
     #[test]
     #[should_panic]
     /// This 'midenc' component present in this manifest is lacking its required
-    /// 'rustup_channel" and thus should fail to compile.
+    /// 'rustup_channel" and thus installation should fail.
     fn midenup_catches_installation_failure() {
         let test_env = environment_setup();
 
@@ -706,13 +711,17 @@ Error: {}",
         let tmp_home_path = tmp_home.path();
         let midenup_home = tmp_home_path.join("midenup");
 
-        const FILE_PRE_UPDATE: &str =
-            full_path_manifest!("file://tests/data/manifest-uncompilable-midenc.json");
+        const FILE_PRE_UPDATE: &str = full_path_manifest!(
+            "tests/data/unit_test_manifest_additional/manifest-uncompilable-midenc.json"
+        );
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
-        let install = Commands::Install { channel: UserChannel::Stable };
-        install.execute(&config, &mut local_manifest).expect("Failed to install stable");
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
         // After install is executed, the local manifest should be present
         let manifest = midenup_home.join("manifest").with_extension("json");
         assert!(manifest.exists());

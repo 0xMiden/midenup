@@ -275,7 +275,7 @@ fn main() {
 
         if !status.success() {
             panic!(
-                "midenup failed to uninstall '{{ component.name }}'"
+                "midenup failed to install '{{ component.name }}'"
             );
         }
     }
