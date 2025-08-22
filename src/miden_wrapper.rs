@@ -249,14 +249,21 @@ And these are the known components:
     // Compute the effective PATH for this command
     let toolchain_bin = config.midenup_home_2.get_bin_dir_from(channel);
 
-    let path = match std::env::var_os("PATH") {
-        Some(prev_path) => {
+    let path = std::env::var_os("PATH")
+        .map(|prev_path| {
             let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
             path.push(prev_path);
             path
-        },
-        None => toolchain_bin.into_os_string(),
-    };
+        })
+        .unwrap_or(toolchain_bin.as_os_str().into());
+    // {
+    //     Some(prev_path) => {
+    //         let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
+    //         path.push(prev_path);
+    //         path
+    //     },
+    //     None => toolchain_bin.into_os_string(),
+    // };
 
     let rest_of_args = if include_rest_of_args {
         argv.iter().skip(2)

@@ -2,9 +2,9 @@ use clap::Subcommand;
 use colored::Colorize;
 
 use crate::{
+    Config,
     manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
-    Config,
 };
 
 #[derive(Debug, Subcommand)]

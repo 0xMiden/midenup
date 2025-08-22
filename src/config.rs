@@ -1,4 +1,5 @@
 use std::{
+    ffi::OsStr,
     fmt::Display,
     ops::Deref,
     path::{Path, PathBuf},
@@ -18,6 +19,7 @@ pub enum ToolchainInstallationStatus {
     NotInstalled,
 }
 
+#[derive(Debug)]
 pub struct File(PathBuf);
 impl Deref for File {
     type Target = PathBuf;
@@ -33,7 +35,27 @@ impl AsRef<Path> for File {
     }
 }
 
+#[derive(Debug)]
 pub struct Directory(PathBuf);
+impl Deref for Directory {
+    type Target = PathBuf;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+// Implement AsRef<Path> for your struct
+impl AsRef<Path> for Directory {
+    fn as_ref(&self) -> &Path {
+        self.0.as_path()
+    }
+}
+// Implement AsRef<Path> for your struct
+impl AsRef<OsStr> for Directory {
+    fn as_ref(&self) -> &OsStr {
+        self.0.as_os_str()
+    }
+}
 
 /// Struct that handles Midneup's home
 #[derive(Debug)]
@@ -76,57 +98,58 @@ impl Home {
         }
     }
 
-    pub fn get_manifest(&self) -> PathBuf {
-        self.midenup_home.join("manifest").with_extension("json")
+    pub fn get_manifest(&self) -> File {
+        File(self.midenup_home.join("manifest").with_extension("json"))
     }
 
     /// The location of the installed [[Toolchain]] directory.
-    pub fn get_toolchains_dir(&self) -> PathBuf {
-        self.midenup_home.join("toolchains")
+    pub fn get_toolchains_dir(&self) -> File {
+        File(self.midenup_home.join("toolchains"))
     }
 
     /// The location of the installed [[Toolchain]] directory.
-    pub fn get_bin_dir(&self) -> PathBuf {
-        self.midenup_home.join("bin")
+    pub fn get_bin_dir(&self) -> Directory {
+        Directory(self.midenup_home.join("bin"))
     }
 
     /// Get the toolchain directory associated with a specific [[Channel]].
-    pub fn get_toolchain_dir(&self, channel: &Channel) -> PathBuf {
+    pub fn get_toolchain_dir(&self, channel: &Channel) -> Directory {
         let installed_toolchains_dir = self.midenup_home.join("toolchains");
-        installed_toolchains_dir.join(format!("{}", channel.name))
+        Directory(installed_toolchains_dir.join(format!("{}", channel.name)))
     }
 
     /// Get the [[Channel]]'s bin directory
-    pub fn get_bin_dir_from(&self, channel: &Channel) -> PathBuf {
-        self.get_toolchain_dir(channel).join("bin")
+    pub fn get_bin_dir_from(&self, channel: &Channel) -> Directory {
+        Directory(self.get_toolchain_dir(channel).join("bin"))
     }
 
     /// Get the toolchain directory associated with a specific [[Channel]].
-    pub fn get_installed_channel(&self, channel: &Channel) -> PathBuf {
-        self.get_toolchain_dir(channel).join(".installed_channel.json")
+    pub fn get_installed_channel(&self, channel: &Channel) -> File {
+        File(self.get_toolchain_dir(channel).join(".installed_channel.json"))
     }
 
     /// The location of the stable symlink
-    pub fn get_stable_dir(&self) -> PathBuf {
-        self.get_toolchains_dir().join("stable")
+    pub fn get_stable_dir(&self) -> Directory {
+        Directory(self.get_toolchains_dir().join("stable"))
     }
 
     /// The location of the stable symlink
-    pub fn get_default_dir(&self) -> PathBuf {
-        self.get_toolchains_dir().join("default")
+    pub fn get_default_dir(&self) -> Directory {
+        Directory(self.get_toolchains_dir().join("default"))
     }
 
     /// The location of the stable symlink
-    pub fn get_installed_file(&self, channel: &Channel, component: &Component) -> PathBuf {
+    pub fn get_installed_file(&self, channel: &Channel, component: &Component) -> File {
         let toolchain_dir = self.get_toolchain_dir(channel);
 
-        let installed_file = component.get_installed_file();
-        match installed_file {
+        let installed_file = match component.get_installed_file() {
             InstalledFile::Executable { binary_name } => {
                 toolchain_dir.join("bin").join(binary_name)
             },
             InstalledFile::Library { library_name } => toolchain_dir.join("lib").join(library_name),
-        }
+        };
+
+        File(installed_file)
     }
 }
 

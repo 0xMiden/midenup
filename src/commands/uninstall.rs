@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::{
     channel::{Channel, Component, InstalledFile, UserChannel},
-    config::ToolchainInstallationStatus,
+    config::{Directory, File, ToolchainInstallationStatus},
     manifest::Manifest,
     version::Authority,
     Config,
@@ -19,7 +19,7 @@ use crate::{
 #[derive(Error, Debug)]
 pub enum UninstallError {
     #[error("Could not find installation-successful or .installation-in-progress at {0}")]
-    MissingInstalledComponentsFile(PathBuf),
+    MissingInstalledComponentsFile(Directory),
     #[error("Could not find channel.json file at: {0}. {1}")]
     ChannelJsonMissing(PathBuf, String),
     #[error("Ill-formed channel.json at: {0}. Contents: {1}. {2}")]
@@ -123,7 +123,11 @@ fn uninstall_channel(config: &Config, channel: &Channel) -> Result<(), Uninstall
     })?;
 
     let channel = serde_json::from_str::<Channel>(&channel_content).map_err(|err| {
-        UninstallError::IllFormedChannelJson(channel_content_path, channel_content, err.to_string())
+        UninstallError::IllFormedChannelJson(
+            channel_content_path.to_path_buf(),
+            channel_content,
+            err.to_string(),
+        )
     })?;
 
     // We check the existance above
@@ -149,8 +153,9 @@ fn uninstall_channel(config: &Config, channel: &Channel) -> Result<(), Uninstall
 
     for lib in installed_libraries {
         let lib_path = config.midenup_home_2.get_installed_file(&channel, lib);
-        std::fs::remove_file(&lib_path)
-            .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
+        std::fs::remove_file(&lib_path).map_err(|err| {
+            UninstallError::FailedToDeleteFile(lib_path.to_path_buf(), err.to_string())
+        })?;
     }
 
     for exe in installed_executables {

@@ -5,10 +5,11 @@ use anyhow::Context;
 use colored::Colorize;
 
 use crate::{
+    Config,
     channel::UserChannel,
     commands,
     toolchain::{Toolchain, ToolchainJustification},
-    utils, Config,
+    utils,
 };
 
 /// This functions sets the system's default toolchain. This is handled
