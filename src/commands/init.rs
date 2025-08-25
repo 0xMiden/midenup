@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
+use crate::{utils, Config, DEFAULT_USER_DATA_DIR};
 
 /// This functions bootstrap the `midenup` environment (creates basic directory
 /// structure, creates the miden executable symlink, etc.), if not already
@@ -14,6 +14,8 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 /// $MIDENUP_HOME
 /// |- bin/
 /// | |- miden --> $CARGO_INSTALL_DIR/midenup
+/// |- opt/
+/// | |- symlinks
 /// |- toolchains
 /// | |- stable/ --> <channel>/
 /// | |- <channel>/
@@ -47,6 +49,14 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
+        })?;
+        already_initialized = false;
+    }
+
+    let opt_dir = config.midenup_home.join("opt");
+    if !opt_dir.exists() {
+        std::fs::create_dir_all(&opt_dir).with_context(|| {
+            format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", opt_dir.display())
         })?;
         already_initialized = false;
     }

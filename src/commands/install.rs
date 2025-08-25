@@ -1,14 +1,15 @@
-use std::{collections::HashMap, io::Write};
+use std::{collections::HashMap, io::Write, path::PathBuf};
 
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
+    bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -36,6 +37,14 @@ pub fn install(
     if !toolchain_dir.exists() {
         std::fs::create_dir_all(&toolchain_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
+        })?;
+    }
+
+    // We create the opt/ directory where the aliases are going to be stored.
+    let opt_dir = toolchain_dir.join("opt");
+    if !opt_dir.exists() {
+        std::fs::create_dir_all(&opt_dir).with_context(|| {
+            format!("failed to create toolchain directory: '{}'", opt_dir.display())
         })?;
     }
 
@@ -277,10 +286,11 @@ fn main() {
 
     {% endfor %}
 
+    let opt_dir = miden_sysroot_dir.join("opt");
     // We install the symlinks associated with the aliases
     {%- for link in symlinks %}
 
-    let new_link = bin_dir.join("{{ link.alias }}");
+    let new_link = opt_dir.join("{{ link.alias }}");
     let executable = bin_dir.join("{{ link.binary }}");
     if std::fs::read_link(&new_link).is_err() {
          utility::symlink(&new_link, &executable);
@@ -321,6 +331,7 @@ fn main() {
     //   done in order to "trick" clap into displaying midenup compatile messages,
     //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
     // - A symlink from all the aliases to the the corresponding executable
+
     let symlinks = channel
         .components
         .iter()
@@ -328,11 +339,11 @@ fn main() {
             let aliases = component.aliases.keys();
             let exe_name = component.get_installed_file();
             if let InstalledFile::Executable { ref binary_name } = exe_name {
-                let miden_prefix = format!("miden {}", component.name);
+                let miden_display = component.get_cli_display();
                 for alias in aliases {
-                    acc.insert(alias.clone(), miden_prefix.clone());
+                    acc.insert(alias.clone(), binary_name.clone());
                 }
-                acc.insert(miden_prefix, binary_name.clone());
+                acc.insert(miden_display, binary_name.to_string());
             }
             acc
         })
@@ -444,7 +455,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{UserChannel, manifest::Manifest};
+    use crate::{manifest::Manifest, UserChannel};
 
     #[test]
     fn install_script_template_from_local_manifest() {
