@@ -205,12 +205,17 @@ fn main() -> anyhow::Result<()> {
         .context("Error parsing local manifest")
     }?;
 
-    match cli.behavior {
+    let result = match cli.behavior {
         Behavior::Miden(argv) => miden_wrapper(argv, &config, &mut local_manifest),
         Behavior::Midenup { command: subcommand, .. } => {
             subcommand.execute(&config, &mut local_manifest)
         },
-    }
+    };
+
+    // Before execution we check if need to update the midenup/opt symlink
+    config.update_opt_symlinks().unwrap();
+
+    result
 }
 
 #[cfg(test)]
