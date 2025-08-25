@@ -64,8 +64,13 @@ impl Manifest {
             if contents.is_empty() {
                 return Err(ManifestError::Empty);
             }
-            serde_json::from_str::<Manifest>(&contents)
-                .map_err(|e| ManifestError::Invalid(format!("Invalid channel manifest: {e}")))
+
+            serde_json::from_str::<Manifest>(&contents).map_err(|e| {
+                ManifestError::Invalid(format!(
+                    "Invalid channel manifest in {}: {e}",
+                    path.display()
+                ))
+            })
         } else if uri.starts_with("https://") {
             let mut data = Vec::new();
             let mut handle = curl::easy::Easy::new();
