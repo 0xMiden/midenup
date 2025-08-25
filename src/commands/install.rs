@@ -3,12 +3,13 @@ use std::{collections::HashMap, io::Write};
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
+    bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -47,7 +48,7 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(channel);
+    let install_script_contents = generate_install_script(config, channel);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
@@ -153,7 +154,7 @@ pub fn install(
 /// This function generates the install script that will later be saved in
 /// `midenup/toolchains/<version>/install.rs`. This file is then executed by
 /// `cargo -Zscript`.
-fn generate_install_script(channel: &Channel) -> String {
+fn generate_install_script(config: &Config, channel: &Channel) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
     let template = engine
@@ -249,6 +250,11 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
+            .args([
+            {%- for arg in chosen_profile %}
+            "{{ arg }}",
+            {%- endfor %}
+            ])
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",
@@ -426,6 +432,12 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
+    let chosen_profile = if config.debug {
+        ["--profile", "dev"]
+    } else {
+        ["--profile", "release"]
+    };
+
     // Render the install script
     template
         .render(
@@ -434,30 +446,10 @@ fn main() {
                 dependencies: dependencies,
                 installable_components: installable_components,
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
-                symlinks: symlinks
+                symlinks: symlinks,
+                chosen_profile: chosen_profile,
             },
         )
         .to_string()
         .unwrap_or_else(|err| panic!("install script rendering failed: {err}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{UserChannel, manifest::Manifest};
-
-    #[test]
-    fn install_script_template_from_local_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
-
-        let channel = manifest
-            .get_channel(&UserChannel::Stable)
-            .expect("Could not convert UserChannel to internal channel representation");
-
-        let script = generate_install_script(channel);
-
-        println!("{script}");
-
-        assert!(script.contains("// Install cargo-miden"));
-    }
 }
