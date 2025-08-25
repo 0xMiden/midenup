@@ -7,7 +7,7 @@ The Miden toolchain installer.
 
 The `midenup` executable facilitates two primary tasks:
 
-1. Toolchain managment, i.e. bootstrapping the environment, and installing, updating, and configuring installed toolchain components.
+1. Toolchain management, i.e. bootstrapping the environment, and installing, updating, and configuring installed toolchain components.
 2. Using toolchains for working on Miden projects
 
 > [!NOTE]
@@ -117,12 +117,12 @@ By default, the `miden` command uses the currently active toolchain, which you
 can view using `midenup show active-toolchain`. To see how to configure the
 active toolchain, see [Configuring the active toolchain](#configuring-the-active-toolchain) section.
 
-#### Aliasses
+#### Aliases
 
 To facilitate development, the `miden` command is also aware of a number of
-aliasses. These aliasses exist to facilitate the execution of common miden task.
+aliases. These aliases exist to facilitate the execution of common miden task.
 
-Here's a table with all the currently available alliases:
+Here's a table with all the currently available aliases:
 
 | Alias          | Action                            | Corresponds to                   |
 |----------------|-----------------------------------|----------------------------------|
@@ -159,9 +159,9 @@ midenup show home
 
 ### Configuring the active toolchain
 
-`miden` and `midneup` determine the current active toolchain according to the following rules:
+`miden` and `midenup` determine the current active toolchain according to the following rules:
 1. If there's a `miden-toolchain.toml` file in the present working directory,
-   then `miden` will use that to determine the current active toolcahin.
+   then `miden` will use that to determine the current active toolchain.
 2. If not, `miden` will check if a toolchain has been set as the system's
    default (more details in the [Configuring the active toolchain](#configuring-the-active-toolchain) section).
 
@@ -175,7 +175,7 @@ For example, to set `0.16.0` run:
 midenup set 0.16.0
 ```
 
-Now, whenever `miden` is called in this directory, it will use the specificied toolchain.
+Now, whenever `miden` is called in this directory, it will use the specified toolchain.
 
 > [!NOTE]
 > This procedure generates a `miden-toolchain.toml` file in the directory where `midenup set` was invoked.
@@ -195,11 +195,11 @@ component from the newly selected toolchain.
 > If `stable` is set as the active toolchain, `midenup` will use the latest
 > available `stable` toolchain.
 > If you desire to pinpoint a specific release as the default, then use the
-> verision name explicitely.
+> version name explicitly.
 
 ## Development
 
-Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `channel-manifest.json`, and is published to GitHub Pages here: https://0xmiden.github.io/midenup/channel-manifest.json .
+Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `channel-manifest.json`, and is published to Github Pages here: https://0xmiden.github.io/midenup/channel-manifest.json .
 
 Locally, you can override the channel manifest URI, for testing or development purposes, by setting the `MIDENUP_MANIFEST_URI` environment variable. The URI must begin with either `file://` or `https://` at this time, but we could in theory support other URIs in the future if found useful.
 
