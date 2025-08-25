@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Write};
+use std::io::Write;
 
 use anyhow::Context;
 
@@ -324,19 +324,21 @@ fn main() {
     let symlinks = channel
         .components
         .iter()
-        .fold(HashMap::new(), |mut acc, component| {
+        .flat_map(|component| {
+            let mut executables = Vec::new();
+
             let aliases = component.aliases.keys();
             let exe_name = component.get_installed_file();
             if let InstalledFile::Executable { ref binary_name } = exe_name {
                 let miden_prefix = format!("miden {}", component.name);
                 for alias in aliases {
-                    acc.insert(alias.clone(), miden_prefix.clone());
+                    executables.push((alias.clone(), miden_prefix.clone()));
                 }
-                acc.insert(miden_prefix, binary_name.clone());
+                executables.push((miden_prefix, binary_name.clone()));
             }
-            acc
+
+            executables
         })
-        .iter()
         .map(|(alias, binary)| {
             upon::value! {
                 alias: alias,
