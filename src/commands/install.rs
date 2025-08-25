@@ -3,13 +3,12 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    bail,
+    Config, bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
-    Config,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -457,7 +456,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{manifest::Manifest, UserChannel};
+    use crate::{UserChannel, manifest::Manifest};
 
     #[test]
     fn install_script_template_from_local_manifest() {
