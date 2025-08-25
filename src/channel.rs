@@ -111,7 +111,7 @@ impl Channel {
     }
 
     /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, AliasResolution> {
+    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
         self.components.iter().fold(HashMap::new(), |mut acc, component| {
             acc.extend(component.aliases.clone());
             acc
@@ -242,7 +242,9 @@ impl Display for InstalledFile {
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-/// Arguments that are passed to the CLI to execute the original [[Alias]].
+/// Represents each possible "word" variant that is passed to the Command
+/// line. These are used to resolve an [[Alias]] to its associated command.
+/// NOTE: In the manifest
 pub enum CliCommand {
     #[serde(untagged)]
     /// An argument that is passed verbatim, as is.
@@ -279,7 +281,7 @@ impl CliCommand {
 
 pub type Alias = String;
 /// List of the commands that need to be run when [[Alias]] is called.
-pub type AliasResolution = Vec<CliCommand>;
+pub type CLICommand = Vec<CliCommand>;
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -313,10 +315,29 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
-    /// List of all the different aliases that use this component under the hood.
+    /// This HashMap associates each alias to the corresponding command that
+    /// needs to be executed.
+    /// NOTE: The list of commands that is resolved can have an "arbitrary"
+    /// ordering: the executable associated with this command is not forced to
+    /// come in first.
+    ///
+    /// Here's an example aliases entry in a manifest.json:
+    ///
+    /// ```json
+    /// {
+    ///   "name": "component-name",
+    ///   "package": "component-package",
+    ///   "version": "X.Y.Z",
+    ///   "installed_executable": "miden-component",
+    ///   "aliases": {
+    ///       "alias1": [{"resolve": "component-name"}, {"verbatim": "argument"}],
+    ///       "alias2": [{"verbatim": "cargo"}, {"resolve": "component-name"}, {"verbatim": "build"}]
+    ///     }
+    /// },
+    /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, AliasResolution>,
+    pub aliases: HashMap<Alias, CLICommand>,
 }
 
 impl Component {

@@ -5,7 +5,7 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Alias, AliasResolution, Channel, Component, InstalledFile},
+    channel::{Alias, CLICommand, Channel, Component, InstalledFile},
     manifest::Manifest,
     toolchain::Toolchain,
 };
@@ -35,7 +35,7 @@ enum MidenArgument<'a> {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(AliasResolution),
+    Alias(CLICommand),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(&'a Component),
 }
@@ -44,7 +44,7 @@ enum EnvironmentError {
     UnkownArgument,
 }
 struct ToolchainEnvironment {
-    aliases: HashMap<Alias, AliasResolution>,
+    aliases: HashMap<Alias, CLICommand>,
     components: Vec<Component>,
 }
 impl ToolchainEnvironment {
