@@ -53,14 +53,6 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         already_initialized = false;
     }
 
-    let opt_dir = config.midenup_home.join("opt");
-    if !opt_dir.exists() {
-        std::fs::create_dir_all(&opt_dir).with_context(|| {
-            format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", opt_dir.display())
-        })?;
-        already_initialized = false;
-    }
-
     // Write the symlink for `miden` to $MIDENUP_HOME/bin
     let current_exe =
         std::env::current_exe().expect("unable to get location of current executable");
@@ -111,6 +103,7 @@ Could not find `miden` executable in the system's PATH. To enable it, add midenu
 
 export MIDENUP_HOME='{midenup_home_dir}/midenup'
 export PATH=${{MIDENUP_HOME}}/bin:$PATH
+export PATH=${{MIDENUP_HOME}}/opt:$PATH
 
 To your shell's profile file.
 "
