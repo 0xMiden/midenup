@@ -9,7 +9,7 @@ use crate::{
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
-    Config,
+    Config, InstallationOptions,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -21,6 +21,7 @@ pub fn install(
     config: &Config,
     channel: &Channel,
     local_manifest: &mut Manifest,
+    options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
@@ -48,7 +49,7 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel);
+    let install_script_contents = generate_install_script(config, channel, options);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
@@ -154,7 +155,11 @@ pub fn install(
 /// This function generates the install script that will later be saved in
 /// `midenup/toolchains/<version>/install.rs`. This file is then executed by
 /// `cargo -Zscript`.
-fn generate_install_script(config: &Config, channel: &Channel) -> String {
+fn generate_install_script(
+    config: &Config,
+    channel: &Channel,
+    options: &InstallationOptions,
+) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
     let template = engine
@@ -243,6 +248,7 @@ fn main() {
     {% for component in installable_components %}
 
     // Install {{ component.name }}
+    println!("Installing: {{ component.name }}");
     let bin_path = bin_dir.join("{{ component.installed_file }}");
     if !std::fs::exists(&bin_path).unwrap_or(false) {
         let mut child = Command::new("cargo")
@@ -250,11 +256,15 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
+            .arg("--locked")
             .args([
             {%- for arg in chosen_profile %}
             "{{ arg }}",
             {%- endfor %}
             ])
+            {%- if verbosity.quiet_flag %}
+            .arg("{{ verbosity.quiet_flag }}")
+            {%- endif %}
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",
@@ -280,6 +290,7 @@ fn main() {
         }
     }
     writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
+    println!("Done!");
 
     {% endfor %}
 
@@ -438,6 +449,18 @@ fn main() {
         ["--profile", "release"]
     };
 
+    // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of
+    // information.
+    let verbosity = if !options.verbose {
+        upon::value! {
+            quiet_flag: "--quiet"
+        }
+    } else {
+        upon::value! {
+            quiet_flag: ""
+        }
+    };
+
     // Render the install script
     template
         .render(
@@ -448,6 +471,7 @@ fn main() {
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
                 symlinks: symlinks,
                 chosen_profile: chosen_profile,
+                verbosity: verbosity,
             },
         )
         .to_string()

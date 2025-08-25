@@ -52,9 +52,9 @@ impl Config {
             std::env::current_dir().context("Could not obtain present working directory")?;
 
         let config = Config {
+            working_directory,
             midenup_home,
             manifest,
-            working_directory,
             debug,
         };
 
