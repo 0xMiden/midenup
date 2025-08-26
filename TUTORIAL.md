@@ -157,4 +157,20 @@ midenup uninstall 0.16.0
 A typical usage of midenup and miden might look like the following:
 
 1. midenup is downloaded
-2. A new project is created with the
+2. The latest stable toolchain is installed via:
+   ```sh
+   midenup install stable
+   ```
+3. A new miden project is created with:
+   ```sh
+   miden new miden_project && cd miden_project
+   ```
+4. Now let's say that the `miden_project` requires version `0.15.0`. The `midenup set` can be used to configure this toolchain as the project's active toolchain:
+   ```sh
+   midenup set 0.15.0
+   ```
+5. With the project now generated and the toolchain establish; a `build` command can be issued.
+   ```sh
+   miden build
+   ```
+   If the selected toolchain from the previous step is not installed in the system, an installation will be automatically triggered.
