@@ -152,3 +152,9 @@ For example, to uninstall toolchain version `0.16.0`, run:
 ```
 midenup uninstall 0.16.0
 ```
+
+# Example usage
+A typical usage of midenup and miden might look like the following:
+
+1. midenup is downloaded
+2. A new project is created with the
