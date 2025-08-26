@@ -52,7 +52,7 @@ impl Config {
         Ok(config)
     }
 
-    pub fn update_opt_symlinks(&self) -> anyhow::Result<()> {
+    pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {
         let (current_toolchain, _) = Toolchain::current(self)?;
 
         // Directory which point to the directory where symlinks are stored
@@ -61,6 +61,18 @@ impl Config {
         let Some(active_channel) = self.manifest.get_channel(&current_toolchain.channel) else {
             bail!("channel '{}' doesn't exist or is unavailable", current_toolchain.channel);
         };
+
+        // If the currently active channel doesn't exist, then there's nothing
+        // to update regarding the opt/ symlink.
+        if !active_channel.get_channel_dir(config).exists() {
+            // However, if the opt directory still exists, then we remove it in
+            // order to avoid a "dangling symlink". This can happen when an
+            // uninstall is issued.
+            if std::fs::read_link(&opt_dir).is_ok() {
+                std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
+            }
+            return Ok(());
+        }
 
         let update = if let Ok(pointing) = std::fs::read_link(&opt_dir) {
             // If it does exist, update it if it's pointing to a non-active toolchain.
@@ -74,7 +86,7 @@ impl Config {
         };
 
         if update {
-            if opt_dir.exists() {
+            if std::fs::read_link(&opt_dir).is_ok() {
                 std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
             }
             let opt_path = active_channel.get_channel_dir(self).join("opt");

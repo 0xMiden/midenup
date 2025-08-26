@@ -212,8 +212,11 @@ fn main() -> anyhow::Result<()> {
         },
     };
 
-    // Before execution we check if need to update the midenup/opt symlink
-    config.update_opt_symlinks().unwrap();
+    // After execution we check if need to update the midenup/opt symlink
+    // This is done *after* execution because some commands change what the
+    // active toolchain (update, set) and some remove the directory entirely
+    // (uninstall)
+    config.update_opt_symlinks(&config)?;
 
     result
 }
