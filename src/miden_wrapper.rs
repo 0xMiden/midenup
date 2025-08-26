@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -120,10 +120,21 @@ pub fn miden_wrapper(
 ) -> anyhow::Result<()> {
     // Extract the target binary to execute from argv[1]
     let subcommand = {
-        let subcommand = argv.get(1).ok_or(anyhow!(
-            "No arguments were passed to `miden`. To get a list of available commands, run:
-miden help"
-        ))?;
+        let subcommand = argv.get(1).with_context(|| {
+            format!(
+                "
+{}: '{}' requires a subcommand but one was not provided
+
+{} {} <ALIAS|COMMAND>
+
+For more information, try 'miden help'.
+",
+                "error:".red().bold(),
+                "miden".yellow().bold(),
+                "Usage".bold().underline(),
+                "miden".bold(),
+            )
+        })?;
         subcommand.to_str().expect("Invalid command name: {subcommand}")
     };
 
