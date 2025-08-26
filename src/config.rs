@@ -58,34 +58,33 @@ impl Config {
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
 
-        let Some(channel) = self.manifest.get_channel(&current_toolchain.channel) else {
+        let Some(active_channel) = self.manifest.get_channel(&current_toolchain.channel) else {
             bail!("channel '{}' doesn't exist or is unavailable", current_toolchain.channel);
         };
 
-        let pointing = std::fs::read_link(&opt_dir);
-        let update = if let Ok(pointing) = pointing {
-            if pointing
+        let update = if let Ok(pointing) = std::fs::read_link(&opt_dir) {
+            // If it does exist, update it if it's pointing to a non-active toolchain.
+            pointing
                 .file_name()
-                .and_then(|name| name.to_str())
-                .context("Couldn't read channel name from directory")?
-                == channel.name.to_string()
-            {
-                println!("Nothing to do");
-                false
-            } else {
-                true
-            }
+                .and_then(|toolchain_name| toolchain_name.to_str())
+                .is_some_and(|toolchain_name| toolchain_name != active_channel.name.to_string())
         } else {
+            // If the symlink doesn't exist, update it by creating it.
             true
         };
 
         if update {
-            // If it existed, we remove it.
             if opt_dir.exists() {
                 std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
             }
-            let opt_path = channel.get_channel_dir(self).join("opt");
-            utils::symlink(&opt_dir, &opt_path).unwrap();
+            let opt_path = active_channel.get_channel_dir(self).join("opt");
+            utils::symlink(&opt_dir, &opt_path).with_context(|| {
+                format!(
+                    "Failed to create opt/ symlink from {} to {}",
+                    opt_dir.display(),
+                    opt_path.display()
+                )
+            })?;
         }
 
         Ok(())
