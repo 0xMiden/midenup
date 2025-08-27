@@ -91,6 +91,10 @@ enum Commands {
         channel: UserChannel,
     },
     /// Sets the system's default toolchain.
+    ///
+    /// Unlike `rustup`, midenup does *not* have a notion of directory
+    /// overrides. Instead, the `midenup set` command can be used to configure a
+    /// directory-specific toolchain.
     Override {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
