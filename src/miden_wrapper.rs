@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -207,7 +207,7 @@ For more information, try 'miden help'.
                     let command = commands.first().unwrap().clone();
                     let aliased_arguments: Vec<String> = commands.into_iter().skip(1).collect();
 
-                    (command, aliased_arguments)
+                    (command, dbg!(aliased_arguments))
                 },
                 Ok(MidenArgument::Component(component)) => {
                     let call_convention = component
