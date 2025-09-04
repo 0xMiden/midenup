@@ -217,7 +217,7 @@ For more information, try 'miden help'.
                     let command = commands.first().unwrap().clone();
                     let aliased_arguments: Vec<String> = commands.into_iter().skip(1).collect();
 
-                    (command, dbg!(aliased_arguments))
+                    (command, aliased_arguments)
                 },
                 Ok(MidenArgument::Component(component)) => {
                     let call_convention = component
