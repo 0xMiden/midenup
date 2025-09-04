@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use colored::Colorize;
 
 pub use crate::config::Config;
