@@ -176,7 +176,7 @@ A typical usage of midenup and miden might look like the following:
    ```
 4. Now let's say that the `miden_project` requires version `0.15.0`. The `midenup set` can be used to configure this toolchain as the project's active toolchain:
    ```sh
-   midenup set 0.15.0
+   midenup set 0.17.0
    ```
 5. With the project now generated and the toolchain establish; a `build` command can be issued.
    ```sh
