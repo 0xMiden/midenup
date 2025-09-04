@@ -38,6 +38,7 @@
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
            }
+          "initialization": ["init"]
         },
         {
           "name": "midenc",
@@ -91,6 +92,7 @@
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
           }
+          "initialization": ["init"]
         },
         {
           "name": "midenc",

@@ -10,8 +10,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -331,6 +332,11 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub aliases: HashMap<Alias, AliasResolution>,
+    /// If the component requires initialization, this field holds the
+    /// initialization subcommand(s).
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub initialization: Vec<String>,
 }
 
 impl Component {
@@ -344,6 +350,7 @@ impl Component {
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
+            initialization: vec![],
         }
     }
 
@@ -546,6 +553,7 @@ mod tests {
                 rustup_channel: None,
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -559,6 +567,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
@@ -572,6 +581,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -585,6 +595,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
         ];
 
@@ -601,6 +612,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -614,6 +626,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
@@ -627,6 +640,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -640,6 +654,7 @@ mod tests {
                 call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
+                initialization: vec![],
             },
         ];
 
@@ -685,6 +700,7 @@ mod tests {
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
+            initialization: vec![],
         }];
 
         let new_components = [Component {
@@ -699,6 +715,7 @@ mod tests {
             call_format: Vec::new(),
             installed_file: None,
             aliases: HashMap::new(),
+            initialization: vec![],
         }];
 
         let old = Channel {
