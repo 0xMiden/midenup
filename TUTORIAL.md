@@ -183,3 +183,5 @@ A typical usage of midenup and miden might look like the following:
    miden build
    ```
    If the selected toolchain from the previous step is not installed in the system, an installation will be automatically triggered.
+   This should produce a miden package available on a `.masp` file present in `target/release/miden/miden_project.masp`.
+6. TODO: The pipeline from the generated `.masp` from the compiler to a new Account to be created by the `miden-client` is not yet defined.
