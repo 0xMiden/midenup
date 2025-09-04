@@ -108,30 +108,6 @@ the current working directory or by the user's default toolchain (for more
 information on how to configure the active toolchain, see [Configuring the active
 toolchain](#configuring-the-active-toolchain)).
 
-### Updating a toolchain
-
-To update a given toolchain, you can use the `midenup update <TOOLCHAIN>`
-command. This command's behavior differs slightly depending on how it is called.
-
-#### Updating stable
-
-To update stable to the latest release, run:
-```
-midenup update stable
-```
-
-This will check if there's a newer stable release and will update the toolchain accordingly.
-
-#### Updating a specific toolchain
-
-When updating a versioned toolchain, only updates which are known
-to work with that version of the toolchain will be installed/updated.
-
-For example, if you'd like to update toolchain version `0.16.0`, run:
-```
-midenup update 0.16.0
-```
-
 
 ### Using a toolchain
 
@@ -162,6 +138,29 @@ Here's a table with all the currently available aliases:
 | miden send     | Send transaction (state-changing) | miden-client send                |
 | miden simulate | Simulate transaction (no commit)  | miden-client exec                |
 
+### Updating a toolchain
+
+To update a given toolchain, you can use the `midenup update <TOOLCHAIN>`
+command. This command's behavior differs slightly depending on how it is called.
+
+#### Updating stable
+
+To update stable to the latest release, run:
+```
+midenup update stable
+```
+
+This will check if there's a newer stable release and will update the toolchain accordingly.
+
+#### Updating a specific toolchain
+
+When updating a versioned toolchain, only updates which are known
+to work with that version of the toolchain will be installed/updated.
+
+For example, if you'd like to update toolchain version `0.16.0`, run:
+```
+midenup update 0.16.0
+```
 
 ### Uninstalling a toolchain
 
