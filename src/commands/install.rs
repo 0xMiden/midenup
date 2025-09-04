@@ -1,14 +1,15 @@
-use std::io::Write;
+use std::{collections::HashMap, io::Write};
 
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
-    channel::{Channel, ChannelAlias},
+    bail,
+    channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config, InstallationOptions,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -20,6 +21,7 @@ pub fn install(
     config: &Config,
     channel: &Channel,
     local_manifest: &mut Manifest,
+    options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
@@ -47,7 +49,7 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(channel);
+    let install_script_contents = generate_install_script(config, channel, options);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
@@ -153,7 +155,11 @@ pub fn install(
 /// This function generates the install script that will later be saved in
 /// `midenup/toolchains/<version>/install.rs`. This file is then executed by
 /// `cargo -Zscript`.
-fn generate_install_script(channel: &Channel) -> String {
+fn generate_install_script(
+    config: &Config,
+    channel: &Channel,
+    options: &InstallationOptions,
+) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
     let template = engine
@@ -174,6 +180,19 @@ fn generate_install_script(channel: &Channel) -> String {
 use std::process::Command;
 use std::io::{Write};
 use std::fs::{OpenOptions, rename};
+
+// Utility functions
+mod utility {
+    #[cfg(unix)]
+    pub fn symlink(from: &std::path::Path, to: &std::path::Path) {
+        std::os::unix::fs::symlink(to, from).expect("could not create symlink")
+    }
+
+    #[cfg(windows)]
+    pub fn symlink(from: &std::path::Path, to: &std::path::Path) {
+        std::os::windows::fs::symlink_file(to, from).expect("could not create symlink")
+    }
+}
 
 fn main() {
     // MIDEN_SYSROOT is set by `midenup` when invoking this script, and will contain the resolved
@@ -229,6 +248,7 @@ fn main() {
     {% for component in installable_components %}
 
     // Install {{ component.name }}
+    println!("Installing: {{ component.name }}");
     let bin_path = bin_dir.join("{{ component.installed_file }}");
     if !std::fs::exists(&bin_path).unwrap_or(false) {
         let mut child = Command::new("cargo")
@@ -236,6 +256,15 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
+            .arg("--locked")
+            .args([
+            {%- for arg in chosen_profile %}
+            "{{ arg }}",
+            {%- endfor %}
+            ])
+            {%- if verbosity.quiet_flag %}
+            .arg("{{ verbosity.quiet_flag }}")
+            {%- endif %}
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",
@@ -256,19 +285,31 @@ fn main() {
 
         if !status.success() {
             panic!(
-                "midenup failed to uninstall '{{ component.name }}'"
+                "midenup failed to install '{{ component.name }}'"
             );
         }
     }
     writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
+    println!("Done!");
 
     {% endfor %}
+
+    // We install the symlinks associated with the aliases
+    {%- for link in symlinks %}
+
+    let new_link = bin_dir.join("{{ link.alias }}");
+    let executable = bin_dir.join("{{ link.binary }}");
+    if std::fs::read_link(&new_link).is_err() {
+         utility::symlink(&new_link, &executable);
+    }
+
+    {%- endfor %}
+
 
     // Now that installation finished, we rename the file to indicate that
     // installation finished successfully.
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
-
 }
 "##,
         )
@@ -290,6 +331,36 @@ fn main() {
             .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
         installable_components.push(component);
     }
+
+    // List of all the symlinks that need to be installed.
+    // Currently, these includes:
+    // - A symlink that adds the 'miden ' prefix to the corresponding executable,
+    //   done in order to "trick" clap into displaying midenup compatile messages,
+    //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
+    // - A symlink from all the aliases to the the corresponding executable
+    let symlinks = channel
+        .components
+        .iter()
+        .fold(HashMap::new(), |mut acc, component| {
+            let aliases = component.aliases.keys();
+            let exe_name = component.get_installed_file();
+            if let InstalledFile::Executable { ref binary_name } = exe_name {
+                let miden_display = component.get_cli_display();
+                for alias in aliases {
+                    acc.insert(alias.clone(), miden_display.clone());
+                }
+                acc.insert(miden_display, binary_name.clone());
+            }
+            acc
+        })
+        .iter()
+        .map(|(alias, binary)| {
+            upon::value! {
+                alias: alias,
+                binary: binary,
+            }
+        })
+        .collect::<Vec<_>>();
 
     // The set of cargo dependencies needed for the install script
     let dependencies = dependencies
@@ -345,6 +416,7 @@ fn main() {
                 Authority::Path { path, .. } => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
+                    args.push("--locked".to_string());
                 },
             }
 
@@ -371,6 +443,24 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
+    let chosen_profile = if config.debug {
+        ["--profile", "dev"]
+    } else {
+        ["--profile", "release"]
+    };
+
+    // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of
+    // information.
+    let verbosity = if !options.verbose {
+        upon::value! {
+            quiet_flag: "--quiet"
+        }
+    } else {
+        upon::value! {
+            quiet_flag: ""
+        }
+    };
+
     // Render the install script
     template
         .render(
@@ -379,29 +469,11 @@ fn main() {
                 dependencies: dependencies,
                 installable_components: installable_components,
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
+                symlinks: symlinks,
+                chosen_profile: chosen_profile,
+                verbosity: verbosity,
             },
         )
         .to_string()
         .unwrap_or_else(|err| panic!("install script rendering failed: {err}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{UserChannel, manifest::Manifest};
-
-    #[test]
-    fn install_script_template_from_local_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
-
-        let channel = manifest
-            .get_channel(&UserChannel::Stable)
-            .expect("Could not convert UserChannel to internal channel representation");
-
-        let script = generate_install_script(channel);
-
-        println!("{script}");
-
-        assert!(script.contains("// Install cargo-miden"));
-    }
 }

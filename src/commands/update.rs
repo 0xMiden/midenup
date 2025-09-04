@@ -1,10 +1,9 @@
 use anyhow::Context;
 
 use crate::{
-    Config,
+    Config, InstallationOptions,
     channel::{Channel, UserChannel},
-    commands,
-    commands::{install::DEPENDENCIES, uninstall::uninstall_executable},
+    commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
 };
@@ -14,6 +13,7 @@ pub fn update(
     config: &Config,
     channel_type: Option<&UserChannel>,
     local_manifest: &mut Manifest,
+    options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     match channel_type {
         Some(UserChannel::Stable) => {
@@ -32,7 +32,7 @@ midenup install stable
 
             // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {
-                commands::install(config, upstream_stable, local_manifest)?
+                commands::install(config, upstream_stable, local_manifest, options)?
             } else {
                 println!("Nothing to update, you are all up to date");
             }
@@ -52,7 +52,7 @@ midenup install stable
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got removed."
                 ))?;
 
-            update_channel(config, &local_channel, upstream_channel, local_manifest)?
+            update_channel(config, &local_channel, upstream_channel, local_manifest, options)?
         },
         None => {
             // Update all toolchains
@@ -73,7 +73,7 @@ midenup install stable
             }
 
             for (local_channel, upstream_channel) in channels_to_update {
-                update_channel(config, &local_channel, &upstream_channel, local_manifest)?;
+                update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
             }
         },
         Some(UserChannel::Nightly) => todo!(),
@@ -92,6 +92,7 @@ fn update_channel(
     local_channel: &Channel,
     upstream_channel: &Channel,
     local_manifest: &mut Manifest,
+    options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
@@ -137,6 +138,6 @@ fn update_channel(
         }
     }
 
-    commands::install(config, upstream_channel, local_manifest)?;
+    commands::install(config, upstream_channel, local_manifest, options)?;
     Ok(())
 }

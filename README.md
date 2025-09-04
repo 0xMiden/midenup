@@ -5,9 +5,10 @@ The Miden toolchain installer.
 > [!WARNING]
 > This tool is still a work in progress.
 
+
 The `midenup` executable facilitates two primary tasks:
 
-1. Toolchain managment, i.e. bootstrapping the environment, and installing, updating, and configuring installed toolchain components.
+1. Toolchain management, i.e. bootstrapping the environment, and installing, updating, and configuring installed toolchain components.
 2. Using toolchains for working on Miden projects
 
 > [!NOTE]
@@ -26,6 +27,32 @@ The `midenup` executable facilitates two primary tasks:
 > In the future, more components will be added.
 
 ## Usage
+
+### Testing in-development changes
+
+> [!CAUTION]
+> To test branches that haven't been merged yet (such as demo branches), some
+> additional setup are required. These are only needed until these changes are
+> merged and until midneup stabilizes manifest format.
+
+Firstly, the `MIDENUP_MANIFEST_URI` environment variable needs to be defined in order for `midenup` to use the local manifest.
+After cloning the `midenup` repo, the following can be executed:
+
+``` shell
+cd manifest/
+export  MIDENUP_MANIFEST_URI=file://$(pwd)/channel-manifest.json
+cd ../
+```
+
+Additionaly, to speed installation times up, the `MIDENUP_DEBUG_MODE` can be set to true, like so:
+
+``` shell
+export  MIDENUP_DEBUG_MODE=true
+```
+
+This will install all the miden components in dev move.
+
+### Normal usage
 
 To get started, you must first install `midenup`, and then initialize its
 environment, like so:
@@ -81,6 +108,36 @@ the current working directory or by the user's default toolchain (for more
 information on how to configure the active toolchain, see [Configuring the active
 toolchain](#configuring-the-active-toolchain)).
 
+
+### Using a toolchain
+
+Interacting with Miden toolchain components is done via the `miden` command,
+which handles delegating commands to the underlying components using
+subprocesses. For example, `miden new` calls out to `cargo miden new` to create
+a new Rust-based Miden project.
+
+By default, the `miden` command uses the currently active toolchain, which you
+can view using `midenup show active-toolchain`. To see how to configure the
+active toolchain, see [Configuring the active toolchain](#configuring-the-active-toolchain) section.
+
+#### Aliases
+
+To facilitate development, the `miden` command is also aware of a number of
+aliases. These aliases exist to facilitate the execution of common miden task.
+
+Here's a table with all the currently available aliases:
+
+| Alias          | Action                            | Corresponds to                   |
+|----------------|-----------------------------------|----------------------------------|
+| miden account  | Create local account              | miden-client account             |
+| miden faucet   | Fund account via faucet           | miden-client mint                |
+| miden new      | Create new project                | cargo miden new                  |
+| miden build    | Build project                     | cargo miden build                |
+| miden deploy   | Deploy contract                   | miden-client new-wallet --deploy |
+| miden call     | Call view function (read-only)    | miden-client account --show      |
+| miden send     | Send transaction (state-changing) | miden-client send                |
+| miden simulate | Simulate transaction (no commit)  | miden-client exec                |
+
 ### Updating a toolchain
 
 To update a given toolchain, you can use the `midenup update <TOOLCHAIN>`
@@ -105,37 +162,6 @@ For example, if you'd like to update toolchain version `0.16.0`, run:
 midenup update 0.16.0
 ```
 
-
-### Using a toolchain
-
-Interacting with Miden toolchain components is done via the `miden` command,
-which handles delegating commands to the underlying components using
-subprocesses. For example, `miden new` calls out to `cargo miden new` to create
-a new Rust-based Miden project.
-
-By default, the `miden` command uses the currently active toolchain, which you
-can view using `midenup show active-toolchain`. To see how to configure the
-active toolchain, see [Configuring the active toolchain](#configuring-the-active-toolchain) section.
-
-#### Aliasses
-
-To facilitate development, the `miden` command is also aware of a number of
-aliasses. These aliasses exist to facilitate the execution of common miden task.
-
-Here's a table with all the currently available alliases:
-
-| Alias          | Action                            | Corresponds to                   |
-|----------------|-----------------------------------|----------------------------------|
-| miden account  | Create local account              | miden-client account             |
-| miden faucet   | Fund account via faucet           | miden-client mint                |
-| miden new      | Create new project                | cargo miden new                  |
-| miden build    | Build project                     | cargo miden build                |
-| miden deploy   | Deploy contract                   | miden-client new-wallet --deploy |
-| miden call     | Call view function (read-only)    | miden-client account --show      |
-| miden send     | Send transaction (state-changing) | miden-client send                |
-| miden simulate | Simulate transaction (no commit)  | miden-client exec                |
-
-
 ### Uninstalling a toolchain
 
 You can easily uninstall a Miden toolchain with the `midenup uninstall <TOOLCHAIN>` command.
@@ -159,9 +185,9 @@ midenup show home
 
 ### Configuring the active toolchain
 
-`miden` and `midneup` determine the current active toolchain according to the following rules:
+`miden` and `midenup` determine the current active toolchain according to the following rules:
 1. If there's a `miden-toolchain.toml` file in the present working directory,
-   then `miden` will use that to determine the current active toolcahin.
+   then `miden` will use that to determine the current active toolchain.
 2. If not, `miden` will check if a toolchain has been set as the system's
    default (more details in the [Configuring the active toolchain](#configuring-the-active-toolchain) section).
 
@@ -175,7 +201,7 @@ For example, to set `0.16.0` run:
 midenup set 0.16.0
 ```
 
-Now, whenever `miden` is called in this directory, it will use the specificied toolchain.
+Now, whenever `miden` is called in this directory, it will use the specified toolchain.
 
 > [!NOTE]
 > This procedure generates a `miden-toolchain.toml` file in the directory where `midenup set` was invoked.
@@ -195,11 +221,11 @@ component from the newly selected toolchain.
 > If `stable` is set as the active toolchain, `midenup` will use the latest
 > available `stable` toolchain.
 > If you desire to pinpoint a specific release as the default, then use the
-> verision name explicitely.
+> version name explicitly.
 
 ## Development
 
-Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `channel-manifest.json`, and is published to GitHub Pages here: https://0xmiden.github.io/midenup/channel-manifest.json .
+Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `channel-manifest.json`, and is published to Github Pages here: https://0xmiden.github.io/midenup/channel-manifest.json .
 
 Locally, you can override the channel manifest URI, for testing or development purposes, by setting the `MIDENUP_MANIFEST_URI` environment variable. The URI must begin with either `file://` or `https://` at this time, but we could in theory support other URIs in the future if found useful.
 
