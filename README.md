@@ -5,6 +5,7 @@ The Miden toolchain installer.
 > [!WARNING]
 > This tool is still a work in progress.
 
+
 The `midenup` executable facilitates two primary tasks:
 
 1. Toolchain management, i.e. bootstrapping the environment, and installing, updating, and configuring installed toolchain components.
@@ -26,6 +27,32 @@ The `midenup` executable facilitates two primary tasks:
 > In the future, more components will be added.
 
 ## Usage
+
+### Testing in-development changes
+
+> [!CAUTION]
+> To test branches that haven't been merged yet (such as demo branches), some
+> additional setup are required. These are only needed until these changes are
+> merged and until midneup stabilizes manifest format.
+
+Firstly, the `MIDENUP_MANIFEST_URI` environment variable needs to be defined in order for `midenup` to use the local manifest.
+After cloning the `midenup` repo, the following can be executed:
+
+``` shell
+cd manifest/
+export  MIDENUP_MANIFEST_URI=file://$(pwd)/channel-manifest.json
+cd ../
+```
+
+Additionaly, to speed installation times up, the `MIDENUP_DEBUG_MODE` can be set to true, like so:
+
+``` shell
+export  MIDENUP_DEBUG_MODE=true
+```
+
+This will install all the miden components in dev move.
+
+### Normal usage
 
 To get started, you must first install `midenup`, and then initialize its
 environment, like so:
