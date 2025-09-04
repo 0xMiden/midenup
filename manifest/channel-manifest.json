@@ -37,7 +37,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-           }
+          },
           "initialization": ["init"]
         },
         {
@@ -91,7 +91,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          }
+          },
           "initialization": ["init"]
         },
         {
