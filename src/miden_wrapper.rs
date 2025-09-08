@@ -1,4 +1,4 @@
-use std::{collections::HashMap, ffi::OsString, string::ToString};
+use std::{borrow::Cow, collections::HashMap, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
@@ -70,7 +70,17 @@ impl ToolchainEnvironment {
         self.components
             .iter()
             .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
-            .map(|c| format!("  {}\n", c.name.bold()))
+            .map(|c| {
+                let initialization_indicator = if !c.initialization.is_empty() {
+                    let subcommand = c.initialization.join(" ");
+                    let command = format!("miden {}", c.name);
+
+                    Cow::Owned(format!("(requires init: `{} {}`)", command, subcommand))
+                } else {
+                    Cow::Borrowed("")
+                };
+                format!("  {} {}\n", c.name.bold(), initialization_indicator)
+            })
             .collect::<String>()
     }
 
