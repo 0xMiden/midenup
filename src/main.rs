@@ -42,7 +42,23 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
+/// Optional settings to pass to the installation function.
+#[derive(Debug, Parser)]
+struct InstallationOptions {
+    #[clap(long, short, default_value = "false")]
+    /// Displays the entirety of cargo's output when performing installations.
+    verbose: bool,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for InstallationOptions {
+    fn default() -> Self {
+        Self { verbose: false }
+    }
+}
+
 #[derive(Debug, Subcommand)]
+
 /// All the available Midenup Commands
 enum Commands {
     /// Bootstrap the `midenup` environment.
@@ -54,6 +70,9 @@ enum Commands {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: UserChannel,
+
+        #[clap(flatten)]
+        options: InstallationOptions,
     },
     /// Uninstall a Miden toolchain
     Uninstall {
@@ -84,8 +103,12 @@ enum Commands {
         /// - If left blank, then midenup will check for updates in all the downloaded toolchains.
         /// - If [CHANNEL] = stable, then it will look for the newest available toolchain and set
         ///   that to be stable.
+        #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<UserChannel>,
+
+        #[clap(flatten)]
+        options: InstallationOptions,
     },
 }
 
@@ -113,6 +136,10 @@ struct GlobalArgs {
     /// `midenup`, not `miden`.
     #[clap(env = "MIDENUP_DEBUG_MODE", action = ArgAction::Set, default_value = "false", hide = true)]
     debug: bool,
+
+    /// Display verbose output, mainly used during install.
+    #[clap(short, long, action, default_value_t = false)]
+    verbose: bool,
 }
 
 impl Commands {
@@ -120,14 +147,16 @@ impl Commands {
     fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
         match &self {
             Self::Init => commands::init(config),
-            Self::Install { channel, .. } => {
+            Self::Install { channel, options } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                commands::install(config, channel, local_manifest)
+                commands::install(config, channel, local_manifest, options)
             },
             Self::Uninstall { channel, .. } => commands::uninstall(config, channel, local_manifest),
-            Self::Update { channel } => commands::update(config, channel.as_ref(), local_manifest),
+            Self::Update { channel, options } => {
+                commands::update(config, channel.as_ref(), local_manifest, options)
+            },
             Self::Show(cmd) => cmd.execute(config, local_manifest),
             Self::Set { channel } => commands::set(config, channel),
             Self::Override { channel } => commands::r#override(config, channel),
