@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, bail};
+use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -293,9 +293,10 @@ And these are the known components:
 
 fn display_version(config: &Config) -> String {
     // NOTE: These files are generated in the project's build.rs.
-    let compiled_cargo_version = include_str!("../build/cargo_version.in");
 
-    let git_revision = include_str!("../build/git_revision.in");
+    let compiled_cargo_version = include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
+
+    let git_revision = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in"));
 
     let midenup_version = env!(
         "CARGO_PKG_VERSION",
