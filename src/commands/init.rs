@@ -14,6 +14,8 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 /// $MIDENUP_HOME
 /// |- bin/
 /// | |- miden --> $CARGO_INSTALL_DIR/midenup
+/// |- opt/
+/// | |- symlinks
 /// |- toolchains
 /// | |- stable/ --> <channel>/
 /// | |- <channel>/
@@ -101,6 +103,7 @@ Could not find `miden` executable in the system's PATH. To enable it, add midenu
 
 export MIDENUP_HOME='{midenup_home_dir}/midenup'
 export PATH=${{MIDENUP_HOME}}/bin:$PATH
+export PATH=${{MIDENUP_HOME}}/opt:$PATH
 
 To your shell's profile file.
 "
