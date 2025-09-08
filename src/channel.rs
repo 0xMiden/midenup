@@ -240,32 +240,32 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 /// Represents each possible "word" variant that is passed to the Command
 /// line. These are used to resolve an [[Alias]] to its associated command.
 /// NOTE: In the manifest
 pub enum CliCommand {
-    #[serde(untagged)]
+    /// Resolve the command to a [[Component]]'s corresponding executable.
+    Executable,
+    /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
+    #[serde(rename = "lib_path")]
+    LibPath,
     /// An argument that is passed verbatim, as is.
-    Verbatim {
-        #[serde(rename = "verbatim")]
-        name: String,
-    },
     #[serde(untagged)]
-    /// The name of the command is not known ahead of time and is dependent on
-    /// the current active toolchain. Mostly used for executable names.
-    Resolve {
-        #[serde(rename = "resolve")]
-        name: String,
-    },
+    Verbatim(String),
 }
 
 impl CliCommand {
-    pub fn resolve_command(&self, channel: &Channel) -> anyhow::Result<String> {
+    pub fn resolve_command(
+        &self,
+        channel: &Channel,
+        component: &Component,
+        config: &Config,
+    ) -> anyhow::Result<String> {
         match self {
-            CliCommand::Verbatim { name } => Ok(name.to_string()),
-            CliCommand::Resolve { name } => {
+            CliCommand::Executable => {
+                let name = &component.name;
                 let component = channel.get_component(name).with_context(|| {
                     format!(
                         "Component named {} is not present in toolchain version {}",
@@ -273,8 +273,16 @@ impl CliCommand {
                     )
                 })?;
 
-                Ok(format!("miden {}", component.name))
+                Ok(component.get_cli_display())
             },
+            CliCommand::LibPath => {
+                let channel_dir = channel.get_channel_dir(config);
+
+                let toolchain_path = channel_dir.join("lib");
+
+                Ok(toolchain_path.to_string_lossy().to_string())
+            },
+            CliCommand::Verbatim(name) => Ok(name.to_string()),
         }
     }
 }
@@ -299,6 +307,12 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+    /// Commands used to call the [[Component]]'s associated executable.
+    /// IMPORTANT: This requires the [[Component::installed_file]] field to be
+    /// an [[InstalledFile::Executable]] either explicitly or implicitly.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    call_format: Vec<CliCommand>,
     /// If not None, then this component requires a specific toolchain to
     /// compile.
     #[serde(default)]
@@ -347,6 +361,7 @@ impl Component {
             version,
             features: vec![],
             requires: vec![],
+            call_format: vec![],
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
@@ -445,6 +460,20 @@ impl Component {
             InstalledFile::Executable { binary_name: self.name.to_string() }
         }
     }
+
+    /// Returns the String representation under which midenup calls a component.
+    pub fn get_cli_display(&self) -> String {
+        format!("miden {}", self.name)
+    }
+
+    /// Returns the String representation under which midenup calls a component.
+    pub fn get_call_format(&self) -> Vec<CliCommand> {
+        if self.call_format.is_empty() {
+            vec![CliCommand::Executable]
+        } else {
+            self.call_format.clone()
+        }
+    }
 }
 
 /// User-facing channel reference. The main difference with this and [Channel]
@@ -534,6 +563,7 @@ mod tests {
                 },
                 features: vec![String::from("executable"), String::from("concurrent")],
                 requires: Vec::new(),
+                call_format: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
                 aliases: HashMap::new(),
@@ -547,6 +577,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -559,6 +590,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -571,6 +603,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -586,6 +619,7 @@ mod tests {
                 features: vec![String::from("executable"), String::from("concurrent")],
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -598,6 +632,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -610,6 +645,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -622,6 +658,7 @@ mod tests {
                 features: Vec::new(),
                 requires: Vec::new(),
                 rustup_channel: None,
+                call_format: Vec::new(),
                 installed_file: None,
                 aliases: HashMap::new(),
             },
@@ -665,6 +702,7 @@ mod tests {
             },
             features: Vec::new(),
             requires: Vec::new(),
+            call_format: Vec::new(),
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
@@ -679,6 +717,7 @@ mod tests {
             features: Vec::new(),
             requires: Vec::new(),
             rustup_channel: None,
+            call_format: Vec::new(),
             installed_file: None,
             aliases: HashMap::new(),
         }];

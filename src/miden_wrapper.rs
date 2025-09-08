@@ -1,6 +1,6 @@
 use std::{collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -35,7 +35,7 @@ enum MidenArgument<'a> {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(CLICommand),
+    Alias(&'a Component, CLICommand),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(&'a Component),
 }
@@ -55,8 +55,10 @@ impl ToolchainEnvironment {
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(resolution) = self.aliases.get(&argument) {
-            Ok(MidenArgument::Alias(resolution.clone()))
+        if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
+        {
+            let resolution = component.aliases.get(&argument).unwrap();
+            Ok(MidenArgument::Alias(component, resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
             Ok(MidenArgument::Component(component))
         } else {
@@ -118,10 +120,21 @@ pub fn miden_wrapper(
 ) -> anyhow::Result<()> {
     // Extract the target binary to execute from argv[1]
     let subcommand = {
-        let subcommand = argv.get(1).ok_or(anyhow!(
-            "No arguments were passed to `miden`. To get a list of available commands, run:
-miden help"
-        ))?;
+        let subcommand = argv.get(1).with_context(|| {
+            format!(
+                "
+{}: '{}' requires a subcommand but one was not provided
+
+{} {} <ALIAS|COMMAND>
+
+For more information, try 'miden help'.
+",
+                "error:".red().bold(),
+                "miden".yellow().bold(),
+                "Usage".bold().underline(),
+                "miden".bold(),
+            )
+        })?;
         subcommand.to_str().expect("Invalid command name: {subcommand}")
     };
 
@@ -171,10 +184,10 @@ miden help"
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
         | MidenSubcommand::Resolve(resolve) => {
             match toolchain_environment.resolve(resolve.clone()) {
-                Ok(MidenArgument::Alias(alias_resolutions)) => {
+                Ok(MidenArgument::Alias(component, alias_resolutions)) => {
                     let commands = alias_resolutions
                         .iter()
-                        .map(|description| description.resolve_command(channel))
+                        .map(|description| description.resolve_command(channel, component, config))
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every alias has an
@@ -185,7 +198,18 @@ miden help"
                     (command, aliased_arguments)
                 },
                 Ok(MidenArgument::Component(component)) => {
-                    (format!("miden {}", component.name), vec![])
+                    let call_convention = component
+                        .get_call_format()
+                        .iter()
+                        .map(|argument| argument.resolve_command(channel, component, config))
+                        .collect::<Result<Vec<String>, _>>()?;
+
+                    // SAFETY: Safe under the assumption that every call_format has at least one
+                    // argument
+                    let command = call_convention.first().unwrap().clone();
+                    let args: Vec<String> = call_convention.into_iter().skip(1).collect();
+
+                    (command, args)
                 },
                 Err(_) => {
                     let aliases = toolchain_environment.get_aliases_display();
