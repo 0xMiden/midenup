@@ -107,6 +107,23 @@ jobs:
           ./.github/auxiliary_scripts/install-toolchains.sh
           rustc --version
 
+      - name: Free up disk space
+        run: |
+
+          echo "Initial disk usage:"
+          df -h
+
+          echo "Removing pre installed files we do not need"
+
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/swift || true
+
+          echo ""
+          echo "New disk usage"
+          df -h
+
       - uses: taiki-e/install-action@nextest
 
       - uses: Swatinem/rust-cache@v2
