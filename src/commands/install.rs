@@ -4,7 +4,7 @@ use anyhow::Context;
 
 use crate::{
     Config, bail,
-    channel::{Channel, ChannelAlias},
+    channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
@@ -175,6 +175,19 @@ use std::process::Command;
 use std::io::{Write};
 use std::fs::{OpenOptions, rename};
 
+// Utility functions
+mod utility {
+    #[cfg(unix)]
+    pub fn symlink(from: &std::path::Path, to: &std::path::Path) {
+        std::os::unix::fs::symlink(to, from).expect("could not create symlink")
+    }
+
+    #[cfg(windows)]
+    pub fn symlink(from: &std::path::Path, to: &std::path::Path) {
+        std::os::windows::fs::symlink_file(to, from).expect("could not create symlink")
+    }
+}
+
 fn main() {
     // MIDEN_SYSROOT is set by `midenup` when invoking this script, and will contain the resolved
     // (and prepared) sysroot path to which this script will install the desired toolchain
@@ -264,11 +277,22 @@ fn main() {
 
     {% endfor %}
 
+    // We install the symlinks associated with the aliases
+    {%- for link in symlinks %}
+
+    let new_link = bin_dir.join("{{ link.alias }}");
+    let executable = bin_dir.join("{{ link.binary }}");
+    if std::fs::read_link(&new_link).is_err() {
+         utility::symlink(&new_link, &executable);
+    }
+
+    {%- endfor %}
+
+
     // Now that installation finished, we rename the file to indicate that
     // installation finished successfully.
     let checkpoint_path = miden_sysroot_dir.join("installation-successful");
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
-
 }
 "##,
         )
@@ -290,6 +314,38 @@ fn main() {
             .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
         installable_components.push(component);
     }
+
+    // List of all the symlinks that need to be installed.
+    // Currently, these includes:
+    // - A symlink that adds the 'miden ' prefix to the corresponding executable,
+    //   done in order to "trick" clap into displaying midenup compatile messages,
+    //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
+    // - A symlink from all the aliases to the the corresponding executable
+    let symlinks = channel
+        .components
+        .iter()
+        .flat_map(|component| {
+            let mut executables = Vec::new();
+
+            let aliases = component.aliases.keys();
+            let exe_name = component.get_installed_file();
+            if let InstalledFile::Executable { ref binary_name } = exe_name {
+                let miden_display = component.get_cli_display();
+                for alias in aliases {
+                    executables.push((alias.clone(), miden_display.clone()));
+                }
+                executables.push((miden_display, binary_name.clone()));
+            }
+
+            executables
+        })
+        .map(|(alias, binary)| {
+            upon::value! {
+                alias: alias,
+                binary: binary,
+            }
+        })
+        .collect::<Vec<_>>();
 
     // The set of cargo dependencies needed for the install script
     let dependencies = dependencies
@@ -345,6 +401,7 @@ fn main() {
                 Authority::Path { path, .. } => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
+                    args.push("--locked".to_string());
                 },
             }
 
@@ -379,6 +436,7 @@ fn main() {
                 dependencies: dependencies,
                 installable_components: installable_components,
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
+                symlinks: symlinks
             },
         )
         .to_string()

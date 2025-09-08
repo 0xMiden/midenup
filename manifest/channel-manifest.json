@@ -30,17 +30,30 @@
           "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client",
+          "aliases": {
+              "account": ["executable", "new-account"],
+              "faucet": ["executable", "mint"],
+              "deploy": ["executable", "new-wallet", "--deploy"],
+              "call": ["executable", "call", "--show"],
+              "send": ["executable", "send"],
+              "simulate": ["executable", "exec"]
+          },
           "initialization": ["init"]
         },
         {
           "name": "midenc",
           "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "rustup_channel": "nightly-2025-03-20",
+          "call_format": ["executable", "compile", "-L", "lib_path"]
         },
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "rustup_channel": "nightly-2025-03-20",
+          "aliases": {
+              "new": ["cargo", "miden", "new"],
+              "build": ["cargo", "miden", "build"]
+          }
         }
       ]
     },
@@ -69,19 +82,32 @@
         {
           "name": "client",
           "package": "miden-client-cli",
-          "version": "0.10.0",
+          "version": "0.10.2",
           "installed_executable": "miden-client",
+          "aliases": {
+              "account": ["executable", "new-account"],
+              "faucet": ["executable", "mint"],
+              "deploy": ["executable", "new-wallet", "--deploy"],
+              "call": ["executable", "call", "--show"],
+              "send": ["executable", "send"],
+              "simulate": ["executable", "exec"]
+          },
           "initialization": ["init"]
         },
         {
           "name": "midenc",
           "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "rustup_channel": "nightly-2025-03-20",
+          "call_format": ["executable", "compile", "-L", "lib_path"]
         },
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "rustup_channel": "nightly-2025-03-20",
+          "aliases": {
+              "new": ["cargo", "miden", "new"],
+              "build": ["cargo", "miden", "build"]
+          }
         }
       ]
     }
