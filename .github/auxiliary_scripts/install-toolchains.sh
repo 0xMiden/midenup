@@ -3,7 +3,7 @@
 echo "Installing stable"
 rustup install stable
 
-toolchains=$(grep rustup_channel manifest/channel-manifest.json | awk '{ print  $2 }' | tr -d '\",' | uniq)
+toolchains=$(find . -path "*/target" -prune -o -name "*.json" -exec grep rustup_channel \{\} + | awk '{print $3}' | tr -d '\",' | uniq)
 
 
 while read toolchain; do
