@@ -39,6 +39,14 @@ pub fn install(
         })?;
     }
 
+    // We create the opt/ directory where the aliases are going to be stored.
+    let opt_dir = toolchain_dir.join("opt");
+    if !opt_dir.exists() {
+        std::fs::create_dir_all(&opt_dir).with_context(|| {
+            format!("failed to create toolchain directory: '{}'", opt_dir.display())
+        })?;
+    }
+
     let install_file_path = toolchain_dir.join("install").with_extension("rs");
     // NOTE: Even when performing an update, we still need to re-generate the
     // install script.  This is because, the versions that will be installed are
@@ -277,10 +285,11 @@ fn main() {
 
     {% endfor %}
 
+    let opt_dir = miden_sysroot_dir.join("opt");
     // We install the symlinks associated with the aliases
     {%- for link in symlinks %}
 
-    let new_link = bin_dir.join("{{ link.alias }}");
+    let new_link = opt_dir.join("{{ link.alias }}");
     let executable = bin_dir.join("{{ link.binary }}");
     if std::fs::read_link(&new_link).is_err() {
          utility::symlink(&new_link, &executable);
@@ -321,6 +330,7 @@ fn main() {
     //   done in order to "trick" clap into displaying midenup compatile messages,
     //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
     // - A symlink from all the aliases to the the corresponding executable
+
     let symlinks = channel
         .components
         .iter()
@@ -332,7 +342,7 @@ fn main() {
             if let InstalledFile::Executable { ref binary_name } = exe_name {
                 let miden_display = component.get_cli_display();
                 for alias in aliases {
-                    executables.push((alias.clone(), miden_display.clone()));
+                    executables.push((alias.clone(), binary_name.clone()));
                 }
                 executables.push((miden_display, binary_name.clone()));
             }
