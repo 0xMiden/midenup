@@ -1,4 +1,6 @@
-use anyhow::Context;
+use std::path::PathBuf;
+
+use anyhow::{Context, bail};
 
 use crate::{
     Config, InstallationOptions,
@@ -97,18 +99,55 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    // NOTE: After deleting the files we need to remove the "all is installed
-    // file" to trigger a re-installation
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    std::fs::remove_file(&installation_indicator).context(format!(
-        "Couldn't delete installation complete indicator in: {}",
-        &installation_indicator.display()
-    ))?;
-
-    let updates = local_channel.components_to_update(upstream_channel);
+    let required_updates = local_channel.components_to_update(upstream_channel);
+    if required_updates.is_empty() {
+        return Ok(());
+    }
 
     let (libraries, executables): (Vec<_>, Vec<_>) =
-        updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
+        required_updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
+
+    // Check if any executables are installed via [[Authority::Path]]. If so,
+    // ask before uninstalling.
+    let executables_installed_from_path = executables
+        .iter()
+        .filter_map(|exe| match &exe.version {
+            Authority::Path { path, crate_name } => Some((crate_name, path)),
+            _ => None,
+        })
+        .collect::<Vec<(&String, &PathBuf)>>();
+
+    if !executables_installed_from_path.is_empty() {
+        println!("WARNING: This toolchain contains the following elements installed from paths.");
+        for (exe, path) in executables_installed_from_path {
+            println!("- {exe} is installed from {}", path.display())
+        }
+        println!("Are you sure you want to proceed? (N/y)");
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).context("Failed to read input")?;
+        if input.to_ascii_lowercase().as_str() != "y" {
+            println!("No updates will trigger");
+            return Ok(());
+        }
+    }
+
+    // The update begins
+
+    // We remove the "installation-successful" file to trigger a re-installation.
+    let installation_indicator = toolchain_dir.join("installation-successful");
+    match std::fs::remove_file(&installation_indicator) {
+        Ok(()) => (),
+        // NOTE: If the installation indicator is not present, then it means
+        // that an update got stopped mid way through. If that's the case, then
+        // this update run will bring the toolchain back to a valid state.
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
+        Err(e) => bail!(format!(
+            "Couldn't delete installation complete indicator in: {}\
+             because of {e}",
+            &installation_indicator.display()
+        )),
+    }
 
     for lib in libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
@@ -130,10 +169,8 @@ fn update_channel(
             Authority::Git { crate_name, .. } => {
                 uninstall_executable(crate_name, &toolchain_dir)?;
             },
-            Authority::Path { .. } => {
-                // We simply skip components that are pointing to a Path. We
-                // leave it to the user to determine when a component should be
-                // updated. They'd simply need to update the workspace manually.
+            Authority::Path { crate_name, .. } => {
+                uninstall_executable(crate_name, &toolchain_dir)?;
             },
         }
     }
