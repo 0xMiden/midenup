@@ -3,7 +3,7 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config, bail,
+    Config, InstallationOptions, bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
@@ -20,6 +20,7 @@ pub fn install(
     config: &Config,
     channel: &Channel,
     local_manifest: &mut Manifest,
+    options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
@@ -55,7 +56,7 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(channel);
+    let install_script_contents = generate_install_script(config, channel, options);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
@@ -161,7 +162,11 @@ pub fn install(
 /// This function generates the install script that will later be saved in
 /// `midenup/toolchains/<version>/install.rs`. This file is then executed by
 /// `cargo -Zscript`.
-fn generate_install_script(channel: &Channel) -> String {
+fn generate_install_script(
+    config: &Config,
+    channel: &Channel,
+    options: &InstallationOptions,
+) -> String {
     // Prepare install script template
     let engine = upon::Engine::new();
     let template = engine
@@ -250,6 +255,7 @@ fn main() {
     {% for component in installable_components %}
 
     // Install {{ component.name }}
+    println!("Installing: {{ component.name }}");
     let bin_path = bin_dir.join("{{ component.installed_file }}");
     if !std::fs::exists(&bin_path).unwrap_or(false) {
         let mut child = Command::new("cargo")
@@ -257,6 +263,15 @@ fn main() {
             "{{ component.required_toolchain_flag }}",
             )
             .arg("install")
+            .arg("--locked")
+            .args([
+            {%- for arg in chosen_profile %}
+            "{{ arg }}",
+            {%- endfor %}
+            ])
+            {%- if verbosity.quiet_flag %}
+            .arg("{{ verbosity.quiet_flag }}")
+            {%- endif %}
             .args([
             {%- for arg in component.args %}
             "{{ arg }}",
@@ -277,11 +292,12 @@ fn main() {
 
         if !status.success() {
             panic!(
-                "midenup failed to uninstall '{{ component.name }}'"
+                "midenup failed to install '{{ component.name }}'"
             );
         }
     }
     writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
+    println!("Done!");
 
     {% endfor %}
 
@@ -438,6 +454,24 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
+    let chosen_profile = if config.debug {
+        ["--profile", "dev"]
+    } else {
+        ["--profile", "release"]
+    };
+
+    // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of
+    // information.
+    let verbosity = if !options.verbose {
+        upon::value! {
+            quiet_flag: "--quiet"
+        }
+    } else {
+        upon::value! {
+            quiet_flag: ""
+        }
+    };
+
     // Render the install script
     template
         .render(
@@ -446,30 +480,11 @@ fn main() {
                 dependencies: dependencies,
                 installable_components: installable_components,
                 channel_json : serde_json::to_string_pretty(channel).unwrap(),
+                chosen_profile: chosen_profile,
+                verbosity: verbosity,
                 symlinks: symlinks
             },
         )
         .to_string()
         .unwrap_or_else(|err| panic!("install script rendering failed: {err}"))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{UserChannel, manifest::Manifest};
-
-    #[test]
-    fn install_script_template_from_local_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json").unwrap();
-
-        let channel = manifest
-            .get_channel(&UserChannel::Stable)
-            .expect("Could not convert UserChannel to internal channel representation");
-
-        let script = generate_install_script(channel);
-
-        println!("{script}");
-
-        assert!(script.contains("// Install cargo-miden"));
-    }
 }

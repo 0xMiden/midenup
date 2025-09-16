@@ -1,0 +1,86 @@
+{
+  "manifest_version": "1.0",
+  "date": 1745931671,
+  "channels": [
+    {
+      "name": "0.15.0",
+      "components": [{
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.15.0",
+          "installed_library": "std.masp"
+        },
+        {
+          "name": "base",
+          "package": "miden-lib",
+          "version": "0.9.0",
+          "installed_library": "base.masp"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.15.0",
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden"
+        },
+        {
+          "name": "client",
+          "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "crate_name": "miden-client-cli",
+          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
+          "installed_executable": "miden-client"
+        },
+        {
+          "name": "midenc",
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20"
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20"
+        }
+      ]
+    },
+    {
+      "name": "0.16.0",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.16.0",
+          "installed_library": "std.masp"
+        },
+        {
+          "name": "base",
+          "package": "miden-lib",
+          "version": "0.10.0",
+          "installed_library": "base.masp"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.16.2",
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden-vm"
+        },
+        {
+          "name": "client",
+          "package": "miden-client-cli",
+          "version": "0.10.2",
+          "installed_executable": "miden-client"
+        },
+        {
+          "name": "midenc",
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20"
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20"
+        }
+      ]
+    }
+  ]
+}

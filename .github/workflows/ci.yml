@@ -101,10 +101,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install rust
+      - name: Install rust and all the rust toolchains present in the manifest
         run: |
           rustup update --no-self-update
+          ./.github/auxiliary_scripts/install-toolchains.sh
           rustc --version
+
+      - name: Free up disk space
+        run: |
+
+          echo "Initial disk usage:"
+          df -h
+
+          echo "Removing pre installed files we do not need"
+
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/swift || true
+
+          echo ""
+          echo "New disk usage"
+          df -h
 
       - uses: taiki-e/install-action@nextest
 
