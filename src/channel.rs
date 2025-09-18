@@ -36,6 +36,14 @@ pub struct Channel {
 }
 
 impl Channel {
+    pub fn new(
+        name: semver::Version,
+        alias: Option<ChannelAlias>,
+        components: Vec<Component>,
+    ) -> Self {
+        Self { name, alias, components }
+    }
+
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
         let name = name.as_ref();
         self.components.iter().find(|c| c.name == name)
@@ -87,8 +95,8 @@ impl Channel {
         // This is the subset of old components that need to be removed.
         let old_components = current.difference(&new_channel);
 
-        // These are the elements that are present in boths sets. We need which
-        // components need updating.
+        // These are the elements that are present in boths sets. We are only
+        // interested in those which need updating.
         let components_to_update = current.intersection(&new_channel).filter(|current_component| {
             let new_component = new_channel.get(*current_component);
             if let Some(new_component) = new_component {
@@ -451,7 +459,11 @@ impl Component {
 
                 let local_latest = last_modification_a;
 
-                let latest_registered_modification = latest_modification(path_b.into()).ok();
+                let latest_registered_modification =
+                    latest_modification(path_b.into()).ok().map(|modification| {
+                        // std::dbg!(&modification.1);
+                        modification.0
+                    });
                 // last_modification_b should almost always be None, since the
                 // latest modification time is always checked on
                 // demand. However, if for whatever reason, the manifest
@@ -459,7 +471,9 @@ impl Component {
                 let new_latest = last_modification_b.or(latest_registered_modification);
 
                 match (local_latest, new_latest) {
-                    (Some(local_latest), Some(new_latest)) => return *local_latest > new_latest,
+                    (Some(local_latest), Some(new_latest)) => {
+                        return *local_latest < new_latest;
+                    },
                     // If anything failed, we simply issue a re-install. This
                     // shouldn't cause problems since we ask for confirmation
                     // before re-installing from path.

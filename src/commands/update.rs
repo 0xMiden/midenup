@@ -182,9 +182,8 @@ Would you like to update this component? (N/y/c)
             let Some(component) = channel_to_install.get_component_mut(&component.name) else {
                 // This can occur when the following occurs simultaneously:
                 // - A user doesn't want to uninstall a component and
-                // - Said component is not present in the upstream channel,
-                //   which means that the component got removed from the
-                //   toolchain entirely after the update.
+                // - Said component is not present in the upstream channel, which means that the
+                //   component got removed from the toolchain entirely after the update.
                 continue;
             };
 
