@@ -10,8 +10,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    utils::{self, latest_modification},
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -38,6 +39,11 @@ impl Channel {
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
         let name = name.as_ref();
         self.components.iter().find(|c| c.name == name)
+    }
+
+    pub fn get_component_mut(&mut self, name: impl AsRef<str>) -> Option<&mut Component> {
+        let name = name.as_ref();
+        self.components.iter_mut().find(|c| c.name == name)
     }
     /// Is this channel a stable release? Does not imply that it has the
     /// `stable` alias.  To find out the latest stable [Channel], use:
@@ -423,6 +429,42 @@ impl Component {
                 };
 
                 return true;
+            },
+            (
+                Authority::Path {
+                    path: path_a,
+                    crate_name: crate_name_a,
+                    last_modification: last_modification_a,
+                },
+                Authority::Path {
+                    path: path_b,
+                    crate_name: crate_name_b,
+                    last_modification: last_modification_b,
+                },
+            ) => {
+                if path_a != path_b {
+                    return false;
+                }
+                if crate_name_a != crate_name_b {
+                    return false;
+                }
+
+                let local_latest = last_modification_a;
+
+                let latest_registered_modification = latest_modification(path_b.into()).ok();
+                // last_modification_b should almost always be None, since the
+                // latest modification time is always checked on
+                // demand. However, if for whatever reason, the manifest
+                // contains a latest modification time, we honor it.
+                let new_latest = last_modification_b.or(latest_registered_modification);
+
+                match (local_latest, new_latest) {
+                    (Some(local_latest), Some(new_latest)) => return *local_latest > new_latest,
+                    // If anything failed, we simply issue a re-install. This
+                    // shouldn't cause problems since we ask for confirmation
+                    // before re-installing from path.
+                    _ => return false,
+                }
             },
             (version_a, version_b) => {
                 if version_a != version_b {

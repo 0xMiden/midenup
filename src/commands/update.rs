@@ -1,13 +1,12 @@
-use std::path::PathBuf;
-
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
+use colored::Colorize;
 
 use crate::{
-    Config, InstallationOptions,
     channel::{Channel, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
+    Config, InstallationOptions,
 };
 
 /// Updates installed toolchains
@@ -99,82 +98,130 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let required_updates = local_channel.components_to_update(upstream_channel);
-    if required_updates.is_empty() {
+    // Depending on users input, we might be interested in changing the
+    // components that will be installed.
+    let mut channel_to_install = upstream_channel.clone();
+
+    let components_to_delete = local_channel.components_to_update(&channel_to_install);
+    if components_to_delete.is_empty() {
         return Ok(());
     }
 
-    let (libraries, executables): (Vec<_>, Vec<_>) =
-        required_updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
+    // let (libraries, executables): (Vec<_>, Vec<_>) = components_to_delete
+    //     .iter()
+    //     .partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
 
-    // Check if any executables are installed via [[Authority::Path]]. If so,
-    // ask before uninstalling.
-    let executables_installed_from_path = executables
-        .iter()
-        .filter_map(|exe| match &exe.version {
-            Authority::Path { path, crate_name } => Some((crate_name, path)),
-            _ => None,
-        })
-        .collect::<Vec<(&String, &PathBuf)>>();
+    let mut path_warning_displayed = false;
+    let mut exes_to_uninstall = Vec::new();
+    let mut libs_to_uninstall = Vec::new();
+    for component in components_to_delete {
+        let mut update_new_element = true;
+        if DEPENDENCIES.contains(&(component.name.as_ref())) {
+            // Libraries
 
-    if !executables_installed_from_path.is_empty() {
-        println!("WARNING: This toolchain contains the following elements installed from paths.");
-        for (exe, path) in executables_installed_from_path {
-            println!("- {exe} is installed from {}", path.display())
+            let lib_path =
+                toolchain_dir.join("lib").join(component.name.as_ref()).with_extension("masp");
+            libs_to_uninstall.push(lib_path);
+        } else {
+            // Executables
+
+            match component.version {
+                Authority::Cargo { package, .. } => {
+                    let package_name = package.unwrap_or(component.name.to_string());
+                    exes_to_uninstall.push(package_name);
+                },
+                Authority::Git { crate_name, .. } => {
+                    exes_to_uninstall.push(crate_name);
+                },
+                // Since uninstalling a component from the filesystem is
+                // irreversible and potentially irreproducible, we take special
+                // precautions before uninstalling.
+                Authority::Path { path, crate_name, .. } => {
+                    if !path_warning_displayed {
+                        println!(
+                            "{}: This toolchain contains elements installed from a path in the filesystem.",
+                            "WARNING".yellow().bold(),
+                        );
+                        path_warning_displayed = true;
+                    }
+
+                    println!(
+                        "\
+- {} is installed from {}.
+Would you like to update this component? (N/y/c)
+   - N: no, skip this component
+   - y: yes, update this component
+   - c: cancel the update all-together (no changes will be applied)",
+                        crate_name.bold(),
+                        path.display(),
+                    );
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input).context("Failed to read input")?;
+                    let input = input.trim().to_ascii_lowercase();
+                    match input.as_str() {
+                        "y" => {
+                            println!("Updating {crate_name}");
+                            exes_to_uninstall.push(crate_name);
+                        },
+                        "c" => {
+                            println!("Cancelling update, no changes will be applied.");
+                            return Ok(());
+                        },
+                        _ => {
+                            println!("Skipping {crate_name}, it will not be updated");
+                            update_new_element = false;
+                        },
+                    }
+                },
+            }
         }
-        println!("Are you sure you want to proceed? (N/y)");
+        // If the user doesn't want to update the current element, we replace
+        // the element from upstream_channel with the corresponding
+        // local_channel
+        if !update_new_element {
+            let Some(component) = channel_to_install.get_component_mut(&component.name) else {
+                // This can occur when the following occurs simultaneously:
+                // - A user doesn't want to uninstall a component and
+                // - Said component is not present in the upstream channel,
+                //   which means that the component got removed from the
+                //   toolchain entirely after the update.
+                continue;
+            };
 
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).context("Failed to read input")?;
-        if input.to_ascii_lowercase().as_str() != "y" {
-            println!("No updates will trigger");
-            return Ok(());
+            // SAFETY: If the component is installed, it *must* be present on
+            // the local_channel.
+            let local_component = local_channel.get_component(&component.name).cloned().unwrap();
+
+            *component = local_component;
         }
     }
 
     // The update begins
-
-    // We remove the "installation-successful" file to trigger a re-installation.
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    match std::fs::remove_file(&installation_indicator) {
-        Ok(()) => (),
-        // NOTE: If the installation indicator is not present, then it means
-        // that an update got stopped mid way through. If that's the case, then
-        // this update run will bring the toolchain back to a valid state.
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
-        Err(e) => bail!(format!(
-            "Couldn't delete installation complete indicator in: {}\
+    {
+        // We remove the "installation-successful" file to trigger a re-installation.
+        let installation_indicator = toolchain_dir.join("installation-successful");
+        match std::fs::remove_file(&installation_indicator) {
+            Ok(()) => (),
+            // NOTE: If the installation indicator is not present, then it means
+            // that an update got stopped mid way through. If that's the case, then
+            // this update run will bring the toolchain back to a valid state.
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
+            Err(e) => bail!(format!(
+                "Couldn't delete installation complete indicator in: {}\
              because of {e}",
-            &installation_indicator.display()
-        )),
-    }
-
-    for lib in libraries {
-        let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
-        std::fs::remove_file(&lib_path)
-            .context(format!("Couldn't delete {}", &lib_path.display()))?;
-    }
-
-    let toolchain_dir = config
-        .midenup_home
-        .join("toolchains")
-        .join(format!("{}", &upstream_channel.name));
-
-    for exe in executables {
-        match &exe.version {
-            Authority::Cargo { package, .. } => {
-                let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
-                uninstall_executable(package_name, &toolchain_dir)?;
-            },
-            Authority::Git { crate_name, .. } => {
-                uninstall_executable(crate_name, &toolchain_dir)?;
-            },
-            Authority::Path { crate_name, .. } => {
-                uninstall_executable(crate_name, &toolchain_dir)?;
-            },
+                &installation_indicator.display()
+            )),
         }
-    }
 
-    commands::install(config, upstream_channel, local_manifest, options)?;
+        for lib in libs_to_uninstall {
+            std::fs::remove_file(&lib).context(format!("Couldn't delete {}", lib.display()))?;
+        }
+
+        for exe in exes_to_uninstall {
+            uninstall_executable(exe, &toolchain_dir)?;
+        }
+
+        commands::install(config, &channel_to_install, local_manifest, options)?;
+    }
     Ok(())
 }

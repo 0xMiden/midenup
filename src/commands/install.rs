@@ -1,14 +1,14 @@
 use std::io::Write;
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 
 use crate::{
-    Config, InstallationOptions, bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config, InstallationOptions,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
@@ -384,7 +384,7 @@ fn main() {
                     path: "",
                 }
             },
-            Authority::Path { crate_name, path } => {
+            Authority::Path { crate_name, path, .. } => {
                 upon::value! {
                     package: crate_name,
                     version: "> 0.0.0",

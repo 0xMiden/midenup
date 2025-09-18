@@ -2,6 +2,7 @@ use std::{
     fmt,
     hash::{Hash, Hasher},
     path::PathBuf,
+    time::SystemTime,
 };
 
 use serde::{Deserialize, Serialize};
@@ -109,6 +110,9 @@ pub enum Authority {
         /// to install. This has to be specified because cargo needs the name of
         /// the crate to handle uninstallation.
         crate_name: String,
+
+        /// Represents the latest modification done inside this directory.
+        last_modification: Option<SystemTime>,
     },
     /// The authority for this tool/toolchain is a git repository.
     #[serde(untagged)]
