@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{io::Write, time::SystemTime};
 
 use anyhow::{bail, Context};
 
@@ -102,30 +102,42 @@ pub fn install(
             channel.clone()
         };
 
-        // If a component was installed with --branch, then write down the
-        // current commit. This is used on updates to check if any new commits
-        // were pushed since installation.
         for component in channel_to_save.components.iter_mut() {
-            if let Authority::Git {
-                repository_url,
-                crate_name,
-                // NOTE: latest_revision should be None when installing.
-                target: GitTarget::Branch { name, latest_revision: _ },
-            } = &component.version
-            {
-                // If, for whatever reason, we fail to find the latest hash, we
-                // simply leave it empty. That does mean that an update will be
-                // triggered even if the component does not need it.
-                let revision_hash = utils::find_latest_hash(repository_url, name).ok();
+            match &component.version {
+                // If a component was installed with --branch, then write down the
+                // current commit. This is used on updates to check if any new commits
+                // were pushed since installation.
+                Authority::Git {
+                    repository_url,
+                    crate_name,
+                    target: GitTarget::Branch { name, latest_revision: _ },
+                } => {
+                    // If, for whatever reason, we fail to find the latest hash, we
+                    // simply leave it empty. That does mean that an update will be
+                    // triggered even if the component does not need it.
+                    let revision_hash = utils::find_latest_hash(repository_url, name).ok();
 
-                component.version = Authority::Git {
-                    repository_url: repository_url.clone(),
-                    crate_name: crate_name.clone(),
-                    target: GitTarget::Branch {
-                        name: name.clone(),
-                        latest_revision: revision_hash,
-                    },
-                }
+                    component.version = Authority::Git {
+                        repository_url: repository_url.clone(),
+                        crate_name: crate_name.clone(),
+                        target: GitTarget::Branch {
+                            name: name.clone(),
+                            latest_revision: revision_hash,
+                        },
+                    };
+                },
+                // If a component was installed with --path, then write down the
+                // current time. This is used on updates to check if an update
+                // needs to be triggered.
+                Authority::Path { path, crate_name, last_modification: _ } => {
+                    let current_time = SystemTime::now();
+                    component.version = Authority::Path {
+                        path: path.clone(),
+                        crate_name: crate_name.clone(),
+                        last_modification: Some(current_time),
+                    }
+                },
+                _ => (),
             }
         }
 
