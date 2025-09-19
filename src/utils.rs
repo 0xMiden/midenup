@@ -1,4 +1,4 @@
-use std::{cmp::max, fs, path::PathBuf, time::SystemTime};
+use std::{fs, path::PathBuf, time::SystemTime};
 
 /// This file contains some general purpose functions.
 use anyhow::Context;
@@ -102,7 +102,7 @@ pub fn latest_modification(dir: PathBuf) -> anyhow::Result<(SystemTime, PathBuf)
     let directory_last_modification = dir
         .metadata()
         .and_then(|file| file.modified())
-        .and_then(|metadata| Ok((metadata, dir.clone())))
+        .map(|metadata| (metadata, dir.clone()))
         .ok();
 
     let (latest_found_modification, _) = traverse_directories(dir, directory_last_modification, 0);

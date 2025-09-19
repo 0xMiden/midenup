@@ -1,12 +1,12 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
+    Config, InstallationOptions,
     channel::{Channel, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
-    Config, InstallationOptions,
 };
 
 /// Updates installed toolchains
@@ -169,8 +169,8 @@ Would you like to update this component? (N/y/c)
                 },
             }
         }
-        // If the user doesn't want to update the current element, then we do not write said component to the install.rs file.
-        // we write the old component we replace
+        // If the user doesn't want to update the current element, then we do not write said
+        // component to the install.rs file. we write the old component we replace
         // the element from upstream_channel with the corresponding
         // local_channel
         if !update_new_element {
@@ -178,9 +178,8 @@ Would you like to update this component? (N/y/c)
             else {
                 // This can occur when the following occurs simultaneously:
                 // - A user doesn't want to uninstall a component and
-                // - Said component is not present in the upstream channel,
-                //   which means that the component got removed from the
-                //   toolchain entirely after the update.
+                // - Said component is not present in the upstream channel, which means that the
+                //   component got removed from the toolchain entirely after the update.
                 continue;
             };
 
