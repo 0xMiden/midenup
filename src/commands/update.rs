@@ -98,18 +98,14 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    // Depending on users input, we might be interested in changing the
-    // components that will be installed.
+    // Depending on users input, the channel that will be install might differt
+    // slighltly from the upstream channel.
     let mut channel_to_install = upstream_channel.clone();
 
     let components_to_delete = local_channel.components_to_update(&channel_to_install);
     if components_to_delete.is_empty() {
         return Ok(());
     }
-
-    // let (libraries, executables): (Vec<_>, Vec<_>) = components_to_delete
-    //     .iter()
-    //     .partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
 
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
@@ -118,13 +114,11 @@ fn update_channel(
         let mut update_new_element = true;
         if DEPENDENCIES.contains(&(component.name.as_ref())) {
             // Libraries
-
             let lib_path =
                 toolchain_dir.join("lib").join(component.name.as_ref()).with_extension("masp");
             libs_to_uninstall.push(lib_path);
         } else {
             // Executables
-
             match component.version {
                 Authority::Cargo { package, .. } => {
                     let package_name = package.unwrap_or(component.name.to_string());
@@ -175,23 +169,27 @@ Would you like to update this component? (N/y/c)
                 },
             }
         }
-        // If the user doesn't want to update the current element, we replace
+        // If the user doesn't want to update the current element, then we do not write said component to the install.rs file.
+        // we write the old component we replace
         // the element from upstream_channel with the corresponding
         // local_channel
         if !update_new_element {
-            let Some(component) = channel_to_install.get_component_mut(&component.name) else {
+            let Some(component_to_install) = channel_to_install.get_component_mut(&component.name)
+            else {
                 // This can occur when the following occurs simultaneously:
                 // - A user doesn't want to uninstall a component and
-                // - Said component is not present in the upstream channel, which means that the
-                //   component got removed from the toolchain entirely after the update.
+                // - Said component is not present in the upstream channel,
+                //   which means that the component got removed from the
+                //   toolchain entirely after the update.
                 continue;
             };
 
             // SAFETY: If the component is installed, it *must* be present on
             // the local_channel.
-            let local_component = local_channel.get_component(&component.name).cloned().unwrap();
+            let local_component =
+                local_channel.get_component(&component_to_install.name).cloned().unwrap();
 
-            *component = local_component;
+            *component_to_install = local_component;
         }
     }
 
