@@ -9,7 +9,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
@@ -261,9 +261,10 @@ mod tests {
     use std::path::Path;
 
     type LocalManifest = Manifest;
+    use function_name::named;
     use tempdir::TempDir;
 
-    use crate::{channel::*, manifest::*, *};
+    use crate::{channel::*, manifest::*, utils::symlink, *};
 
     /// Simple auxiliary function to setup a midneup directory environment in
     /// tests.
@@ -303,26 +304,32 @@ Error: {}",
     // NOTE: We save this variables in this struct because if they ever go out
     // of scope, the created directory get deleted.
     struct TestEnvironment {
-        midenup_dir: TempDir,
+        tmp_dir: TempDir,
+        midenup_dir: PathBuf,
         #[allow(dead_code)]
-        present_working_dir: TempDir,
+        present_working_dir: PathBuf,
     }
 
-    fn environment_setup() -> TestEnvironment {
-        let tmp_present_working_directory = tempdir::TempDir::new("midenup-test-working-directory")
+    fn environment_setup(test_name: &str) -> TestEnvironment {
+        let tmp_dir = tempdir::TempDir::new(&format!("midenup-{test_name}"))
             .expect("Couldn't create temp-dir");
-        std::env::set_current_dir(dbg!(tmp_present_working_directory.path())).unwrap_or_else(
-            |err| {
-                panic!(
-                    "Failed to switch to {}, because of {err}",
-                    tmp_present_working_directory.path().display()
-                )
-            },
-        );
-        let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
+
+        let tmp_present_working_directory = tmp_dir.path().join("midenup-test-working-directory");
+
+        let tmp_midenup_home = tmp_dir.path().join("midenup");
+
+        std::fs::create_dir(&tmp_present_working_directory).unwrap();
+
+        std::env::set_current_dir(&tmp_present_working_directory).unwrap_or_else(|err| {
+            panic!(
+                "Failed to switch to {}, because of {err}",
+                tmp_present_working_directory.display()
+            )
+        });
 
         TestEnvironment {
-            midenup_dir: tmp_home,
+            tmp_dir,
+            midenup_dir: tmp_midenup_home,
             present_working_dir: tmp_present_working_directory,
         }
     }
@@ -334,16 +341,17 @@ Error: {}",
             .collect::<String>()
     }
 
+    #[named]
     #[test]
     /// Integration test to check that installing and uninstalling works. Tries
     /// to install a toolchain under a [[UserChannel]] (via the `stable` alias)
     /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
-        let test_env = environment_setup();
+        let test_name = function_name!();
+        let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
+        let midenup_home = tmp_home.join("midenup");
 
         const FILE: &str = full_path_manifest!(
             "tests/data/integration_install_uninstall_test/channel-manifest.json"
@@ -444,16 +452,17 @@ Error: {}",
             .eq(installed_toolchains);
     }
 
+    #[named]
     #[test]
     /// Checks that the `miden` utility is able to recognize when the currently
     /// active toolchain is not installed, and then installing it before
     /// executing the passed in command.
     fn integration_miden_test() {
-        let test_env = environment_setup();
+        let test_name = function_name!();
+        let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
+        let midenup_home = tmp_home.join("midenup");
 
         // SIDENOTE: This tests uses a toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a "real" toolchain.
@@ -556,14 +565,15 @@ Error: {}",
             .eq(installed_toolchains);
     }
 
+    #[named]
     #[test]
     /// This tests checks that midenup's update behavior works correctly
     fn integration_update_test() {
-        let test_env = environment_setup();
+        let test_name = function_name!();
+        let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
+        let midenup_home = tmp_home.join("midenup");
 
         // SIDENOTE: This test uses toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a toolchain meant to
@@ -676,16 +686,17 @@ Error: {}",
         assert_eq!(stable_toolchain, newest_toolchain);
     }
 
+    #[named]
     #[test]
     /// Tries to install the "stable" toolchain from the present manifest. This
     /// differs from the test present in the .github directory which tries to
     /// install the stable toolchain from published manifest.
     fn integration_install_stable() {
-        let test_env = environment_setup();
+        let test_name = function_name!();
+        let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
+        let midenup_home = tmp_home.join("midenup");
 
         const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
 
@@ -726,19 +737,20 @@ Error: {}",
             &ChannelAlias::Stable
         );
 
-        tmp_home.close().expect("Couldn't delete tmp midenup home directory");
+        // tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
+    #[named]
     #[test]
     #[should_panic]
     /// This 'midenc' component present in this manifest is lacking its required
     /// 'rustup_channel" and thus installation should fail.
     fn midenup_catches_installation_failure() {
-        let test_env = environment_setup();
+        let test_name = function_name!();
+        let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
-        let tmp_home_path = tmp_home.path();
-        let midenup_home = tmp_home_path.join("midenup");
+        let midenup_home = tmp_home.join("midenup");
 
         const FILE_PRE_UPDATE: &str = full_path_manifest!(
             "tests/data/unit_test_manifest_additional/manifest-uncompilable-midenc.json"

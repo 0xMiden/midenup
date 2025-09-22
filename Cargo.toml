@@ -27,6 +27,7 @@ colored = "3.0.0"
 
 [dev-dependencies]
 tempdir = "0.3.7"
+function_name = "0.3.0"
 
 [profile.release]
 opt-level = 2
