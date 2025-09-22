@@ -429,7 +429,6 @@ fn main() {
                 Authority::Path { path, .. } => {
                     args.push("--path".to_string());
                     args.push(path.display().to_string());
-                    args.push("--locked".to_string());
                 },
             }
 

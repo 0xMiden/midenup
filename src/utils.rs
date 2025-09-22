@@ -118,12 +118,13 @@ mod tests {
     use super::latest_modification;
 
     #[test]
+    /// Verifies that the function correctly recognizes the latest file modification.
     fn latest_modification_test() {
         let result =
             latest_modification("/Users/fabri/Repositories/miden-compiler-lambda-fork".into());
-        let date: DateTime<Local> = result.unwrap().clone().into();
+        // let date: DateTime<Local> = result.unwrap().clone().into();
 
         // std::dbg!(result.as_ref());
-        std::dbg!(date);
+        // std::dbg!(date);
     }
 }

@@ -742,6 +742,75 @@ Error: {}",
 
     #[named]
     #[test]
+    /// Validates that midenup manages to install components with [[Authority]]s
+    /// different than [[Authority::Cargo]]. Besides installing these components,
+    /// we verify that midenup manages to update them when needed.
+    fn integration_install_from_non_cargo() {
+        let test_name = function_name!();
+        let test_env = environment_setup(test_name);
+
+        {
+            let miden_vm_repo = "git@github.com:0xMiden/miden-vm.git";
+
+            let path = test_env.present_working_dir.join("miden_vm");
+            std::fs::create_dir(&path).unwrap();
+            std::process::Command::new("git")
+                .args(["-C", path.to_str().unwrap()])
+                .arg("init")
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap();
+            std::process::Command::new("git")
+                .args(["-C", path.to_str().unwrap()])
+                .args(["remote", "add", "origin", miden_vm_repo])
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap();
+            // Commit corresponding to release number 0.16.4 of the miden-vm
+            // See https://github.com/0xMiden/miden-vm/releases/tag/v0.16.4
+            let vm_release_16 = "fc368686bd1e6e171a51a1a5b365ef5400e4b8d5";
+            std::process::Command::new("git")
+                .args(["-C", path.to_str().unwrap()])
+                .args(["fetch", "origin", "--depth=1"])
+                .arg(vm_release_16)
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap();
+            std::process::Command::new("git")
+                .args(["-C", path.to_str().unwrap()])
+                .args(["reset", "--hard", "FETCH_HEAD"])
+                .spawn()
+                .unwrap()
+                .wait()
+                .unwrap();
+        };
+        let midenup_home = test_env.midenup_dir;
+
+        let manifest: &str = full_path_manifest!(
+            "tests/data/integration_install_from_non_cargo/channel-manifest.json"
+        );
+        let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
+
+        // We install stable
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        std::println!("Updating the toolchain");
+        command.execute(&config, &mut local_manifest).expect("Failed to update");
+    }
+
+    #[named]
+    #[test]
     #[should_panic]
     /// This 'midenc' component present in this manifest is lacking its required
     /// 'rustup_channel" and thus installation should fail.
