@@ -53,13 +53,7 @@ midenup install stable
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got removed."
                 ))?;
 
-            update_channel(
-                config,
-                &local_channel,
-                upstream_channel,
-                local_manifest,
-                &((*options).into()),
-            )?
+            update_channel(config, &local_channel, upstream_channel, local_manifest, options)?
         },
         None => {
             // Update all toolchains
@@ -137,48 +131,60 @@ fn update_channel(
                 // irreversible and potentially irreproducible, we take special
                 // precautions before uninstalling.
                 Authority::Path { path, crate_name, .. } => {
+                    #[allow(clippy::nonminimal_bool)]
                     if !path_warning_displayed {
                         println!(
-                            "{}: This toolchain contains elements installed from a path in the filesystem.",
+                            "{}: The following elements are installed from a specific path in the filesystem.",
                             "WARNING".yellow().bold(),
                         );
+                        if !(options.update_path_components || options.interactive) {
+                            println!(
+                                "
+To make midenup update them all, pass the '--update-path-components' flag to `midenup update`.
+Alternatively, pass the '--interactive' flag to select which path-managed components to update.",
+                            );
+                        }
                         path_warning_displayed = true;
                     }
 
-                    println!(
-                        "\
-- {} is installed from {}.
-Would you like to update this component? (N/y/c)
+                    println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
+
+                    if options.interactive {
+                        println!(
+                            "Would you like to update this component? (N/y/c)
    - N: no, skip this component
    - y: yes, update this component
-   - c: cancel the update all-together (no changes will be applied)",
-                        crate_name.bold(),
-                        path.display(),
-                    );
-                    let mut input = String::new();
-                    std::io::stdin().read_line(&mut input).context("Failed to read input")?;
-                    let input = input.trim().to_ascii_lowercase();
-                    match input.as_str() {
-                        "y" => {
-                            println!("Updating {crate_name}");
-                            exes_to_uninstall.push(crate_name);
-                        },
-                        "c" => {
-                            println!("Cancelling update, no changes will be applied.");
-                            return Ok(());
-                        },
-                        _ => {
-                            println!("Skipping {crate_name}, it will not be updated");
-                            update_new_element = false;
-                        },
+   - c: cancel the update all-together (no changes will be applied)"
+                        );
+
+                        let mut input = String::new();
+                        std::io::stdin().read_line(&mut input).context("Failed to read input")?;
+                        let input = input.trim().to_ascii_lowercase();
+                        match input.as_str() {
+                            "y" => {
+                                println!("Updating {crate_name}");
+                                exes_to_uninstall.push(crate_name);
+                            },
+                            "c" => {
+                                println!("Cancelling update, no changes will be applied.");
+                                return Ok(());
+                            },
+                            _ => {
+                                println!("Skipping {crate_name}, it will not be updated");
+                                update_new_element = false;
+                            },
+                        }
+                    } else if options.update_path_components {
+                        exes_to_uninstall.push(crate_name);
+                    } else {
+                        update_new_element = false;
                     }
                 },
             }
         }
-        // If the user doesn't want to update the current element, then we do not write said
-        // component to the install.rs file. we write the old component we replace
-        // the element from upstream_channel with the corresponding
-        // local_channel
+        // If midenup is not to update the current component (such as in the
+        // case of components installed from a specific [[Authority::Path]]), then we write the
+        // previous component the install.rs file.
         if !update_new_element {
             let Some(component_to_install) = channel_to_install.get_component_mut(&component.name)
             else {
