@@ -1,12 +1,12 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 
 use crate::{
-    Config, InstallationOptions,
     channel::{Channel, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
+    Config, UpdateOptions,
 };
 
 /// Updates installed toolchains
@@ -14,7 +14,7 @@ pub fn update(
     config: &Config,
     channel_type: Option<&UserChannel>,
     local_manifest: &mut Manifest,
-    options: &InstallationOptions,
+    options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     match channel_type {
         Some(UserChannel::Stable) => {
@@ -33,7 +33,7 @@ midenup install stable
 
             // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {
-                commands::install(config, upstream_stable, local_manifest, options)?
+                commands::install(config, upstream_stable, local_manifest, &((*options).into()))?
             } else {
                 println!("Nothing to update, you are all up to date");
             }
@@ -53,7 +53,13 @@ midenup install stable
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got removed."
                 ))?;
 
-            update_channel(config, &local_channel, upstream_channel, local_manifest, options)?
+            update_channel(
+                config,
+                &local_channel,
+                upstream_channel,
+                local_manifest,
+                &((*options).into()),
+            )?
         },
         None => {
             // Update all toolchains
@@ -93,7 +99,7 @@ fn update_channel(
     local_channel: &Channel,
     upstream_channel: &Channel,
     local_manifest: &mut Manifest,
-    options: &InstallationOptions,
+    options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
@@ -217,7 +223,7 @@ Would you like to update this component? (N/y/c)
             uninstall_executable(exe, &toolchain_dir)?;
         }
 
-        commands::install(config, &channel_to_install, local_manifest, options)?;
+        commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
     }
     Ok(())
 }

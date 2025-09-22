@@ -43,7 +43,7 @@ enum Behavior {
 }
 
 /// Optional settings to pass to the installation function.
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone, Copy)]
 struct InstallationOptions {
     #[clap(long, short, default_value = "false")]
     /// Displays the entirety of cargo's output when performing installations.
@@ -54,6 +54,43 @@ struct InstallationOptions {
 impl Default for InstallationOptions {
     fn default() -> Self {
         Self { verbose: false }
+    }
+}
+
+/// Optional settings to pass to the installation function.
+#[derive(Debug, Parser, Clone, Copy)]
+struct UpdateOptions {
+    #[clap(long, short, default_value = "false")]
+    /// Displays the entirety of cargo's output when performing installations.
+    verbose: bool,
+
+    #[clap(long, short, default_value = "false")]
+    /// Instruct midenup to update components installed from a Path, by default these are skipped.
+    update_path_components: bool,
+}
+
+#[allow(clippy::derivable_impls)]
+impl Default for UpdateOptions {
+    fn default() -> Self {
+        Self {
+            verbose: false,
+            update_path_components: false,
+        }
+    }
+}
+
+impl From<InstallationOptions> for UpdateOptions {
+    fn from(value: InstallationOptions) -> Self {
+        UpdateOptions {
+            verbose: value.verbose,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<UpdateOptions> for InstallationOptions {
+    fn from(value: UpdateOptions) -> Self {
+        InstallationOptions { verbose: value.verbose }
     }
 }
 
@@ -112,7 +149,7 @@ enum Commands {
         channel: Option<UserChannel>,
 
         #[clap(flatten)]
-        options: InstallationOptions,
+        options: UpdateOptions,
     },
 }
 
