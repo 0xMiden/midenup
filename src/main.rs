@@ -798,7 +798,7 @@ Error: {}",
 
         let miden_vm_clone_path = test_env.present_working_dir.join("miden_vm");
         {
-            let miden_vm_repo = "git@github.com:0xMiden/miden-vm.git";
+            let miden_vm_repo = "https://github.com/0xMiden/miden-vm.git";
             // Commit corresponding to release number 0.16.4 of the miden-vm
             // See https://github.com/0xMiden/miden-vm/releases/tag/v0.16.4
             let vm_release_16 = "fc368686bd1e6e171a51a1a5b365ef5400e4b8d5";
