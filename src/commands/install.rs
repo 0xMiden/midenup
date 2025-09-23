@@ -126,10 +126,11 @@ pub fn install(
                         },
                     };
                 },
-                // If a component was installed with --path, then write down the
-                // current time. This is used on updates to check if an update
-                // needs to be triggered.
                 Authority::Path { path, crate_name, last_modification: _ } => {
+                    // If a component was installed with --path, then write down
+                    // the latest modification time found inside the directory
+                    // (or the current time as a fallback). This is used on
+                    // updates to check if anything changed.
                     let latest_time = utils::fs::latest_modification(path)
                         .ok()
                         .map(|(latest_modification, _)| latest_modification)

@@ -465,18 +465,20 @@ impl Component {
                     });
 
                 // last_modification_b should almost always be None, since the
-                // latest modification time is always checked on
-                // demand. However, if for whatever reason, the manifest
-                // contains a latest modification time, we honor it.
+                // latest modification time is checked on demand. However, if
+                // for whatever reason, the manifest contains a latest
+                // modification time, we honor it.
                 let new_latest = last_modification_b.or(latest_registered_modification);
 
                 match (local_latest, new_latest) {
                     (Some(local_latest), Some(new_latest)) => {
                         return new_latest <= *local_latest;
                     },
-                    // If anything failed, we simply issue a re-install. This
-                    // shouldn't cause problems since we ask for confirmation
-                    // before re-installing from path.
+                    // If anything failed, we simply mark the component as
+                    // needing an update.
+                    // The idea being that components installed from a path are
+                    // skipped during updates by default and are only updated if
+                    // the user explicitly passes the necessary flags.
                     _ => return false,
                 }
             },

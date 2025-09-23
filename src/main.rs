@@ -42,7 +42,7 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
-/// Optional settings to pass to the installation function.
+/// Optional installation settings.
 #[derive(Debug, Parser, Clone, Copy)]
 struct InstallationOptions {
     #[clap(long, short, default_value = "false")]
@@ -57,7 +57,7 @@ impl Default for InstallationOptions {
     }
 }
 
-/// Optional settings to pass to the installation function.
+/// Optional update settings.
 #[derive(Debug, Parser, Clone, Copy)]
 struct UpdateOptions {
     #[clap(long, short, default_value = "false")]
@@ -65,7 +65,7 @@ struct UpdateOptions {
     verbose: bool,
 
     #[clap(long, short, default_value = "false", conflicts_with = "interactive")]
-    /// Instruct midenup to update components installed from a Path, by default these are skipped.
+    /// Instruct midenup to update components installed from a Path.
     update_path_components: bool,
 
     #[clap(long, short, default_value = "false", conflicts_with = "update_path_components")]
