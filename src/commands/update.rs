@@ -1,12 +1,12 @@
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 
 use crate::{
-    Config, UpdateOptions,
-    channel::{Channel, UserChannel},
+    channel::{Channel, Component, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
+    Config, UpdateOptions,
 };
 
 /// Updates installed toolchains
@@ -88,6 +88,11 @@ midenup install stable
 /// consists of:
 /// - Uninstalls components (via cargo uninstall).
 /// - Removes the installation indicator file.
+///
+/// The channel that is finally installed might differ slighltly from the
+/// upstream channel in the following scenarios:
+/// - A component is explicitely not updated. In that the case, the "old"
+///   component will be written to the install.rs file to ensure consistency.
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
@@ -98,8 +103,6 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    // Depending on users input, the channel that will be install might differt
-    // slighltly from the upstream channel.
     let mut channel_to_install = upstream_channel.clone();
 
     let components_to_delete = local_channel.components_to_update(&channel_to_install);
@@ -111,7 +114,6 @@ fn update_channel(
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
     for component in components_to_delete {
-        let mut update_new_element = true;
         if DEPENDENCIES.contains(&(component.name.as_ref())) {
             // Libraries
             let lib_path =
@@ -119,14 +121,12 @@ fn update_channel(
             libs_to_uninstall.push(lib_path);
         } else {
             // Executables
-            match component.version {
+            let executable_to_update: Option<String> = match component.version {
                 Authority::Cargo { package, .. } => {
                     let package_name = package.unwrap_or(component.name.to_string());
-                    exes_to_uninstall.push(package_name);
+                    Some(package_name)
                 },
-                Authority::Git { crate_name, .. } => {
-                    exes_to_uninstall.push(crate_name);
-                },
+                Authority::Git { crate_name, .. } => Some(crate_name),
                 // Since uninstalling a component from the filesystem is
                 // irreversible and potentially irreproducible, we take special
                 // precautions before uninstalling.
@@ -163,7 +163,7 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
                         match input.as_str() {
                             "y" => {
                                 println!("Updating {crate_name}");
-                                exes_to_uninstall.push(crate_name);
+                                Some(crate_name)
                             },
                             "c" => {
                                 println!("Cancelling update, no changes will be applied.");
@@ -171,36 +171,38 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
                             },
                             _ => {
                                 println!("Skipping {crate_name}, it will not be updated");
-                                update_new_element = false;
+                                None
                             },
                         }
                     } else if options.update_path_components {
-                        exes_to_uninstall.push(crate_name);
+                        Some(crate_name)
                     } else {
-                        update_new_element = false;
+                        None
                     }
                 },
-            }
-        }
-        // If midenup is not to update the current component (such as in the
-        // case of components installed from a specific [[Authority::Path]]), then we write the
-        // previous component the install.rs file.
-        if !update_new_element {
-            let Some(component_to_install) = channel_to_install.get_component_mut(&component.name)
-            else {
-                // This can occur when the following occurs simultaneously:
-                // - A user doesn't want to uninstall a component and
-                // - Said component is not present in the upstream channel, which means that the
-                //   component got removed from the toolchain entirely after the update.
-                continue;
             };
 
-            // SAFETY: If the component is installed, it *must* be present on
-            // the local_channel.
-            let local_component =
-                local_channel.get_component(&component_to_install.name).cloned().unwrap();
+            if let Some(executable_name) = executable_to_update {
+                exes_to_uninstall.push(executable_name);
+            } else {
+                let Some(component_to_install) =
+                    channel_to_install.get_component_mut(&component.name)
+                else {
+                    // This else case casn occur when:
+                    // - A user doesn't want to uninstall a component and
+                    // - Said component is not present in the upstream channel,
+                    //   which means that the component got removed from the
+                    //   toolchain entirely after the update.
+                    continue;
+                };
 
-            *component_to_install = local_component;
+                // SAFETY: If the component is installed, it *must* be present on
+                // the local_channel.
+                let local_component =
+                    local_channel.get_component(&component_to_install.name).unwrap();
+
+                *component_to_install = local_component.clone();
+            }
         }
     }
 
@@ -233,3 +235,5 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
     }
     Ok(())
 }
+
+fn handle_path_uninstall() {}
