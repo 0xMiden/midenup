@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use anyhow::{bail, Context};
 use colored::Colorize;
 
@@ -91,8 +93,8 @@ midenup install stable
 ///
 /// The channel that is finally installed might differ slighltly from the
 /// upstream channel in the following scenarios:
-/// - A component is explicitely not updated. In that the case, the "old"
-///   component will be written to the install.rs file to ensure consistency.
+/// - A component is explicitely not updated. In that the case, the "old" component will be written
+///   to the install.rs file to ensure consistency.
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
@@ -121,17 +123,16 @@ fn update_channel(
             libs_to_uninstall.push(lib_path);
         } else {
             // Executables
-            let executable_to_update: Option<String> = match component.version {
+            let executable_to_uninstall: Option<String> = match component.version {
                 Authority::Cargo { package, .. } => {
                     let package_name = package.unwrap_or(component.name.to_string());
                     Some(package_name)
                 },
                 Authority::Git { crate_name, .. } => Some(crate_name),
                 // Since uninstalling a component from the filesystem is
-                // irreversible and potentially irreproducible, we take special
-                // precautions before uninstalling.
+                // potentially irreversible, we take special precautions before
+                // uninstalling these.
                 Authority::Path { path, crate_name, .. } => {
-                    #[allow(clippy::nonminimal_bool)]
                     if !path_warning_displayed {
                         println!(
                             "{}: The following elements are installed from a specific path in the filesystem.",
@@ -150,29 +151,9 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
                     println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
 
                     if options.interactive {
-                        println!(
-                            "Would you like to update this component? (N/y/c)
-   - N: no, skip this component
-   - y: yes, update this component
-   - c: cancel the update all-together (no changes will be applied)"
-                        );
-
-                        let mut input = String::new();
-                        std::io::stdin().read_line(&mut input).context("Failed to read input")?;
-                        let input = input.trim().to_ascii_lowercase();
-                        match input.as_str() {
-                            "y" => {
-                                println!("Updating {crate_name}");
-                                Some(crate_name)
-                            },
-                            "c" => {
-                                println!("Cancelling update, no changes will be applied.");
-                                return Ok(());
-                            },
-                            _ => {
-                                println!("Skipping {crate_name}, it will not be updated");
-                                None
-                            },
+                        match handle_path_uninstall_interactive(crate_name)? {
+                            InteractiveResult::Cancel => return Ok(()),
+                            InteractiveResult::ComponentUpdate(update_decision) => update_decision,
                         }
                     } else if options.update_path_components {
                         Some(crate_name)
@@ -182,17 +163,17 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
                 },
             };
 
-            if let Some(executable_name) = executable_to_update {
+            if let Some(executable_name) = executable_to_uninstall {
                 exes_to_uninstall.push(executable_name);
             } else {
+                // Case where the user wants to skip component update
                 let Some(component_to_install) =
                     channel_to_install.get_component_mut(&component.name)
                 else {
                     // This else case casn occur when:
                     // - A user doesn't want to uninstall a component and
-                    // - Said component is not present in the upstream channel,
-                    //   which means that the component got removed from the
-                    //   toolchain entirely after the update.
+                    // - Said component is not present in the upstream channel, which means that the
+                    //   component got removed from the toolchain entirely after the update.
                     continue;
                 };
 
@@ -236,4 +217,36 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
     Ok(())
 }
 
-fn handle_path_uninstall() {}
+enum InteractiveResult {
+    /// Cancel the update all together. Useful for potential miss-clicks.
+    Cancel,
+
+    /// Wether to update the component or not.
+    ComponentUpdate(Option<String>),
+}
+fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<InteractiveResult> {
+    println!(
+        "Would you like to update this component? (N/y/c)
+   - N: no, skip this component
+   - y: yes, update this component
+   - c: cancel the update all-together (no changes will be applied)"
+    );
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input).context("Failed to read input")?;
+    let input = input.trim().to_ascii_lowercase();
+    match input.as_str() {
+        "y" => {
+            println!("Updating {crate_name}");
+            Ok(InteractiveResult::ComponentUpdate(Some(crate_name)))
+        },
+        "c" => {
+            println!("Cancelling update, no changes will be applied.");
+            Ok(InteractiveResult::Cancel)
+        },
+        _ => {
+            println!("Skipping {crate_name}, it will not be updated");
+            Ok(InteractiveResult::ComponentUpdate(None))
+        },
+    }
+}
