@@ -303,7 +303,6 @@ mod tests {
     use std::{fs::OpenOptions, path::Path};
 
     type LocalManifest = Manifest;
-    use function_name::named;
     use tempdir::TempDir;
 
     use crate::{
@@ -388,13 +387,12 @@ Error: {}",
             .collect::<String>()
     }
 
-    #[named]
     #[test]
     /// Integration test to check that installing and uninstalling works. Tries
     /// to install a toolchain under a [[UserChannel]] (via the `stable` alias)
     /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
-        let test_name = function_name!();
+        let test_name = "integration_install_uninstall_test";
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
@@ -499,13 +497,12 @@ Error: {}",
             .eq(installed_toolchains);
     }
 
-    #[named]
     #[test]
     /// Checks that the `miden` utility is able to recognize when the currently
     /// active toolchain is not installed, and then installing it before
     /// executing the passed in command.
     fn integration_miden_test() {
-        let test_name = function_name!();
+        let test_name = "integration_miden_test";
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
@@ -612,11 +609,10 @@ Error: {}",
             .eq(installed_toolchains);
     }
 
-    #[named]
     #[test]
     /// This tests checks that midenup's update behavior works correctly
     fn integration_update_test() {
-        let test_name = function_name!();
+        let test_name = "integration_update_test";
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
@@ -733,13 +729,12 @@ Error: {}",
         assert_eq!(stable_toolchain, newest_toolchain);
     }
 
-    #[named]
     #[test]
     /// Tries to install the "stable" toolchain from the present manifest. This
     /// differs from the test present in the .github directory which tries to
     /// install the stable toolchain from published manifest.
     fn integration_install_stable() {
-        let test_name = function_name!();
+        let test_name = "integration_install_stable";
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
@@ -787,13 +782,12 @@ Error: {}",
         // tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
-    #[named]
     #[test]
     /// Validates that midenup manages to install components with [[Authority]]s
     /// different than [[Authority::Cargo]]. Besides installing these components,
     /// we verify that midenup manages to update them when needed.
     fn integration_install_from_non_cargo() {
-        let test_name = function_name!();
+        let test_name = "integration_install_from_non_cargo";
         let test_env = environment_setup(test_name);
 
         let miden_vm_clone_path = test_env.present_working_dir.join("miden_vm");
@@ -935,13 +929,12 @@ Error: {}",
         assert_ne!(new_revision, hash_when_installed);
     }
 
-    #[named]
     #[test]
     #[should_panic]
     /// This 'midenc' component present in this manifest is lacking its required
     /// 'rustup_channel" and thus installation should fail.
     fn midenup_catches_installation_failure() {
-        let test_name = function_name!();
+        let test_name = "midenup_catches_installation_failure";
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
