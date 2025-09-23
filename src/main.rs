@@ -10,7 +10,7 @@ mod version;
 use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
+use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 pub use self::config::Config;
 use self::{
@@ -64,13 +64,17 @@ struct UpdateOptions {
     /// Displays the entirety of cargo's output when performing installations.
     verbose: bool,
 
-    #[clap(long, short, default_value = "false", conflicts_with = "interactive")]
-    /// Instruct midenup to update components installed from a Path.
-    update_path_components: bool,
+    /// Determines how midenup will handle updates for components installed from a path
+    #[clap(value_enum, short, long, default_value = "off")]
+    path_update: PathUpdate,
+}
 
-    #[clap(long, short, default_value = "false", conflicts_with = "update_path_components")]
-    /// Interactively choose which components installed from a Path to update.
-    interactive: bool,
+#[derive(Default, Debug, Parser, Clone, Copy, ValueEnum)]
+enum PathUpdate {
+    #[default]
+    Off,
+    All,
+    Interactive,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -78,8 +82,7 @@ impl Default for UpdateOptions {
     fn default() -> Self {
         Self {
             verbose: false,
-            update_path_components: false,
-            interactive: false,
+            path_update: PathUpdate::default(),
         }
     }
 }
@@ -893,8 +896,7 @@ Error: {}",
                 .unwrap();
         }
 
-        let command =
-            Midenup::try_parse_from(["midenup", "update", "--update-path-components"]).unwrap();
+        let command = Midenup::try_parse_from(["midenup", "update", "--path-update=all"]).unwrap();
         let Behavior::Midenup { command, .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };

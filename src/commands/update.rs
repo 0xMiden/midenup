@@ -2,7 +2,7 @@ use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
-    Config, UpdateOptions,
+    Config, PathUpdate, UpdateOptions,
     channel::{Channel, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
@@ -129,18 +129,18 @@ fn update_channel(
                 Authority::Git { crate_name, .. } => Some(crate_name),
                 // Since uninstalling a component from the filesystem is
                 // potentially irreversible, we take special precautions before
-                // uninstalling these.
+                // uninstalling them.
                 Authority::Path { path, crate_name, .. } => {
                     if !path_warning_displayed {
                         println!(
                             "{}: The following elements are installed from a specific path in the filesystem.",
                             "WARNING".yellow().bold(),
                         );
-                        if !(options.update_path_components || options.interactive) {
+                        if matches!(options.path_update, PathUpdate::Off) {
                             println!(
                                 "
-To make midenup update them all, pass the '--update-path-components' flag to `midenup update`.
-Alternatively, pass the '--interactive' flag to select which path-managed components to update.",
+To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
+Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
                             );
                         }
                         path_warning_displayed = true;
@@ -148,15 +148,17 @@ Alternatively, pass the '--interactive' flag to select which path-managed compon
 
                     println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
 
-                    if options.interactive {
-                        match handle_path_uninstall_interactive(crate_name)? {
-                            InteractiveResult::Cancel => return Ok(()),
-                            InteractiveResult::ComponentUpdate(update_decision) => update_decision,
-                        }
-                    } else if options.update_path_components {
-                        Some(crate_name)
-                    } else {
-                        None
+                    match options.path_update {
+                        PathUpdate::Interactive => {
+                            match handle_path_uninstall_interactive(crate_name)? {
+                                InteractiveResult::Cancel => return Ok(()),
+                                InteractiveResult::ComponentUpdate(update_decision) => {
+                                    update_decision
+                                },
+                            }
+                        },
+                        PathUpdate::All => Some(crate_name),
+                        PathUpdate::Off => None,
                     }
                 },
             };
