@@ -7,7 +7,7 @@ use crate::{
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
-    utils,
+    utils::{self, latest_modification},
     version::{Authority, GitTarget},
 };
 

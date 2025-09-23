@@ -40,6 +40,8 @@ pub fn find_latest_hash(repository_url: &str, branch_name: &str) -> anyhow::Resu
     Ok(revision_hash)
 }
 
+// Used in tests
+#[allow(dead_code)]
 pub fn clone_specific_revision(
     repository_url: &str,
     revision: &str,
@@ -96,7 +98,7 @@ pub fn latest_modification(dir: &PathBuf) -> anyhow::Result<(SystemTime, PathBuf
         let mut local_latest = latest;
         let mut current_entry_count = current_entry;
 
-        let entries = fs::read_dir(&dir);
+        let entries = fs::read_dir(dir);
         if let Ok(entries) = entries {
             for file in entries {
                 let Ok(file) = file else {
@@ -150,22 +152,4 @@ pub fn latest_modification(dir: &PathBuf) -> anyhow::Result<(SystemTime, PathBuf
 
     // This should only be an error if every single metadata read failed, which should be unlikely.
     latest_found_modification.context("Failed to read any file")
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::{DateTime, Local};
-
-    use super::latest_modification;
-
-    #[test]
-    /// Verifies that the function correctly recognizes the latest file modification.
-    fn latest_modification_test() {
-        let result =
-            latest_modification("/Users/fabri/Repositories/miden-compiler-lambda-fork".into());
-        // let date: DateTime<Local> = result.unwrap().clone().into();
-
-        // std::dbg!(result.as_ref());
-        // std::dbg!(date);
-    }
 }

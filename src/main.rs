@@ -9,7 +9,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 
 pub use self::config::Config;
@@ -309,7 +309,6 @@ mod tests {
     use crate::{
         channel::*,
         manifest::*,
-        utils::symlink,
         version::{Authority, GitTarget},
         *,
     };
@@ -352,9 +351,9 @@ Error: {}",
     // NOTE: We save this variables in this struct because if they ever go out
     // of scope, the created directory get deleted.
     struct TestEnvironment {
+        #[allow(dead_code)]
         tmp_dir: TempDir,
         midenup_dir: PathBuf,
-        #[allow(dead_code)]
         present_working_dir: PathBuf,
     }
 

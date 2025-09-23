@@ -1,12 +1,12 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
+    Config, UpdateOptions,
     channel::{Channel, UserChannel},
     commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
-    Config, UpdateOptions,
 };
 
 /// Updates installed toolchains
