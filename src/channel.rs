@@ -460,10 +460,11 @@ impl Component {
                 let local_latest = last_modification_a;
 
                 let latest_registered_modification =
-                    latest_modification(path_b.into()).ok().map(|modification| {
+                    latest_modification(path_b).ok().map(|modification| {
                         // std::dbg!(&modification.1);
                         modification.0
                     });
+
                 // last_modification_b should almost always be None, since the
                 // latest modification time is always checked on
                 // demand. However, if for whatever reason, the manifest
@@ -472,7 +473,7 @@ impl Component {
 
                 match (local_latest, new_latest) {
                     (Some(local_latest), Some(new_latest)) => {
-                        return *local_latest < new_latest;
+                        return new_latest <= *local_latest;
                     },
                     // If anything failed, we simply issue a re-install. This
                     // shouldn't cause problems since we ask for confirmation

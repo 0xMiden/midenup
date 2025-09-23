@@ -130,11 +130,14 @@ pub fn install(
                 // current time. This is used on updates to check if an update
                 // needs to be triggered.
                 Authority::Path { path, crate_name, last_modification: _ } => {
-                    let current_time = SystemTime::now();
+                    let latest_time = latest_modification(path)
+                        .ok()
+                        .map(|(latest_modification, _)| latest_modification)
+                        .unwrap_or(SystemTime::now());
                     component.version = Authority::Path {
                         path: path.clone(),
                         crate_name: crate_name.clone(),
-                        last_modification: Some(current_time),
+                        last_modification: Some(latest_time),
                     }
                 },
                 _ => (),

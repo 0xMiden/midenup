@@ -40,15 +40,56 @@ pub fn find_latest_hash(repository_url: &str, branch_name: &str) -> anyhow::Resu
     Ok(revision_hash)
 }
 
+pub fn clone_specific_revision(
+    repository_url: &str,
+    revision: &str,
+    dir: &PathBuf,
+) -> anyhow::Result<()> {
+    std::fs::create_dir(dir).with_context(|| format!("{} already exists", dir.display()))?;
+
+    std::process::Command::new("git")
+        .args(["-C", dir.to_str().unwrap()])
+        .arg("init")
+        .stderr(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .context("Failed to spawn shell for git command")?
+        .wait()
+        .context("Failed to run git init command")?;
+    std::process::Command::new("git")
+        .args(["-C", dir.to_str().unwrap()])
+        .args(["remote", "add", "origin", repository_url])
+        .spawn()
+        .context("Failed to spawn shell for git command")?
+        .wait()
+        .with_context(|| format!("Failed to set {repository_url} as remote"))?;
+    std::process::Command::new("git")
+        .args(["-C", dir.to_str().unwrap()])
+        .args(["fetch", "origin", "--depth=1"])
+        .arg(revision)
+        .spawn()
+        .context("Failed to spawn shell for git command")?
+        .wait()
+        .with_context(|| format!("Failed fetch {revision} from {repository_url}"))?;
+    std::process::Command::new("git")
+        .args(["-C", dir.to_str().unwrap()])
+        .args(["reset", "--hard", "FETCH_HEAD"])
+        .spawn()
+        .context("Failed to spawn shell for git command")?
+        .wait()
+        .with_context(|| format!("Failed to reset {} to {revision}", dir.display()))?;
+    Ok(())
+}
+
 /// Returns the latest registered modification time inside a directory,
 /// including its subdirectories. This is intended as a "best effort"
 /// aproximation, if it encounters any errors while reading an entry, it simply
 /// skips it. Additionally, as a safety net, the [[ENTRY_LIMIT]] sets an upper
 /// bound on the number of entries the function can check before returning.
 const ENTRY_LIMIT: u32 = u32::MAX;
-pub fn latest_modification(dir: PathBuf) -> anyhow::Result<(SystemTime, PathBuf)> {
+pub fn latest_modification(dir: &PathBuf) -> anyhow::Result<(SystemTime, PathBuf)> {
     fn traverse_directories(
-        dir: PathBuf,
+        dir: &PathBuf,
         latest: Option<(SystemTime, PathBuf)>,
         current_entry: u32,
     ) -> (Option<(SystemTime, PathBuf)>, u32) {
@@ -72,7 +113,7 @@ pub fn latest_modification(dir: PathBuf) -> anyhow::Result<(SystemTime, PathBuf)
                 let (current_entry_latest, visited_entries) =
                     // We avoid symlinks to directories to avoid infinite loops.
                     if metadata.is_dir() && !metadata.is_symlink() {
-                        traverse_directories(file.path(), local_latest.clone(), current_entry_count)
+                        traverse_directories(&file.path(), local_latest.clone(), current_entry_count)
                     } else {
                         (metadata.modified().ok().map(|metadata| (metadata, file.path())), current_entry_count + 1)
                     };
