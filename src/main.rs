@@ -802,7 +802,7 @@ Error: {}",
             // Commit corresponding to release number 0.16.4 of the miden-vm
             // See https://github.com/0xMiden/miden-vm/releases/tag/v0.16.4
             let vm_release_16 = "fc368686bd1e6e171a51a1a5b365ef5400e4b8d5";
-            utils::clone_specific_revision(miden_vm_repo, vm_release_16, &miden_vm_clone_path)
+            utils::git::clone_specific_revision(miden_vm_repo, vm_release_16, &miden_vm_clone_path)
                 .unwrap();
         };
         let midenup_home = test_env.midenup_dir;

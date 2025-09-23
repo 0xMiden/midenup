@@ -7,7 +7,7 @@ use crate::{
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
-    utils::{self, latest_modification},
+    utils,
     version::{Authority, GitTarget},
 };
 
@@ -87,7 +87,7 @@ pub fn install(
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
-        utils::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+        utils::fs::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
     }
 
     // Update local manifest
@@ -115,7 +115,7 @@ pub fn install(
                     // If, for whatever reason, we fail to find the latest hash, we
                     // simply leave it empty. That does mean that an update will be
                     // triggered even if the component does not need it.
-                    let revision_hash = utils::find_latest_hash(repository_url, name).ok();
+                    let revision_hash = utils::git::find_latest_hash(repository_url, name).ok();
 
                     component.version = Authority::Git {
                         repository_url: repository_url.clone(),
@@ -130,7 +130,7 @@ pub fn install(
                 // current time. This is used on updates to check if an update
                 // needs to be triggered.
                 Authority::Path { path, crate_name, last_modification: _ } => {
-                    let latest_time = latest_modification(path)
+                    let latest_time = utils::fs::latest_modification(path)
                         .ok()
                         .map(|(latest_modification, _)| latest_modification)
                         .unwrap_or(SystemTime::now());

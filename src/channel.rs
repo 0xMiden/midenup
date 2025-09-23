@@ -10,8 +10,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config,
-    utils::{self, latest_modification},
+    Config, utils,
     version::{Authority, GitTarget},
 };
 
@@ -422,7 +421,7 @@ impl Component {
                 // we simply leave it empty. That does mean that an update
                 // will be triggered even if the component does not need it.
                 let latest_upstream_revision =
-                    utils::find_latest_hash(repository_url_b.as_str(), name_b).ok();
+                    utils::git::find_latest_hash(repository_url_b.as_str(), name_b).ok();
 
                 match (local_revision, latest_upstream_revision) {
                     (Some(local_revision), Some(upstream_revision)) => {
@@ -460,7 +459,7 @@ impl Component {
                 let local_latest = last_modification_a;
 
                 let latest_registered_modification =
-                    latest_modification(path_b).ok().map(|modification| {
+                    utils::fs::latest_modification(path_b).ok().map(|modification| {
                         // std::dbg!(&modification.1);
                         modification.0
                     });
