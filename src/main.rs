@@ -272,7 +272,7 @@ fn main() -> anyhow::Result<()> {
 
     // Manifest that stores locally installed toolchains
     let mut local_manifest = {
-        let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+        let local_manifest_path = config.midenup_home_2.get_manifest();
         let local_manifest_uri = format!(
             "file://{}",
             local_manifest_path.to_str().context("Couldn't convert miden directory")?,

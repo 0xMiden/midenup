@@ -52,7 +52,7 @@ midenup override
                 Ok(())
             },
             Self::Home => {
-                println!("{}", config.midenup_home.display());
+                println!("{}", config.midenup_home_2);
 
                 Ok(())
             },

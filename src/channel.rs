@@ -3,7 +3,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
 };
 
 use anyhow::Context;
@@ -116,11 +115,6 @@ impl Channel {
             .map(|c| (*c).clone());
 
         Vec::from_iter(components)
-    }
-
-    pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
-        let installed_toolchains_dir = config.midenup_home.join("toolchains");
-        installed_toolchains_dir.join(format!("{}", self.name))
     }
 
     /// Get all the aliases that the Channel is aware of
@@ -289,7 +283,7 @@ impl CliCommand {
                 Ok(component.get_cli_display())
             },
             CliCommand::LibPath => {
-                let channel_dir = channel.get_channel_dir(config);
+                let channel_dir = config.midenup_home_2.get_toolchain_dir(channel);
 
                 let toolchain_path = channel_dir.join("lib");
 
@@ -508,7 +502,7 @@ impl Component {
         true
     }
 
-    /// Returns the name of the executable corresponding to this component.
+    /// Returns the PathBuf corresponding to the installed file from this component.
     /// If the component does not specify the installed file name, that means
     /// that it installs and executable named exactly like the crate.
     pub fn get_installed_file(&self) -> InstalledFile {

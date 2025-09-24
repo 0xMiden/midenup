@@ -25,14 +25,9 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     let mut already_initialized = true;
 
-    let midenhome_dir = &config.midenup_home;
-    if !midenhome_dir.exists() {
-        std::fs::create_dir_all(midenhome_dir).with_context(|| {
-            format!("failed to initialize MIDENUP_HOME directory: '{}'", midenhome_dir.display())
-        })?;
-        already_initialized = false;
-    }
-    let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
+    already_initialized &= config.midenup_home_2.ensure_exists()?;
+
+    let local_manifest_file = config.midenup_home_2.get_manifest();
     if !local_manifest_file.exists() {
         std::fs::File::create(&local_manifest_file).with_context(|| {
             format!(
@@ -43,7 +38,7 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         already_initialized = false;
     }
 
-    let bin_dir = config.midenup_home.join("bin");
+    let bin_dir = config.midenup_home_2.get_bin_dir();
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
@@ -54,13 +49,14 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     // Write the symlink for `miden` to $MIDENUP_HOME/bin
     let current_exe =
         std::env::current_exe().expect("unable to get location of current executable");
-    let miden_exe = bin_dir.join("miden");
+    let miden_exe = config.midenup_home_2.get_miden_executable();
+
     if !miden_exe.exists() {
         utils::fs::symlink(&miden_exe, &current_exe)?;
         already_initialized = false;
     }
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchains_dir = config.midenup_home_2.get_toolchains_dir();
     if !toolchains_dir.exists() {
         std::fs::create_dir_all(&toolchains_dir).with_context(|| {
             format!(
@@ -117,13 +113,13 @@ pub fn init(config: &Config) -> anyhow::Result<()> {
         println!(
             "midenup was successfully initialized in:
 {}",
-            config.midenup_home.as_path().display()
+            config.midenup_home_2
         );
     } else {
         println!(
             "midenup already initialized in:
 {}",
-            config.midenup_home.as_path().display()
+            config.midenup_home_2
         );
     }
 

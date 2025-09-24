@@ -6,6 +6,7 @@ use crate::{
     Config, InstallationOptions,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
+    config::ToolchainInstallationStatus,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
@@ -24,13 +25,12 @@ pub fn install(
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(channel);
 
     // NOTE: The installation indicator is only created after successful
     // toolchain installation.
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    if installation_indicator.exists() {
+    let installation_indicator = config.midenup_home_2.check_toolchain_installation(channel);
+    if matches!(installation_indicator, ToolchainInstallationStatus::FullyInstalled(_)) {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
@@ -40,7 +40,7 @@ pub fn install(
         })?;
     }
 
-    let install_file_path = toolchain_dir.join("install").with_extension("rs");
+    let install_file_path = config.midenup_home_2.get_installer(channel);
     // NOTE: Even when performing an update, we still need to re-generate the
     // install script.  This is because, the versions that will be installed are
     // written directly into the file; so the file can't be "re-used".
@@ -59,7 +59,7 @@ pub fn install(
         // MIDEN_SYSROOT instead.
         .env("MIDENC_SYSROOT", &toolchain_dir)
         .args(["+nightly", "-Zscript"])
-        .arg(&install_file_path)
+        .arg(&*install_file_path)
         .stderr(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .spawn()
@@ -83,7 +83,7 @@ pub fn install(
     if is_latest_stable {
         // NOTE: This is an absolute file path, maybe a relative symlink would be more
         // suitable
-        let stable_dir = installed_toolchains_dir.join("stable");
+        let stable_dir = config.midenup_home_2.get_stable_dir();
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
@@ -91,7 +91,7 @@ pub fn install(
     }
 
     // Update local manifest
-    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    let local_manifest_path = config.midenup_home_2.get_manifest();
     {
         // Check if the installed channel needs to marked as stable
         let mut channel_to_save = if is_latest_stable {

@@ -1,10 +1,11 @@
 use anyhow::{Context, bail};
 use colored::Colorize;
 
+use super::install::DEPENDENCIES;
 use crate::{
     Config, PathUpdate, UpdateOptions,
     channel::{Channel, UserChannel},
-    commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
+    commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
 };
@@ -100,15 +101,14 @@ fn update_channel(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
-
-    let mut channel_to_install = upstream_channel.clone();
-
-    let components_to_delete = local_channel.components_to_update(&channel_to_install);
+    let components_to_delete = local_channel.components_to_update(upstream_channel);
     if components_to_delete.is_empty() {
         return Ok(());
     }
+
+    let mut channel_to_install = upstream_channel.clone();
+
+    let toolchain_dir = config.midenup_home_2.get_toolchain_dir(upstream_channel);
 
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
@@ -187,6 +187,26 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
         }
     }
 
+    // // NOTE: After deleting the files we need to remove the "all is installed
+    // // file" to trigger a re-installation
+    // let installation_indicator =
+    // config.midenup_home_2.check_toolchain_installation(local_channel);
+    // match installation_indicator {
+    //     ToolchainInstallationStatus::FullyInstalled(path)
+    //     | ToolchainInstallationStatus::PartiallyInstalled(path) => {
+    //         std::fs::remove_file(&path).context(format!(
+    //             "Couldn't delete installation indicator in: {}",
+    //             &path.display()
+    //         ))?;
+    //     },
+    //     ToolchainInstallationStatus::NotInstalled => {
+    //         // NOTE: This case is technically unreachable since a channel is
+    //         // only considered installed if it is registered in the local
+    //         // [[Manifest]]. This registration is (currently) done after
+    //         // installation is finalized.  However, since the user is updating
+    //         // the toolchain we simply install the updates.
+    //     },
+    // };
     // The update begins
     {
         // We remove the "installation-successful" file to trigger a re-installation.
