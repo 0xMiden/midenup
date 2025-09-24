@@ -5,15 +5,15 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use thiserror::Error;
 
 use crate::{
+    Config,
     channel::{Channel, Component, InstalledFile, UserChannel},
-    config::{Directory, File, ToolchainInstallationStatus},
+    config::{Directory, ToolchainInstallationStatus},
     manifest::Manifest,
     version::Authority,
-    Config,
 };
 
 #[derive(Error, Debug)]
