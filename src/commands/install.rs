@@ -1,15 +1,15 @@
 use std::{io::Write, time::SystemTime};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::{
+    Config, InstallationOptions,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     config::ToolchainInstallationStatus,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
-    Config, InstallationOptions,
 };
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];

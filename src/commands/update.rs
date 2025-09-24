@@ -1,15 +1,14 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
+use super::install::DEPENDENCIES;
 use crate::{
+    Config, PathUpdate, UpdateOptions,
     channel::{Channel, UserChannel},
     commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
-    Config, PathUpdate, UpdateOptions,
 };
-
-use super::install::DEPENDENCIES;
 
 /// Updates installed toolchains
 pub fn update(
@@ -190,7 +189,8 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
 
     // // NOTE: After deleting the files we need to remove the "all is installed
     // // file" to trigger a re-installation
-    // let installation_indicator = config.midenup_home_2.check_toolchain_installation(local_channel);
+    // let installation_indicator =
+    // config.midenup_home_2.check_toolchain_installation(local_channel);
     // match installation_indicator {
     //     ToolchainInstallationStatus::FullyInstalled(path)
     //     | ToolchainInstallationStatus::PartiallyInstalled(path) => {

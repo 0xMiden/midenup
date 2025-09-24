@@ -1,11 +1,11 @@
 use std::{borrow::Cow, path::PathBuf, str::FromStr};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::UserChannel, commands, config::ToolchainInstallationStatus, manifest::Manifest,
-    Config, InstallationOptions,
+    Config, InstallationOptions, channel::UserChannel, commands,
+    config::ToolchainInstallationStatus, manifest::Manifest,
 };
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
