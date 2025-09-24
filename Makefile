@@ -42,3 +42,9 @@ build: ## Builds with default parameters
 .PHONY: build-release
 build-release: ## Builds with release profile
 	cargo build --release
+
+# --- docs ----------------------------------------------------------------------------------------
+
+.PHONY: book
+book: ## Builds the book & serves documentation site
+	mdbook serve --open docs
