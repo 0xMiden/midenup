@@ -11,3 +11,4 @@
 # Design
 - [Manifest](./design/manifest.md)
 - [Midenup](./design/midenup.md)
+- [Miden CLI](./design/miden.md)
