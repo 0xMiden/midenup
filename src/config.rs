@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 
-use crate::manifest::Manifest;
+use crate::{manifest::Manifest, toolchain::Toolchain, utils};
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -59,5 +59,55 @@ impl Config {
         };
 
         Ok(config)
+    }
+
+    pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {
+        let (current_toolchain, _) = Toolchain::current(self)?;
+
+        // Directory which point to the directory where symlinks are stored
+        let opt_dir = self.midenup_home.join("opt");
+
+        let Some(active_channel) = self.manifest.get_channel(&current_toolchain.channel) else {
+            bail!("channel '{}' doesn't exist or is unavailable", current_toolchain.channel);
+        };
+
+        // If the currently active channel doesn't exist, then there's nothing
+        // to update regarding the opt/ symlink.
+        if !active_channel.get_channel_dir(config).exists() {
+            // However, if the opt directory still exists, then we remove it in
+            // order to avoid a "dangling symlink". This can happen when an
+            // uninstall is issued.
+            if std::fs::read_link(&opt_dir).is_ok() {
+                std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
+            }
+            return Ok(());
+        }
+
+        let update = if let Ok(pointing) = std::fs::read_link(&opt_dir) {
+            // If it does exist, update it if it's pointing to a non-active toolchain.
+            pointing
+                .file_name()
+                .and_then(|toolchain_name| toolchain_name.to_str())
+                .is_some_and(|toolchain_name| toolchain_name != active_channel.name.to_string())
+        } else {
+            // If the symlink doesn't exist, update it by creating it.
+            true
+        };
+
+        if update {
+            if std::fs::read_link(&opt_dir).is_ok() {
+                std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
+            }
+            let opt_path = active_channel.get_channel_dir(self).join("opt");
+            utils::symlink(&opt_dir, &opt_path).with_context(|| {
+                format!(
+                    "Failed to create opt/ symlink from {} to {}",
+                    opt_dir.display(),
+                    opt_path.display()
+                )
+            })?;
+        }
+
+        Ok(())
     }
 }
