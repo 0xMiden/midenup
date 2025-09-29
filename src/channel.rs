@@ -352,6 +352,11 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub aliases: HashMap<Alias, CLICommand>,
+    /// If the component requires initialization, this field holds the
+    /// initialization subcommand(s).
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub initialization: Vec<String>,
 }
 
 impl Component {
@@ -364,6 +369,7 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
+            initialization: vec![],
             aliases: HashMap::new(),
         }
     }
@@ -566,6 +572,7 @@ mod tests {
                 call_format: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
             Component {
@@ -579,6 +586,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
             Component {
@@ -592,6 +600,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
             Component {
@@ -605,6 +614,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
         ];
@@ -621,6 +631,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
             Component {
@@ -634,6 +645,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
             Component {
@@ -647,6 +659,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
             Component {
@@ -660,6 +673,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
+                initialization: vec![],
                 aliases: HashMap::new(),
             },
         ];
@@ -705,6 +719,7 @@ mod tests {
             call_format: Vec::new(),
             rustup_channel: None,
             installed_file: None,
+            initialization: vec![],
             aliases: HashMap::new(),
         }];
 
@@ -719,6 +734,7 @@ mod tests {
             rustup_channel: None,
             call_format: Vec::new(),
             installed_file: None,
+            initialization: vec![],
             aliases: HashMap::new(),
         }];
 
