@@ -3,7 +3,7 @@ use std::{borrow::Cow, path::PathBuf, str::FromStr};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{Config, channel::UserChannel, commands, manifest::Manifest};
+use crate::{Config, InstallationOptions, channel::UserChannel, commands, manifest::Manifest};
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
 /// toolchain to be used.
@@ -176,7 +176,7 @@ impl Toolchain {
 
         if !installation_indicator.exists() {
             println!("Found current toolchain to be {desired_channel}. Now installing it.",);
-            commands::install(config, channel, local_manifest)?
+            commands::install(config, channel, local_manifest, &InstallationOptions::default())?
         }
 
         // Now installed

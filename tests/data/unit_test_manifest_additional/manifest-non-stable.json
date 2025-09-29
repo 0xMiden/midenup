@@ -15,11 +15,13 @@
     },
     {
       "name": "0.15.0-nightly",
+      "alias": "nightly",
       "components": [
         {
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.15.0-nightly"
+          "name": "client",
+          "repository_url": "git@github.com:0xMiden/miden-client.git",
+          "crate_name": "miden-client-cli",
+          "branch": "next"
         }
       ]
     }
