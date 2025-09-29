@@ -2,8 +2,8 @@ use anyhow::Context;
 
 use crate::{
     Config, InstallationOptions,
-    channel::{Channel, UserChannel},
-    commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
+    channel::{Channel, InstalledFile, UserChannel},
+    commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
 };
@@ -107,8 +107,9 @@ fn update_channel(
 
     let updates = local_channel.components_to_update(upstream_channel);
 
-    let (libraries, executables): (Vec<_>, Vec<_>) =
-        updates.iter().partition(|c| DEPENDENCIES.contains(&(c.name.as_ref())));
+    let (libraries, executables): (Vec<_>, Vec<_>) = updates
+        .iter()
+        .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
     for lib in libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");

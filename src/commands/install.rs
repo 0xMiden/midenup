@@ -3,18 +3,14 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config, InstallationOptions, bail,
+    bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config, InstallationOptions,
 };
-
-pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
-
-// pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "client", "cargo-miden"];
-pub const INSTALLABLE_COMPONENTS: [&str; 1] = ["client"];
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(
@@ -28,10 +24,25 @@ pub fn install(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
+    let installed_channel = local_manifest.get_channel_by_name(&channel.name);
+
     // NOTE: The installation indicator is only created after successful
     // toolchain installation.
     let installation_indicator = toolchain_dir.join("installation-successful");
-    if installation_indicator.exists() {
+    let is_partial = {
+        match installed_channel.and_then(|ch| ch.alias.clone()) {
+            Some(ChannelAlias::Tag(tag)) => tag == "partial",
+            _ => false,
+        }
+    };
+
+    if installation_indicator.exists()
+    // If the channel is tagged as "partial" then that means that only a subset
+    // of the components got installed.
+    // In that case, we can procede the install to install the remaining
+    // components.
+    && !is_partial
+    {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
@@ -80,7 +91,7 @@ pub fn install(
 
     if !status.success() {
         bail!(
-            "midenup failed to install toolchan from channel {} with status {}",
+            "midenup failed to install toolchain from channel {} with status {}",
             channel.name,
             status.code().unwrap_or(1)
         )
@@ -145,7 +156,7 @@ pub fn install(
     let mut local_manifest_file =
         std::fs::File::create(&local_manifest_path).with_context(|| {
             format!(
-                "failed to create file for install script at '{}'",
+                "failed to create file for local manifest at '{}'",
                 local_manifest_path.display()
             )
         })?;
@@ -326,24 +337,12 @@ fn main() {
 
     // Prepare install script context with available channel components
     let mut dependencies = Vec::new();
-    for dep_name in DEPENDENCIES.iter() {
-        let component = channel
-            .get_component(dep_name)
-            .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
-        dependencies.push(component);
-    }
-
     let mut installable_components = Vec::new();
-    for dep_name in INSTALLABLE_COMPONENTS.iter() {
-        if let Some(component) = channel.get_component(dep_name) {
-            installable_components.push(component);
-        } else {
-            continue;
+    for component in channel.components.iter() {
+        match component.get_installed_file() {
+            InstalledFile::Executable { .. } => installable_components.push(component),
+            InstalledFile::Library { .. } => dependencies.push(component),
         }
-        // let component = channel
-        //     .get_component(dep_name)
-        //     .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't
-        // available")); installable_components.push(component);
     }
 
     // List of all the symlinks that need to be installed.
