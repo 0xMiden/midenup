@@ -10,7 +10,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    Config,
+    toolchain::{Toolchain, ToolchainJustification},
+    utils,
     version::{Authority, GitTarget},
 };
 
@@ -117,6 +119,63 @@ impl Channel {
             acc
         })
     }
+
+    /// Creates a "partial channel" from the original channel, given a list
+    /// component names.
+    /// "Partial" in this context refers to the fact that the channel will not
+    /// install all the available components, but rather a subset.
+    /// NOTE: If the component_names_subset list is empty, then no Channel is
+    /// created.
+    pub fn create_subset(
+        &self,
+        current_toolchain: &Toolchain,
+        toolchain_justification: &ToolchainJustification,
+    ) -> Option<Channel> {
+        if current_toolchain.components.is_empty() {
+            None
+        } else {
+            let toolchain_components: HashSet<&str> =
+                HashSet::from_iter(current_toolchain.components.iter().map(|name| name.as_str()));
+
+            let upstream_components: Vec<Component> = self
+                .components
+                .clone()
+                .into_iter()
+                .filter(|comp| toolchain_components.contains(&comp.name.as_ref()))
+                .collect();
+
+            if upstream_components.len() != toolchain_components.len() {
+                println!(
+                    "WARNING: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                    self.name
+                );
+                let upstream_component_names: HashSet<&str> =
+                    HashSet::from_iter(upstream_components.iter().map(|comp| comp.name.as_ref()));
+
+                let missing_components = toolchain_components.difference(&upstream_component_names);
+                for missing_component in missing_components {
+                    println!("- {missing_component} is missing in upstream channel");
+                }
+                println!("These components will be ignored for the current install.");
+                // TODO: Add messages for the other justifications
+                #[allow(clippy::single_match)]
+                match toolchain_justification {
+                    ToolchainJustification::MidenToolchainFile { path } => println!(
+                        "Check the `miden_toolchain.toml` in {} to see if any \
+                         component is misspelled or got removed from upstream",
+                        path.display()
+                    ),
+                    _ => (),
+                }
+            }
+            let partial_channel = Channel {
+                name: self.name.clone(),
+                alias: Some(ChannelAlias::Tag(Cow::from("partial"))),
+                components: upstream_components,
+            };
+            Some(partial_channel)
+        }
+    }
 }
 
 impl Eq for Component {}
@@ -175,6 +234,7 @@ pub enum ChannelAlias {
     Nightly(Option<Cow<'static, str>>),
     /// An ad-hoc named alias for a channel. This can be used to tag custom
     /// channels with names such as `0.15.0-stable`.
+    #[serde(untagged)]
     Tag(Cow<'static, str>),
 }
 

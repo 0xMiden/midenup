@@ -13,7 +13,8 @@ use crate::{
 
 pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
 
-pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "client", "cargo-miden"];
+// pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "client", "cargo-miden"];
+pub const INSTALLABLE_COMPONENTS: [&str; 1] = ["client"];
 
 /// Installs a specified toolchain by channel or version.
 pub fn install(
@@ -334,10 +335,15 @@ fn main() {
 
     let mut installable_components = Vec::new();
     for dep_name in INSTALLABLE_COMPONENTS.iter() {
-        let component = channel
-            .get_component(dep_name)
-            .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
-        installable_components.push(component);
+        if let Some(component) = channel.get_component(dep_name) {
+            installable_components.push(component);
+        } else {
+            continue;
+        }
+        // let component = channel
+        //     .get_component(dep_name)
+        //     .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't
+        // available")); installable_components.push(component);
     }
 
     // List of all the symlinks that need to be installed.

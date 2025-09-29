@@ -168,6 +168,9 @@ impl Toolchain {
             );
         };
 
+        let partial_channel = channel.create_subset(&current_toolchain, &justification);
+        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
+
         let installation_indicator = config
             .midenup_home
             .join("toolchains")
@@ -176,7 +179,12 @@ impl Toolchain {
 
         if !installation_indicator.exists() {
             println!("Found current toolchain to be {desired_channel}. Now installing it.",);
-            commands::install(config, channel, local_manifest, &InstallationOptions::default())?
+            commands::install(
+                config,
+                channel_to_install,
+                local_manifest,
+                &InstallationOptions::default(),
+            )?
         }
 
         // If the current active toolchain is set due to the prescence of a
