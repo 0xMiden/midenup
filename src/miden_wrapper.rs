@@ -7,7 +7,7 @@ pub use crate::config::Config;
 use crate::{
     channel::{Alias, CLICommand, Channel, Component, InstalledFile},
     manifest::Manifest,
-    toolchain::Toolchain,
+    toolchain::{Toolchain, ToolchainJustification},
 };
 
 /// These are the know help messages variants that midenup is aware of.
@@ -43,15 +43,27 @@ enum MidenArgument<'a> {
 enum EnvironmentError {
     UnkownArgument,
 }
-struct ToolchainEnvironment {
+struct ToolchainEnvironment<'a> {
+    original_channel: &'a Channel,
     aliases: HashMap<Alias, CLICommand>,
     components: Vec<Component>,
 }
-impl ToolchainEnvironment {
-    fn new(channel: &Channel) -> Self {
-        let aliases = channel.get_aliases();
-        let components = channel.components.clone();
-        ToolchainEnvironment { aliases, components }
+impl<'a> ToolchainEnvironment<'a> {
+    fn new(
+        toolchain: &Toolchain,
+        justification: &ToolchainJustification,
+        channel: &'a Channel,
+    ) -> Self {
+        let active_channel = channel.create_subset(toolchain, justification);
+        let active_channel = active_channel.as_ref().unwrap_or(channel);
+
+        let aliases = active_channel.get_aliases();
+        let components = active_channel.components.clone();
+        ToolchainEnvironment {
+            original_channel: channel,
+            aliases,
+            components,
+        }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
@@ -60,6 +72,19 @@ impl ToolchainEnvironment {
             let resolution = component.aliases.get(&argument).unwrap();
             Ok(MidenArgument::Alias(component, resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
+            Ok(MidenArgument::Component(component))
+        } else if let Some(component) =
+            self.original_channel.components.iter().find(|c| c.name == argument)
+        {
+            // For the sake of convenience, we allow users to run components
+            // that are installed but are not listed in the active Toolchain.
+            // However, we do emit a warning notice.
+            println!(
+                "{}: {} is installed, but it is not part of the current active toolchain.",
+                "WARNING".yellow().bold(),
+                component.name,
+            );
+
             Ok(MidenArgument::Component(component))
         } else {
             Err(EnvironmentError::UnkownArgument)
@@ -169,11 +194,13 @@ For more information, try 'miden help'.
     }
 
     // Make sure we know the current toolchain so we can modify the PATH appropriately
-    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
+    let (toolchain, justification) =
+        Toolchain::ensure_current_is_installed(config, local_manifest)?;
     let channel = local_manifest
         .get_channel(&toolchain.channel)
         .context("Couldn't find active toolchain in the manifest.")?;
-    let toolchain_environment = ToolchainEnvironment::new(channel);
+
+    let toolchain_environment = ToolchainEnvironment::new(&toolchain, &justification, channel);
 
     let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
@@ -233,7 +260,7 @@ For more information, try 'miden help'.
 
                     (command, args)
                 },
-                Err(_) => {
+                Err(EnvironmentError::UnkownArgument) => {
                     let aliases = toolchain_environment.get_aliases_display();
                     let components = toolchain_environment.get_components_display();
                     bail!(

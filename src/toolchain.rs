@@ -33,14 +33,7 @@ impl Default for Toolchain {
     fn default() -> Self {
         Self {
             channel: UserChannel::Stable,
-            components: vec![
-                "std".to_string(),
-                "base".to_string(),
-                "vm".to_string(),
-                "miden-client".to_string(),
-                "midenc".to_string(),
-                "cargo-miden".to_string(),
-            ],
+            components: vec![],
         }
     }
 }
@@ -149,7 +142,7 @@ impl Toolchain {
     pub fn ensure_current_is_installed(
         config: &Config,
         local_manifest: &mut Manifest,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, ToolchainJustification)> {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
@@ -188,6 +181,6 @@ impl Toolchain {
         }
 
         // Now installed
-        Ok(current_toolchain)
+        Ok((current_toolchain, justification))
     }
 }

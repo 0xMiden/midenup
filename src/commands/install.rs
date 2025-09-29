@@ -3,13 +3,12 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    bail,
+    Config, InstallationOptions, bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
-    Config, InstallationOptions,
 };
 
 /// Installs a specified toolchain by channel or version.
