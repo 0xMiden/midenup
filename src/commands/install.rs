@@ -262,6 +262,7 @@ fn main() {
     writeln!(progress_file, "std").expect("Failed to write component name to progress file");
 
 
+    let padding = "    ";
     let bin_dir = miden_sysroot_dir.join("bin");
     {% for component in installable_components %}
 
@@ -306,9 +307,11 @@ fn main() {
                 "midenup failed to install '{{ component.name }}'"
             );
         }
+        println!("{} Installed!", padding);
+    } else {
+        println!("{} Already installed", padding);
     }
     writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
-    println!("Done!");
 
     {% endfor %}
 
