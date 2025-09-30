@@ -107,6 +107,7 @@ fn update_channel(
 
     let components_to_delete = local_channel.components_to_update(&channel_to_install);
     if components_to_delete.is_empty() {
+        std::println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     }
 
