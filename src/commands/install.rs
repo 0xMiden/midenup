@@ -38,8 +38,7 @@ pub fn install(
     if installation_indicator.exists()
     // If the channel is tagged as "partial" then that means that only a subset
     // of the components got installed.
-    // In that case, we can procede the install to install the remaining
-    // components.
+    // In that case, we can procede to install the remaining components.
     && !is_partial
     {
         bail!("the '{}' toolchain is already installed", &channel.name);

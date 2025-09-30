@@ -161,9 +161,6 @@ impl Toolchain {
             );
         };
 
-        let partial_channel = channel.create_subset(&current_toolchain, &justification);
-        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
-
         let installation_indicator = config
             .midenup_home
             .join("toolchains")
@@ -171,6 +168,9 @@ impl Toolchain {
             .join("installation-successful");
 
         if !installation_indicator.exists() {
+            let partial_channel = channel.create_subset(&current_toolchain, &justification);
+            let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
+
             println!("Found current toolchain to be {desired_channel}. Now installing it.",);
             commands::install(
                 config,
