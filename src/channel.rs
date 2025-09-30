@@ -7,6 +7,7 @@ use std::{
 };
 
 use anyhow::Context;
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -137,26 +138,26 @@ impl Channel {
             let toolchain_components: HashSet<&str> =
                 HashSet::from_iter(current_toolchain.components.iter().map(|name| name.as_str()));
 
-            let upstream_components: Vec<Component> = self
-                .components
-                .clone()
-                .into_iter()
-                .filter(|comp| toolchain_components.contains(&comp.name.as_ref()))
-                .collect();
+            let upstream_components: Vec<Component> = self.components.clone();
+            let upstream_component_names: HashSet<&str> =
+                HashSet::from_iter(upstream_components.iter().map(|comp| comp.name.as_ref()));
 
-            if upstream_components.len() != toolchain_components.len() {
+            // NOTE: These are components are present in the Toolchain, but got
+            // removed from upstream. This can be due to them having been
+            // renamed or removed.
+            let removed_components = toolchain_components.difference(&upstream_component_names);
+
+            if removed_components.clone().count() > 0 {
                 println!(
-                    "WARNING: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                    "{}: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                    "WARNING".bold(),
                     self.name
                 );
-                let upstream_component_names: HashSet<&str> =
-                    HashSet::from_iter(upstream_components.iter().map(|comp| comp.name.as_ref()));
-
-                let missing_components = toolchain_components.difference(&upstream_component_names);
-                for missing_component in missing_components {
+                for missing_component in removed_components {
                     println!("- {missing_component} is missing in upstream channel");
                 }
                 println!("These components will be ignored for the current install.");
+
                 // TODO: Add messages for the other justifications
                 #[allow(clippy::single_match)]
                 match toolchain_justification {
@@ -168,10 +169,17 @@ impl Channel {
                     _ => (),
                 }
             }
+
+            let selected_components: Vec<Component> = upstream_components
+                .clone()
+                .into_iter()
+                .filter(|comp| toolchain_components.contains(&comp.name.as_ref()))
+                .collect();
+
             let partial_channel = Channel {
                 name: self.name.clone(),
                 alias: Some(ChannelAlias::Tag(Cow::from("partial"))),
-                components: upstream_components,
+                components: selected_components,
             };
             Some(partial_channel)
         }

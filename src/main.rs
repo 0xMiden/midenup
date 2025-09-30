@@ -319,14 +319,12 @@ Error: {}",
     fn environment_setup() -> TestEnvironment {
         let tmp_present_working_directory = tempdir::TempDir::new("midenup-test-working-directory")
             .expect("Couldn't create temp-dir");
-        std::env::set_current_dir(dbg!(tmp_present_working_directory.path())).unwrap_or_else(
-            |err| {
-                panic!(
-                    "Failed to switch to {}, because of {err}",
-                    tmp_present_working_directory.path().display()
-                )
-            },
-        );
+        std::env::set_current_dir(tmp_present_working_directory.path()).unwrap_or_else(|err| {
+            panic!(
+                "Failed to switch to {}, because of {err}",
+                tmp_present_working_directory.path().display()
+            )
+        });
         let tmp_home = tempdir::TempDir::new("midenup").expect("Couldn't create temp-dir");
 
         TestEnvironment {
