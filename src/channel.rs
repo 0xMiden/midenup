@@ -11,10 +11,11 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config,
+    manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -53,6 +54,33 @@ impl Channel {
         self.alias
             .as_ref()
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
+    }
+
+    // Determines if the current toolchain was installed partially due to only having selected a couple of elements or fully.
+    pub fn is_partially_installed(
+        &self,
+        local_manifest: &Manifest,
+        upstream_manifest: &Manifest,
+    ) -> anyhow::Result<bool> {
+        let upstream_channel =
+            upstream_manifest.get_channel_by_name(&self.name).context(format!(
+                "ERROR: Couldn't find a channel upstream with version {self}. Maybe it got removed."
+            ))?;
+        let components_upstream = upstream_channel.components.iter();
+        let components_upstream: HashSet<&str> =
+            HashSet::from_iter(components_upstream.map(|comp| comp.name.as_ref()));
+
+        let Some(installed_toolchain) = local_manifest.get_channel_by_name(&self.name) else {
+            return Ok(false);
+        };
+        let locally_installed_componentes = installed_toolchain.components.iter();
+        let locally_installed_componentes: HashSet<&str> =
+            HashSet::from_iter(locally_installed_componentes.map(|comp| comp.name.as_ref()));
+
+        let missing_locally =
+            components_upstream.difference(&locally_installed_componentes).count();
+
+        Ok(missing_locally > 0)
     }
 
     pub fn is_latest_nightly(&self) -> bool {
@@ -178,7 +206,7 @@ impl Channel {
 
             let partial_channel = Channel {
                 name: self.name.clone(),
-                alias: Some(ChannelAlias::Tag(Cow::from("partial"))),
+                alias: self.alias.clone(),
                 components: selected_components,
             };
             Some(partial_channel)

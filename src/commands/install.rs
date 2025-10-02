@@ -3,12 +3,13 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config, InstallationOptions, bail,
+    bail,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config, InstallationOptions,
 };
 
 /// Installs a specified toolchain by channel or version.
@@ -23,17 +24,10 @@ pub fn install(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
-    let installed_channel = local_manifest.get_channel_by_name(&channel.name);
-
-    // NOTE: The installation indicator is only created after successful
-    // toolchain installation.
+    // These are toolchains that only had a couple of elements installed, like
+    // it is the case when using `miden-toolchain.toml`.
     let installation_indicator = toolchain_dir.join("installation-successful");
-    let is_partial = {
-        match installed_channel.and_then(|ch| ch.alias.clone()) {
-            Some(ChannelAlias::Tag(tag)) => tag == "partial",
-            _ => false,
-        }
-    };
+    let is_partial = channel.is_partially_installed(local_manifest, &config.manifest)?;
 
     if installation_indicator.exists()
     // If the channel is tagged as "partial" then that means that only a subset
