@@ -230,10 +230,15 @@ fn main() {
         .expect("Failed to create progress file");
 
 
+    let padding = "    ";
+
+
     // Install libraries
     let lib_dir = miden_sysroot_dir.join("lib");
     {
         {% for dep in dependencies %}
+        println!("Installing: {{ dep.name }}.masp");
+
         // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
         let lib = {{ dep.exposing_function }};
         let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masp");
@@ -243,13 +248,16 @@ fn main() {
             lib.as_ref()
                 .write_to_file(&lib_path)
                 .expect("failed to install {{ dep.name }} library component");
+            println!("{} Installed!", padding);
+        } else {
+            println!("{} Already installed", padding);
         }
-        writeln!(progress_file, "base").expect("Failed to write component name to progress file");
+        writeln!(progress_file, "{{ dep.name }}").expect("Failed to write component name to progress file");
         {%- endfor %}
     }
 
 
-    let padding = "    ";
+    // Install executables
     let bin_dir = miden_sysroot_dir.join("bin");
     {% for component in installable_components %}
 
