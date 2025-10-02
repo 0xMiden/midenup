@@ -239,18 +239,18 @@ pub enum InstalledFile {
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
-        /// This is the function that exposes the library and enables it to be
-        /// downloaded. For example, miden-lib's exposing function is:
-        /// `miden_lib::MidenLib::default()`;
-        exposing_function: String,
+        /// This is the struct that contains the library which and exposes the
+        /// `Library::write_to_file()` method which is used to obtain the associated
+        /// `.masp` file.
+        library_struct: String,
     },
 }
 
 impl InstalledFile {
-    pub fn get_exposing_function(&self) -> Option<&str> {
+    pub fn get_library_struct(&self) -> Option<&str> {
         match &self {
             InstalledFile::Executable { .. } => None,
-            InstalledFile::Library { exposing_function, .. } => Some(exposing_function),
+            InstalledFile::Library { library_struct, .. } => Some(library_struct),
         }
     }
 }

@@ -245,7 +245,6 @@ fn main() {
     // Install libraries
     let lib_dir = miden_sysroot_dir.join("lib");
     {
-
         {% for dep in dependencies %}
         // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
         let lib = {{ dep.exposing_function }};
@@ -383,15 +382,20 @@ fn main() {
         .map(|component| {
             let installed_file = component
                 .get_installed_file();
-            let exposing_function = installed_file
-                .get_exposing_function()
-                .with_context(|| format!("Component {} is marked as library, however it has no declared exposing function on the manifest.
-The manifest should contain a line like the following:
-exposing_function: \"miden_stdlib::MidenStdLib::default()\"", component.name)).unwrap();
+            let library_struct = installed_file
+                .get_library_struct()
+                .with_context(|| format!("Component {} is marked as library, \
+                                          however the manifest does not contain the associated Library struct \
+                                          from where it will obtain the `.masp` file. \n\
+                                          The manifest should contain a line like the following: \n\
+                                          library_struct: \"miden_stdlib::MidenStdLib::default()\""
+                                         , component.name)).unwrap();
+            let exposing_function = format!("{library_struct}::default()");
             match &component.version {
                 Authority::Cargo { package, version } => {
                     let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
                     upon::value! {
+                        name: component.name.to_string(),
                         package: package,
                         version: version.to_string(),
                         git_uri: "",
@@ -401,6 +405,7 @@ exposing_function: \"miden_stdlib::MidenStdLib::default()\"", component.name)).u
                 },
                 Authority::Git { repository_url, crate_name, target } => {
                     upon::value! {
+                        name: component.name.to_string(),
                         package: crate_name,
                         version: "> 0.0.0",
                         git_uri: format!("{}\", {target}", repository_url.clone()),
@@ -410,6 +415,7 @@ exposing_function: \"miden_stdlib::MidenStdLib::default()\"", component.name)).u
                 },
                 Authority::Path { crate_name, path, .. } => {
                     upon::value! {
+                        name: component.name.to_string(),
                         package: crate_name,
                         version: "> 0.0.0",
                         git_uri: "",
