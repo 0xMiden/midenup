@@ -93,11 +93,11 @@ impl ToolchainEnvironment {
         }
     }
 
-    fn get_components_display(&self) -> String {
+    fn get_executables_display(&self) -> String {
         self.active_channel
             .components
             .iter()
-            .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
+            .filter(|c| matches!(c.get_installed_file(), InstalledFile::Executable { .. }))
             .map(|c| {
                 let initialization_indicator = if !c.initialization.is_empty() {
                     let subcommand = c.initialization.join(" ");
@@ -108,6 +108,20 @@ impl ToolchainEnvironment {
                     Cow::Borrowed("")
                 };
                 format!("  {} {}\n", c.name.bold(), initialization_indicator)
+            })
+            .collect::<String>()
+    }
+
+    fn get_libraries_display(&self) -> String {
+        self.active_channel
+            .components
+            .iter()
+            .filter_map(|comp| match comp.get_installed_file() {
+                InstalledFile::Library { library_name, .. } => {
+                    let display_name = format!("  {}\n", library_name);
+                    Some(display_name)
+                },
+                _ => None,
             })
             .collect::<String>()
     }
@@ -265,7 +279,7 @@ For more information, try 'miden help'.
                 },
                 Err(EnvironmentError::UnkownArgument) => {
                     let aliases = toolchain_environment.get_aliases_display();
-                    let components = toolchain_environment.get_components_display();
+                    let components = toolchain_environment.get_executables_display();
                     bail!(
                         "Failed to resolve {}: Neither known alias or component.
 
@@ -408,14 +422,19 @@ Found a bug? Create an issue by copying this into your browser:
 }
 
 fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
-    let available_components: String = toolchain_environment.get_components_display();
-    let available_aliases: String = toolchain_environment.get_aliases_display();
-
     let usage = "Usage:".bold().underline();
     let miden = "miden".bold();
     let asterisk = "*".bold();
+
     let available_aliases_text = "Available aliases:".bold().underline();
+    let available_aliases: String = toolchain_environment.get_aliases_display();
+
     let available_components_text = "Available components:".bold().underline();
+    let available_components: String = toolchain_environment.get_executables_display();
+
+    let available_libraries_text = "Available libraries:".bold().underline();
+    let available_libraries: String = toolchain_environment.get_libraries_display();
+
     let help = "Help:".bold().underline();
 
     format!(
@@ -427,6 +446,8 @@ fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
 {available_aliases}
 {available_components_text}
 {available_components}
+{available_libraries_text}
+{available_libraries}
 
 {help}
   help                   Print this help message
