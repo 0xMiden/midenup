@@ -45,21 +45,37 @@ enum EnvironmentError {
 }
 
 #[derive(Debug)]
-struct ToolchainEnvironment {
+struct ToolchainEnvironment<'a> {
+    /// We use the original channel as a fallback to
+    /// [[ToolchainEnvironment::active_channel]]. If the active channel does not
+    /// contain a requested component, for convenience's sake, we check if it
+    /// exists in the original_channel. If it does, we execute it, after
+    /// displaying a warning message.
+    original_channel: &'a Channel,
+
+    /// This is the channel that is currently active. This *might* differ
+    /// slightly from the original upstream channel equivalent in some
+    /// scenarios, like:
+    /// - The user only selected a subset of components for downloads.
     active_channel: Channel,
+
     aliases: HashMap<Alias, CLICommand>,
 }
-impl ToolchainEnvironment {
+impl<'a> ToolchainEnvironment<'a> {
     fn new(
         toolchain: &Toolchain,
         justification: &ToolchainJustification,
-        channel: &Channel,
+        original_channel: &'a Channel,
     ) -> Self {
-        let partial_channel = channel.create_subset(toolchain, justification);
-        let active_channel = partial_channel.as_ref().unwrap_or(channel).clone();
+        let partial_channel = original_channel.create_subset(toolchain, justification);
+        let active_channel = partial_channel.as_ref().unwrap_or(original_channel).clone();
 
         let aliases = active_channel.get_aliases();
-        ToolchainEnvironment { active_channel, aliases }
+        ToolchainEnvironment {
+            active_channel,
+            original_channel,
+            aliases,
+        }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
@@ -76,7 +92,7 @@ impl ToolchainEnvironment {
         {
             Ok(MidenArgument::Component(component))
         } else if let Some(component) =
-            self.active_channel.components.iter().find(|c| c.name == argument)
+            self.original_channel.components.iter().find(|c| c.name == argument)
         {
             // For the sake of convenience, we allow users to run components
             // that are installed but are not listed in the active Toolchain.
