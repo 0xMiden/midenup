@@ -43,7 +43,7 @@ pub enum ToolchainJustification {
     /// There exists a miden toolchain file present in
     /// [[MidenToolchainFile::path]].
     MidenToolchainFile { path: PathBuf },
-    /// The system's default toolchain was overriden (via `miden set`).
+    /// The system's default toolchain was overriden (via `midenup set`).
     Override,
     /// No toolchain was specified, fallback to stable.
     Default,

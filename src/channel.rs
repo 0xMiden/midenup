@@ -56,8 +56,9 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
     }
 
-    // Determines if the current toolchain was installed partially due to only having selected a
-    // couple of elements or fully.
+    /// Determines if the current toolchain was installed "partially", i.e.,
+    /// containing only a subset of all the available components. This can be the
+    /// case with `miden-toolchain.toml`.
     pub fn is_partially_installed(
         &self,
         local_manifest: &Manifest,
@@ -67,16 +68,15 @@ impl Channel {
             upstream_manifest.get_channel_by_name(&self.name).context(format!(
                 "ERROR: Couldn't find a channel upstream with version {self}. Maybe it got removed."
             ))?;
-        let components_upstream = upstream_channel.components.iter();
         let components_upstream: HashSet<&str> =
-            HashSet::from_iter(components_upstream.map(|comp| comp.name.as_ref()));
+            HashSet::from_iter(upstream_channel.components.iter().map(|comp| comp.name.as_ref()));
 
         let Some(installed_toolchain) = local_manifest.get_channel_by_name(&self.name) else {
             return Ok(false);
         };
-        let locally_installed_componentes = installed_toolchain.components.iter();
-        let locally_installed_componentes: HashSet<&str> =
-            HashSet::from_iter(locally_installed_componentes.map(|comp| comp.name.as_ref()));
+        let locally_installed_componentes: HashSet<&str> = HashSet::from_iter(
+            installed_toolchain.components.iter().map(|comp| comp.name.as_ref()),
+        );
 
         let missing_locally =
             components_upstream.difference(&locally_installed_componentes).count();
@@ -150,12 +150,9 @@ impl Channel {
         })
     }
 
-    /// Creates a "partial channel" from the original channel, given a list
-    /// component names.
+    /// Creates a "partial channel" from the original channel, given a toolchain
     /// "Partial" in this context refers to the fact that the channel will not
     /// install all the available components, but rather a subset.
-    /// NOTE: If the component_names_subset list is empty, then no Channel is
-    /// created.
     pub fn create_subset(
         &self,
         current_toolchain: &Toolchain,
@@ -171,7 +168,7 @@ impl Channel {
             let upstream_component_names: HashSet<&str> =
                 HashSet::from_iter(upstream_components.iter().map(|comp| comp.name.as_ref()));
 
-            // NOTE: These are components are present in the Toolchain, but got
+            // NOTE: These components are present in the Toolchain, but got
             // removed from upstream. This can be due to them having been
             // renamed or removed.
             let removed_components = toolchain_components.difference(&upstream_component_names);
@@ -338,9 +335,9 @@ pub enum InstalledFile {
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
-        /// This is the struct that contains the library which and exposes the
-        /// `Library::write_to_file()` method which is used to obtain the associated
-        /// `.masp` file.
+        /// This is the struct that contains the library which exposes the
+        /// `Library::write_to_file()` function, which is used to generate the
+        /// associated `.masp` file.
         library_struct: String,
     },
 }

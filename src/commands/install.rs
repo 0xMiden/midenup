@@ -23,8 +23,6 @@ pub fn install(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
-    // These are toolchains that only had a couple of elements installed, like
-    // it is the case when using `miden-toolchain.toml`.
     let installation_indicator = toolchain_dir.join("installation-successful");
     let is_partial = channel.is_partially_installed(local_manifest, &config.manifest)?;
 
