@@ -233,13 +233,14 @@ fn main() {
     // (and prepared) sysroot path to which this script will install the desired toolchain
     // components.
     let miden_sysroot_dir = std::path::Path::new(env!("MIDEN_SYSROOT"));
-    let lib_dir = miden_sysroot_dir.join("lib");
+
 
     // We save the state the channel was in when installed. This is used when uninstalling.
     let channel_json = r#"{{ channel_json }}"#;
     let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
     let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
     installed_json.write_all(&channel_json.as_bytes()).unwrap();
+
 
     // As we install components, we write them down in this file. This is used
     // to keep track of successfully installed components in case installation
@@ -254,28 +255,32 @@ fn main() {
         .expect("Failed to create progress file");
 
 
-    // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
-    let tx = miden_lib::MidenLib::default();
-    let tx_path = lib_dir.join("base").with_extension("masp");
-    // NOTE: If the file already exists, then we are running an update and we
-    // don't need to update this element
-    if !std::fs::exists(&tx_path).expect("Can't check existence of file") {
-        tx.as_ref()
-            .write_to_file(&tx_path)
-            .expect("failed to install Miden transaction kernel library component");
-    }
-    writeln!(progress_file, "base").expect("Failed to write component name to progress file");
+    // Install libraries
+    let lib_dir = miden_sysroot_dir.join("lib");
+    {
+        // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
+        let tx = miden_lib::MidenLib::default();
+        let tx_path = lib_dir.join("base").with_extension("masp");
+        // NOTE: If the file already exists, then we are running an update and we
+        // don't need to update this element
+        if !std::fs::exists(&tx_path).expect("Can't check existence of file") {
+            tx.as_ref()
+                .write_to_file(&tx_path)
+                .expect("failed to install Miden transaction kernel library component");
+        }
+        writeln!(progress_file, "base").expect("Failed to write component name to progress file");
 
-    // Write stdlib to $MIDEN_SYSROOT/std.masp
-    let stdlib = miden_stdlib::StdLibrary::default();
-    let stdlib_path = lib_dir.join("std").with_extension("masp");
-    if !std::fs::exists(&stdlib_path).expect("Can't check existence of file") {
-        stdlib
-            .as_ref()
-            .write_to_file(&stdlib_path)
-            .expect("failed to install Miden standard library component");
+        // Write stdlib to $MIDEN_SYSROOT/std.masp
+        let stdlib = miden_stdlib::StdLibrary::default();
+        let stdlib_path = lib_dir.join("std").with_extension("masp");
+        if !std::fs::exists(&stdlib_path).expect("Can't check existence of file") {
+            stdlib
+                .as_ref()
+                .write_to_file(&stdlib_path)
+                .expect("failed to install Miden standard library component");
+        }
+        writeln!(progress_file, "std").expect("Failed to write component name to progress file");
     }
-    writeln!(progress_file, "std").expect("Failed to write component name to progress file");
 
 
     let bin_dir = miden_sysroot_dir.join("bin");
