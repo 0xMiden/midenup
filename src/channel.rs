@@ -35,9 +35,22 @@ pub struct Channel {
 }
 
 impl Channel {
+    pub fn new(
+        name: semver::Version,
+        alias: Option<ChannelAlias>,
+        components: Vec<Component>,
+    ) -> Self {
+        Self { name, alias, components }
+    }
+
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
         let name = name.as_ref();
         self.components.iter().find(|c| c.name == name)
+    }
+
+    pub fn get_component_mut(&mut self, name: impl AsRef<str>) -> Option<&mut Component> {
+        let name = name.as_ref();
+        self.components.iter_mut().find(|c| c.name == name)
     }
     /// Is this channel a stable release? Does not imply that it has the
     /// `stable` alias.  To find out the latest stable [Channel], use:
@@ -81,8 +94,8 @@ impl Channel {
         // This is the subset of old components that need to be removed.
         let old_components = current.difference(&new_channel);
 
-        // These are the elements that are present in boths sets. We need which
-        // components need updating.
+        // These are the elements that are present in boths sets. We are only
+        // interested in those which need updating.
         let components_to_update = current.intersection(&new_channel).filter(|current_component| {
             let new_component = new_channel.get(*current_component);
             if let Some(new_component) = new_component {
@@ -414,7 +427,7 @@ impl Component {
                 // we simply leave it empty. That does mean that an update
                 // will be triggered even if the component does not need it.
                 let latest_upstream_revision =
-                    utils::find_latest_hash(repository_url_b.as_str(), name_b).ok();
+                    utils::git::find_latest_hash(repository_url_b.as_str(), name_b).ok();
 
                 match (local_revision, latest_upstream_revision) {
                     (Some(local_revision), Some(upstream_revision)) => {
@@ -429,6 +442,51 @@ impl Component {
                 };
 
                 return true;
+            },
+            (
+                Authority::Path {
+                    path: path_a,
+                    crate_name: crate_name_a,
+                    last_modification: last_modification_a,
+                },
+                Authority::Path {
+                    path: path_b,
+                    crate_name: crate_name_b,
+                    last_modification: last_modification_b,
+                },
+            ) => {
+                if path_a != path_b {
+                    return false;
+                }
+                if crate_name_a != crate_name_b {
+                    return false;
+                }
+
+                let local_latest = last_modification_a;
+
+                let latest_registered_modification =
+                    utils::fs::latest_modification(path_b).ok().map(|modification| {
+                        // std::dbg!(&modification.1);
+                        modification.0
+                    });
+
+                // last_modification_b should almost always be None, since the
+                // latest modification time is checked on demand. However, if
+                // for whatever reason, the manifest contains a latest
+                // modification time, we honor it.
+                let new_latest = last_modification_b.or(latest_registered_modification);
+
+                match (local_latest, new_latest) {
+                    (Some(local_latest), Some(new_latest)) => {
+                        return new_latest <= *local_latest;
+                    },
+                    // If anything failed, we simply mark the component as
+                    // needing an update.
+                    // The idea being that components installed from a path are
+                    // skipped during updates by default and are only updated if
+                    // the user explicitly passes the necessary flags.
+                    _ => return false,
+                }
             },
             (version_a, version_b) => {
                 if version_a != version_b {

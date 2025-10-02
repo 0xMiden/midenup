@@ -58,7 +58,7 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         std::env::current_exe().expect("unable to get location of current executable");
     let miden_exe = bin_dir.join("miden");
     if !miden_exe.exists() {
-        utils::symlink(&miden_exe, &current_exe)?;
+        utils::fs::symlink(&miden_exe, &current_exe)?;
         already_initialized = false;
     }
 
