@@ -99,7 +99,7 @@ impl Config {
                 std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
             }
             let opt_path = active_channel.get_channel_dir(self).join("opt");
-            utils::symlink(&opt_dir, &opt_path).with_context(|| {
+            utils::fs::symlink(&opt_dir, &opt_path).with_context(|| {
                 format!(
                     "Failed to create opt/ symlink from {} to {}",
                     opt_dir.display(),
