@@ -3,7 +3,7 @@ channel = "0.16.0"
 components = [
     "client",
     "vm",
-    "miden",
+    "midenc",
     "base",
     "std",
 ]

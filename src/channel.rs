@@ -11,11 +11,11 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    Config,
     manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
-    Config,
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -56,7 +56,8 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
     }
 
-    // Determines if the current toolchain was installed partially due to only having selected a couple of elements or fully.
+    // Determines if the current toolchain was installed partially due to only having selected a
+    // couple of elements or fully.
     pub fn is_partially_installed(
         &self,
         local_manifest: &Manifest,
