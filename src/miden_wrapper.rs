@@ -278,19 +278,15 @@ For more information, try 'miden help'.
                     (command, args)
                 },
                 Err(EnvironmentError::UnkownArgument) => {
-                    let aliases = toolchain_environment.get_aliases_display();
-                    let components = toolchain_environment.get_executables_display();
-                    bail!(
-                        "Failed to resolve {}: Neither known alias or component.
+                    let help_message = toolchain_help(&toolchain_environment);
+                    let err_msg = format!(
+                        "Failed to resolve '{}': Neither known alias or component.
 
-These are the known aliases:
-{aliases}
-And these are the known components:
-{components}
-
-        ",
+{}",
                         resolve.clone(),
+                        help_message
                     );
+                    bail!(err_msg);
                 },
             }
         },
