@@ -1,11 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, ffi::OsString, string::ToString};
+use std::{borrow::Cow, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Alias, CLICommand, Channel, Component, InstalledFile},
+    channel::{CLICommand, Channel, Component, InstalledFile},
     manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
 };
@@ -58,8 +58,6 @@ struct ToolchainEnvironment<'a> {
     /// scenarios, like:
     /// - The user only selected a subset of components for downloads.
     active_channel: Channel,
-
-    aliases: HashMap<Alias, CLICommand>,
 }
 impl<'a> ToolchainEnvironment<'a> {
     fn new(
@@ -70,12 +68,7 @@ impl<'a> ToolchainEnvironment<'a> {
         let partial_channel = original_channel.create_subset(toolchain, justification);
         let active_channel = partial_channel.as_ref().unwrap_or(original_channel).clone();
 
-        let aliases = active_channel.get_aliases();
-        ToolchainEnvironment {
-            active_channel,
-            original_channel,
-            aliases,
-        }
+        ToolchainEnvironment { active_channel, original_channel }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
@@ -143,9 +136,10 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_aliases_display(&self) -> String {
-        let mut aliases: Vec<_> = self.aliases.keys().collect();
-        aliases.sort();
-        aliases.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
+        let aliases = self.active_channel.get_aliases();
+        let mut keys: Vec<_> = aliases.keys().collect();
+        keys.sort();
+        keys.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
     }
 }
 
