@@ -10,14 +10,14 @@
           "package": "miden-stdlib",
           "version": "0.15.0",
           "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary::default()"
+          "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.9.0",
           "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib::default()"
+          "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "vm",
@@ -67,14 +67,14 @@
           "package": "miden-stdlib",
           "version": "0.16.0",
           "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary::default()"
+          "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.10.0",
           "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib::default()"
+          "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "vm",
