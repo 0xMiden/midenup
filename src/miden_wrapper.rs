@@ -43,38 +43,40 @@ enum MidenArgument<'a> {
 enum EnvironmentError {
     UnkownArgument,
 }
-struct ToolchainEnvironment<'a> {
-    original_channel: &'a Channel,
+
+#[derive(Debug)]
+struct ToolchainEnvironment {
+    active_channel: Channel,
     aliases: HashMap<Alias, CLICommand>,
-    components: Vec<Component>,
 }
-impl<'a> ToolchainEnvironment<'a> {
+impl ToolchainEnvironment {
     fn new(
         toolchain: &Toolchain,
         justification: &ToolchainJustification,
-        channel: &'a Channel,
+        channel: &Channel,
     ) -> Self {
-        let active_channel = channel.create_subset(toolchain, justification);
-        let active_channel = active_channel.as_ref().unwrap_or(channel);
+        let partial_channel = channel.create_subset(toolchain, justification);
+        let active_channel = partial_channel.as_ref().unwrap_or(channel).clone();
 
         let aliases = active_channel.get_aliases();
-        let components = active_channel.components.clone();
-        ToolchainEnvironment {
-            original_channel: channel,
-            aliases,
-            components,
-        }
+        ToolchainEnvironment { active_channel, aliases }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
+        if let Some(component) = self
+            .active_channel
+            .components
+            .iter()
+            .find(|c| c.aliases.contains_key(&argument))
         {
             let resolution = component.aliases.get(&argument).unwrap();
             Ok(MidenArgument::Alias(component, resolution.clone()))
-        } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
+        } else if let Some(component) =
+            self.active_channel.components.iter().find(|c| c.name == argument)
+        {
             Ok(MidenArgument::Component(component))
         } else if let Some(component) =
-            self.original_channel.components.iter().find(|c| c.name == argument)
+            self.active_channel.components.iter().find(|c| c.name == argument)
         {
             // For the sake of convenience, we allow users to run components
             // that are installed but are not listed in the active Toolchain.
@@ -92,7 +94,8 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_components_display(&self) -> String {
-        self.components
+        self.active_channel
+            .components
             .iter()
             .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
             .map(|c| {
