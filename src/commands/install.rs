@@ -229,6 +229,7 @@ fn main() {
         installed_json.write_all(&channel_json.as_bytes()).unwrap();
     }
 
+
     // As we install components, we write them down in this file. This is used
     // to keep track of successfully installed components in case installation
     // fails.
@@ -246,7 +247,7 @@ fn main() {
     let lib_dir = miden_sysroot_dir.join("lib");
     {
         {% for dep in dependencies %}
-        // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
+        // Write library to $MIDEN_SYSROOT/lib/dep.masp
         let lib = {{ dep.exposing_function }};
         let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masp");
         // NOTE: If the file already exists, then we are running an update and we

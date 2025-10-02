@@ -188,6 +188,7 @@ pub enum ChannelAlias {
     Nightly(Option<Cow<'static, str>>),
     /// An ad-hoc named alias for a channel. This can be used to tag custom
     /// channels with names such as `0.15.0-stable`.
+    #[serde(untagged)]
     Tag(Cow<'static, str>),
 }
 
