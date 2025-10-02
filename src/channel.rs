@@ -228,18 +228,31 @@ impl core::str::FromStr for ChannelAlias {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
-    /// Te component installs an executable.
+    /// The component installs an executable.
     #[serde(untagged)]
     Executable {
         #[serde(rename = "installed_executable")]
         binary_name: String,
     },
-    /// Te component installs a MaspLibrary.
+    /// The component installs a MaspLibrary.
     #[serde(untagged)]
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
+        /// This is the function that exposes the library and enables it to be
+        /// downloaded. For example, miden-lib's exposing function is:
+        /// `miden_lib::MidenLib::default()`;
+        exposing_function: String,
     },
+}
+
+impl InstalledFile {
+    pub fn get_exposing_function(&self) -> Option<&str> {
+        match &self {
+            InstalledFile::Executable { .. } => None,
+            InstalledFile::Library { exposing_function, .. } => Some(exposing_function),
+        }
+    }
 }
 
 impl Display for InstalledFile {
@@ -248,7 +261,7 @@ impl Display for InstalledFile {
             InstalledFile::Executable { binary_name: executable_name } => {
                 f.write_str(executable_name)
             },
-            InstalledFile::Library { library_name } => f.write_str(library_name),
+            InstalledFile::Library { library_name, .. } => f.write_str(library_name),
         }
     }
 }

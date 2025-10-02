@@ -9,13 +9,15 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.15.0",
-          "installed_library": "std.masp"
+          "installed_library": "std.masp",
+          "exposing_function": "miden_stdlib::StdLibrary::default()"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.9.0",
-          "installed_library": "base.masp"
+          "installed_library": "base.masp",
+          "exposing_function": "miden_lib::MidenLib::default()"
         },
         {
           "name": "vm",
@@ -64,13 +66,15 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.16.0",
-          "installed_library": "std.masp"
+          "installed_library": "std.masp",
+          "exposing_function": "miden_stdlib::StdLibrary::default()"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.10.0",
-          "installed_library": "base.masp"
+          "installed_library": "base.masp",
+          "exposing_function": "miden_lib::MidenLib::default()"
         },
         {
           "name": "vm",
@@ -118,13 +122,15 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.17.2",
-          "installed_library": "std.masp"
+          "installed_library": "std.masp",
+          "exposing_function": "miden_stdlib::StdLibrary::default()"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.11.5",
-          "installed_library": "base.masp"
+          "installed_library": "base.masp",
+          "exposing_function": "miden_lib::MidenLib::default()"
         },
         {
           "name": "vm",
