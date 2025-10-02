@@ -212,11 +212,12 @@ fn main() {
 
 
     // We save the state the channel was in when installed. This is used when uninstalling.
-    let channel_json = r#"{{ channel_json }}"#;
-    let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
-    let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
-    installed_json.write_all(&channel_json.as_bytes()).unwrap();
-
+    {
+        let channel_json = r#"{{ channel_json }}"#;
+        let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
+        let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
+        installed_json.write_all(&channel_json.as_bytes()).unwrap();
+    }
 
     // As we install components, we write them down in this file. This is used
     // to keep track of successfully installed components in case installation
@@ -234,28 +235,20 @@ fn main() {
     // Install libraries
     let lib_dir = miden_sysroot_dir.join("lib");
     {
+
+        {% for dep in dependencies %}
         // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
-        let tx = miden_lib::MidenLib::default();
-        let tx_path = lib_dir.join("base").with_extension("masp");
+        let lib = {{ dep.exposing_function }};
+        let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masp");
         // NOTE: If the file already exists, then we are running an update and we
         // don't need to update this element
-        if !std::fs::exists(&tx_path).expect("Can't check existence of file") {
-            tx.as_ref()
-                .write_to_file(&tx_path)
-                .expect("failed to install Miden transaction kernel library component");
+        if !std::fs::exists(&lib_path).expect("Can't check existence of file") {
+            lib.as_ref()
+                .write_to_file(&lib_path)
+                .expect("failed to install {{ dep.name }} library component");
         }
         writeln!(progress_file, "base").expect("Failed to write component name to progress file");
-
-        // Write stdlib to $MIDEN_SYSROOT/std.masp
-        let stdlib = miden_stdlib::StdLibrary::default();
-        let stdlib_path = lib_dir.join("std").with_extension("masp");
-        if !std::fs::exists(&stdlib_path).expect("Can't check existence of file") {
-            stdlib
-                .as_ref()
-                .write_to_file(&stdlib_path)
-                .expect("failed to install Miden standard library component");
-        }
-        writeln!(progress_file, "std").expect("Failed to write component name to progress file");
+        {%- endfor %}
     }
 
 
@@ -380,32 +373,44 @@ fn main() {
     // The set of cargo dependencies needed for the install script
     let dependencies = dependencies
         .into_iter()
-        .map(|component| match &component.version {
-            Authority::Cargo { package, version } => {
-                let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
-                upon::value! {
-                    package: package,
-                    version: version.to_string(),
-                    git_uri: "",
-                    path: "",
-                }
-            },
-            Authority::Git { repository_url, crate_name, target } => {
-                upon::value! {
-                    package: crate_name,
-                    version: "> 0.0.0",
-                    git_uri: format!("{}\", {target}", repository_url.clone()),
-                    path: "",
-                }
-            },
-            Authority::Path { crate_name, path } => {
-                upon::value! {
-                    package: crate_name,
-                    version: "> 0.0.0",
-                    git_uri: "",
-                    path: path.display().to_string(),
-                }
-            },
+        .map(|component| {
+            let installed_file = component
+                .get_installed_file();
+            let exposing_function = installed_file
+                .get_exposing_function()
+                .with_context(|| format!("Component {} is marked as library, however it has no declared exposing function on the manifest.
+The manifest should contain a line like the following:
+exposing_function: \"miden_stdlib::MidenStdLib::default()\"", component.name)).unwrap();
+            match &component.version {
+                Authority::Cargo { package, version } => {
+                    let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
+                    upon::value! {
+                        package: package,
+                        version: version.to_string(),
+                        git_uri: "",
+                        path: "",
+                        exposing_function: exposing_function,
+                    }
+                },
+                Authority::Git { repository_url, crate_name, target } => {
+                    upon::value! {
+                        package: crate_name,
+                        version: "> 0.0.0",
+                        git_uri: format!("{}\", {target}", repository_url.clone()),
+                        path: "",
+                        exposing_function: exposing_function,
+                    }
+                },
+                Authority::Path { crate_name, path } => {
+                    upon::value! {
+                        package: crate_name,
+                        version: "> 0.0.0",
+                        git_uri: "",
+                        path: path.display().to_string(),
+                        exposing_function: exposing_function,
+                    }
+                },
+            }
         })
         .collect::<Vec<_>>();
 
