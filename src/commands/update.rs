@@ -3,8 +3,8 @@ use colored::Colorize;
 
 use crate::{
     Config, PathUpdate, UpdateOptions,
-    channel::{Channel, UserChannel},
-    commands::{self, install::DEPENDENCIES, uninstall::uninstall_executable},
+    channel::{Channel, InstalledFile, UserChannel},
+    commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
 };
@@ -103,87 +103,113 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
+    // <<<<<<< HEAD
+    //     let updates = local_channel.components_to_update(upstream_channel);
+    //     if updates.is_empty() {
+    //         std::println!("Toolchain {} is up to date", local_channel);
+    //         return Ok(());
+    //     }
+
+    //     // NOTE: After deleting the files we need to remove the "all is installed
+    //     // file" to trigger a re-installation
+    //     let installation_indicator = toolchain_dir.join("installation-successful");
+    //     std::fs::remove_file(&installation_indicator).context(format!(
+    //         "Couldn't delete installation complete indicator in: {}",
+    //         &installation_indicator.display()
+    //     ))?;
+
+    //     let (libraries, executables): (Vec<_>, Vec<_>) = updates
+    //         .iter()
+    //         .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
+
+    //     for lib in libraries {
+    //         let lib_path =
+    // toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
+    //         std::fs::remove_file(&lib_path)
+    //             .context(format!("Couldn't delete {}", &lib_path.display()))?;
+    // =======
     let mut channel_to_install = upstream_channel.clone();
 
     let components_to_delete = local_channel.components_to_update(&channel_to_install);
     if components_to_delete.is_empty() {
         return Ok(());
+        // >>>>>>> main
     }
 
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
     for component in components_to_delete {
-        if DEPENDENCIES.contains(&(component.name.as_ref())) {
-            // Libraries
-            let lib_path =
-                toolchain_dir.join("lib").join(component.name.as_ref()).with_extension("masp");
-            libs_to_uninstall.push(lib_path);
-        } else {
-            // Executables
-            let executable_to_uninstall: Option<String> = match component.version {
-                Authority::Cargo { package, .. } => {
-                    let package_name = package.unwrap_or(component.name.to_string());
-                    Some(package_name)
-                },
-                Authority::Git { crate_name, .. } => Some(crate_name),
-                // Since uninstalling a component from the filesystem is
-                // potentially irreversible, we take special precautions before
-                // uninstalling them.
-                Authority::Path { path, crate_name, .. } => {
-                    if !path_warning_displayed {
-                        println!(
-                            "{}: The following elements are installed from a specific path in the filesystem.",
-                            "WARNING".yellow().bold(),
-                        );
-                        if matches!(options.path_update, PathUpdate::Off) {
+        match component.get_installed_file() {
+            InstalledFile::Library { library_name, .. } => {
+                let lib_path = toolchain_dir.join("lib").join(library_name);
+                libs_to_uninstall.push(lib_path);
+            },
+            InstalledFile::Executable { .. } => {
+                let executable_to_uninstall: Option<String> = match component.version {
+                    Authority::Cargo { package, .. } => {
+                        let package_name = package.unwrap_or(component.name.to_string());
+                        Some(package_name)
+                    },
+                    Authority::Git { crate_name, .. } => Some(crate_name),
+                    // Since uninstalling a component from the filesystem is
+                    // potentially irreversible, we take special precautions before
+                    // uninstalling them.
+                    Authority::Path { path, crate_name, .. } => {
+                        if !path_warning_displayed {
                             println!(
+                                "{}: The following elements are installed from a specific path in the filesystem.",
+                                "WARNING".yellow().bold(),
+                            );
+                            if matches!(options.path_update, PathUpdate::Off) {
+                                println!(
                                 "
 To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
 Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
                             );
-                        }
-                        path_warning_displayed = true;
-                    }
-
-                    println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
-
-                    match options.path_update {
-                        PathUpdate::Interactive => {
-                            match handle_path_uninstall_interactive(crate_name)? {
-                                InteractiveResult::Cancel => return Ok(()),
-                                InteractiveResult::ComponentUpdate(update_decision) => {
-                                    update_decision
-                                },
                             }
-                        },
-                        PathUpdate::All => Some(crate_name),
-                        PathUpdate::Off => None,
-                    }
-                },
-            };
+                            path_warning_displayed = true;
+                        }
 
-            if let Some(executable_name) = executable_to_uninstall {
-                exes_to_uninstall.push(executable_name);
-            } else {
-                // Case where the user wants to skip component update
-                let Some(component_to_install) =
-                    channel_to_install.get_component_mut(&component.name)
-                else {
-                    // This else case casn occur when:
-                    // - A user doesn't want to uninstall a component and
-                    // - Said component is not present in the upstream channel, which means that the
-                    //   component got removed from the toolchain entirely after the update.
-                    continue;
+                        println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
+
+                        match options.path_update {
+                            PathUpdate::Interactive => {
+                                match handle_path_uninstall_interactive(crate_name)? {
+                                    InteractiveResult::Cancel => return Ok(()),
+                                    InteractiveResult::ComponentUpdate(update_decision) => {
+                                        update_decision
+                                    },
+                                }
+                            },
+                            PathUpdate::All => Some(crate_name),
+                            PathUpdate::Off => None,
+                        }
+                    },
                 };
 
-                // SAFETY: If the component is installed, it *must* be present on
-                // the local_channel.
-                let local_component =
-                    local_channel.get_component(&component_to_install.name).unwrap();
+                if let Some(executable_name) = executable_to_uninstall {
+                    exes_to_uninstall.push(executable_name);
+                } else {
+                    // Case where the user wants to skip component update
+                    let Some(component_to_install) =
+                        channel_to_install.get_component_mut(&component.name)
+                    else {
+                        // This else case can occur when:
+                        // - A user doesn't want to uninstall a component and
+                        // - Said component is not present in the upstream channel, which means that
+                        //   the component got removed from the toolchain entirely after the update.
+                        continue;
+                    };
 
-                *component_to_install = local_component.clone();
-            }
+                    // SAFETY: If the component is installed, it *must* be present on
+                    // the local_channel.
+                    let local_component =
+                        local_channel.get_component(&component_to_install.name).unwrap();
+
+                    *component_to_install = local_component.clone();
+                }
+            },
         }
     }
 
