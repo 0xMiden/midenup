@@ -209,10 +209,26 @@ impl Channel {
                 }
             }
 
+            // The set of components that were not explicitly selected, yet are a dependency of a selected component.
+            let mut missing_dependency_components = Vec::new();
+            let mut dependency: HashSet<&str> = HashSet::new();
+
+            for component_name in &toolchain_components {
+                if let Some(component) = self.get_component(component_name) {
+                    for requirement in &component.requires {
+                        //     let dep = self.get_component(requirement).unwrap();
+                        dependency.insert(requirement);
+                    }
+                } else {
+                    missing_dependency_components.push(component_name);
+                }
+            }
+            // std::dbg!(&dependency);
+
             let selected_components: Vec<Component> = upstream_components
-                .clone()
                 .into_iter()
-                .filter(|comp| toolchain_components.contains(&comp.name.as_ref()))
+                // .chain(dependency)
+                .filter(|comp| toolchain_components.contains(&comp.name.as_ref()) || dependency.contains(&comp.name.as_ref()))
                 .collect();
 
             let partial_channel = Channel {
