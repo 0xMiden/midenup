@@ -38,6 +38,22 @@ pub struct Channel {
     pub components: Vec<Component>,
 }
 
+enum InstallationMotive {
+    ExplicitelySelected,
+    Dependency { comp_name: String },
+}
+impl Display for InstallationMotive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstallationMotive::Dependency { comp_name } => {
+                write!(f, "is a depency of component {comp_name}")
+            },
+            InstallationMotive::ExplicitelySelected => {
+                write!(f, "was explictely selected for installation")
+            },
+        }
+    }
+}
 impl Channel {
     pub fn new(
         name: semver::Version,
@@ -172,72 +188,79 @@ impl Channel {
         toolchain_justification: &ToolchainJustification,
     ) -> Option<Channel> {
         if current_toolchain.components.is_empty() {
-            None
-        } else {
-            let toolchain_components: HashSet<&str> =
-                HashSet::from_iter(current_toolchain.components.iter().map(|name| name.as_str()));
-
-            let upstream_components: Vec<Component> = self.components.clone();
-            let upstream_component_names: HashSet<&str> =
-                HashSet::from_iter(upstream_components.iter().map(|comp| comp.name.as_ref()));
-
-            // NOTE: These components are present in the Toolchain, but got
-            // removed from upstream. This can be due to them having been
-            // renamed or removed.
-            let removed_components = toolchain_components.difference(&upstream_component_names);
-
-            if removed_components.clone().count() > 0 {
-                println!(
-                    "{}: Some elements present in the current Toolchain are not present in the upstream channel: {}",
-                    "WARNING".bold(),
-                    self.name
-                );
-                for missing_component in removed_components {
-                    println!("- {missing_component} is missing in upstream channel");
-                }
-                println!("These components will be ignored for the current install.");
-
-                // TODO: Add messages for the other justifications
-                #[allow(clippy::single_match)]
-                match toolchain_justification {
-                    ToolchainJustification::MidenToolchainFile { path } => println!(
-                        "Check the `miden_toolchain.toml` in {} to see if any \
-                         component is misspelled or got removed from upstream",
-                        path.display()
-                    ),
-                    _ => (),
-                }
-            }
-
-            // The set of components that were not explicitly selected, yet are a dependency of a selected component.
-            let mut missing_dependency_components = Vec::new();
-            let mut dependency: HashSet<&str> = HashSet::new();
-
-            for component_name in &toolchain_components {
-                if let Some(component) = self.get_component(component_name) {
-                    for requirement in &component.requires {
-                        //     let dep = self.get_component(requirement).unwrap();
-                        dependency.insert(requirement);
-                    }
-                } else {
-                    missing_dependency_components.push(component_name);
-                }
-            }
-            // std::dbg!(&dependency);
-
-            let selected_components: Vec<Component> = upstream_components
-                .into_iter()
-                // .chain(dependency)
-                .filter(|comp| toolchain_components.contains(&comp.name.as_ref()) || dependency.contains(&comp.name.as_ref()))
-                .collect();
-
-            let partial_channel = Channel {
-                name: self.name.clone(),
-                alias: self.alias.clone(),
-                components: selected_components,
-            };
-            Some(partial_channel)
+            return None;
         }
+        let mut components_to_install: Vec<Component> = Vec::new();
+
+        let mut components_not_found: HashMap<String, Vec<InstallationMotive>> = HashMap::new();
+
+        for component_name in current_toolchain.components.iter() {
+            let Some(component) = self.get_component(component_name) else {
+                // NOTE: In order to provide more helpful error messages, we
+                // will collect all the missing components and return the error
+                // message at the end.
+                components_not_found
+                    .entry(component_name.to_string())
+                    .or_default()
+                    .push(InstallationMotive::ExplicitelySelected);
+
+                continue;
+            };
+            components_to_install.push(component.clone());
+
+            for depenency_name in &component.requires {
+                let Some(dependency) = self.get_component(depenency_name) else {
+                    components_not_found.entry(depenency_name.to_string()).or_default().push(
+                        InstallationMotive::Dependency { comp_name: component_name.to_string() },
+                    );
+                    continue;
+                };
+
+                components_to_install.push(dependency.clone());
+            }
+        }
+        if !components_not_found.is_empty() {
+            println!(
+                "{}: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                "WARNING".yellow().bold(),
+                self.name
+            );
+            println!();
+
+            for (missing_component_name, motive) in components_not_found {
+                let motives = motive
+                    .iter()
+                    .map(|motive| motive.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" and ");
+
+                println!(
+                    "- {missing_component_name}, which {motives}, is missing in upstream channel"
+                );
+            }
+
+            println!();
+            println!("These components will be ignored for the current install.");
+            println!();
+            // TODO: Add messages for the other justifications
+            #[allow(clippy::single_match)]
+            match toolchain_justification {
+                ToolchainJustification::MidenToolchainFile { path } => println!(
+                    "Check the `miden_toolchain.toml` in {} to see if any \
+                         component is misspelled or got removed from upstream",
+                    path.display()
+                ),
+                _ => (),
+            }
+        }
+
+        let partial_channel = Channel {
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            components: components_to_install,
+        };
+
+        Some(partial_channel)
     }
 }
 
