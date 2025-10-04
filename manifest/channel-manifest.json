@@ -110,6 +110,60 @@
           }
         }
       ]
+    },
+    {
+      "name": "0.17.2",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.17.2",
+          "installed_library": "std.masp"
+        },
+        {
+          "name": "base",
+          "package": "miden-lib",
+          "version": "0.11.5",
+          "installed_library": "base.masp"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.17.2",
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden-vm"
+        },
+        {
+          "name": "client",
+          "package": "miden-client-cli",
+          "version": "0.11.8",
+          "installed_executable": "miden-client",
+          "aliases": {
+              "account": ["executable", "new-account"],
+              "faucet": ["executable", "mint"],
+              "deploy": ["executable", "new-wallet", "--deploy"],
+              "call": ["executable", "call", "--show"],
+              "send": ["executable", "send"],
+              "simulate": ["executable", "exec"]
+          },
+          "initialization": ["init"]
+        },
+        {
+          "name": "midenc",
+          "version": "0.4.1",
+          "rustup_channel": "nightly-2025-07-20",
+          "call_format": ["executable", "compile", "-L", "lib_path"]
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.4.1",
+          "rustup_channel": "nightly-2025-07-20",
+          "aliases": {
+              "new": ["cargo", "miden", "new"],
+              "build": ["cargo", "miden", "build"]
+          }
+        }
+      ]
     }
   ]
 }
