@@ -10,13 +10,13 @@
 
 name: book
 
-# Documentation should be built and tested on every pull-request, and additionally deployed on push onto next.
+# Documentation should be built and tested on every pull-request, and additionally deployed on push onto main.
 on:
   workflow_dispatch:
   pull_request:
     path: ['docs/**']
   push:
-    branches: [next]
+    branches: [main]
     path: ['docs/**']
 
 # Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
@@ -34,7 +34,7 @@ concurrency:
 jobs:
   # Always build and test the mdbook documentation whenever the docs folder is changed.
   #
-  # The documentation is uploaded as a github artifact IFF it is required for deployment i.e. on push into next.
+  # The documentation is uploaded as a github artifact IFF it is required for deployment i.e. on push into main.
   build:
     name: Build documentation
     runs-on: ubuntu-latest
@@ -45,25 +45,25 @@ jobs:
       - name: Install mdbook and plugins
         uses: taiki-e/install-action@v2
         with:
-          tool: mdbook, mdbook-linkcheck
+          tool: mdbook, mdbook-linkcheck, mdbook-alerts, mdbook-katex, mdbook-alerts
 
       - name: Build book
         run: mdbook build docs/
 
-      # Only Upload documentation if we want to deploy (i.e. push to next).
+      # Only Upload documentation if we want to deploy (i.e. push to main).
       - name: Setup Pages
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/next' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         id: pages
         uses: actions/configure-pages@v5
 
       - name: Upload book artifact
-        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/next' }}
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: actions/upload-pages-artifact@v3
         with:
           # We specify multiple [output] sections in our book.toml which causes mdbook to create separate folders for each. This moves the generated `html` into its own `html` subdirectory.
           path: ./docs/book/html
 
-  # Deployment job only runs on push to next.
+  # Deployment job only runs on push to main.
   deploy:
     name: Deploy documentation
     environment:
@@ -71,7 +71,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     needs: build
-    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/next' }}
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
