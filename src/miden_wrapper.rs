@@ -252,8 +252,9 @@ And these are the known components:
         },
     };
 
-    // Now that executable resolution is done, we append the extra arguments we
-    // obtained in the beginning.
+    // After executable resolution, we append the "extra_arguments" we obtained
+    // when doing the original Help Resolution parsing.
+    // Currently, this may only append a "--help" flag to the original command.
     prefix_args.extend(extra_arguments);
 
     // Compute the effective PATH for this command

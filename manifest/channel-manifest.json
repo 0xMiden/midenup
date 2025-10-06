@@ -53,7 +53,8 @@
           "aliases": {
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
-          }
+          },
+          "symlink_name": "cargo-miden"
         }
       ]
     },
@@ -107,7 +108,8 @@
           "aliases": {
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
-          }
+          },
+          "symlink_name": "cargo-miden"
         }
       ]
     },
@@ -161,7 +163,8 @@
           "aliases": {
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
-          }
+          },
+          "symlink_name": "cargo-miden"
         }
       ]
     }
