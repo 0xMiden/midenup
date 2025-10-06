@@ -649,6 +649,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -663,6 +664,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
@@ -677,6 +679,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -691,6 +694,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
         ];
 
@@ -708,6 +712,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -722,6 +727,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
@@ -736,6 +742,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -750,6 +757,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
         ];
 
@@ -796,6 +804,7 @@ mod tests {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            symlink_name: None,
         }];
 
         let new_components = [Component {
@@ -811,6 +820,7 @@ mod tests {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            symlink_name: None,
         }];
 
         let old = Channel {

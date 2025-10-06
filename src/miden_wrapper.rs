@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, ffi::OsString, string::ToString};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
