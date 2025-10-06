@@ -374,7 +374,8 @@ fn main() {
             if let InstalledFile::Executable { ref binary_name } = exe_name {
                 let miden_display = component.get_cli_display();
                 for alias in aliases {
-                    executables.push((alias.clone(), binary_name.clone()));
+                    let alias_display = format!("miden {}", alias.clone());
+                    executables.push((alias_display, binary_name.clone()));
                 }
                 executables.push((miden_display, binary_name.clone()));
             }
