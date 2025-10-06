@@ -31,12 +31,12 @@
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
+              "account": ["miden account", "new-account"],
+              "faucet": ["miden faucet", "mint"],
+              "deploy": ["miden deploy", "new-wallet", "--deploy"],
+              "call": ["miden call", "call", "--show"],
+              "send": ["miden send", "send"],
+              "simulate": ["miden simulate", "exec"]
           },
           "initialization": ["init"]
         },
@@ -85,12 +85,12 @@
           "version": "0.10.2",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
+              "account": ["miden account", "new-account"],
+              "faucet": ["miden faucet", "mint"],
+              "deploy": ["miden deploy", "new-wallet", "--deploy"],
+              "call": ["miden call", "call", "--show"],
+              "send": ["miden send", "send"],
+              "simulate": ["miden simulate", "exec"]
           },
           "initialization": ["init"]
         },
@@ -139,12 +139,12 @@
           "version": "0.11.8",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
+              "account": ["miden account", "new-account"],
+              "faucet": ["miden faucet", "mint"],
+              "deploy": ["miden deploy", "new-wallet", "--deploy"],
+              "call": ["miden call", "call", "--show"],
+              "send": ["miden send", "send"],
+              "simulate": ["miden simulate", "exec"]
           },
           "initialization": ["init"]
         },
