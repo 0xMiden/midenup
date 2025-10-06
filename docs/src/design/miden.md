@@ -8,7 +8,7 @@ It is via the `miden` utility that users can use the installed `miden` component
 
 ## Aliases
 The `miden` CLI is aware of a number of aliases that make interacting with the various miden components easier. The list of currently avaialble aliases can be found with `miden help toolchain`.
-Aliases are channel specific, so different channels can have different number of aliases all together. A typical usage of these aliases can be found on the [tutorial](./getting-started/tutorial.md).
+Aliases are channel specific, so different channels can have different number of aliases all together. A typical usage of these aliases can be found on the [tutorial](../getting-started/tutorial.md)
 
 
 
