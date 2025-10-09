@@ -3,7 +3,12 @@ use std::{borrow::Cow, collections::HashSet, path::PathBuf, str::FromStr};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{Config, InstallationOptions, channel::UserChannel, commands, manifest::Manifest};
+use crate::{
+    Config, InstallationOptions,
+    channel::{Channel, UserChannel},
+    commands,
+    manifest::Manifest,
+};
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
 /// toolchain to be used.
@@ -142,7 +147,7 @@ impl Toolchain {
     pub fn ensure_current_is_installed(
         config: &Config,
         local_manifest: &mut Manifest,
-    ) -> anyhow::Result<(Self, ToolchainJustification)> {
+    ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
@@ -164,7 +169,9 @@ impl Toolchain {
         let partial_channel = channel.create_subset(&current_toolchain, &justification);
         let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
 
-        if let Some(installed_channel) = local_manifest.get_channel_by_name(&channel.name) {
+        if let Some(installed_channel) =
+            local_manifest.get_channel_by_name(&channel_to_install.name)
+        {
             let required_components: HashSet<&str> = HashSet::from_iter(
                 channel_to_install.components.iter().map(|comp| comp.name.as_ref()),
             );
@@ -175,8 +182,9 @@ impl Toolchain {
 
             let missing_components: Vec<_> =
                 required_components.difference(&installed_components).collect();
+
             if missing_components.is_empty() {
-                return Ok((current_toolchain, justification));
+                return Ok((current_toolchain, justification, partial_channel));
             }
 
             println!("Found that the current active toolchain is missing some components:");
@@ -196,6 +204,6 @@ impl Toolchain {
         )?;
 
         // Now installed
-        Ok((current_toolchain, justification))
+        Ok((current_toolchain, justification, partial_channel))
     }
 }

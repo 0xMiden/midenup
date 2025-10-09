@@ -7,7 +7,7 @@ pub use crate::config::Config;
 use crate::{
     channel::{CLICommand, Channel, Component, InstalledFile},
     manifest::Manifest,
-    toolchain::{Toolchain, ToolchainJustification},
+    toolchain::Toolchain,
 };
 
 /// These are the know help messages variants that midenup is aware of.
@@ -51,29 +51,38 @@ struct ToolchainEnvironment<'a> {
     /// contain a requested component, for convenience's sake, we check if it
     /// exists in the original_channel. If it does, we execute it, after
     /// displaying a warning message.
-    original_channel: &'a Channel,
+    installed_channel: &'a Channel,
 
     /// This is the channel that is currently active. This *might* differ
     /// slightly from the original upstream channel equivalent in some
     /// scenarios, like:
     /// - The user only selected a subset of components for downloads.
-    active_channel: Channel,
+    active_channel: Option<Channel>,
 }
 impl<'a> ToolchainEnvironment<'a> {
-    fn new(
-        toolchain: &Toolchain,
-        justification: &ToolchainJustification,
-        original_channel: &'a Channel,
-    ) -> Self {
-        let partial_channel = original_channel.create_subset(toolchain, justification);
-        let active_channel = partial_channel.as_ref().unwrap_or(original_channel).clone();
+    fn new(installed_channel: &'a Channel, active_channel: Option<Channel>) -> Self {
+        ToolchainEnvironment { active_channel, installed_channel }
+    }
 
-        ToolchainEnvironment { active_channel, original_channel }
+    /// This is the channel that is currently active. This *might* differ
+    /// slightly from the original upstream channel equivalent in some
+    /// scenarios, like:
+    /// - The user only selected a subset of components for downloads.
+    fn get_active_channel(&self) -> &Channel {
+        if let Some(active_channel) = self.active_channel.as_ref() {
+            active_channel
+        } else {
+            self.installed_channel
+        }
+    }
+
+    fn get_installed_channel(&self) -> &Channel {
+        self.installed_channel
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
         if let Some(component) = self
-            .active_channel
+            .get_active_channel()
             .components
             .iter()
             .find(|c| c.aliases.contains_key(&argument))
@@ -81,11 +90,11 @@ impl<'a> ToolchainEnvironment<'a> {
             let resolution = component.aliases.get(&argument).unwrap();
             Ok(MidenArgument::Alias(component, resolution.clone()))
         } else if let Some(component) =
-            self.active_channel.components.iter().find(|c| c.name == argument)
+            self.get_active_channel().components.iter().find(|c| c.name == argument)
         {
             Ok(MidenArgument::Component(component))
         } else if let Some(component) =
-            self.original_channel.components.iter().find(|c| c.name == argument)
+            self.get_installed_channel().components.iter().find(|c| c.name == argument)
         {
             // For the sake of convenience, we allow users to run components
             // that are installed but are not listed in the active Toolchain.
@@ -103,7 +112,7 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_executables_display(&self) -> String {
-        self.active_channel
+        self.get_active_channel()
             .components
             .iter()
             .filter(|c| matches!(c.get_installed_file(), InstalledFile::Executable { .. }))
@@ -122,7 +131,7 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_libraries_display(&self) -> String {
-        self.active_channel
+        self.get_active_channel()
             .components
             .iter()
             .filter_map(|comp| match comp.get_installed_file() {
@@ -136,7 +145,7 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_aliases_display(&self) -> String {
-        let aliases = self.active_channel.get_aliases();
+        let aliases = self.get_active_channel().get_aliases();
         let mut keys: Vec<_> = aliases.keys().collect();
         keys.sort();
         keys.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
@@ -221,13 +230,13 @@ For more information, try 'miden help'.
     }
 
     // Make sure we know the current toolchain so we can modify the PATH appropriately
-    let (toolchain, justification) =
+    let (toolchain, _, partial_channel) =
         Toolchain::ensure_current_is_installed(config, local_manifest)?;
-    let channel = local_manifest
+    let installed_channel = local_manifest
         .get_channel(&toolchain.channel)
         .context("Couldn't find active toolchain in the manifest.")?;
 
-    let toolchain_environment = ToolchainEnvironment::new(&toolchain, &justification, channel);
+    let toolchain_environment = ToolchainEnvironment::new(installed_channel, partial_channel);
 
     let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
@@ -263,7 +272,9 @@ For more information, try 'miden help'.
                 Ok(MidenArgument::Alias(component, alias_resolutions)) => {
                     let commands = alias_resolutions
                         .iter()
-                        .map(|description| description.resolve_command(channel, component, config))
+                        .map(|description| {
+                            description.resolve_command(installed_channel, component, config)
+                        })
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every alias has an
@@ -277,7 +288,9 @@ For more information, try 'miden help'.
                     let call_convention = component
                         .get_call_format()
                         .iter()
-                        .map(|argument| argument.resolve_command(channel, component, config))
+                        .map(|argument| {
+                            argument.resolve_command(installed_channel, component, config)
+                        })
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every call_format has at least one
