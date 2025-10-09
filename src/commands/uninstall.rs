@@ -10,8 +10,7 @@ use thiserror::Error;
 
 use crate::{
     Config,
-    channel::{Channel, Component, UserChannel},
-    commands::install::DEPENDENCIES,
+    channel::{Channel, Component, InstalledFile, UserChannel},
     manifest::Manifest,
     version::Authority,
 };
@@ -153,9 +152,10 @@ fn uninstall_channel(toolchain_dir: &PathBuf) -> Result<(), UninstallError> {
     // (hopefully) get deleted at the end of this function.
     let _ = std::fs::remove_file(installed_components_path);
 
-    let libs = DEPENDENCIES;
     let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =
-        components.iter().partition(|c| libs.contains(&(c.name.as_ref())));
+        components
+            .iter()
+            .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
     for lib in installed_libraries {
         let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");

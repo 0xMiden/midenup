@@ -7,10 +7,14 @@ use std::{
 };
 
 use anyhow::Context;
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    Config,
+    manifest::Manifest,
+    toolchain::{Toolchain, ToolchainJustification},
+    utils,
     version::{Authority, GitTarget},
 };
 
@@ -34,6 +38,22 @@ pub struct Channel {
     pub components: Vec<Component>,
 }
 
+enum InstallationMotive {
+    ExplicitelySelected,
+    Dependency { comp_name: String },
+}
+impl Display for InstallationMotive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstallationMotive::Dependency { comp_name } => {
+                write!(f, "is a depency of component {comp_name}")
+            },
+            InstallationMotive::ExplicitelySelected => {
+                write!(f, "was explictely selected for installation")
+            },
+        }
+    }
+}
 impl Channel {
     pub fn new(
         name: semver::Version,
@@ -63,6 +83,34 @@ impl Channel {
         self.alias
             .as_ref()
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
+    }
+
+    /// Determines if the current toolchain was installed "partially", i.e.,
+    /// containing only a subset of all the available components. This can be the
+    /// case with `miden-toolchain.toml`.
+    pub fn is_partially_installed(
+        &self,
+        local_manifest: &Manifest,
+        upstream_manifest: &Manifest,
+    ) -> anyhow::Result<bool> {
+        let upstream_channel =
+            upstream_manifest.get_channel_by_name(&self.name).context(format!(
+                "ERROR: Couldn't find a channel upstream with version {self}. Maybe it got removed."
+            ))?;
+        let components_upstream: HashSet<&str> =
+            HashSet::from_iter(upstream_channel.components.iter().map(|comp| comp.name.as_ref()));
+
+        let Some(installed_toolchain) = local_manifest.get_channel_by_name(&self.name) else {
+            return Ok(false);
+        };
+        let locally_installed_componentes: HashSet<&str> = HashSet::from_iter(
+            installed_toolchain.components.iter().map(|comp| comp.name.as_ref()),
+        );
+
+        let missing_locally =
+            components_upstream.difference(&locally_installed_componentes).count();
+
+        Ok(missing_locally > 0)
     }
 
     pub fn is_latest_nightly(&self) -> bool {
@@ -130,6 +178,90 @@ impl Channel {
             acc
         })
     }
+
+    /// Creates a "partial channel" from the original channel, given a toolchain
+    /// "Partial" in this context refers to the fact that the channel will not
+    /// install all the available components, but rather a subset.
+    pub fn create_subset(
+        &self,
+        current_toolchain: &Toolchain,
+        toolchain_justification: &ToolchainJustification,
+    ) -> Option<Channel> {
+        if current_toolchain.components.is_empty() {
+            return None;
+        }
+        let mut components_to_install: Vec<Component> = Vec::new();
+
+        let mut components_not_found: HashMap<String, Vec<InstallationMotive>> = HashMap::new();
+
+        for component_name in current_toolchain.components.iter() {
+            let Some(component) = self.get_component(component_name) else {
+                // NOTE: In order to provide more helpful error messages, we
+                // will collect all the missing components and return the error
+                // message at the end.
+                components_not_found
+                    .entry(component_name.to_string())
+                    .or_default()
+                    .push(InstallationMotive::ExplicitelySelected);
+
+                continue;
+            };
+            components_to_install.push(component.clone());
+
+            for depenency_name in &component.requires {
+                let Some(dependency) = self.get_component(depenency_name) else {
+                    components_not_found.entry(depenency_name.to_string()).or_default().push(
+                        InstallationMotive::Dependency { comp_name: component_name.to_string() },
+                    );
+                    continue;
+                };
+
+                components_to_install.push(dependency.clone());
+            }
+        }
+        if !components_not_found.is_empty() {
+            println!(
+                "{}: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                "WARNING".yellow().bold(),
+                self.name
+            );
+            println!();
+
+            for (missing_component_name, motive) in components_not_found {
+                let motives = motive
+                    .iter()
+                    .map(|motive| motive.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" and ");
+
+                println!(
+                    "- {missing_component_name}, which {motives}, is missing in upstream channel"
+                );
+            }
+
+            println!();
+            println!("These components will be ignored for the current install.");
+            println!();
+            // TODO: Add messages for the other justifications
+            #[allow(clippy::single_match)]
+            match toolchain_justification {
+                ToolchainJustification::MidenToolchainFile { path } => println!(
+                    "Check the `miden_toolchain.toml` in {} to see if any \
+                         component is misspelled or got removed from upstream",
+                    path.display()
+                ),
+                _ => (),
+            }
+        }
+
+        let partial_channel = Channel {
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            components: components_to_install,
+        };
+
+        Some(partial_channel)
+    }
 }
 
 impl Eq for Component {}
@@ -176,6 +308,21 @@ impl PartialEq for Channel {
     }
 }
 
+impl Display for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.alias {
+            Some(ChannelAlias::Stable) => write!(f, "Channel stable ({})", self.name),
+            Some(ChannelAlias::Tag(tag)) => write!(f, "Channel {}-{}", self.name, tag.as_ref()),
+            Some(ChannelAlias::Nightly(tag)) => {
+                let nightly_suffix =
+                    tag.as_ref().map(|suffix| format!("-{}", suffix)).unwrap_or(String::from(""));
+                write!(f, "Nightly channel {}{}", self.name, nightly_suffix)
+            },
+            None => write!(f, "Channel {}", self.name),
+        }
+    }
+}
+
 /// A special alias/tag that a channel can posses. For more information see
 /// [Channel::alias].
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
@@ -188,6 +335,7 @@ pub enum ChannelAlias {
     Nightly(Option<Cow<'static, str>>),
     /// An ad-hoc named alias for a channel. This can be used to tag custom
     /// channels with names such as `0.15.0-stable`.
+    #[serde(untagged)]
     Tag(Cow<'static, str>),
 }
 
@@ -228,18 +376,31 @@ impl core::str::FromStr for ChannelAlias {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
-    /// Te component installs an executable.
+    /// The component installs an executable.
     #[serde(untagged)]
     Executable {
         #[serde(rename = "installed_executable")]
         binary_name: String,
     },
-    /// Te component installs a MaspLibrary.
+    /// The component installs a MaspLibrary.
     #[serde(untagged)]
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
+        /// This is the struct that contains the library which exposes the
+        /// `Library::write_to_file()` function, which is used to generate the
+        /// associated `.masp` file.
+        library_struct: String,
     },
+}
+
+impl InstalledFile {
+    pub fn get_library_struct(&self) -> Option<&str> {
+        match &self {
+            InstalledFile::Executable { .. } => None,
+            InstalledFile::Library { library_struct, .. } => Some(library_struct),
+        }
+    }
 }
 
 impl Display for InstalledFile {
@@ -248,7 +409,7 @@ impl Display for InstalledFile {
             InstalledFile::Executable { binary_name: executable_name } => {
                 f.write_str(executable_name)
             },
-            InstalledFile::Library { library_name } => f.write_str(library_name),
+            InstalledFile::Library { library_name, .. } => f.write_str(library_name),
         }
     }
 }
