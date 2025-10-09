@@ -370,6 +370,13 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub initialization: Vec<String>,
+    /// The file used by midenup's 'miden' to call the components executable.
+    /// If None, then the component's file will be saved as 'miden <name>'.
+    /// This distinction exists mainly for components like cargo-miden, which
+    /// differ in how they are called.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symlink_name: Option<String>,
 }
 
 impl Component {
@@ -384,6 +391,7 @@ impl Component {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            symlink_name: None,
         }
     }
 
@@ -530,6 +538,15 @@ impl Component {
         format!("miden {}", self.name)
     }
 
+    /// Returns the name of symlink associated with a component.
+    pub fn get_symlink_name(&self) -> String {
+        if let Some(symlink_name) = &self.symlink_name {
+            symlink_name.clone()
+        } else {
+            format!("miden {}", self.name)
+        }
+    }
+
     /// Returns the String representation under which midenup calls a component.
     pub fn get_call_format(&self) -> Vec<CliCommand> {
         if self.call_format.is_empty() {
@@ -632,6 +649,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -646,6 +664,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
@@ -660,6 +679,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -674,6 +694,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
         ];
 
@@ -691,6 +712,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -705,6 +727,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
@@ -719,6 +742,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -733,6 +757,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                symlink_name: None,
             },
         ];
 
@@ -779,6 +804,7 @@ mod tests {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            symlink_name: None,
         }];
 
         let new_components = [Component {
@@ -794,6 +820,7 @@ mod tests {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            symlink_name: None,
         }];
 
         let old = Channel {
