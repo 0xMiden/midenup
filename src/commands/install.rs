@@ -318,7 +318,7 @@ fn main() {
     {% endfor %}
 
     let opt_dir = miden_sysroot_dir.join("opt");
-    // We install the symlinks associated with the aliases
+    // We install the 'miden <name>' symlinks
     {%- for link in symlinks %}
 
     let new_link = opt_dir.join("{{ link.alias }}");
@@ -361,21 +361,15 @@ fn main() {
     // - A symlink that adds the 'miden ' prefix to the corresponding executable,
     //   done in order to "trick" clap into displaying midenup compatile messages,
     //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
-    // - A symlink from all the aliases to the the corresponding executable
-
     let symlinks = channel
         .components
         .iter()
         .flat_map(|component| {
             let mut executables = Vec::new();
 
-            let aliases = component.aliases.keys();
             let exe_name = component.get_installed_file();
             if let InstalledFile::Executable { ref binary_name } = exe_name {
                 let miden_display = component.get_symlink_name();
-                for alias in aliases {
-                    executables.push((alias.clone(), binary_name.clone()));
-                }
                 executables.push((miden_display, binary_name.clone()));
             }
 
