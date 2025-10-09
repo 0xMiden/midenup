@@ -124,16 +124,16 @@ aliases. These aliases exist to facilitate the execution of common miden task.
 
 Here's a table with all the currently available aliases:
 
-| Alias          | Action                            | Corresponds to                   |
-|----------------|-----------------------------------|----------------------------------|
-| miden account  | Create local account              | miden-client account             |
-| miden faucet   | Fund account via faucet           | miden-client mint                |
-| miden new      | Create new project                | cargo miden new                  |
-| miden build    | Build project                     | cargo miden build                |
-| miden deploy   | Deploy contract                   | miden-client new-wallet --deploy |
-| miden call     | Call view function (read-only)    | miden-client account --show      |
-| miden send     | Send transaction (state-changing) | miden-client send                |
-| miden simulate | Simulate transaction (no commit)  | miden-client exec                |
+| Alias            | Action                            | Corresponds to                                                       |
+|------------------|-----------------------------------|----------------------------------------------------------------------|
+| miden account    | Create local account              | miden-client account                                                 |
+| miden faucet     | Fund account via faucet           | miden-client mint                                                    |
+| miden new        | Create new project                | cargo miden new                                                      |
+| miden build      | Build project                     | cargo miden build                                                    |
+| miden new-wallet | Create a wallet                   | miden-client new-wallet --deploy                                     |
+| miden call       | Call view function (read-only)    | miden-client account --show                                          |
+| miden send       | Send transaction (state-changing) | miden-client send                                                    |
+| miden simulate   | Simulate transaction (no commit)  | miden-client exec                                                    |
 
 
 ### Uninstalling a toolchain

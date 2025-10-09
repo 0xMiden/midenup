@@ -30,7 +30,7 @@
           "aliases": {
               "account": ["executable", "new-account"],
               "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
+              "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
