@@ -32,8 +32,9 @@
           "installed_executable": "miden-client",
           "aliases": {
               "account": ["executable", "new-account"],
+              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
               "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
+              "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
@@ -86,8 +87,9 @@
           "installed_executable": "miden-client",
           "aliases": {
               "account": ["executable", "new-account"],
+              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
               "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
+              "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
@@ -140,8 +142,9 @@
           "installed_executable": "miden-client",
           "aliases": {
               "account": ["executable", "new-account"],
+              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
               "faucet": ["executable", "mint"],
-              "deploy": ["executable", "new-wallet", "--deploy"],
+              "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
