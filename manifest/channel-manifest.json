@@ -56,6 +56,16 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           }
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "installed_executable": "miden-node",
+          "version": "0.10.1",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          },
+          "initialization": ["bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
         }
       ]
     },
@@ -112,6 +122,16 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           }
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "installed_executable": "miden-node",
+          "version": "0.10.1",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          },
+          "initialization": ["bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
         }
       ]
     },
@@ -168,6 +188,16 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           }
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "installed_executable": "miden-node",
+          "version": "0.11.2",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          },
+          "initialization": ["bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
         }
       ]
     }
