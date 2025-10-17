@@ -1,12 +1,12 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
+    Config, PathUpdate, UpdateOptions,
     channel::{Channel, InstalledFile, UserChannel},
     commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
-    Config, PathUpdate, UpdateOptions,
 };
 
 /// Updates installed toolchains
@@ -133,9 +133,9 @@ fn update_channel(
                     Authority::Path { path, crate_name, .. } => {
                         if !path_warning_displayed {
                             println!(
-                            "{}: The following elements are installed from a specific path in the filesystem.",
-                            "WARNING".yellow().bold(),
-                        );
+                                "{}: The following elements are installed from a specific path in the filesystem.",
+                                "WARNING".yellow().bold(),
+                            );
                             if matches!(options.path_update, PathUpdate::Off) {
                                 println!(
                                 "
@@ -172,8 +172,8 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
                     else {
                         // This else case casn occur when:
                         // - A user doesn't want to uninstall a component and
-                        // - Said component is not present in the upstream channel, which means that the
-                        //   component got removed from the toolchain entirely after the update.
+                        // - Said component is not present in the upstream channel, which means that
+                        //   the component got removed from the toolchain entirely after the update.
                         continue;
                     };
 
