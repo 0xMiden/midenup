@@ -123,14 +123,14 @@
           "package": "miden-stdlib",
           "version": "0.17.2",
           "installed_library": "std.masp",
-          "exposing_function": "miden_stdlib::StdLibrary::default()"
+          "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.11.5",
           "installed_library": "base.masp",
-          "exposing_function": "miden_lib::MidenLib::default()"
+          "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "vm",
