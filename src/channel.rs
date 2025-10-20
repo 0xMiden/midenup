@@ -293,10 +293,11 @@ pub enum CliCommand {
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
     LibPath,
-    /// Resolve the command to a [[Toolchain]]'s etc path (<toolchain>/lib)
-    /// Optionally, it can contain a file name.
-    #[serde(rename = "etc_path")]
-    EtcPath(Option<String>),
+    /// Resolve the command to a [[Toolchain]]'s var path (<toolchain>/var).
+    /// Optionally, it can contain a file name, which represents a file in
+    /// <toolchain>/var/<file>.
+    #[serde(rename = "var_path")]
+    VarPath { file: Option<String> },
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
@@ -328,10 +329,10 @@ impl CliCommand {
 
                 Ok(toolchain_path.to_string_lossy().to_string())
             },
-            CliCommand::EtcPath(file) => {
+            CliCommand::VarPath { file } => {
                 let channel_dir = channel.get_channel_dir(config);
 
-                let toolchain_path = channel_dir.join("etc");
+                let toolchain_path = channel_dir.join("var");
                 let full_path = if let Some(file) = file {
                     toolchain_path.join(file)
                 } else {

@@ -342,8 +342,8 @@ fn main() {
     rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
 
     // Create etc directory
-    let etc_dir = miden_sysroot_dir.join("etc");
-    if !std::fs::exists(&etc_dir).unwrap_or(false) {
+    let var_dir = miden_sysroot_dir.join("var");
+    if !std::fs::exists(&var_dir).unwrap_or(false) {
         std::fs::create_dir(&etc_dir).expect("Failed to create etc directory toolchain directory.");
     }
 }
