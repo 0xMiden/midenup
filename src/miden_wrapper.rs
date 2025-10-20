@@ -1,11 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, ffi::OsString, string::ToString};
+use std::{borrow::Cow, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Alias, CLICommand, Channel, Component, InstalledFile},
+    channel::{CLICommand, Channel, Component, InstalledFile},
     manifest::Manifest,
     toolchain::Toolchain,
 };
@@ -43,33 +43,90 @@ enum MidenArgument<'a> {
 enum EnvironmentError {
     UnkownArgument,
 }
-struct ToolchainEnvironment {
-    aliases: HashMap<Alias, CLICommand>,
-    components: Vec<Component>,
+
+#[derive(Debug)]
+struct ToolchainEnvironment<'a> {
+    /// We use the original channel as a fallback to
+    /// [[ToolchainEnvironment::active_channel]]. If the active channel does not
+    /// contain a requested component, for convenience's sake, we check if it
+    /// exists in the original_channel. If it does, we execute it, after
+    /// displaying a warning message.
+    installed_channel: &'a Channel,
+
+    /// This is the channel that is currently active. This *might* differ
+    /// slightly from the original upstream channel equivalent in some
+    /// scenarios, like:
+    /// - The user only selected a subset of components for downloads.
+    active_channel: Option<Channel>,
 }
-impl ToolchainEnvironment {
-    fn new(channel: &Channel) -> Self {
-        let aliases = channel.get_aliases();
-        let components = channel.components.clone();
-        ToolchainEnvironment { aliases, components }
+impl<'a> ToolchainEnvironment<'a> {
+    fn new(installed_channel: &'a Channel, active_channel: Option<Channel>) -> Self {
+        ToolchainEnvironment { active_channel, installed_channel }
+    }
+
+    /// This is the channel that is currently active. This *might* differ
+    /// slightly from the original upstream channel equivalent in some
+    /// scenarios, like:
+    /// - The user only selected a subset of components for downloads.
+    fn get_active_channel(&self) -> &Channel {
+        if let Some(active_channel) = self.active_channel.as_ref() {
+            active_channel
+        } else {
+            self.installed_channel
+        }
+    }
+
+    fn get_installed_channel(&self) -> &Channel {
+        self.installed_channel
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
+        if let Some(component) = self
+            .get_active_channel()
+            .components
+            .iter()
+            .find(|c| c.aliases.contains_key(&argument) || c.name == argument)
         {
-            let resolution = component.aliases.get(&argument).unwrap();
-            Ok(MidenArgument::Alias(component, resolution.clone()))
-        } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
-            Ok(MidenArgument::Component(component))
+            if let Some(resolution) = component.aliases.get(&argument) {
+                Ok(MidenArgument::Alias(component, resolution.clone()))
+            } else {
+                Ok(MidenArgument::Component(component))
+            }
+        } else if let Some(component) = self
+            // For the sake of convenience, we allow users to run components
+            // that are installed but are not listed in the active Toolchain.
+            // However, we do emit a warning notice.
+            .get_installed_channel()
+            .components
+            .iter()
+            .find(|c| c.aliases.contains_key(&argument) || c.name == argument)
+        {
+            if let Some(resolution) = component.aliases.get(&argument) {
+                println!(
+                    "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
+                    "WARNING".yellow().bold(),
+                    argument,
+                    component.name,
+                );
+                Ok(MidenArgument::Alias(component, resolution.clone()))
+            } else {
+                println!(
+                    "{}: {} is installed, but it is not part of the current active toolchain.",
+                    "WARNING".yellow().bold(),
+                    component.name,
+                );
+                Ok(MidenArgument::Component(component))
+            }
         } else {
             Err(EnvironmentError::UnkownArgument)
         }
     }
 
-    fn get_components_display(&self) -> String {
-        self.components
+    fn get_executables_display(&self) -> String {
+        self.get_active_channel()
+            .components
             .iter()
-            .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
+            .filter(|c| matches!(c.get_installed_file(), InstalledFile::Executable { .. }))
             .map(|c| {
                 let initialization_indicator = if !c.initialization.is_empty() {
                     let subcommand = c.initialization.join(" ");
@@ -84,10 +141,25 @@ impl ToolchainEnvironment {
             .collect::<String>()
     }
 
+    fn get_libraries_display(&self) -> String {
+        self.get_active_channel()
+            .components
+            .iter()
+            .filter_map(|comp| match comp.get_installed_file() {
+                InstalledFile::Library { library_name, .. } => {
+                    let display_name = format!("  {}\n", library_name);
+                    Some(display_name)
+                },
+                _ => None,
+            })
+            .collect::<String>()
+    }
+
     fn get_aliases_display(&self) -> String {
-        let mut aliases: Vec<_> = self.aliases.keys().collect();
-        aliases.sort();
-        aliases.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
+        let aliases = self.get_active_channel().get_aliases();
+        let mut keys: Vec<_> = aliases.keys().collect();
+        keys.sort();
+        keys.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
     }
 }
 
@@ -169,11 +241,13 @@ For more information, try 'miden help'.
     }
 
     // Make sure we know the current toolchain so we can modify the PATH appropriately
-    let toolchain = Toolchain::ensure_current_is_installed(config, local_manifest)?;
-    let channel = local_manifest
+    let (toolchain, _, partial_channel) =
+        Toolchain::ensure_current_is_installed(config, local_manifest)?;
+    let installed_channel = local_manifest
         .get_channel(&toolchain.channel)
         .context("Couldn't find active toolchain in the manifest.")?;
-    let toolchain_environment = ToolchainEnvironment::new(channel);
+
+    let toolchain_environment = ToolchainEnvironment::new(installed_channel, partial_channel);
 
     let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
@@ -201,7 +275,7 @@ For more information, try 'miden help'.
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
         // Resolution, either for help or for actual execution is the same. The
-        // only difference is wheter you append "--help" at the end and if we
+        // only difference is wheter we append "--help" at the end and if we
         // process additional arguments.
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
         | MidenSubcommand::Resolve(resolve) => {
@@ -209,7 +283,9 @@ For more information, try 'miden help'.
                 Ok(MidenArgument::Alias(component, alias_resolutions)) => {
                     let commands = alias_resolutions
                         .iter()
-                        .map(|description| description.resolve_command(channel, component, config))
+                        .map(|description| {
+                            description.resolve_command(installed_channel, component, config)
+                        })
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every alias has an
@@ -223,7 +299,9 @@ For more information, try 'miden help'.
                     let call_convention = component
                         .get_call_format()
                         .iter()
-                        .map(|argument| argument.resolve_command(channel, component, config))
+                        .map(|argument| {
+                            argument.resolve_command(installed_channel, component, config)
+                        })
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every call_format has at least one
@@ -233,20 +311,16 @@ For more information, try 'miden help'.
 
                     (command, args)
                 },
-                Err(_) => {
-                    let aliases = toolchain_environment.get_aliases_display();
-                    let components = toolchain_environment.get_components_display();
-                    bail!(
-                        "Failed to resolve {}: Neither known alias or component.
+                Err(EnvironmentError::UnkownArgument) => {
+                    let help_message = toolchain_help(&toolchain_environment);
+                    let err_msg = format!(
+                        "Failed to resolve '{}': Neither known alias or component.
 
-These are the known aliases:
-{aliases}
-And these are the known components:
-{components}
-
-        ",
+{}",
                         resolve.clone(),
+                        help_message
                     );
+                    bail!(err_msg);
                 },
             }
         },
@@ -378,14 +452,19 @@ Found a bug? Create an issue by copying this into your browser:
 }
 
 fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
-    let available_components: String = toolchain_environment.get_components_display();
-    let available_aliases: String = toolchain_environment.get_aliases_display();
-
     let usage = "Usage:".bold().underline();
     let miden = "miden".bold();
     let asterisk = "*".bold();
+
     let available_aliases_text = "Available aliases:".bold().underline();
+    let available_aliases: String = toolchain_environment.get_aliases_display();
+
     let available_components_text = "Available components:".bold().underline();
+    let available_components: String = toolchain_environment.get_executables_display();
+
+    let available_libraries_text = "Available libraries:".bold().underline();
+    let available_libraries: String = toolchain_environment.get_libraries_display();
+
     let help = "Help:".bold().underline();
 
     format!(
@@ -397,6 +476,8 @@ fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
 {available_aliases}
 {available_components_text}
 {available_components}
+{available_libraries_text}
+{available_libraries}
 
 {help}
   help                   Print this help message
