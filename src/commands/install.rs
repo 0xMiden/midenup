@@ -23,11 +23,18 @@ pub fn install(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
-    // NOTE: The installation indicator is only created after successful
-    // toolchain installation.
     let installation_indicator = toolchain_dir.join("installation-successful");
+    let is_partial = local_manifest
+        .get_channel_by_name(&channel.name)
+        .map(|ch| ch.is_partially_installed())
+        .unwrap_or(false);
 
-    if installation_indicator.exists() {
+    if installation_indicator.exists()
+    // If the channel is "partial" then that means that only a subset of the
+    // components got installed.  In that case, we can procede to install the
+    // remaining components.
+    && !is_partial
+    {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
