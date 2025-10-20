@@ -7,12 +7,24 @@ use std::{
 };
 
 use anyhow::Context;
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    Config,
+    toolchain::{Toolchain, ToolchainJustification},
+    utils,
     version::{Authority, GitTarget},
 };
+
+/// Tags used to identify special qualities of a specific channel.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Tags {
+    /// The channel is partially installed, i.e. only a subset of components
+    /// have been installed.
+    Partial,
+}
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -30,17 +42,40 @@ pub struct Channel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
 
+    /// Set of tags used to denote a special characteristic about the channel.
+    /// Mainly used for locally installed channels.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<Tags>,
+
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
 }
 
+enum InstallationMotive {
+    ExplicitelySelected,
+    Dependency { comp_name: String },
+}
+impl Display for InstallationMotive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstallationMotive::Dependency { comp_name } => {
+                write!(f, "is a depency of component {comp_name}")
+            },
+            InstallationMotive::ExplicitelySelected => {
+                write!(f, "was explictely selected for installation")
+            },
+        }
+    }
+}
 impl Channel {
     pub fn new(
         name: semver::Version,
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
+        tags: Vec<Tags>,
     ) -> Self {
-        Self { name, alias, components }
+        Self { name, alias, components, tags }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
@@ -63,6 +98,13 @@ impl Channel {
         self.alias
             .as_ref()
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
+    }
+
+    /// Determines if the current toolchain was installed "partially", i.e.,
+    /// containing only a subset of all the available components. This can be the
+    /// case with `miden-toolchain.toml`.
+    pub fn is_partially_installed(&self) -> bool {
+        self.tags.iter().any(|tag| matches!(tag, Tags::Partial))
     }
 
     pub fn is_latest_nightly(&self) -> bool {
@@ -89,7 +131,11 @@ impl Channel {
         // last sync.
         // NOTE: Equality between components is done via their name, see
         // [Component::eq].
-        let new_components = new_channel.difference(&current);
+        let new_components = new_channel.difference(&current)
+            // If the channel was partially installed, then we are not
+            // interested in installing missing components, since the user
+            // explicitly on ly selected a subset.
+            .filter(|_| !self.is_partially_installed());
 
         // This is the subset of old components that need to be removed.
         let old_components = current.difference(&new_channel);
@@ -129,6 +175,91 @@ impl Channel {
             acc.extend(component.aliases.clone());
             acc
         })
+    }
+
+    /// Creates a "partial channel" from the original channel, given a toolchain
+    /// "Partial" in this context refers to the fact that the channel will not
+    /// install all the available components, but rather a subset.
+    pub fn create_subset(
+        &self,
+        current_toolchain: &Toolchain,
+        toolchain_justification: &ToolchainJustification,
+    ) -> Option<Channel> {
+        if current_toolchain.components.is_empty() {
+            return None;
+        }
+        let mut components_to_install: Vec<Component> = Vec::new();
+
+        let mut components_not_found: HashMap<String, Vec<InstallationMotive>> = HashMap::new();
+
+        for component_name in current_toolchain.components.iter() {
+            let Some(component) = self.get_component(component_name) else {
+                // NOTE: In order to provide more helpful error messages, we
+                // collect all the missing components and return a single error
+                // message at the end.
+                components_not_found
+                    .entry(component_name.to_string())
+                    .or_default()
+                    .push(InstallationMotive::ExplicitelySelected);
+
+                continue;
+            };
+            components_to_install.push(component.clone());
+
+            for depenency_name in &component.requires {
+                let Some(dependency) = self.get_component(depenency_name) else {
+                    components_not_found.entry(depenency_name.to_string()).or_default().push(
+                        InstallationMotive::Dependency { comp_name: component_name.to_string() },
+                    );
+                    continue;
+                };
+
+                components_to_install.push(dependency.clone());
+            }
+        }
+        if !components_not_found.is_empty() {
+            println!(
+                "{}: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                "WARNING".yellow().bold(),
+                self.name
+            );
+            println!();
+
+            for (missing_component_name, motive) in components_not_found {
+                let motives = motive
+                    .iter()
+                    .map(|motive| motive.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" and ");
+
+                println!(
+                    "- {missing_component_name}, which {motives}, is missing in upstream channel"
+                );
+            }
+
+            println!();
+            println!("These components will be ignored for the current install.");
+            println!();
+            // TODO: Add messages for the other justifications
+            #[allow(clippy::single_match)]
+            match toolchain_justification {
+                ToolchainJustification::MidenToolchainFile { path } => println!(
+                    "Check the `miden_toolchain.toml` file in {} to see if any \
+                         component is misspelled or got removed from upstream",
+                    path.display()
+                ),
+                _ => (),
+            }
+        }
+
+        let partial_channel = Channel {
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            tags: vec![Tags::Partial],
+            components: components_to_install,
+        };
+
+        Some(partial_channel)
     }
 }
 
@@ -255,9 +386,9 @@ pub enum InstalledFile {
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
-        /// This is the struct that contains the library which and exposes the
-        /// `Library::write_to_file()` method which is used to obtain the associated
-        /// `.masp` file.
+        /// This is the name of the struct which exposes the
+        /// `Library::write_to_file()` function, that is used to generate the
+        /// associated `.masp` file.
         library_struct: String,
     },
 }
@@ -768,12 +899,14 @@ mod tests {
         let old = Channel {
             name: semver::Version::new(0, 0, 1),
             alias: None,
+            tags: Vec::new(),
             components: old_components.to_vec(),
         };
 
         let new = Channel {
             name: semver::Version::new(0, 0, 2),
             alias: None,
+            tags: Vec::new(),
             components: new_components.to_vec(),
         };
 
@@ -828,12 +961,14 @@ mod tests {
         let old = Channel {
             name: semver::Version::new(0, 0, 1),
             alias: None,
+            tags: Vec::new(),
             components: old_components.to_vec(),
         };
 
         let new = Channel {
             name: semver::Version::new(0, 0, 2),
             alias: None,
+            tags: Vec::new(),
             components: new_components.to_vec(),
         };
 
