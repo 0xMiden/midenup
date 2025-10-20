@@ -191,9 +191,10 @@
         },
         {
           "name": "node",
-          "package": "miden-node",
+          "repository_url": "https://github.com/lambdaclass/miden-node.git",
+          "crate_name": "miden-node",
+          "branch": "fabrizioorsi/create-account-data-dirs",
           "installed_executable": "miden-node",
-          "version": "0.11.2",
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
           },
