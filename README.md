@@ -175,10 +175,24 @@ For example, to set `0.16.0` run:
 midenup set 0.16.0
 ```
 
-Now, whenever `miden` is called in this directory, it will use the specified toolchain.
+This procedure will generate a `miden-toolchain.toml` file in the directory where `midenup set` was invoked:
 
-> [!NOTE]
-> This procedure generates a `miden-toolchain.toml` file in the directory where `midenup set` was invoked.
+```toml
+[toolchain]
+channel = "stable"
+components = []
+```
+
+Now, whenever `miden` is called in this directory (or any of its subdirectories), it will use the specified toolchain.
+If the `components` entry is left blank, all the available components for the selected channel will be installed. However, if the list is not empty, only the listed components will be installed.
+For example, with the following `miden-toolchain.toml` file:
+```toml
+[toolchain]
+channel = "stable"
+components = ["vm", "midenc", "client"]
+```
+Only the `vm`, `midenc`, `client` will be installed after `miden` gets executed.
+
 
 #### Setting a global default toolchain
 
