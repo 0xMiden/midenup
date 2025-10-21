@@ -5,7 +5,7 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Alias, CLICommand, Channel, Component, InstalledFile},
+    channel::{resolve_command, Alias, CLICommand, Channel, Component, InstalledFile},
     manifest::Manifest,
     toolchain::Toolchain,
 };
@@ -207,10 +207,7 @@ For more information, try 'miden help'.
         | MidenSubcommand::Resolve(resolve) => {
             match toolchain_environment.resolve(resolve.clone()) {
                 Ok(MidenArgument::Alias(component, alias_resolutions)) => {
-                    let commands = alias_resolutions
-                        .iter()
-                        .map(|description| description.resolve_command(channel, component, config))
-                        .collect::<Result<Vec<String>, _>>()?;
+                    let commands = resolve_command(alias_resolutions, channel, component, config)?;
 
                     // SAFETY: Safe under the assumption that every alias has an
                     // associated command.
@@ -220,11 +217,8 @@ For more information, try 'miden help'.
                     (command, aliased_arguments)
                 },
                 Ok(MidenArgument::Component(component)) => {
-                    let call_convention = component
-                        .get_call_format()
-                        .iter()
-                        .map(|argument| argument.resolve_command(channel, component, config))
-                        .collect::<Result<Vec<String>, _>>()?;
+                    let call_convention =
+                        resolve_command(component.get_call_format(), channel, component, config)?;
 
                     // SAFETY: Safe under the assumption that every call_format has at least one
                     // argument

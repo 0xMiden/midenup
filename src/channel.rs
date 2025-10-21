@@ -293,7 +293,7 @@ pub enum CliCommand {
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
     LibPath,
-    /// Resolve the command to a [[Toolchain]]'s var path (<toolchain>/var).
+    /// Resolve the command to a [[Toolchain]]'s var directory (<toolchain>/var).
     /// Optionally, it can contain a file name, which represents a file in
     /// <toolchain>/var/<file>.
     #[serde(rename = "var_path")]
@@ -303,14 +303,18 @@ pub enum CliCommand {
     Verbatim(String),
 }
 
-impl CliCommand {
-    pub fn resolve_command(
-        &self,
-        channel: &Channel,
-        component: &Component,
-        config: &Config,
-    ) -> anyhow::Result<String> {
-        match self {
+pub fn resolve_command(
+    commands: Vec<CliCommand>,
+    channel: &Channel,
+    component: &Component,
+    config: &Config,
+) -> anyhow::Result<Vec<String>> {
+    // NOTE: This is a relatively sane estimation; some commands will
+    // resolve fewer strings.
+    let mut resolution = Vec::with_capacity(commands.len());
+
+    for command in commands {
+        match command {
             CliCommand::Executable => {
                 let name = &component.name;
                 let component = channel.get_component(name).with_context(|| {
@@ -320,14 +324,14 @@ impl CliCommand {
                     )
                 })?;
 
-                Ok(component.get_cli_display())
+                resolution.push(component.get_cli_display());
             },
             CliCommand::LibPath => {
                 let channel_dir = channel.get_channel_dir(config);
 
                 let toolchain_path = channel_dir.join("lib");
 
-                Ok(toolchain_path.to_string_lossy().to_string())
+                resolution.push(toolchain_path.to_string_lossy().to_string())
             },
             CliCommand::VarPath { file } => {
                 let channel_dir = channel.get_channel_dir(config);
@@ -339,11 +343,13 @@ impl CliCommand {
                     toolchain_path
                 };
 
-                Ok(full_path.to_string_lossy().to_string())
+                resolution.push(full_path.to_string_lossy().to_string())
             },
-            CliCommand::Verbatim(name) => Ok(name.to_string()),
+            CliCommand::Verbatim(name) => resolution.push(name.to_string()),
         }
     }
+
+    Ok(resolution)
 }
 
 pub type Alias = String;
