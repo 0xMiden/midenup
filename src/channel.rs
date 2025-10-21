@@ -346,15 +346,20 @@ pub fn resolve_command(
 
                 resolution.push(toolchain_path.to_string_lossy().to_string())
             },
-            CliCommand::VarPath { file } => {
+            // The VarPath must be followed by a file name.
+            CliCommand::VarPath => {
                 let channel_dir = channel.get_channel_dir(config);
 
                 let toolchain_path = channel_dir.join("var");
-                let full_path = if let Some(file) = file {
-                    toolchain_path.join(file)
-                } else {
-                    toolchain_path
+
+                let next_command =
+                    commands.next().context("var_path needs to be followed by a path name")?;
+
+                let CliCommand::Verbatim(directory_name) = next_command else {
+                    bail!(format!("After var_path a file is required. Got: {}", next_command))
                 };
+
+                let full_path = toolchain_path.join(directory_name);
 
                 resolution.push(full_path.to_string_lossy().to_string())
             },
