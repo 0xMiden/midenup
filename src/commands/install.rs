@@ -1,10 +1,10 @@
-use std::{io::Write, time::SystemTime};
+use std::{ffi::OsString, io::Write, time::SystemTime};
 
 use anyhow::{Context, bail};
 
 use crate::{
     Config, InstallationOptions,
-    channel::{Channel, ChannelAlias, InstalledFile},
+    channel::{Channel, ChannelAlias, InstalledFile, resolve_command},
     commands,
     manifest::Manifest,
     utils,
