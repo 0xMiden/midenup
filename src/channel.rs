@@ -317,7 +317,7 @@ impl fmt::Display for CliCommand {
 }
 
 pub fn resolve_command(
-    commands: &Vec<CliCommand>,
+    commands: &[CliCommand],
     channel: &Channel,
     component: &Component,
 
@@ -326,7 +326,7 @@ pub fn resolve_command(
     // NOTE: This is a relatively sane estimation; some commands will
     // resolve fewer strings.
     let mut resolution = Vec::with_capacity(commands.len());
-    let mut commands = commands.into_iter();
+    let mut commands = commands.iter();
 
     while let Some(command) = commands.next() {
         match command {

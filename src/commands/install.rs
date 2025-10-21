@@ -150,6 +150,7 @@ pub fn install(
             }
 
             if let Some(init_command) = component.get_initialization() {
+                println!("About to initialize {}", component.name);
                 // The component could be already initialized if this is an update.
                 let already_initialized = local_manifest
                     .get_channel_by_name(&channel.name)
@@ -189,13 +190,36 @@ pub fn install(
                     .stdout(std::process::Stdio::inherit())
                     .spawn();
                 let Ok(mut command) = command else {
+                    println!(
+                        "Failed to initialize {}, skipping. Use
+miden help toolchain
+in order to initialize the component manually",
+                        component.name
+                    );
                     continue;
                 };
 
                 let status = command.wait();
-                let Ok(_) = status else {
-                    continue;
-                };
+                match status {
+                    Err(err) => {
+                        println!(
+                            "Failed to initialize {}, because of {} skipping. Use
+miden help toolchain
+in order to initialize the component manually",
+                            component.name, err
+                        );
+                    },
+                    Ok(status) if !status.success() => {
+                        println!(
+                            "Failed to initialize {}, skipping. Use
+miden help toolchain
+in order to initialize the component manually",
+                            component.name,
+                        );
+                    },
+                    Ok(_) => (),
+                }
+                println!();
                 component.mark_as_initialized()?;
             }
         }
