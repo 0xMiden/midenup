@@ -43,23 +43,26 @@ enum MidenArgument<'a> {
 enum EnvironmentError {
     UnkownArgument,
 }
-struct ToolchainEnvironment {
-    aliases: HashMap<Alias, CLICommand>,
-    components: Vec<Component>,
+struct ToolchainEnvironment<'a> {
+    installed_channel: &'a Channel,
 }
-impl ToolchainEnvironment {
-    fn new(channel: &Channel) -> Self {
-        let aliases = channel.get_aliases();
-        let components = channel.components.clone();
-        ToolchainEnvironment { aliases, components }
+impl<'a> ToolchainEnvironment<'a> {
+    fn new(channel: &'a Channel) -> Self {
+        ToolchainEnvironment { installed_channel: channel }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
+        if let Some(component) = self
+            .installed_channel
+            .components
+            .iter()
+            .find(|c| c.aliases.contains_key(&argument))
         {
             let resolution = component.aliases.get(&argument).unwrap();
             Ok(MidenArgument::Alias(component, resolution.clone()))
-        } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
+        } else if let Some(component) =
+            self.installed_channel.components.iter().find(|c| c.name == argument)
+        {
             Ok(MidenArgument::Component(component))
         } else {
             Err(EnvironmentError::UnkownArgument)
@@ -67,7 +70,8 @@ impl ToolchainEnvironment {
     }
 
     fn get_components_display(&self) -> String {
-        self.components
+        self.installed_channel
+            .components
             .iter()
             .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
             .map(|c| {
@@ -85,9 +89,13 @@ impl ToolchainEnvironment {
     }
 
     fn get_aliases_display(&self) -> String {
-        let mut aliases: Vec<_> = self.aliases.keys().collect();
-        aliases.sort();
-        aliases.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
+        let aliases = self.installed_channel.get_aliases();
+        let mut aliases_sorted: Vec<_> = aliases.keys().collect();
+        aliases_sorted.sort();
+        aliases_sorted
+            .iter()
+            .map(|alias| format!("  {}\n", alias.bold()))
+            .collect::<String>()
     }
 }
 
