@@ -40,7 +40,7 @@
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
           },
-          "initialization": ["executable", "init"]
+          "initialization_command": ["executable", "init"]
         },
         {
           "name": "midenc",
@@ -65,7 +65,7 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
           },
-          "initialization": ["executable", "bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
+          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
         }
       ]
     },
@@ -106,7 +106,7 @@
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
           },
-          "initialization": ["executable", "init"]
+          "initialization_command": ["executable", "init"]
         },
         {
           "name": "midenc",
@@ -131,7 +131,7 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
           },
-          "initialization": ["executable", "bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
+          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
         }
       ]
     },
@@ -198,7 +198,7 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"],
           },
-          "initialization": ["executable", "bundled", "bootstrap", "--data-directory", "var_path", "data", "--accounts-directory", "var_path", "accounts"]
+          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "var_path", "data", "--accounts-directory", "var_path", "accounts"],
         }
       ]
     }
