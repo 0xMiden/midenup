@@ -78,10 +78,12 @@ impl<'a> ToolchainEnvironment<'a> {
             .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
             .map(|c| {
                 let initialization_indicator = if !c.initialization.is_empty() {
-                    let subcommand = c.initialization.join(" ");
-                    let command = format!("miden {}", c.name);
+                    let commands =
+                        resolve_command(&c.initialization, self.installed_channel, c, self.config)
+                            .unwrap_or_default()
+                            .join(" ");
 
-                    Cow::Owned(format!("(requires init: `{} {}`)", command, subcommand))
+                    Cow::Owned(format!("(requires init: `{}`)", commands))
                 } else {
                     Cow::Borrowed("")
                 };
@@ -217,7 +219,7 @@ For more information, try 'miden help'.
         | MidenSubcommand::Resolve(resolve) => {
             match toolchain_environment.resolve(resolve.clone()) {
                 Ok(MidenArgument::Alias(component, alias_resolutions)) => {
-                    let commands = resolve_command(alias_resolutions, channel, component, config)?;
+                    let commands = resolve_command(&alias_resolutions, channel, component, config)?;
 
                     // SAFETY: Safe under the assumption that every alias has an
                     // associated command.
@@ -228,7 +230,7 @@ For more information, try 'miden help'.
                 },
                 Ok(MidenArgument::Component(component)) => {
                     let call_convention =
-                        resolve_command(component.get_call_format(), channel, component, config)?;
+                        resolve_command(&component.get_call_format(), channel, component, config)?;
 
                     // SAFETY: Safe under the assumption that every call_format has at least one
                     // argument
