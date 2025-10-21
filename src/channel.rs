@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::Context;
+use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -440,7 +440,7 @@ pub struct Component {
     /// initialization subcommand(s).
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub initialization: CLICommand,
+    initialization: CLICommand,
 }
 
 impl Component {
@@ -607,6 +607,14 @@ impl Component {
             vec![CliCommand::Executable]
         } else {
             self.call_format.clone()
+        }
+    }
+
+    pub fn get_initialization(&self) -> Option<&CLICommand> {
+        if self.initialization.is_empty() {
+            None
+        } else {
+            Some(&self.initialization)
         }
     }
 }

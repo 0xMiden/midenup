@@ -77,16 +77,21 @@ impl<'a> ToolchainEnvironment<'a> {
             .iter()
             .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
             .map(|c| {
-                let initialization_indicator = if !c.initialization.is_empty() {
-                    let commands =
-                        resolve_command(&c.initialization, self.installed_channel, c, self.config)
-                            .unwrap_or_default()
-                            .join(" ");
+                let initialization_indicator =
+                    if let Some(initialization_command) = c.get_initialization() {
+                        let commands = resolve_command(
+                            &initialization_command,
+                            self.installed_channel,
+                            c,
+                            self.config,
+                        )
+                        .unwrap_or_default()
+                        .join(" ");
 
-                    Cow::Owned(format!("(requires init: `{}`)", commands))
-                } else {
-                    Cow::Borrowed("")
-                };
+                        Cow::Owned(format!("(requires init: `{}`)", commands))
+                    } else {
+                        Cow::Borrowed("")
+                    };
                 format!("  {} {}\n", c.name.bold(), initialization_indicator)
             })
             .collect::<String>()
