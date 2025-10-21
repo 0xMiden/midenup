@@ -148,6 +148,55 @@ pub fn install(
                 },
                 _ => (),
             }
+
+            if let Some(init_command) = component.get_initialization() {
+                // The component could be already initialized if this is an update.
+                let already_initialized = local_manifest
+                    .get_channel_by_name(&channel.name)
+                    .and_then(|ch| ch.get_component(&component.name))
+                    .map(|comp| comp.already_initialized())
+                    .unwrap_or(false);
+                if already_initialized {
+                    continue;
+                }
+
+                let commands = resolve_command(init_command, channel, component, config)?;
+                // SAFETY: Safe under the assumption that every command has at
+                // least one associated command.
+                let target_exe = commands.first().cloned().unwrap();
+                let prefix_args: Vec<String> = commands.into_iter().skip(1).collect();
+
+                let toolchain_bin = config
+                    .midenup_home
+                    .join("toolchains")
+                    .join(channel.name.to_string())
+                    .join("opt");
+
+                let path = match std::env::var_os("PATH") {
+                    Some(prev_path) => {
+                        let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
+                        path.push(prev_path);
+                        path
+                    },
+                    None => toolchain_bin.into_os_string(),
+                };
+
+                let command = std::process::Command::new(target_exe)
+                    .env("MIDENUP_HOME", &config.midenup_home)
+                    .env("PATH", path)
+                    .args(prefix_args)
+                    .stderr(std::process::Stdio::inherit())
+                    .stdout(std::process::Stdio::inherit())
+                    .spawn();
+                let Ok(mut command) = command else {
+                    continue;
+                };
+
+                let status = command.wait();
+                let Ok(_) = status else {
+                    continue;
+                };
+            }
         }
 
         // Now that the channels have been updated, add them to the local manifest.
