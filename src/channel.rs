@@ -613,9 +613,23 @@ impl Component {
     pub fn get_initialization(&self) -> Option<&CLICommand> {
         if self.initialization.is_empty() {
             None
+    pub fn mark_as_initialized(&mut self) -> anyhow::Result<()> {
+        if let Some(initialization) = &mut self.initialization {
+            initialization.already_initialized = true;
+            Ok(())
         } else {
-            Some(&self.initialization)
+            bail!(
+                "Tried to mark {} as initialized, despite not having initialization commnad",
+                self.name
+            )
         }
+    }
+
+    pub fn already_initialized(&self) -> bool {
+        self.initialization
+            .as_ref()
+            .map(|init| init.already_initialized)
+            .unwrap_or(false)
     }
 }
 

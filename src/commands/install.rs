@@ -196,6 +196,7 @@ pub fn install(
                 let Ok(_) = status else {
                     continue;
                 };
+                component.mark_as_initialized()?;
             }
         }
 
