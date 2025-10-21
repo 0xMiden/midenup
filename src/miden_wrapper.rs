@@ -45,10 +45,12 @@ enum EnvironmentError {
 }
 struct ToolchainEnvironment<'a> {
     installed_channel: &'a Channel,
+
+    config: &'a Config,
 }
 impl<'a> ToolchainEnvironment<'a> {
-    fn new(channel: &'a Channel) -> Self {
-        ToolchainEnvironment { installed_channel: channel }
+    fn new(channel: &'a Channel, config: &'a Config) -> Self {
+        ToolchainEnvironment { installed_channel: channel, config }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
@@ -181,7 +183,7 @@ For more information, try 'miden help'.
     let channel = local_manifest
         .get_channel(&toolchain.channel)
         .context("Couldn't find active toolchain in the manifest.")?;
-    let toolchain_environment = ToolchainEnvironment::new(channel);
+    let toolchain_environment = ToolchainEnvironment::new(channel, config);
 
     let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
