@@ -296,11 +296,23 @@ pub enum CliCommand {
     /// Resolve the command to a [[Toolchain]]'s var directory (<toolchain>/var).
     /// Optionally, it can contain a file name, which represents a file in
     /// <toolchain>/var/<file>.
+    // NOTE: Potentially in the future, we might want this to be an Optional field
     #[serde(rename = "var_path")]
-    VarPath { file: Option<String> },
+    VarPath,
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
+}
+
+impl fmt::Display for CliCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            CliCommand::Executable => write!(f, "executable"),
+            CliCommand::LibPath => write!(f, "lib_path"),
+            CliCommand::VarPath => write!(f, "var_path"),
+            CliCommand::Verbatim(word) => write!(f, "verbatim: {word}"),
+        }
+    }
 }
 
 pub fn resolve_command(
@@ -312,8 +324,9 @@ pub fn resolve_command(
     // NOTE: This is a relatively sane estimation; some commands will
     // resolve fewer strings.
     let mut resolution = Vec::with_capacity(commands.len());
+    let mut commands = commands.into_iter();
 
-    for command in commands {
+    while let Some(command) = commands.next() {
         match command {
             CliCommand::Executable => {
                 let name = &component.name;
