@@ -316,9 +316,10 @@ impl fmt::Display for CliCommand {
 }
 
 pub fn resolve_command(
-    commands: Vec<CliCommand>,
+    commands: &Vec<CliCommand>,
     channel: &Channel,
     component: &Component,
+
     config: &Config,
 ) -> anyhow::Result<Vec<String>> {
     // NOTE: This is a relatively sane estimation; some commands will
@@ -439,7 +440,7 @@ pub struct Component {
     /// initialization subcommand(s).
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub initialization: Vec<String>,
+    pub initialization: CLICommand,
 }
 
 impl Component {
