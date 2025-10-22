@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, bail};
 
-use crate::{manifest::Manifest, toolchain::Toolchain, utils};
+use crate::{channel::Channel, manifest::Manifest, toolchain::Toolchain, utils};
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -109,5 +109,36 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    /// Executes a command.
+    pub fn execute_command(
+        &self,
+        active_toolchain: &Channel,
+        target_exe: &str,
+        args: &Vec<OsString>,
+    ) -> Result<std::process::Child, std::io::Error> {
+        let toolchain_opt = self
+            .midenup_home
+            .join("toolchains")
+            .join(active_toolchain.name.to_string())
+            .join("opt");
+
+        let path = match std::env::var_os("PATH") {
+            Some(prev_path) => {
+                let mut path = OsString::from(format!("{}:", toolchain_opt.display()));
+                path.push(prev_path);
+                path
+            },
+            None => toolchain_opt.into_os_string(),
+        };
+
+        std::process::Command::new(target_exe)
+            .env("MIDENUP_HOME", &self.midenup_home)
+            .env("PATH", path)
+            .args(args)
+            .stderr(std::process::Stdio::inherit())
+            .stdout(std::process::Stdio::inherit())
+            .spawn()
     }
 }

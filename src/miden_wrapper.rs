@@ -1,11 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, ffi::OsString, string::ToString};
+use std::{borrow::Cow, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{resolve_command, Alias, CLICommand, Channel, Component, InstalledFile},
+    channel::{CLICommand, Channel, Component, InstalledFile, resolve_command},
     manifest::Manifest,
     toolchain::Toolchain,
 };
@@ -80,7 +80,7 @@ impl<'a> ToolchainEnvironment<'a> {
                 let initialization_indicator =
                     if let Some(initialization_command) = c.get_initialization() {
                         let commands = resolve_command(
-                            &initialization_command,
+                            initialization_command,
                             self.installed_channel,
                             c,
                             self.config,
@@ -267,21 +267,6 @@ And these are the known components:
     // obtained in the beginning.
     prefix_args.extend(extra_arguments);
 
-    // Compute the effective PATH for this command
-    let toolchain_bin = config
-        .midenup_home
-        .join("toolchains")
-        .join(toolchain.channel.to_string())
-        .join("opt");
-    let path = match std::env::var_os("PATH") {
-        Some(prev_path) => {
-            let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
-            path.push(prev_path);
-            path
-        },
-        None => toolchain_bin.into_os_string(),
-    };
-
     let rest_of_args = if include_rest_of_args {
         argv.iter().skip(2)
     } else {
@@ -291,17 +276,13 @@ And these are the known components:
         argv.iter().skip(argv.len())
     };
 
-    let mut output = std::process::Command::new(target_exe)
-        .env("MIDENUP_HOME", &config.midenup_home)
-        .env("PATH", path)
-        .args(prefix_args)
-        .args(rest_of_args)
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .spawn()
+    let prefix_args = prefix_args.iter().map(OsString::from).chain(rest_of_args.cloned()).collect();
+
+    let mut command = config
+        .execute_command(toolchain_environment.installed_channel, &target_exe, &prefix_args)
         .with_context(|| format!("failed to run 'miden {subcommand}'"))?;
 
-    let status = output.wait().with_context(|| {
+    let status = command.wait().with_context(|| {
         format!("error occurred while waiting for 'miden {subcommand}' to finish executing")
     })?;
 

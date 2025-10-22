@@ -150,7 +150,6 @@ pub fn install(
             }
 
             if let Some(init_command) = component.get_initialization() {
-                println!("About to initialize {}", component.name);
                 // The component could be already initialized if this is an update.
                 let already_initialized = local_manifest
                     .get_channel_by_name(&channel.name)
@@ -160,35 +159,17 @@ pub fn install(
                 if already_initialized {
                     continue;
                 }
+                println!("About to initialize {}", component.name);
 
                 let commands = resolve_command(init_command, channel, component, config)?;
                 // SAFETY: Safe under the assumption that every command has at
                 // least one associated command.
                 let target_exe = commands.first().cloned().unwrap();
-                let prefix_args: Vec<String> = commands.into_iter().skip(1).collect();
+                let prefix_args: Vec<OsString> =
+                    commands.into_iter().skip(1).map(OsString::from).collect();
 
-                let toolchain_bin = config
-                    .midenup_home
-                    .join("toolchains")
-                    .join(channel.name.to_string())
-                    .join("opt");
+                let command = config.execute_command(channel, target_exe.as_str(), &prefix_args);
 
-                let path = match std::env::var_os("PATH") {
-                    Some(prev_path) => {
-                        let mut path = OsString::from(format!("{}:", toolchain_bin.display()));
-                        path.push(prev_path);
-                        path
-                    },
-                    None => toolchain_bin.into_os_string(),
-                };
-
-                let command = std::process::Command::new(target_exe)
-                    .env("MIDENUP_HOME", &config.midenup_home)
-                    .env("PATH", path)
-                    .args(prefix_args)
-                    .stderr(std::process::Stdio::inherit())
-                    .stdout(std::process::Stdio::inherit())
-                    .spawn();
                 let Ok(mut command) = command else {
                     println!(
                         "Failed to initialize {}, skipping. Use
@@ -208,6 +189,7 @@ miden help toolchain
 in order to initialize the component manually",
                             component.name, err
                         );
+                        continue;
                     },
                     Ok(status) if !status.success() => {
                         println!(
@@ -216,6 +198,7 @@ miden help toolchain
 in order to initialize the component manually",
                             component.name,
                         );
+                        continue;
                     },
                     Ok(_) => (),
                 }
