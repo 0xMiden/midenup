@@ -322,8 +322,6 @@ pub fn resolve_command(
 
     config: &Config,
 ) -> anyhow::Result<Vec<String>> {
-    // NOTE: This is a relatively sane estimation; some commands will
-    // resolve fewer strings.
     let mut resolution = Vec::with_capacity(commands.len());
     let mut commands = commands.iter();
 
@@ -377,6 +375,7 @@ struct Initialization {
     #[serde(rename = "initialization_command")]
     pub command: CLICommand,
     // Do not serialize if false
+    // This is an Option since the usptream manifest will not contain this field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub already_initialized: Option<bool>,
 }

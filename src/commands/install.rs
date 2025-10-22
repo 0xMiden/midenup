@@ -149,6 +149,7 @@ pub fn install(
                 _ => (),
             }
 
+            // We try to initialize the components that require initialization.
             if let Some(init_command) = component.get_initialization() {
                 // The component could be already initialized if this is an update.
                 let already_initialized = local_manifest
