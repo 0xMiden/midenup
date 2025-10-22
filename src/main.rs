@@ -961,7 +961,7 @@ Error: {}",
             .expect("Failed to perform global update");
 
         // We check that the var directory exists
-        let toolchain_dir = midenup_home.join("0.17.2");
+        let toolchain_dir = midenup_home.join("toolchains").join("0.17.2");
         let var_dir = toolchain_dir.join("var");
         assert!(var_dir.exists());
 
