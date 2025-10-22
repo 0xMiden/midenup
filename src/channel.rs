@@ -740,7 +740,7 @@ mod tests {
                 call_format: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -754,7 +754,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -768,7 +768,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -782,7 +782,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
         ];
@@ -799,7 +799,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -813,7 +813,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -827,7 +827,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -841,7 +841,7 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: vec![],
+                initialization: None,
                 aliases: HashMap::new(),
             },
         ];
@@ -887,7 +887,7 @@ mod tests {
             call_format: Vec::new(),
             rustup_channel: None,
             installed_file: None,
-            initialization: vec![],
+            initialization: None,
             aliases: HashMap::new(),
         }];
 
@@ -902,7 +902,7 @@ mod tests {
             rustup_channel: None,
             call_format: Vec::new(),
             installed_file: None,
-            initialization: vec![],
+            initialization: None,
             aliases: HashMap::new(),
         }];
 
