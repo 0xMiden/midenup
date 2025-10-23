@@ -107,7 +107,7 @@ fn update_channel(
 
     let mut channel_to_install = upstream_channel.clone();
 
-    let components_to_delete = components_to_update(&local_channel, &channel_to_install);
+    let components_to_delete = components_to_update(local_channel, &channel_to_install);
     if components_to_delete.is_empty() {
         std::println!("Toolchain {} is up to date", local_channel);
         return Ok(());
@@ -117,6 +117,11 @@ fn update_channel(
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
     for (component, motive) in components_to_delete {
+        // If the component got added to the toolchain, then there's nothing to
+        // delete.
+        if matches!(motive, UpdateMotive::Added) {
+            continue;
+        }
         match component.get_installed_file() {
             InstalledFile::Library { library_name, .. } => {
                 let lib_path = toolchain_dir.join("lib").join(library_name);
