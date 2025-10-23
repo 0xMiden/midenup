@@ -1,14 +1,14 @@
 use std::collections::HashSet;
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
+    Config, PathUpdate, UpdateOptions,
     channel::{Channel, Component, InstalledFile, UserChannel},
     commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
-    Config, PathUpdate, UpdateOptions,
 };
 
 /// Updates installed toolchains

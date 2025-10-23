@@ -692,6 +692,7 @@ Error: {}",
         // - Remove base.masp from 0.15.0's toolchain dir
         // - Downgrade 0.14.0's miden-vm.
         // - Add the miden-client to 0.14.0's toolchain dir
+        // - Change 0.14.0's std's authority to Git instead of Cargo
         // However this should *not* update stable.
         let manifest: &str =
             full_path_manifest!("tests/data/integration_update_test/channel-manifest-3.json");
@@ -719,6 +720,15 @@ Error: {}",
         let command = std::process::Command::new(vm_exe_v15).arg("--version").output().unwrap();
         assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.16.2\n");
         assert!(!toolchain_0_15_0.join("lib").join("base.masp").exists());
+
+        let std_version = &local_manifest
+            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .expect("Couldn't find toolchain 0.14.0 in local manifest")
+            .get_component("std")
+            .expect("Couldn't find std library despite being listed in manifest.")
+            .version;
+
+        matches!(std_version, Authority::Git { .. });
 
         let toolchain_0_14_0 = toolchain_dir.join("0.14.0");
         let vm_exe_v14 = toolchain_0_14_0.join("bin").join("miden");
