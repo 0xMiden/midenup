@@ -71,53 +71,6 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
     }
 
-    /// This functions compares the Channel &self, with a newer channel [newer]
-    /// and returns the list of [Components] that need to be updated.
-    /// NOTE: A component can be marked for update in the following scenarios:
-    /// - The component got removed from the newer channel entirely and thus needs to be removed
-    ///   from the system.
-    /// - A new component is present in the upstream manifest and thus needs to be installed.
-    /// - A newer version of a present component is released and thus an upgrade is due.
-    /// - An *older* version of a component is released and thus a downgrade is due.
-    /// - A components [Authority] got changed and thus needs to be removed and re-installed with
-    ///   the new [Authority]
-    pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
-        let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
-        let current = HashSet::from_iter(self.components.iter());
-
-        // This is the subset of new components present in the channel since
-        // last sync.
-        // NOTE: Equality between components is done via their name, see
-        // [Component::eq].
-        let new_components = new_channel.difference(&current);
-
-        // This is the subset of old components that need to be removed.
-        let old_components = current.difference(&new_channel);
-
-        // These are the elements that are present in boths sets. We are only
-        // interested in those which need updating.
-        let components_to_update = current.intersection(&new_channel).filter(|current_component| {
-            let new_component = new_channel.get(*current_component);
-            if let Some(new_component) = new_component {
-                // We only want to update components that share the same name but
-                // differ in some other field.
-                !current_component.is_up_to_date(new_component)
-            } else {
-                // This should't be possible, but if somehow the component is
-                // missing, then we trigger an update for said component
-                // regardless.
-                true
-            }
-        });
-
-        let components = new_components
-            .chain(old_components)
-            .chain(components_to_update)
-            .map(|c| (*c).clone());
-
-        Vec::from_iter(components)
-    }
-
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
         let installed_toolchains_dir = config.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", self.name))
