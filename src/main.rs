@@ -629,11 +629,10 @@ Error: {}",
         let tmp_home = test_env.midenup_dir;
         let midenup_home = tmp_home.join("midenup");
 
-        // SIDENOTE: This test uses toolchain with version number 0.14.0. This
-        // is simply used for testing purposes and is not a toolchain meant to
-        // be used.
-
         // This manifest contains toolchain version 0.14.0 as its only toolchain
+        // WARNING: This test uses toolchain files which were created for
+        // testing purposes only. For instance, they are lacking many components
+        // in order to save time.
         let manifest: &str =
             full_path_manifest!("tests/data/integration_update_test/channel-manifest-1.json");
         let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
@@ -690,7 +689,9 @@ Error: {}",
         // Now, we perform a "global" update. This performs an update on every
         // *installed* toolchain. It should perform the following changes:
         // - Update 0.15.0's miden-vm.
+        // - Remove base.masp from 0.15.0's toolchain dir
         // - Downgrade 0.14.0's miden-vm.
+        // - Add the miden-client to 0.14.0's toolchain dir
         // However this should *not* update stable.
         let manifest: &str =
             full_path_manifest!("tests/data/integration_update_test/channel-manifest-3.json");
@@ -713,13 +714,18 @@ Error: {}",
             .expect("Couldn't obtain directory where the stable directory is pointing to");
         assert_eq!(stable_toolchain, newer_toolchain);
 
-        let vm_exe_v15 = toolchain_dir.join("0.15.0").join("bin").join("miden-vm");
+        let toolchain_0_15_0 = toolchain_dir.join("0.15.0");
+        let vm_exe_v15 = toolchain_0_15_0.join("bin").join("miden-vm");
         let command = std::process::Command::new(vm_exe_v15).arg("--version").output().unwrap();
         assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.16.2\n");
+        assert!(!toolchain_0_15_0.join("lib").join("base.masp").exists());
 
-        let vm_exe_v14 = toolchain_dir.join("0.14.0").join("bin").join("miden");
+        let toolchain_0_14_0 = toolchain_dir.join("0.14.0");
+        let vm_exe_v14 = toolchain_0_14_0.join("bin").join("miden");
         let command = std::process::Command::new(vm_exe_v14).arg("--version").output().unwrap();
         assert_eq!(String::from_utf8(command.stdout).unwrap(), "Miden 0.13.0\n");
+        let client_v14 = toolchain_0_14_0.join("bin").join("miden-client");
+        assert!(client_v14.exists());
 
         // Now, we use the same manifest that we used previously to update the
         // current stable toolchain.

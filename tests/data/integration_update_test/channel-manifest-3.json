@@ -31,16 +31,6 @@
           "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
         }
       ]
     },
@@ -54,34 +44,10 @@
           "library_struct": "miden_stdlib::StdLibrary"
         },
         {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.9.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
-        },
-        {
           "name": "vm",
           "package": "miden-vm",
           "version": "0.16.2",
           "features": ["executable", "concurrent"]
-        },
-        {
-          "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
         }
       ]
     },
@@ -107,22 +73,6 @@
           "package": "miden-vm",
           "version": "0.16.2",
           "features": ["executable", "concurrent"]
-        },
-        {
-          "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.10.2",
-          "installed_file": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
         }
       ]
     }
