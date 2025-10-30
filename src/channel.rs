@@ -791,12 +791,14 @@ mod tests {
             name: semver::Version::new(0, 0, 1),
             alias: None,
             components: old_components.to_vec(),
+            external_aliases: HashMap::new(),
         };
 
         let new = Channel {
             name: semver::Version::new(0, 0, 2),
             alias: None,
             components: new_components.to_vec(),
+            external_aliases: HashMap::new(),
         };
 
         let components = old.components_to_update(&new);
@@ -851,12 +853,14 @@ mod tests {
             name: semver::Version::new(0, 0, 1),
             alias: None,
             components: old_components.to_vec(),
+            external_aliases: HashMap::new(),
         };
 
         let new = Channel {
             name: semver::Version::new(0, 0, 2),
             alias: None,
             components: new_components.to_vec(),
+            external_aliases: HashMap::new(),
         };
 
         let components = old.components_to_update(&new);
