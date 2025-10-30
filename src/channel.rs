@@ -32,6 +32,12 @@ pub struct Channel {
 
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
+
+    /// These aliases correspond to utilities that are not managed by midenup,
+    /// such as cargo, git, etc.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub external_aliases: HashMap<Alias, CLICommand>,
 }
 
 impl Channel {
@@ -39,8 +45,14 @@ impl Channel {
         name: semver::Version,
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
+        external_aliases: HashMap<Alias, CLICommand>,
     ) -> Self {
-        Self { name, alias, components }
+        Self {
+            name,
+            alias,
+            components,
+            external_aliases,
+        }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
