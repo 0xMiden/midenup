@@ -35,7 +35,7 @@ enum MidenArgument<'a> {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(&'a Component, CLICommand),
+    Alias(&'a Option<Component>, CLICommand),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(&'a Component),
 }
@@ -43,22 +43,21 @@ enum MidenArgument<'a> {
 enum EnvironmentError {
     UnkownArgument,
 }
+
 struct ToolchainEnvironment {
-    aliases: HashMap<Alias, CLICommand>,
+    alias_to_comp: HashMap<Alias, (Option<Component>, CLICommand)>,
     components: Vec<Component>,
 }
 impl ToolchainEnvironment {
     fn new(channel: &Channel) -> Self {
-        let aliases = channel.get_aliases();
+        let alias_to_comp = channel.get_aliases();
         let components = channel.components.clone();
-        ToolchainEnvironment { aliases, components }
+        ToolchainEnvironment { alias_to_comp, components }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(component) = self.components.iter().find(|c| c.aliases.contains_key(&argument))
-        {
-            let resolution = component.aliases.get(&argument).unwrap();
-            Ok(MidenArgument::Alias(component, resolution.clone()))
+        if let Some((component, alias_resolution)) = self.alias_to_comp.get(&argument) {
+            Ok(MidenArgument::Alias(component, alias_resolution.clone()))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
             Ok(MidenArgument::Component(component))
         } else {
@@ -85,7 +84,7 @@ impl ToolchainEnvironment {
     }
 
     fn get_aliases_display(&self) -> String {
-        let mut aliases: Vec<_> = self.aliases.keys().collect();
+        let mut aliases: Vec<_> = self.alias_to_comp.keys().collect();
         aliases.sort();
         aliases.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
     }
@@ -223,7 +222,9 @@ For more information, try 'miden help'.
                     let call_convention = component
                         .get_call_format()
                         .iter()
-                        .map(|argument| argument.resolve_command(channel, component, config))
+                        .map(|argument| {
+                            argument.resolve_command(channel, &Some(component.clone()), config)
+                        })
                         .collect::<Result<Vec<String>, _>>()?;
 
                     // SAFETY: Safe under the assumption that every call_format has at least one

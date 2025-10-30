@@ -136,13 +136,15 @@ impl Channel {
     }
 
     /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
+    pub fn get_aliases(&self) -> HashMap<Alias, (Option<Component>, CLICommand)> {
         self.components
             .iter()
-            .map(|comp| &comp.aliases)
-            .chain([&self.external_aliases])
-            .fold(HashMap::new(), |mut acc, aliases| {
-                acc.extend(aliases.clone());
+            .map(|comp| (Some(comp), &comp.aliases))
+            .chain([self.external_aliases.clone()].iter().map(|alias| (None, alias)))
+            .fold(HashMap::new(), |mut acc, (comp, aliases)| {
+                for (alias, command) in aliases {
+                    acc.insert(alias.clone(), (comp.cloned(), command.clone()));
+                }
                 acc
             })
     }
@@ -318,11 +320,15 @@ impl CliCommand {
     pub fn resolve_command(
         &self,
         channel: &Channel,
-        component: &Component,
+        component: &Option<Component>,
         config: &Config,
     ) -> anyhow::Result<String> {
         match self {
             CliCommand::Executable => {
+                let component = component.clone().with_context(|| {
+                    "'executable' can only be used with aliases that are attached to components"
+                        .to_string()
+                })?;
                 let name = &component.name;
                 let component = channel.get_component(name).with_context(|| {
                     format!(
