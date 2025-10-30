@@ -137,10 +137,14 @@ impl Channel {
 
     /// Get all the aliases that the Channel is aware of
     pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
-        self.components.iter().fold(HashMap::new(), |mut acc, component| {
-            acc.extend(component.aliases.clone());
-            acc
-        })
+        self.components
+            .iter()
+            .map(|comp| &comp.aliases)
+            .chain([&self.external_aliases])
+            .fold(HashMap::new(), |mut acc, aliases| {
+                acc.extend(aliases.clone());
+                acc
+            })
     }
 }
 
