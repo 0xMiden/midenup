@@ -35,7 +35,7 @@ enum MidenArgument<'a> {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(&'a Option<Component>, CLICommand),
+    Alias(&'a Option<Component>, &'a CLICommand),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(&'a Component),
 }
@@ -44,20 +44,22 @@ enum EnvironmentError {
     UnkownArgument,
 }
 
-struct ToolchainEnvironment {
+struct ToolchainEnvironment<'a> {
     alias_to_comp: HashMap<Alias, (Option<Component>, CLICommand)>,
-    components: Vec<Component>,
+    components: &'a Vec<Component>,
 }
-impl ToolchainEnvironment {
-    fn new(channel: &Channel) -> Self {
+impl<'a> ToolchainEnvironment<'a> {
+    fn new(channel: &'a Channel) -> Self {
         let alias_to_comp = channel.get_aliases();
-        let components = channel.components.clone();
-        ToolchainEnvironment { alias_to_comp, components }
+        ToolchainEnvironment {
+            alias_to_comp,
+            components: &channel.components,
+        }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
         if let Some((component, alias_resolution)) = self.alias_to_comp.get(&argument) {
-            Ok(MidenArgument::Alias(component, alias_resolution.clone()))
+            Ok(MidenArgument::Alias(component, alias_resolution))
         } else if let Some(component) = self.components.iter().find(|c| c.name == argument) {
             Ok(MidenArgument::Component(component))
         } else {
