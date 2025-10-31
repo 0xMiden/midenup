@@ -1,0 +1,5 @@
+# This file sets the directory name and the position in which it appears in the
+# scrollbar.
+label: Design
+position: 3
+collapsed: true
