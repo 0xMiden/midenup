@@ -18,11 +18,11 @@ The notion of a _toolchain_ here refers to the various components of the Miden p
 
 Currently, the set of such components consists of:
 
-- The [Miden VM](https://0xmiden.github.io/miden-vm/)
-- The [Miden compiler](https://0xmiden.github.io/compiler/usage/midenc.html), `midenc`, and its [Rust tooling](https://0xmiden.github.io/compiler/usage/cargo-miden.html), i.e. `cargo-miden`
-- The [Miden client](https://0xmiden.github.io/miden-client/)
-- The [Miden node](https://0xmiden.github.io/miden-node/)
-- The [Miden standard library](https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure)
-- The [Miden transaction kernel library](https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure)
+- The [Miden VM](https://0xmiden.github.io/miden-vm/).
+- The [Miden compiler](https://0xmiden.github.io/compiler/usage/midenc.html), `midenc`, and its cargo extension [Cargo Miden](https://0xmiden.github.io/compiler/usage/cargo-miden.html), i.e. `cargo-miden`.
+- The [Miden client](https://0xmiden.github.io/miden-client/).
+- The [Miden node](https://0xmiden.github.io/miden-node/).
+- The [Miden standard library](https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure).
+- The [Miden transaction kernel library](https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure).
 
 In the future, more components will be added.
