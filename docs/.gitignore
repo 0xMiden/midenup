@@ -1,3 +1,3 @@
-
-# Ignore mdbook build files
-book/
+.docusaurus/
+build/
+node_modules/
