@@ -30,9 +30,6 @@ A typical usage of midenup and miden might look like the following:
    ```
    Once compilation finishes, a message displaying the location of the generated Miden Package will be shown.
 8. With the generated Miden Package, an account can be created and deployed with the following command:
-   > [!WARNING]
-   > The PR which includes this functionality hasn't been merged yet. For more information, see:
-   > https://github.com/0xMiden/miden-client/pull/1313
    ```sh
    miden client new-account --account-type regular-account-updatable-code -p /path/to/package.masp
    ```

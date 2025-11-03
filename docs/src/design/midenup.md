@@ -1,10 +1,10 @@
 # Midenup
 
-The midenup tool is mainly in charge of "toolchain management" which consists of toolchain installation, updating, uninstallation and setting.
+The midenup tool is mainly in charge of "toolchain management" which consists of toolchain installation, updating, uninstallation and activation.
 
 ## Midenup directory
 
-Midenup stores all of its files and directories in a single directory called `midenup`. By default, this directory will reside in `XDG_DATA_HOME/midneup` (for more information regarding `XDG_DATA_HOME` see [here](https://specifications.freedesktop.org/basedir-spec/latest/#variables)).
+Midenup stores all of its files and directories in a single directory called `midenup`. By default, this directory will reside in `$XDG_DATA_HOME/midneup` (for more information regarding `XDG_DATA_HOME` see [here](https://specifications.freedesktop.org/basedir-spec/latest/#variables)).
 
 Most notably, this directory stores:
 - The local manifest file, `manifest.json`.

@@ -15,9 +15,9 @@ However, midenup also supports "custom channels", where one can create a customi
 MIDENUP_MANIFEST_URI=file://<path/to/custom/manifest.json> midenup install <toolchain>
 ```
 
-> [!WARNING]
-> This functionality is still in early stages of development. Currently, this
-> requires writing the channel manifest manually.
+:::warning
+This functionality is still in early stages of development. Currently, this requires writing the channel manifest manually.
+:::
 
 ### Specific releases
 If required, a specific toolchain version can also be installed with the `midenup install <toolchain-version>` syntax, like so:
