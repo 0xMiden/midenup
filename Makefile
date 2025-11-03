@@ -45,6 +45,6 @@ build-release: ## Builds with release profile
 
 # --- docs ----------------------------------------------------------------------------------------
 
-.PHONY: book
-book: ## Builds the book & serves documentation site
-	mdbook serve --open docs
+.PHONY: serve-docs
+serve-docs: ## Builds docusaurus documentation & serves documentation site
+	cd docs/ && npm run start:dev
