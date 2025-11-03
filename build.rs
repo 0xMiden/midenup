@@ -10,6 +10,12 @@ fn main() {
         &["git", "rev-parse", "--verify", "HEAD"],
         &(build_script + "/git_revision.in"),
     );
+
+    // Pass the $TARGET to the crate at compile time.
+    println!(
+        "cargo:rustc-env=TARGET={}",
+        std::env::var("TARGET").expect("Failed to obtain $TARGET triple constant.")
+    );
 }
 
 fn write_command_to_file(command: &[&str], file: &str) {
