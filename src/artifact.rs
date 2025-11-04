@@ -1,12 +1,24 @@
 use std::{fmt::Display, str::FromStr};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-struct Artifacts {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Artifacts {
     artifacts: Vec<Artifact>,
 }
 
+impl Artifacts {
+    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts
+            .iter()
+            .find(|artifact| artifact.target == *target)
+            .map(|arti| arti.uri.clone())
+    }
+}
+
 /// Represents a mapping from a given [target] to the [url] which contains it.
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct Artifact {
     target: TargetTriple,
 
@@ -29,6 +41,25 @@ pub struct TargetTriple {
     vendor: String,
     operating_system: String,
     environment: Option<String>,
+}
+
+impl serde::ser::Serialize for TargetTriple {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::ser::Serializer,
+    {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> serde::de::Deserialize<'de> for TargetTriple {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::de::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        s.parse::<Self>().map_err(serde::de::Error::custom)
+    }
 }
 
 #[derive(Error, Debug)]
