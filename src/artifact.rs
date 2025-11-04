@@ -1,6 +1,17 @@
-use std::str::FromStr;
+use std::{fmt::Display, str::FromStr};
 
 use thiserror::Error;
+
+struct Artifacts {
+    artifacts: Vec<Artifact>,
+}
+
+/// Represents a mapping from a given [target] to the [url] which contains it.
+struct Artifact {
+    target: TargetTriple,
+
+    uri: String,
+}
 
 /// Struct that represents a target architecture by the rust compiler.
 /// There is no universal standadarized way to represent them, however,
@@ -54,6 +65,19 @@ impl FromStr for TargetTriple {
             operating_system,
             environment,
         })
+    }
+}
+
+impl Display for TargetTriple {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let repr = format!(
+            "{}-{}-{}{}",
+            self.architecture,
+            self.vendor,
+            self.operating_system,
+            self.environment.as_ref().map(|env| format!("-{}", env)).unwrap_or_default()
+        );
+        write!(f, "{repr}")
     }
 }
 
