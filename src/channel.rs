@@ -399,6 +399,9 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub initialization: Vec<String>,
+    /// Pre-built artifact.
+    #[serde(flatten)]
+    artifacts: Option<Artifacts>,
 }
 
 impl Component {
@@ -413,6 +416,7 @@ impl Component {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            artifacts: None,
         }
     }
 
@@ -566,6 +570,11 @@ impl Component {
         } else {
             self.call_format.clone()
         }
+    }
+
+    /// Returns
+    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
 }
 
