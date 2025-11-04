@@ -44,7 +44,31 @@ pub fn install(
         })?;
     }
 
-    // We create the opt/ directory where the aliases are going to be stored.
+    // bin/ directory which holds binaries.
+    let bin_dir = toolchain_dir.join("bin");
+    if !bin_dir.exists() {
+        std::fs::create_dir_all(&bin_dir).with_context(|| {
+            format!("failed to create toolchain directory: '{}'", bin_dir.display())
+        })?;
+    }
+
+    // lib/ directory which holds MASP libraries.
+    let lib_dir = toolchain_dir.join("lib");
+    if !lib_dir.exists() {
+        std::fs::create_dir_all(&lib_dir).with_context(|| {
+            format!("failed to create toolchain directory: '{}'", lib_dir.display())
+        })?;
+    }
+
+    // opt/ directory which holds symlinks to binaries in bin/.
+    // These are used in order to preserve a "midenup" compatible
+    // interface. This relies on the fact that clap uses argv[0] in order to
+    // display executable names names. These symlinks have the following format:
+    // `miden <component name>`
+    // Then, when `miden` is invoked, it uses these symlinks to execute the
+    // underlying binary.  With this setup, `clap` displays the name as: `miden
+    // <component name>` instead of just `binary_name` when displaying help
+    // messages.
     let opt_dir = toolchain_dir.join("opt");
     if !opt_dir.exists() {
         std::fs::create_dir_all(&opt_dir).with_context(|| {
