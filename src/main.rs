@@ -2,6 +2,7 @@ mod artifact;
 mod channel;
 mod commands;
 mod config;
+mod external;
 mod manifest;
 mod miden_wrapper;
 mod toolchain;
