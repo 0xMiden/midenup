@@ -1,3 +1,4 @@
+mod artifact;
 mod channel;
 mod commands;
 mod config;

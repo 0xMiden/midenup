@@ -3,14 +3,16 @@ use std::{
     collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    Config,
+    artifact::{Artifacts, TargetTriple},
+    utils,
     version::{Authority, GitTarget},
 };
 
@@ -267,6 +269,14 @@ impl InstalledFile {
         match &self {
             InstalledFile::Executable { .. } => None,
             InstalledFile::Library { library_struct, .. } => Some(library_struct),
+        }
+    }
+    pub fn get_path_from(&self, toolchain_dir: &Path) -> PathBuf {
+        match &self {
+            exe @ InstalledFile::Executable { .. } => {
+                toolchain_dir.join("bin").join(exe.to_string())
+            },
+            lib @ InstalledFile::Library { .. } => toolchain_dir.join("lib").join(lib.to_string()),
         }
     }
 }
@@ -670,6 +680,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -684,6 +695,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("removed-component"),
@@ -698,6 +710,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -712,6 +725,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
         ];
 
@@ -729,6 +743,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("std"),
@@ -743,6 +758,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("new-component"),
@@ -757,6 +773,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
             Component {
                 name: std::borrow::Cow::Borrowed("base"),
@@ -771,6 +788,7 @@ mod tests {
                 installed_file: None,
                 initialization: vec![],
                 aliases: HashMap::new(),
+                artifacts: None,
             },
         ];
 
@@ -817,6 +835,7 @@ mod tests {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            artifacts: None,
         }];
 
         let new_components = [Component {
@@ -832,6 +851,7 @@ mod tests {
             installed_file: None,
             initialization: vec![],
             aliases: HashMap::new(),
+            artifacts: None,
         }];
 
         let old = Channel {
