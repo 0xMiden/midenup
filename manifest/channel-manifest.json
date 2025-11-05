@@ -152,7 +152,13 @@
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
           },
-          "initialization": ["init"]
+          "initialization": ["init"],
+          "artifacts": [
+              {
+                  "target": "aarch64-apple-darwin",
+                  "uri": "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/fabrizio"
+              }
+          ]
         },
         {
           "name": "midenc",

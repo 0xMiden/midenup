@@ -231,6 +231,9 @@ pub fn install_artifact(uri: String, to: &Path) -> Result<(), String> {
     } else if uri.starts_with("https://") {
         let mut data = Vec::new();
         let mut handle = curl::easy::Easy::new();
+        handle
+            .follow_location(true)
+            .map_err(|_| String::from("Failed to initialize curl"))?;
         handle.url(&uri).map_err(|error| {
             format!("Error while trying to curl binary: {}", error.description())
         })?;
@@ -256,7 +259,14 @@ pub fn install_artifact(uri: String, to: &Path) -> Result<(), String> {
         if data.is_empty() {
             return Err(format!("Webpage {} is empty.", uri));
         }
-        std::fs::write(to, data).map_err(|error| {
+        let mut file = File::create(to).map_err(|error| {
+            format!("Failed to create download file in {} because of {}", to.display(), error)
+        })?;
+        // We set the same flags that cargo uses when producing an executable.
+        file.set_permissions(Permissions::from_mode(0o755)).map_err(|error| {
+            format!("Failed to set permissions in {} because of {}", to.display(), error)
+        })?;
+        file.write_all(&data).map_err(|error| {
             format!("Failed to write download file to {} because of {}", to.display(), error)
         })?;
     } else {
