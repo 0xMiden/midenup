@@ -234,7 +234,9 @@ fn install_artifacts(
 }
 pub fn install_artifact(uri: String, to: &Path) -> Result<(), String> {
     if let Some(binary_path) = uri.strip_prefix("file://") {
-        todo!()
+        std::fs::copy(binary_path, to).map_err(|err| {
+            format!("Failed to copy binary file to {} because of {}", to.display(), err)
+        })?;
     } else if uri.starts_with("https://") {
         let mut data = Vec::new();
         let mut handle = curl::easy::Easy::new();
