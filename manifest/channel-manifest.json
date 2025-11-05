@@ -137,7 +137,13 @@
           "package": "miden-vm",
           "version": "0.17.2",
           "features": ["executable", "concurrent"],
-          "installed_executable": "miden-vm"
+          "installed_executable": "miden-vm",
+          "artifacts": [
+              {
+                  "target": "aarch64-apple-darwin",
+                  "uri": "file:///Users/fabri/Repositories/fabrizio/target/release/fabrizio"
+              }
+          ]
         },
         {
           "name": "client",
