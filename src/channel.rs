@@ -582,7 +582,7 @@ impl Component {
         }
     }
 
-    /// Returns
+    /// Returns the URI for a given [target] (if available).
     pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
