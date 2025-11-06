@@ -43,7 +43,8 @@ pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
         if data.is_empty() {
             return Err(format!("Found webpage {} to be empty.", uri));
         }
-        let mut file = std::fs::File::create(to).map_err(|error| {
+        let tmp = to.with_extension("tmp");
+        let mut file = std::fs::File::create(&tmp).map_err(|error| {
             format!("Failed to create download file in {} because of {}", to.display(), error)
         })?;
         // We set the same flags that cargo uses when producing an executable.
@@ -56,6 +57,8 @@ pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
         std::io::Write::write_all(&mut file, &data).map_err(|error| {
             format!("Failed to write download file to {} because of {}", to.display(), error)
         })?;
+        std::fs::rename(&tmp, to)
+            .expect("Couldn't rename .installation-in-progress to installation-successful");
     } else {
         return Err(format!(
             "Unrecognized URI type: {}. Supported URI's are 'https://' and 'file//'",
