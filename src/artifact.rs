@@ -138,7 +138,8 @@ mod tests {
     /// Test that we can parse triples that we actually support.
     fn parse_wellknown_targets() {
         let mut failed_parsing = Vec::new();
-        let well_known_targets = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"];
+        let well_known_targets =
+            ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu", "zkvm-miden-unknown"];
         for target in well_known_targets {
             if let Err(err) = TargetTriple::from_str(target) {
                 failed_parsing.push((target, err));

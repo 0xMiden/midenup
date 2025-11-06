@@ -125,7 +125,6 @@
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary",
           "artifacts": [
-
               {
                   "target": "zkvm-miden-unknown",
                   "uri": "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/std.masp"
