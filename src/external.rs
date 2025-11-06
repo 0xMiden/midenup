@@ -8,9 +8,6 @@ pub const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 #[allow(dead_code)]
 pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
-    if uri.is_empty() {
-        return Err("No artifact found".into());
-    }
     if let Some(binary_path) = uri.strip_prefix("file://") {
         std::fs::copy(binary_path, to).map_err(|err| {
             format!("Failed to copy binary file to {} because of {}", to.display(), err)
@@ -64,6 +61,43 @@ pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
             "Unrecognized URI type: {}. Supported URI's are 'https://' and 'file//'",
             uri
         ));
+    }
+
+    Ok(())
+}
+
+#[allow(dead_code)]
+pub fn install_from_source(
+    component_name: &str,
+    toolchain_flag: &str,
+    chosen_profile: &[&str],
+    verbosity_flag: &str,
+    args: &[&str],
+    root_directory: &std::path::Path,
+) -> Result<(), String> {
+    let mut child = std::process::Command::new("cargo")
+                .arg(toolchain_flag)
+                .arg("install")
+                .arg("--locked")
+                .args(chosen_profile)
+                .arg(verbosity_flag)
+                .args(args)
+                // Force the install target directory to be $MIDEN_SYSROOT/bin
+                .arg("--root")
+                .arg(root_directory)
+                // Spawn command
+                .stderr(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit())
+                .spawn()
+                .map_err(|error|format!("Failed to install {component_name} because of {error}"))?;
+
+    // Await results
+    let status = child.wait().map_err(|error| {
+        format!("Error occurred while waiting to install {component_name} because of {error}")
+    })?;
+
+    if !status.success() {
+        return Err(format!("midenup failed to install '{component_name}'"));
     }
 
     Ok(())
