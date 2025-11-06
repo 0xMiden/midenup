@@ -292,10 +292,47 @@ fn main() {
         // NOTE: If the file already exists, then we are running an update and we
         // don't need to update this element
         if !std::fs::exists(&lib_path).expect("Can't check existence of file") {
-            lib.as_ref()
-                .write_to_file(&lib_path)
-                .expect("failed to install {{ dep.name }} library component");
-            println!("{} Installed!", padding);
+            let do_fetch_artifact: bool;
+            let mut do_install_from_source: bool;
+            let mut successfully_installed = false;
+            let initial_message: String;
+
+            if !"{{ dep.artifact.0 }}".is_empty() {
+                do_fetch_artifact = true;
+                do_install_from_source = false;
+                initial_message = format!("{} Fetching artifact", padding);
+            } else {
+                do_fetch_artifact = false;
+                do_install_from_source = true;
+                initial_message = format!("{} No artifact found. Proceeding to install from source", padding);
+            }
+
+            println!("{initial_message}");
+            if do_fetch_artifact {
+                if let Err(err) = install_artifact("{{ dep.artifact.0 }}", std::path::Path::new("{{ dep.artifact.1 }}")) {
+                    println!("{} {err}.", padding);
+                    println!("{} Proceeding to install from source.", padding);
+                    do_install_from_source = true;
+                } else {
+                    successfully_installed = true;
+                }
+            }
+
+            if do_install_from_source {
+                if let Err(err) = lib.as_ref().write_to_file(&lib_path) {
+                    if {{ keep_going }} {
+                            println!("{} Failed to install '{{ dep.name }}' from source because of {err}. Skipping.", padding);
+                    } else {
+                            panic!("Failed to install '{{ dep.name }}' from source because of {err}.");
+                    }
+                } else {
+                    successfully_installed = true;
+                }
+            }
+
+            if successfully_installed {
+                println!("{} Installed!", padding);
+            }
         } else {
             println!("{} Already installed", padding);
         }
@@ -357,7 +394,7 @@ fn main() {
                       ) {
 
                 if {{ keep_going }} {
-                        println!("Failed to install '{{ component.name }}' from source because of {err}. Skipping.");
+                        println!("{} Failed to install '{{ component.name }}' from source because of {err}. Skipping.", padding);
                 } else {
                         panic!("Failed to install '{{ component.name }}' from source because of {err}.");
                 }
@@ -471,6 +508,7 @@ fn main() {
                                           library_struct: \"miden_stdlib::MidenStdLib::default()\""
                                          , component.name)).unwrap();
             let exposing_function = format!("{library_struct}::default()");
+            let artifact = artifact.unwrap_or_default();
             match &component.version {
                 Authority::Cargo { package, version } => {
                     let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
