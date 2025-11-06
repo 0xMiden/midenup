@@ -24,6 +24,9 @@ upon = { version = "0.9.0", default-features = false, features = [
 ] }
 colored = "3.0.0"
 
+[build-dependencies]
+cargo_toml = "0.22.3"
+
 [dev-dependencies]
 tempdir = "0.3.7"
 
