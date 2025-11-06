@@ -355,7 +355,13 @@ fn main() {
                       ],
                       miden_sysroot_dir,
                       ) {
-           println!("Failed to install '{{ component.name }}' from source because of {err}. Skipping.");
+
+                if {{ keep_going }} {
+                        println!("Failed to install '{{ component.name }}' from source because of {err}. Skipping.");
+                } else {
+                        panic!("Failed to install '{{ component.name }}' from source because of {err}.");
+                }
+
            } else {
                 successfully_installed = true;
            }
@@ -579,6 +585,20 @@ fn main() {
 
     let curl_version = env!("CURL_VERSION");
 
+    // This determines whether to panic if a component fails to be install.
+    // In release builds, we want midenup to keep going; but on debug builds we
+    // want to catch those errors.
+    let install_keep_going = {
+        #[cfg(debug_assertions)]
+        {
+            false
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            true
+        }
+    };
+
     // Render the install script
     template
         .render(
@@ -591,7 +611,8 @@ fn main() {
                 chosen_profile: chosen_profile,
                 verbosity: verbosity,
                 install_artifact: install_artifact_function,
-                curl_version: curl_version
+                curl_version: curl_version,
+                keep_going: install_keep_going,
             },
         )
         .to_string()
