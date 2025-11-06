@@ -1,10 +1,12 @@
 // This file holds functions which are used in the cargo install script, after
 // being imported via include_str.
 //
-// Since these functions are intended to be used in the install script,
-// they should *not* import utilities from any crate besides the standard library.
+// Since these functions are intended to be used in the install script, they
+// should *not* import utilities from any crate besides the standard library and
+// they should also prioritize qualifying over importing, in order to avoid
+// duplicate "use" declarations.
 
-pub const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
+const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 #[allow(dead_code)]
 pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {

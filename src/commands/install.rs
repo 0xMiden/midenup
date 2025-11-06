@@ -4,6 +4,7 @@ use anyhow::{Context, bail};
 
 use crate::{
     Config, InstallationOptions,
+    artifact::TargetTriple,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
@@ -446,23 +447,31 @@ fn main() {
     let mut dependencies = Vec::new();
     let mut installable_components = Vec::new();
     for component in channel.components.iter() {
-        let artifact_destination = {
-            config
-                .target
-                .as_ref()
-                .and_then(|target| component.get_uri_for(target))
-                .map(|uri| {
-                    let destination =
-                        component.get_installed_file().get_path_from(toolchain_directory);
-                    (uri, destination)
-                })
-        };
-
         match component.get_installed_file() {
             InstalledFile::Executable { .. } => {
+                let artifact_destination = {
+                    config.target.as_ref().and_then(|target| component.get_uri_for(target)).map(
+                        |uri| {
+                            let destination =
+                                component.get_installed_file().get_path_from(toolchain_directory);
+                            (uri, destination)
+                        },
+                    )
+                };
                 installable_components.push((component, artifact_destination))
             },
-            InstalledFile::Library { .. } => dependencies.push((component, artifact_destination)),
+            InstalledFile::Library { .. } => {
+                let artifact_destination = {
+                    component.get_uri_for(&TargetTriple::miden_vm()).map(|uri| {
+                        let destination =
+                            component.get_installed_file().get_path_from(toolchain_directory);
+
+                        (uri, destination)
+                    })
+                };
+
+                dependencies.push((component, artifact_destination))
+            },
         }
     }
 

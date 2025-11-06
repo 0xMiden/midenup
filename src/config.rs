@@ -1,9 +1,10 @@
+use std::{ffi::OsString, path::PathBuf};
+
 use anyhow::{bail, Context};
 
-use crate::{channel::Channel, manifest::Manifest, toolchain::Toolchain, utils};
-use std::{path::PathBuf, str::FromStr};
-
-use crate::artifact::TargetTriple;
+use crate::{
+    artifact::TargetTriple, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
+};
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -40,13 +41,13 @@ pub struct Config {
     /// tests. At the time of writing, this is mostly done to install debug
     /// builds of the various miden components to speed tests up.
     pub debug: bool,
-    /// The machine's triple (e.g. x86_64-unknown-linux-gnu,
+    /// The machine's triplet (e.g. x86_64-unknown-linux-gnu,
     /// aarch64-apple-darwin, etc). This is used to determine which
-    /// [[artifact::Artifact]]
-    ///
-    /// If we fail to obtain it, then we simply leave it as None. In those
-    /// cases, we defer
-    pub target: Option<TargetTriple>,
+    /// [[artifact::Artifact]] to download.
+    /// If, for whatever reason (which should be rare), we fail to obtain the
+    /// system's TargetTriple, then we leave it as None. In those cases, we will
+    /// simply install everything from source.
+    pub target: TargetTriple,
 }
 
 impl Config {
@@ -61,7 +62,7 @@ impl Config {
 
         let target = {
             let target = env!("TARGET");
-            TargetTriple::from_str(target)
+            TargetTriple::from_str(target).inspect_err(|err| println!("Failed to parse the system's target because of {err}. Installations will default to installing from source."))
         }
         .ok();
 
