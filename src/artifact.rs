@@ -9,6 +9,7 @@ pub struct Artifacts {
 }
 
 impl Artifacts {
+    /// Get a URI to download an artifact that's valid for [target].
     pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts
             .iter()
@@ -35,6 +36,10 @@ struct Artifact {
 ///
 /// This template does match with two major wellknown targets:
 /// aarch64-apple-darwin and x86_64-unknown-linux-gnu.
+///
+/// There is one *notable* special case which is the Miden VM. MASP Libraries
+/// are OS/environent-agnostic, since they target the Miden VM itself. So, they
+/// use the following triplet: zkvm-miden-unknown
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct TargetTriple {
     architecture: String,
@@ -109,6 +114,17 @@ impl Display for TargetTriple {
             self.environment.as_ref().map(|env| format!("-{}", env)).unwrap_or_default()
         );
         write!(f, "{repr}")
+    }
+}
+
+impl TargetTriple {
+    pub fn miden_vm() -> TargetTriple {
+        TargetTriple {
+            architecture: String::from("zkvm"),
+            vendor: String::from("miden"),
+            operating_system: String::from("unknown"),
+            environment: None,
+        }
     }
 }
 
