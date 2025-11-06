@@ -123,7 +123,14 @@
           "package": "miden-stdlib",
           "version": "0.17.2",
           "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+          "library_struct": "miden_stdlib::StdLibrary",
+          "artifacts": [
+
+              {
+                  "target": "aarch64-apple-darwin",
+                  "uri": "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/std.masp"
+              }
+          ]
         },
         {
           "name": "base",
