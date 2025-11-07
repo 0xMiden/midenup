@@ -7,14 +7,14 @@ Toolchains are installed via "Channels", which are a specific release of a toolc
 
 Most users will want to install the latest stable toolchain from the official midenup channel, like so:
 
-```shell
+```shell title=">_ Terminal"
 midenup install stable
 ```
 
 This command will install the stable toolchain using the [official midenup channel](https://0xmiden.github.io/midenup/channel-manifest.json).
 However, midenup also supports "custom channels", where one can create a customized version of a toolchain. In order to use a custom channel, `midenup` must called with the`MIDENUP_MANIFEST_URI` environment variable, like so:
 
-```
+```shell title=">_ Terminal"
 MIDENUP_MANIFEST_URI=file://<path/to/custom/manifest.json> midenup install <toolchain>
 ```
 
@@ -26,13 +26,13 @@ This functionality is still in early stages of development. Currently, this requ
 
 If required, a specific toolchain version can also be installed with the `midenup install <toolchain-version>` syntax, like so:
 
-```shell
+```shell title=">_ Terminal"
 midneup install 0.15.0
 ```
 
 To list all the currently installed toolchains in the system, run:
 
-```shell
+```shell title=">_ Terminal"
 midenup show list
 ```
 
@@ -42,7 +42,7 @@ The `miden help toolchain` can be run to display a quick summary of what the cur
 
 It should display a message similar to the following:
 
-```shell
+```shell title=">_ Terminal"
 The Miden toolchain porcelain
 
 Usage: miden <ALIAS|COMPONENT>
@@ -75,7 +75,7 @@ This displays the following information:
 
 To check what the active toolchain is, the following command can be run:
 
-```shell
+```shell title=">_ Terminal"
 midenup show active-toolchain
 ```
 
@@ -89,7 +89,7 @@ There are currently 2 main mechanisms to alter the active toolchain: setting a s
 
 The `midenup override <toolchain>` command will set the passed toolchain as the system's default. For instance, the following command will set toolchain version 0.15.0 as the system's default:
 
-```shell
+```shell title=">_ Terminal"
 midenup override 0.15.0
 ```
 
@@ -99,7 +99,7 @@ To check this, use `midenup show active-toolchain`.
 
 The `midenup set <toolchain>` command has the ability to set a toolchain to be the default in specific directory. For example, to set toolchain version 0.17.0 as the default run:
 
-```shell
+```shell title=">_ Terminal"
 midenup set 0.17.0
 ```
 
@@ -116,7 +116,7 @@ When updating a specific toolchain, only updates which are known to work with th
 
 If no `<toolchain>` is passed, like so:
 
-```shell
+```shell title=">_ Terminal"
 midenup update
 ```
 
@@ -126,7 +126,7 @@ then `midenup` will look for updates on every installed toolchain.
 
 If the latest installed "stable" toolchain in the system is older than the latest available version present upstream, the system can be brought up to date with the following command:
 
-```shell
+```shell title=">_ Terminal"
 midenup update stable
 ```
 
@@ -135,6 +135,6 @@ midenup update stable
 A toolchain can be uninstalled via the `midenup uninstall <TOOLCHAIN>` command.
 For example, to uninstall toolchain version `0.16.0`, run:
 
-```
+```shell title=">_ Terminal"
 midenup uninstall 0.16.0
 ```

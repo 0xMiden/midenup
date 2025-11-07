@@ -2,7 +2,7 @@
 
 Firstly, midenup can be installed with the following command:
 
-```shell
+```shell title=">_ Terminal"
 cargo install midenup
 ```
 
@@ -12,13 +12,13 @@ Until this crate has been published to crates.io, it is only possible to install
 
 Once installed, midenup needs to be initialized in order to work properly. This can be achieved like so:
 
-```shell
+```shell title=">_ Terminal"
 midenup init
 ```
 
 The first time it is run, the following message will probably be displayed:
 
-```shell
+```shell title=">_ Terminal"
 Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. The following lines can be added to the system's shell profile:
 
 export MIDENUP_HOME='<some/path>/midenup'
