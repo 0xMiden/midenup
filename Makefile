@@ -47,4 +47,4 @@ build-release: ## Builds with release profile
 
 .PHONY: serve-docs
 serve-docs: ## Builds docusaurus documentation & serves documentation site
-	cd docs/ && npm run start:dev
+	$(MAKE) -C docs/
