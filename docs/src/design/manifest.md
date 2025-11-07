@@ -7,7 +7,7 @@ title: Manifest
 
 ## Manifest files
 
-In midenup, a Manifest is a JSON file containing a list of [channels](#channel). There are two "types" of manifests:
+In midenup, a Manifest is a JSON file containing a list of [channels](#channels). There are two "types" of manifests:
 
 - The "upstream" manifest, which contains the set of channels which `midenup` takes to be as the source of truth when determining which components to install, update or downgrade.
   - Most users will use the default manifest which can be found in the repository's [Github Page](https://0xmiden.github.io/midenup/channel-manifest.json). It contains the canonical set of Miden channels.
