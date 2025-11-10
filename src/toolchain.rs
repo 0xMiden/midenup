@@ -1,9 +1,14 @@
-use std::{borrow::Cow, path::PathBuf, str::FromStr};
+use std::{borrow::Cow, collections::HashSet, path::PathBuf, str::FromStr};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::{Config, InstallationOptions, channel::UserChannel, commands, manifest::Manifest};
+use crate::{
+    Config, InstallationOptions,
+    channel::{Channel, UserChannel},
+    commands,
+    manifest::Manifest,
+};
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
 /// toolchain to be used.
@@ -33,14 +38,7 @@ impl Default for Toolchain {
     fn default() -> Self {
         Self {
             channel: UserChannel::Stable,
-            components: vec![
-                "std".to_string(),
-                "base".to_string(),
-                "vm".to_string(),
-                "miden-client".to_string(),
-                "midenc".to_string(),
-                "cargo-miden".to_string(),
-            ],
+            components: vec![],
         }
     }
 }
@@ -50,7 +48,7 @@ pub enum ToolchainJustification {
     /// There exists a miden toolchain file present in
     /// [[MidenToolchainFile::path]].
     MidenToolchainFile { path: PathBuf },
-    /// The system's default toolchain was overriden (via `miden set`).
+    /// The system's default toolchain was overriden (via `midenup set`).
     Override,
     /// No toolchain was specified, fallback to stable.
     Default,
@@ -149,7 +147,7 @@ impl Toolchain {
     pub fn ensure_current_is_installed(
         config: &Config,
         local_manifest: &mut Manifest,
-    ) -> anyhow::Result<Self> {
+    ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
@@ -168,18 +166,44 @@ impl Toolchain {
             );
         };
 
-        let installation_indicator = config
-            .midenup_home
-            .join("toolchains")
-            .join(format!("{}", channel.name))
-            .join("installation-successful");
+        let partial_channel = channel.create_subset(&current_toolchain, &justification);
+        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
 
-        if !installation_indicator.exists() {
-            println!("Found current toolchain to be {desired_channel}. Now installing it.",);
-            commands::install(config, channel, local_manifest, &InstallationOptions::default())?
+        if let Some(installed_channel) =
+            local_manifest.get_channel_by_name(&channel_to_install.name)
+        {
+            let required_components: HashSet<&str> = HashSet::from_iter(
+                channel_to_install.components.iter().map(|comp| comp.name.as_ref()),
+            );
+
+            let installed_components: HashSet<&str> = HashSet::from_iter(
+                installed_channel.components.iter().map(|comp| comp.name.as_ref()),
+            );
+
+            let missing_components: Vec<_> =
+                required_components.difference(&installed_components).collect();
+
+            if missing_components.is_empty() {
+                return Ok((current_toolchain, justification, partial_channel));
+            }
+
+            println!("Found that the current active toolchain is missing some components:");
+            for component in missing_components {
+                println!("- {}", component);
+            }
+            println!("Proceeding to install them");
+        } else {
+            println!("Found current toolchain to be {desired_channel}. Now installing it.");
         }
 
+        commands::install(
+            config,
+            channel_to_install,
+            local_manifest,
+            &InstallationOptions::default(),
+        )?;
+
         // Now installed
-        Ok(current_toolchain)
+        Ok((current_toolchain, justification, partial_channel))
     }
 }

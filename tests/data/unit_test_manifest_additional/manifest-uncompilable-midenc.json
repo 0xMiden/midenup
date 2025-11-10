@@ -36,6 +36,7 @@
         },
         {
           "name": "midenc",
+          "requires": ["base", "std"],
           "version": "0.1.0"
         },
         {
