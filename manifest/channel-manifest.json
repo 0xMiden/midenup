@@ -39,8 +39,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "initialization_command": ["executable", "init"]
+          }
         },
         {
           "name": "midenc",
@@ -64,8 +63,7 @@
           "version": "0.10.1",
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
-          },
-          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
+          }
         }
       ]
     },
@@ -105,8 +103,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "initialization_command": ["executable", "init"]
+          }
         },
         {
           "name": "midenc",
@@ -130,8 +127,7 @@
           "version": "0.10.1",
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
-          },
-          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "data", "--accounts-directory", "accounts"]
+          }
         }
       ]
     },
@@ -171,8 +167,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "initialization_command": ["executable", "init"]
+          }
         },
         {
           "name": "midenc",
@@ -197,8 +192,7 @@
           "installed_executable": "miden-node",
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
-          },
-          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "var_path", "data", "--accounts-directory", "var_path", "accounts"]
+          }
         }
       ]
     }

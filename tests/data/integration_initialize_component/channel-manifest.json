@@ -14,8 +14,7 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"],
               "init-node": ["executable", "bundled", "bootstrap", "--data-directory", "var_path", "data", "--accounts-directory", "var_path", "accounts"]
-          },
-          "initialization_command": ["executable", "bundled", "bootstrap", "--data-directory", "var_path", "data", "--accounts-directory", "var_path", "accounts"]
+          }
         }
       ]
     }
