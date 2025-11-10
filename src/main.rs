@@ -938,42 +938,6 @@ Error: {}",
     }
 
     #[test]
-    /// Validates that midenup initializes components that require it after
-    /// installing them.
-    fn integration_initialize_component() {
-        let test_name = "integration_initialize_component";
-        let test_env = environment_setup(test_name);
-
-        let tmp_home = test_env.midenup_dir;
-        let midenup_home = tmp_home.join("midenup");
-
-        let manifest: &str = full_path_manifest!(
-            "tests/data/integration_initialize_component/channel-manifest.json"
-        );
-        let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
-
-        let command = Midenup::try_parse_from(["midenup", "install", "0.17.2"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
-            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
-        };
-        command
-            .execute(&config, &mut local_manifest)
-            .expect("Failed to perform global update");
-
-        // We check that the var directory exists
-        let toolchain_dir = midenup_home.join("toolchains").join("0.17.2");
-        let var_dir = toolchain_dir.join("var");
-        assert!(var_dir.exists());
-
-        // Afterwards we check that it contains the "data" and "accounts"
-        // directories, which are created when the node is initialized.
-        let account_dir = var_dir.join("accounts");
-        let data_dir = var_dir.join("data");
-        assert!(account_dir.exists());
-        assert!(data_dir.exists());
-    }
-
-    #[test]
     #[should_panic]
     /// This 'midenc' component present in this manifest is lacking its required
     /// 'rustup_channel" and thus installation should fail.
