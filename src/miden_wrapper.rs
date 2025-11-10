@@ -249,7 +249,7 @@ For more information, try 'miden help'.
 
     let toolchain_environment = ToolchainEnvironment::new(installed_channel, partial_channel);
 
-    let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
+    let help_flag = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => {
             let help = toolchain_help(&toolchain_environment);
@@ -263,9 +263,9 @@ For more information, try 'miden help'.
             // recognize the "--help" flag. Currently, this relies on the fact
             // that clap recognizes said flag by default.
             // Source: https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
-            (vec!["--help".to_string()], false)
+            Some(String::from("--help"))
         },
-        _ => (vec![], true),
+        _ => None,
     };
 
     // We obtain the target executable and prefixes that are associated with the
@@ -326,10 +326,6 @@ For more information, try 'miden help'.
         },
     };
 
-    // Now that executable resolution is done, we append the extra arguments we
-    // obtained in the beginning.
-    prefix_args.extend(extra_arguments);
-
     // Compute the effective PATH for this command
     let toolchain_bin = config
         .midenup_home
@@ -345,19 +341,24 @@ For more information, try 'miden help'.
         None => toolchain_bin.into_os_string(),
     };
 
-    let rest_of_args = if include_rest_of_args {
-        argv.iter().skip(2)
-    } else {
-        // We don't want to pass the rest of the CLI arguments to the subshell
-        // in this case.
-        // This is equivalent to std::iter::empty::<OsString>()
+    let rest_of_args = if let Some(help_flag) = help_flag {
+        prefix_args.extend([help_flag]);
+        // If the user requested for help for a specific component, we skip any
+        // additional passed in arguments.
         argv.iter().skip(argv.len())
+    } else {
+        // argv is of the form:
+        // miden <alias|component> ...
+        // So we skip the first two and pass the rest to the underlying executable.
+        argv.iter().skip(2)
     };
 
     let mut output = std::process::Command::new(target_exe)
         .env("MIDENUP_HOME", &config.midenup_home)
         .env("PATH", path)
+        // Arguments that were obtained by midenup resolution
         .args(prefix_args)
+        // Rest of the arguments passed in by the user.
         .args(rest_of_args)
         .stderr(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
