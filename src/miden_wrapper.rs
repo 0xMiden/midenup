@@ -31,17 +31,17 @@ enum HelpMessage {
 }
 
 /// The possible non-help commands that a user's input can be resolved into.
-enum MidenArgument<'a> {
+enum MidenArgument {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(&'a Component, CLICommand),
+    Alias(Component, CLICommand),
     /// The argument was the name of a component stored in the [[Manifest]].
-    Component(&'a Component),
+    Component(Component),
 }
 
 enum EnvironmentError {
-    UnkownArgument,
+    UnkownArgument(String),
 }
 
 #[derive(Debug)]
@@ -76,50 +76,52 @@ impl<'a> ToolchainEnvironment<'a> {
         }
     }
 
-    fn get_installed_channel(&self) -> &Channel {
-        self.installed_channel
-    }
+    fn resolve(&self, argument: String) -> Result<MidenArgument, EnvironmentError> {
+        #[derive(Debug, Clone, Copy)]
+        enum ChannelType {
+            Installed,
+            Active,
+        }
 
-    fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
-        if let Some(component) = self
-            .get_active_channel()
-            .components
-            .iter()
-            .find(|c| c.aliases.contains_key(&argument) || c.name == argument)
-        {
-            if let Some(resolution) = component.aliases.get(&argument) {
-                Ok(MidenArgument::Alias(component, resolution.clone()))
+        [
+            (self.active_channel.clone(), ChannelType::Active),
+            (Some(self.installed_channel.clone()), ChannelType::Installed),
+        ]
+        .iter()
+        .filter_map(|(ch, ch_type)| ch.as_ref().map(|ch| (ch, ch_type)))
+        .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type)))
+        .find_map(|(comp, ch_type)| {
+            if let Some(associated_command) = comp.aliases.get(&argument) {
+                Some((MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type))
+            } else if comp.name == argument {
+                Some((MidenArgument::Component(comp.clone()), ch_type))
             } else {
-                Ok(MidenArgument::Component(component))
+                None
             }
-        } else if let Some(component) = self
-            // For the sake of convenience, we allow users to run components
-            // that are installed but are not listed in the active Toolchain.
-            // However, we do emit a warning notice.
-            .get_installed_channel()
-            .components
-            .iter()
-            .find(|c| c.aliases.contains_key(&argument) || c.name == argument)
-        {
-            if let Some(resolution) = component.aliases.get(&argument) {
-                println!(
+        })
+        .inspect(|resolution| {
+            if let Some(warning_message) = match resolution {
+                (MidenArgument::Alias(comp, _ ), ChannelType::Installed) => Some(format!(
                     "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     argument,
-                    component.name,
-                );
-                Ok(MidenArgument::Alias(component, resolution.clone()))
-            } else {
-                println!(
+                    comp.name,
+
+                )),
+                (MidenArgument::Component(comp), ChannelType::Installed) => Some(format!(
                     "{}: {} is installed, but it is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
-                    component.name,
-                );
-                Ok(MidenArgument::Component(component))
+                    comp.name,
+
+                )),
+                _ => None,
+            } {
+                println!("{warning_message}")
             }
-        } else {
-            Err(EnvironmentError::UnkownArgument)
         }
+        )
+        .map(|(ch, _)| ch)
+        .ok_or(EnvironmentError::UnkownArgument(argument))
     }
 
     fn get_executables_display(&self) -> String {
@@ -233,11 +235,16 @@ For more information, try 'miden help'.
     // Make sure we know the current toolchain so we can modify the PATH appropriately
     let (toolchain, _, partial_channel) =
         Toolchain::ensure_current_is_installed(config, local_manifest)?;
-    let installed_channel = local_manifest
-        .get_channel(&toolchain.channel)
-        .context("Couldn't find active toolchain in the manifest.")?;
 
-    let toolchain_environment = ToolchainEnvironment::new(installed_channel, partial_channel);
+    let toolchain_environment = {
+        let installed_channel = local_manifest
+            .get_channel(&toolchain.channel)
+            .context("Couldn't find active toolchain in the manifest.")?;
+
+        ToolchainEnvironment::new(installed_channel, partial_channel)
+    };
+
+    let active_channel = toolchain_environment.get_active_channel();
 
     let help_flag = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
@@ -272,7 +279,7 @@ For more information, try 'miden help'.
             match toolchain_environment.resolve(resolve.clone()) {
                 Ok(MidenArgument::Alias(component, alias_resolutions)) => {
                     let commands =
-                        resolve_command(&alias_resolutions, installed_channel, component, config)?;
+                        resolve_command(&alias_resolutions, active_channel, &component, config)?;
 
                     // SAFETY: Safe under the assumption that every alias has an
                     // associated command.
@@ -284,8 +291,8 @@ For more information, try 'miden help'.
                 Ok(MidenArgument::Component(component)) => {
                     let call_convention = resolve_command(
                         &component.get_call_format(),
-                        installed_channel,
-                        component,
+                        active_channel,
+                        &component,
                         config,
                     )?;
 
@@ -296,14 +303,13 @@ For more information, try 'miden help'.
 
                     (command, args)
                 },
-                Err(EnvironmentError::UnkownArgument) => {
+                Err(EnvironmentError::UnkownArgument(argument)) => {
                     let help_message = toolchain_help(&toolchain_environment);
                     let err_msg = format!(
                         "Failed to resolve '{}': Neither known alias or component.
 
 {}",
-                        resolve.clone(),
-                        help_message
+                        argument, help_message
                     );
                     bail!(err_msg);
                 },
