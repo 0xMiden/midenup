@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ffi::OsString, string::ToString};
+use std::{ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
@@ -45,12 +45,10 @@ enum EnvironmentError {
 }
 struct ToolchainEnvironment<'a> {
     installed_channel: &'a Channel,
-
-    config: &'a Config,
 }
 impl<'a> ToolchainEnvironment<'a> {
-    fn new(channel: &'a Channel, config: &'a Config) -> Self {
-        ToolchainEnvironment { installed_channel: channel, config }
+    fn new(channel: &'a Channel) -> Self {
+        ToolchainEnvironment { installed_channel: channel }
     }
 
     fn resolve(&self, argument: String) -> Result<MidenArgument<'_>, EnvironmentError> {
@@ -76,24 +74,7 @@ impl<'a> ToolchainEnvironment<'a> {
             .components
             .iter()
             .filter(|c| !matches!(c.get_installed_file(), InstalledFile::Library { .. }))
-            .map(|c| {
-                let initialization_indicator =
-                    if let Some(initialization_command) = c.get_initialization() {
-                        let commands = resolve_command(
-                            initialization_command,
-                            self.installed_channel,
-                            c,
-                            self.config,
-                        )
-                        .unwrap_or_default()
-                        .join(" ");
-
-                        Cow::Owned(format!("(requires init: `{}`)", commands))
-                    } else {
-                        Cow::Borrowed("")
-                    };
-                format!("  {} {}\n", c.name.bold(), initialization_indicator)
-            })
+            .map(|c| format!("  {}\n", c.name.bold()))
             .collect::<String>()
     }
 
@@ -190,7 +171,7 @@ For more information, try 'miden help'.
     let channel = local_manifest
         .get_channel(&toolchain.channel)
         .context("Couldn't find active toolchain in the manifest.")?;
-    let toolchain_environment = ToolchainEnvironment::new(channel, config);
+    let toolchain_environment = ToolchainEnvironment::new(channel);
 
     let (extra_arguments, include_rest_of_args) = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),

@@ -1,10 +1,10 @@
-use std::{ffi::OsString, io::Write, time::SystemTime};
+use std::{io::Write, time::SystemTime};
 
 use anyhow::{Context, bail};
 
 use crate::{
     Config, InstallationOptions,
-    channel::{Channel, ChannelAlias, InstalledFile, resolve_command},
+    channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
@@ -147,64 +147,6 @@ pub fn install(
                     }
                 },
                 _ => (),
-            }
-
-            // We try to initialize the components that require initialization.
-            if let Some(init_command) = component.get_initialization() {
-                // The component could be already initialized if this is an update.
-                let already_initialized = local_manifest
-                    .get_channel_by_name(&channel.name)
-                    .and_then(|ch| ch.get_component(&component.name))
-                    .map(|comp| comp.already_initialized())
-                    .unwrap_or(false);
-                if already_initialized {
-                    continue;
-                }
-                println!("About to initialize {}", component.name);
-
-                let commands = resolve_command(init_command, channel, component, config)?;
-                // SAFETY: Safe under the assumption that every command has at
-                // least one associated command.
-                let target_exe = commands.first().cloned().unwrap();
-                let prefix_args: Vec<OsString> =
-                    commands.into_iter().skip(1).map(OsString::from).collect();
-
-                let command = config.execute_command(channel, target_exe.as_str(), &prefix_args);
-
-                let Ok(mut command) = command else {
-                    println!(
-                        "Failed to initialize {}, skipping. Use
-miden help toolchain
-in order to initialize the component manually",
-                        component.name
-                    );
-                    continue;
-                };
-
-                let status = command.wait();
-                match status {
-                    Err(err) => {
-                        println!(
-                            "Failed to initialize {}, because of {} skipping. Use
-miden help toolchain
-in order to initialize the component manually",
-                            component.name, err
-                        );
-                        continue;
-                    },
-                    Ok(status) if !status.success() => {
-                        println!(
-                            "Failed to initialize {}, skipping. Use
-miden help toolchain
-in order to initialize the component manually",
-                            component.name,
-                        );
-                        continue;
-                    },
-                    Ok(_) => (),
-                }
-                println!();
-                component.mark_as_initialized()?;
             }
         }
 

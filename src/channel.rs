@@ -369,17 +369,6 @@ pub fn resolve_command(
     Ok(resolution)
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
-struct Initialization {
-    #[serde(rename = "initialization_command")]
-    pub command: CLICommand,
-    // Do not serialize if false
-    // This is an Option since the usptream manifest will not contain this field.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub already_initialized: Option<bool>,
-}
-
 pub type Alias = String;
 /// List of the commands that need to be run when [[Alias]] is called.
 pub type CLICommand = Vec<CliCommand>;
@@ -445,12 +434,6 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub aliases: HashMap<Alias, CLICommand>,
-    /// If the component requires initialization, this field holds the
-    /// initialization subcommand(s).
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(flatten)]
-    initialization: Option<Initialization>,
 }
 
 impl Component {
@@ -463,7 +446,6 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
-            initialization: None,
             aliases: HashMap::new(),
         }
     }
@@ -619,33 +601,6 @@ impl Component {
             self.call_format.clone()
         }
     }
-
-    pub fn get_initialization(&self) -> Option<&CLICommand> {
-        if let Some(initialization) = &self.initialization {
-            Some(&initialization.command)
-        } else {
-            None
-        }
-    }
-
-    pub fn mark_as_initialized(&mut self) -> anyhow::Result<()> {
-        if let Some(initialization) = &mut self.initialization {
-            initialization.already_initialized = Some(true);
-            Ok(())
-        } else {
-            bail!(
-                "Tried to mark {} as initialized, despite not having initialization commnad",
-                self.name
-            )
-        }
-    }
-
-    pub fn already_initialized(&self) -> bool {
-        self.initialization
-            .as_ref()
-            .map(|init| init.already_initialized.unwrap_or(false))
-            .unwrap_or(false)
-    }
 }
 
 /// User-facing channel reference. The main difference with this and [Channel]
@@ -738,7 +693,6 @@ mod tests {
                 call_format: Vec::new(),
                 rustup_channel: None,
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -752,7 +706,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -766,7 +719,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -780,7 +732,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
         ];
@@ -797,7 +748,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -811,7 +761,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -825,7 +774,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
             Component {
@@ -839,7 +787,6 @@ mod tests {
                 rustup_channel: None,
                 call_format: Vec::new(),
                 installed_file: None,
-                initialization: None,
                 aliases: HashMap::new(),
             },
         ];
@@ -885,7 +832,6 @@ mod tests {
             call_format: Vec::new(),
             rustup_channel: None,
             installed_file: None,
-            initialization: None,
             aliases: HashMap::new(),
         }];
 
@@ -900,7 +846,6 @@ mod tests {
             rustup_channel: None,
             call_format: Vec::new(),
             installed_file: None,
-            initialization: None,
             aliases: HashMap::new(),
         }];
 
