@@ -25,17 +25,49 @@ pub fn update(
 midenup install stable
 ",
             )?;
-            // NOTE: This means that there is no stable toolchain upstream.  This
-            // is most likely an edge-case that shouldn't happen. If it does
-            // happen, it probably means there's an error in midenup's parsing.
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()
+                // NOTE: This means that there is no stable toolchain upstream.  This
+                // is most likely an edge-case that shouldn't happen. If it does
+                // happen, it probably means there's an error in midenup's parsing.
                 .context("ERROR: No stable channel found in upstream")?;
 
-            // Check if local latest stable is older than upstream's
             if upstream_stable.name > local_stable.name {
-                commands::install(config, upstream_stable, local_manifest, &((*options).into()))?
+                let component_subset = if local_stable.is_partially_installed() {
+                    Some(local_stable.components.clone())
+                } else {
+                    None
+                };
+
+                let channel_to_install = {
+                    let components = upstream_stable
+                        .components
+                        .iter()
+                        .filter(|comp| {
+                            if let Some(component_subset) = &component_subset {
+                                component_subset.contains(comp)
+                            } else {
+                                true
+                            }
+                        })
+                        .cloned()
+                        .collect();
+
+                    Channel {
+                        name: upstream_stable.name.clone(),
+                        alias: upstream_stable.alias.clone(),
+                        tags: local_stable.tags.clone(),
+                        components,
+                    }
+                };
+
+                commands::install(
+                    config,
+                    &channel_to_install,
+                    local_manifest,
+                    &((*options).into()),
+                )?
             } else {
                 println!("Nothing to update, you are all up to date");
             }
@@ -105,18 +137,37 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let mut channel_to_install = upstream_channel.clone();
+    let channel_to_install = upstream_channel.clone();
 
-    let components_to_delete = components_to_update(local_channel, &channel_to_install);
-    if components_to_delete.is_empty() {
+    let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
+
+    if comp_to_delete_with_motive.is_empty() {
         std::println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     }
 
+    let mut channel_to_install = {
+        let components_to_delete =
+            comp_to_delete_with_motive.iter().map(|(comp, _)| comp).collect::<HashSet<_>>();
+
+        let components = upstream_channel
+            .components
+            .iter()
+            .filter(|comp| components_to_delete.contains(comp))
+            .cloned()
+            .collect();
+
+        Channel {
+            name: upstream_channel.name.clone(),
+            alias: upstream_channel.alias.clone(),
+            tags: local_channel.tags.clone(),
+            components,
+        }
+    };
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
-    for (component, motive) in components_to_delete {
+    for (component, motive) in comp_to_delete_with_motive {
         // If the component got added to the toolchain, then there's nothing to
         // delete.
         if matches!(motive, UpdateMotive::Added) {
@@ -128,7 +179,6 @@ fn update_channel(
                 libs_to_uninstall.push(lib_path);
             },
             InstalledFile::Executable { .. } => {
-                // Executables
                 let executable_to_uninstall: Option<String> = match component.version {
                     Authority::Cargo { package, .. } => {
                         let package_name = package.unwrap_or(component.name.to_string());
@@ -178,7 +228,7 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
                     let Some(component_to_install) =
                         channel_to_install.get_component_mut(&component.name)
                     else {
-                        // This else case casn occur when:
+                        // This else case can occur when:
                         // - A user doesn't want to uninstall a component and
                         // - Said component is not present in the upstream channel, which means that
                         //   the component got removed from the toolchain entirely after the update.
