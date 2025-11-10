@@ -191,6 +191,11 @@ impl Manifest {
             )
         })
     }
+
+    pub fn get_channel_by_name(&self, ver: &semver::Version) -> Option<&Channel> {
+        self.channels.iter().find(|c| &c.name == ver)
+    }
+
     /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
         match channel {

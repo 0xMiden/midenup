@@ -11,10 +11,6 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
-pub const DEPENDENCIES: [&str; 2] = ["std", "base"];
-
-pub const INSTALLABLE_COMPONENTS: [&str; 4] = ["vm", "midenc", "client", "cargo-miden"];
-
 /// Installs a specified toolchain by channel or version.
 pub fn install(
     config: &Config,
@@ -30,6 +26,7 @@ pub fn install(
     // NOTE: The installation indicator is only created after successful
     // toolchain installation.
     let installation_indicator = toolchain_dir.join("installation-successful");
+
     if installation_indicator.exists() {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
@@ -79,7 +76,7 @@ pub fn install(
 
     if !status.success() {
         bail!(
-            "midenup failed to install toolchan from channel {} with status {}",
+            "midenup failed to install toolchain from channel {} with status {}",
             channel.name,
             status.code().unwrap_or(1)
         )
@@ -160,7 +157,7 @@ pub fn install(
     let mut local_manifest_file =
         std::fs::File::create(&local_manifest_path).with_context(|| {
             format!(
-                "failed to create file for install script at '{}'",
+                "failed to create file for local manifest at '{}'",
                 local_manifest_path.display()
             )
         })?;
@@ -222,13 +219,16 @@ fn main() {
     // (and prepared) sysroot path to which this script will install the desired toolchain
     // components.
     let miden_sysroot_dir = std::path::Path::new(env!("MIDEN_SYSROOT"));
-    let lib_dir = miden_sysroot_dir.join("lib");
+
 
     // We save the state the channel was in when installed. This is used when uninstalling.
-    let channel_json = r#"{{ channel_json }}"#;
-    let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
-    let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
-    installed_json.write_all(&channel_json.as_bytes()).unwrap();
+    {
+        let channel_json = r#"{{ channel_json }}"#;
+        let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
+        let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
+        installed_json.write_all(&channel_json.as_bytes()).unwrap();
+    }
+
 
     // As we install components, we write them down in this file. This is used
     // to keep track of successfully installed components in case installation
@@ -243,30 +243,34 @@ fn main() {
         .expect("Failed to create progress file");
 
 
-    // Write transaction kernel to $MIDEN_SYSROOT/lib/base.masp
-    let tx = miden_lib::MidenLib::default();
-    let tx_path = lib_dir.join("base").with_extension("masp");
-    // NOTE: If the file already exists, then we are running an update and we
-    // don't need to update this element
-    if !std::fs::exists(&tx_path).expect("Can't check existence of file") {
-        tx.as_ref()
-            .write_to_file(&tx_path)
-            .expect("failed to install Miden transaction kernel library component");
+    let padding = "    ";
+
+
+    // Install libraries
+    let lib_dir = miden_sysroot_dir.join("lib");
+    {
+        {% for dep in dependencies %}
+        println!("Installing: {{ dep.name }}.masp");
+
+        // Write library to $MIDEN_SYSROOT/lib/dep.masp
+        let lib = {{ dep.exposing_function }};
+        let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masp");
+        // NOTE: If the file already exists, then we are running an update and we
+        // don't need to update this element
+        if !std::fs::exists(&lib_path).expect("Can't check existence of file") {
+            lib.as_ref()
+                .write_to_file(&lib_path)
+                .expect("failed to install {{ dep.name }} library component");
+            println!("{} Installed!", padding);
+        } else {
+            println!("{} Already installed", padding);
+        }
+        writeln!(progress_file, "{{ dep.name }}").expect("Failed to write component name to progress file");
+        {%- endfor %}
     }
-    writeln!(progress_file, "base").expect("Failed to write component name to progress file");
-
-    // Write stdlib to $MIDEN_SYSROOT/std.masp
-    let stdlib = miden_stdlib::StdLibrary::default();
-    let stdlib_path = lib_dir.join("std").with_extension("masp");
-    if !std::fs::exists(&stdlib_path).expect("Can't check existence of file") {
-        stdlib
-            .as_ref()
-            .write_to_file(&stdlib_path)
-            .expect("failed to install Miden standard library component");
-    }
-    writeln!(progress_file, "std").expect("Failed to write component name to progress file");
 
 
+    // Install executables
     let bin_dir = miden_sysroot_dir.join("bin");
     {% for component in installable_components %}
 
@@ -311,9 +315,11 @@ fn main() {
                 "midenup failed to install '{{ component.name }}'"
             );
         }
+        println!("{} Installed!", padding);
+    } else {
+        println!("{} Already installed", padding);
     }
     writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
-    println!("Done!");
 
     {% endfor %}
 
@@ -341,19 +347,12 @@ fn main() {
 
     // Prepare install script context with available channel components
     let mut dependencies = Vec::new();
-    for dep_name in DEPENDENCIES.iter() {
-        let component = channel
-            .get_component(dep_name)
-            .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
-        dependencies.push(component);
-    }
-
     let mut installable_components = Vec::new();
-    for dep_name in INSTALLABLE_COMPONENTS.iter() {
-        let component = channel
-            .get_component(dep_name)
-            .unwrap_or_else(|| panic!("{dep_name} is a required component, but isn't available"));
-        installable_components.push(component);
+    for component in channel.components.iter() {
+        match component.get_installed_file() {
+            InstalledFile::Executable { .. } => installable_components.push(component),
+            InstalledFile::Library { .. } => dependencies.push(component),
+        }
     }
 
     // List of all the symlinks that need to be installed.
@@ -392,32 +391,51 @@ fn main() {
     // The set of cargo dependencies needed for the install script
     let dependencies = dependencies
         .into_iter()
-        .map(|component| match &component.version {
-            Authority::Cargo { package, version } => {
-                let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
-                upon::value! {
-                    package: package,
-                    version: version.to_string(),
-                    git_uri: "",
-                    path: "",
-                }
-            },
-            Authority::Git { repository_url, crate_name, target } => {
-                upon::value! {
-                    package: crate_name,
-                    version: "> 0.0.0",
-                    git_uri: format!("{}\", {target}", repository_url.clone()),
-                    path: "",
-                }
-            },
-            Authority::Path { crate_name, path, .. } => {
-                upon::value! {
-                    package: crate_name,
-                    version: "> 0.0.0",
-                    git_uri: "",
-                    path: path.display().to_string(),
-                }
-            },
+        .map(|component| {
+            let installed_file = component
+                .get_installed_file();
+            let library_struct = installed_file
+                .get_library_struct()
+                .with_context(|| format!("Component {} is marked as library, \
+                                          however the manifest does not contain the associated Library struct \
+                                          from where it will obtain the `.masp` file. \n\
+                                          The manifest should contain a line like the following: \n\
+                                          library_struct: \"miden_stdlib::MidenStdLib::default()\""
+                                         , component.name)).unwrap();
+            let exposing_function = format!("{library_struct}::default()");
+            match &component.version {
+                Authority::Cargo { package, version } => {
+                    let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
+                    upon::value! {
+                        name: component.name.to_string(),
+                        package: package,
+                        version: version.to_string(),
+                        git_uri: "",
+                        path: "",
+                        exposing_function: exposing_function,
+                    }
+                },
+                Authority::Git { repository_url, crate_name, target } => {
+                    upon::value! {
+                        name: component.name.to_string(),
+                        package: crate_name,
+                        version: "> 0.0.0",
+                        git_uri: format!("{}\", {target}", repository_url.clone()),
+                        path: "",
+                        exposing_function: exposing_function,
+                    }
+                },
+                Authority::Path { crate_name, path, .. } => {
+                    upon::value! {
+                        name: component.name.to_string(),
+                        package: crate_name,
+                        version: "> 0.0.0",
+                        git_uri: "",
+                        path: path.display().to_string(),
+                        exposing_function: exposing_function,
+                    }
+                },
+            }
         })
         .collect::<Vec<_>>();
 

@@ -176,6 +176,21 @@ impl PartialEq for Channel {
     }
 }
 
+impl Display for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.alias {
+            Some(ChannelAlias::Stable) => write!(f, "Channel stable ({})", self.name),
+            Some(ChannelAlias::Tag(tag)) => write!(f, "Channel {}-{}", self.name, tag.as_ref()),
+            Some(ChannelAlias::Nightly(tag)) => {
+                let nightly_suffix =
+                    tag.as_ref().map(|suffix| format!("-{}", suffix)).unwrap_or(String::from(""));
+                write!(f, "Nightly channel {}{}", self.name, nightly_suffix)
+            },
+            None => write!(f, "Channel {}", self.name),
+        }
+    }
+}
+
 /// A special alias/tag that a channel can posses. For more information see
 /// [Channel::alias].
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
@@ -188,6 +203,7 @@ pub enum ChannelAlias {
     Nightly(Option<Cow<'static, str>>),
     /// An ad-hoc named alias for a channel. This can be used to tag custom
     /// channels with names such as `0.15.0-stable`.
+    #[serde(untagged)]
     Tag(Cow<'static, str>),
 }
 
@@ -228,18 +244,31 @@ impl core::str::FromStr for ChannelAlias {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
-    /// Te component installs an executable.
+    /// The component installs an executable.
     #[serde(untagged)]
     Executable {
         #[serde(rename = "installed_executable")]
         binary_name: String,
     },
-    /// Te component installs a MaspLibrary.
+    /// The component installs a MaspLibrary.
     #[serde(untagged)]
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
+        /// This is the struct that contains the library which and exposes the
+        /// `Library::write_to_file()` method which is used to obtain the associated
+        /// `.masp` file.
+        library_struct: String,
     },
+}
+
+impl InstalledFile {
+    pub fn get_library_struct(&self) -> Option<&str> {
+        match &self {
+            InstalledFile::Executable { .. } => None,
+            InstalledFile::Library { library_struct, .. } => Some(library_struct),
+        }
+    }
 }
 
 impl Display for InstalledFile {
@@ -248,7 +277,7 @@ impl Display for InstalledFile {
             InstalledFile::Executable { binary_name: executable_name } => {
                 f.write_str(executable_name)
             },
-            InstalledFile::Library { library_name } => f.write_str(library_name),
+            InstalledFile::Library { library_name, .. } => f.write_str(library_name),
         }
     }
 }
