@@ -307,7 +307,14 @@ mod tests {
     #[macro_export]
     macro_rules! full_path_manifest {
         ($file:expr) => {
-            concat!("file://", env!("CARGO_MANIFEST_DIR"), "/", $file)
+            concat!("file://", full_path!($file))
+        };
+    }
+
+    #[macro_export]
+    macro_rules! full_path {
+        ($file:expr) => {
+            concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
         };
     }
 
@@ -621,6 +628,113 @@ Error: {}",
     }
 
     #[test]
+    /// Checks that the `miden` utility recognizes the existence of a
+    /// `miden-toolchain.toml` file.  This file contains the required toolchain
+    /// for the current project, along with a list of required components.
+    /// `miden` should be able to:
+    /// - create said file
+    /// - recognize the list of required components and install them
+    /// - recognize if the list gets expanded and install the missing components
+    fn integration_miden_toolchain_toml() {
+        let test_name = "integration_miden_toolchain_toml";
+        let test_env = environment_setup(test_name);
+
+        let pwd = test_env.present_working_dir;
+
+        let tmp_home = test_env.midenup_dir;
+        let tmp_home_path = tmp_home;
+        let midenup_home = tmp_home_path.join("midenup");
+
+        const FILE: &str = full_path_manifest!(
+            "tests/data/integration_miden_toolchain_toml/channel-manifest.json"
+        );
+
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+
+        // This should create a miden-toolchain.toml file that sets toolchain
+        // 0.16.0 as the active one on the current project. Since the toolchain
+        // is not installed, the component list is left empty.
+        let command = Midenup::try_parse_from(["midenup", "set", "0.16.0"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to initialize midenup");
+
+        // There should now be a `miden-toolchain.toml` file in the PWD.
+        let miden_toolchain_file = pwd.join("miden-toolchain.toml");
+        assert!(miden_toolchain_file.exists());
+
+        // Now, we update the file to include the vm
+        let toolchain_with_components =
+            full_path!("tests/data/integration_miden_toolchain_toml/miden-toolchain-1.toml");
+        std::fs::copy(toolchain_with_components, &miden_toolchain_file).unwrap();
+
+        // `miden` should now install the components listed in the toolchain file.
+        let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
+        let Behavior::Miden(argv) = command.behavior else {
+            panic!("Error while parsing test command. Expected Miden Behavior, got Midenup");
+        };
+        miden_wrapper::miden_wrapper(argv.clone(), &config, &mut local_manifest)
+            .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
+        //
+        let toolchain_dir = midenup_home.join("toolchains");
+        assert!(toolchain_dir.exists());
+
+        let installed_channel =
+            local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
+        assert!(installed_channel.components.len() == 1);
+
+        // Now, we'll add the miden compiler to the list.
+        let toolchain_with_components =
+            full_path!("tests/data/integration_miden_toolchain_toml/miden-toolchain-2.toml");
+        std::fs::copy(toolchain_with_components, miden_toolchain_file).unwrap();
+
+        // `miden` should now install:
+        // - The compiler which was just added
+        // - Both the standard library and transaction kernel libraris since
+        // they are a dependency for the compiler.
+        let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
+        let Behavior::Miden(argv) = command.behavior else {
+            panic!("Error while parsing test command. Expected Miden Behavior, got Midenup");
+        };
+        miden_wrapper::miden_wrapper(argv.clone(), &config, &mut local_manifest)
+            .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
+
+        let installed_channel = local_manifest
+            .get_channel_by_name(&semver::Version::new(0, 16, 0))
+            .unwrap()
+            .clone();
+        // VM, Compiler and both libraries
+        assert_eq!(installed_channel.components.len(), 4);
+
+        // Now, we try updating the installed toolchain. This should only update
+        // the installed components and ignore the rest.
+        let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // No components should have been added
+        assert_eq!(installed_channel.components.len(), 4);
+
+        // Finally, we attempt to install the entire stable toolchain, which
+        // should install the remaining components.
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // Now, the entire toolchain should be installed
+        let installed_channel =
+            local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
+        assert_eq!(installed_channel.components.len(), 6);
+    }
+
+    #[test]
     /// This tests checks that midenup's update behavior works correctly
     fn integration_update_test() {
         let test_name = "integration_update_test";
@@ -757,7 +871,7 @@ Error: {}",
 
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
         let Behavior::Midenup { command, .. } = command.behavior else {
-            panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
 
@@ -789,8 +903,6 @@ Error: {}",
                 .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
             &ChannelAlias::Stable
         );
-
-        // tmp_home.close().expect("Couldn't delete tmp midenup home directory");
     }
 
     #[test]
