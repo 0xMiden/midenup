@@ -56,8 +56,8 @@
           "aliases": {
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
-<<<<<<< HEAD
-          }
+          },
+          "symlink_name": "cargo-miden"
         },
         {
           "name": "node",
@@ -67,10 +67,6 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
           }
-=======
-          },
-          "symlink_name": "cargo-miden"
->>>>>>> main
         }
       ]
     },
@@ -127,8 +123,8 @@
           "aliases": {
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
-<<<<<<< HEAD
-          }
+          },
+          "symlink_name": "cargo-miden"
         },
         {
           "name": "node",
@@ -138,10 +134,6 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
           }
-=======
-          },
-          "symlink_name": "cargo-miden"
->>>>>>> main
         }
       ]
     },
@@ -198,8 +190,8 @@
           "aliases": {
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
-<<<<<<< HEAD
-          }
+          },
+          "symlink_name": "cargo-miden"
         },
         {
           "name": "node",
@@ -210,10 +202,6 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
           }
-=======
-          },
-          "symlink_name": "cargo-miden"
->>>>>>> main
         }
       ]
     }
