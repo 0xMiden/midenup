@@ -1,9 +1,11 @@
+use std::collections::HashSet;
+
 use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
     Config, PathUpdate, UpdateOptions,
-    channel::{Channel, InstalledFile, UserChannel},
+    channel::{Channel, Component, InstalledFile, UserChannel},
     commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
@@ -135,19 +137,26 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let components_to_delete = local_channel.components_to_update(upstream_channel);
-    if components_to_delete.is_empty() {
+    let channel_to_install = upstream_channel.clone();
+
+    let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
+
+    if comp_to_delete_with_motive.is_empty() {
         std::println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     }
 
     let mut channel_to_install = {
+        let components_to_delete =
+            comp_to_delete_with_motive.iter().map(|(comp, _)| comp).collect::<HashSet<_>>();
+
         let components = upstream_channel
             .components
             .iter()
             .filter(|comp| components_to_delete.contains(comp))
             .cloned()
             .collect();
+
         Channel {
             name: upstream_channel.name.clone(),
             alias: upstream_channel.alias.clone(),
@@ -158,7 +167,12 @@ fn update_channel(
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
-    for component in components_to_delete {
+    for (component, motive) in comp_to_delete_with_motive {
+        // If the component got added to the toolchain, then there's nothing to
+        // delete.
+        if matches!(motive, UpdateMotive::Added) {
+            continue;
+        }
         match component.get_installed_file() {
             InstalledFile::Library { library_name, .. } => {
                 let lib_path = toolchain_dir.join("lib").join(library_name);
@@ -294,4 +308,64 @@ fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<Inter
             Ok(InteractiveResult::ComponentUpdate(None))
         },
     }
+}
+
+#[derive(Debug)]
+pub enum UpdateMotive {
+    /// This component was added to the toolchain and wasn't there before.
+    Added,
+    /// This component was removed and is no longer part of the toolchain.
+    Removed,
+    /// A newer version was released.
+    NewerVersion,
+}
+/// This functions compares the Channel &older, with a newer channel [newer]
+/// and returns the list of [Components] that need to be updated.
+/// NOTE: A component can be marked for update in the following scenarios:
+/// - The component got removed from the newer channel entirely and thus needs to be removed from
+///   the system.
+/// - A new component is present in the upstream manifest and thus needs to be installed.
+/// - A newer version of a present component is released and thus an upgrade is due.
+/// - An *older* version of a component is released and thus a downgrade is due.
+/// - A components [Authority] got changed and thus needs to be removed and re-installed with the
+///   new [Authority]
+pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component, UpdateMotive)> {
+    let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
+    let current = HashSet::from_iter(older.components.iter());
+
+    // This is the subset of new components present in the channel since
+    // last sync.
+    // NOTE: Equality between components is done via their name, see
+    // [Component::eq].
+    let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
+
+    // This is the subset of old components that need to be removed.
+    let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
+
+    // These are the elements that are present in boths sets. We are only
+    // interested in those which need updating.
+    let components_to_update = current
+        .iter()
+        .filter(|comp| new_channel.contains(**comp))
+        .filter_map(|current_component| {
+            let new_component = new_channel.get(*current_component);
+            match new_component {
+                // This should't be possible, but if somehow the component is
+                // missing, then we trigger an update for said component regardless.
+                None => Some((current_component, UpdateMotive::Added)),
+                // We only want to update components that share the same name but
+                // differ in some other field.
+                Some(new_component) if !current_component.is_up_to_date(new_component) => {
+                    Some((current_component, UpdateMotive::NewerVersion))
+                },
+                _ => None,
+            }
+        });
+
+    let components = new_components
+        .chain(old_components)
+        .chain(components_to_update)
+        .map(|(comp, motive)| ((*comp).clone(), motive));
+
+    Vec::from_iter(components)
 }
