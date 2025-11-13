@@ -6,8 +6,9 @@
       "name": "0.14.0",
       "components": [{
           "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.14.0",
+          "repository_url": "https://github.com/0xMiden/miden-vm.git",
+          "crate_name": "miden-stdlib",
+          "revision": "d65b6b88ef0f2d1bde9afcdadb1e18b1afaebf77",
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
         },
@@ -24,6 +25,13 @@
           "version": "0.13.0",
           "features": ["executable", "concurrent"],
           "installed_file": "miden"
+        },
+        {
+          "name": "client",
+          "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "crate_name": "miden-client-cli",
+          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
+          "installed_executable": "miden-client"
         }
       ]
     },
@@ -35,13 +43,6 @@
           "version": "0.15.0",
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
-        },
-        {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.9.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "vm",
