@@ -24,24 +24,6 @@
           "version": "0.14.0",
           "features": ["executable", "concurrent"],
           "installed_file": "miden"
-        },
-        {
-          "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "requires": ["base", "std"],
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
         }
       ]
     },
@@ -67,24 +49,6 @@
           "version": "0.15.0",
           "features": ["executable", "concurrent"],
           "installed_file": "miden"
-        },
-        {
-          "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "requires": ["base", "std"],
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
         }
       ]
     }
