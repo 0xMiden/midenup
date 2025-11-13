@@ -344,20 +344,23 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
 
     // These are the elements that are present in boths sets. We are only
     // interested in those which need updating.
-    let components_to_update = current.intersection(&new_channel).filter_map(|current_component| {
-        let new_component = new_channel.get(*current_component);
-        match new_component {
-            // This should't be possible, but if somehow the component is
-            // missing, then we trigger an update for said component regardless.
-            None => Some((current_component, UpdateMotive::Added)),
-            // We only want to update components that share the same name but
-            // differ in some other field.
-            Some(new_component) if !current_component.is_up_to_date(new_component) => {
-                Some((current_component, UpdateMotive::NewerVersion))
-            },
-            _ => None,
-        }
-    });
+    let components_to_update = current
+        .iter()
+        .filter(|comp| new_channel.contains(**comp))
+        .filter_map(|current_component| {
+            let new_component = new_channel.get(*current_component);
+            match new_component {
+                // This should't be possible, but if somehow the component is
+                // missing, then we trigger an update for said component regardless.
+                None => Some((current_component, UpdateMotive::Added)),
+                // We only want to update components that share the same name but
+                // differ in some other field.
+                Some(new_component) if !current_component.is_up_to_date(new_component) => {
+                    Some((current_component, UpdateMotive::NewerVersion))
+                },
+                _ => None,
+            }
+        });
 
     let components = new_components
         .chain(old_components)
