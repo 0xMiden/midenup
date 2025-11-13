@@ -6,9 +6,8 @@
       "name": "0.14.0",
       "components": [{
           "name": "std",
-          "repository_url": "https://github.com/0xMiden/miden-vm.git",
-          "crate_name": "miden-stdlib",
-          "revision": "d65b6b88ef0f2d1bde9afcdadb1e18b1afaebf77",
+          "package": "miden-stdlib",
+          "version": "0.14.0",
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
         },

@@ -801,12 +801,17 @@ Error: {}",
         assert_eq!(stable_toolchain, newer_toolchain);
 
         // Now, we perform a "global" update. This performs an update on every
-        // *installed* toolchain. It should perform the following changes:
-        // - Update 0.15.0's miden-vm.
-        // - Remove base.masp from 0.15.0's toolchain dir
+        // *installed* toolchain.
+        // The manifest file
+        // tests/data/integration_update_test/channel-manifest-3.json, besides
+        // adding toolchain 0.16.0, also changed some fields on components from
+        // version 0.15.0.
+        // This update should perform the following changes:
+        // - Update 0.15.0's miden-vm to version 0.16.2.
+        // - Remove base.masp from 0.15.0's toolchain dir.
         // - Downgrade 0.14.0's miden-vm.
         // - Add the miden-client to 0.14.0's toolchain dir
-        // - Change 0.14.0's std's authority to Git instead of Cargo
+        // - Change 0.14.0's std's authority from Cargo to Git.
         // However this should *not* update stable.
         let manifest: &str =
             full_path_manifest!("tests/data/integration_update_test/channel-manifest-3.json");

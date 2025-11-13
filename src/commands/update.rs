@@ -310,6 +310,7 @@ fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<Inter
     }
 }
 
+#[derive(Debug)]
 pub enum UpdateMotive {
     /// This component was added to the toolchain and wasn't there before.
     Added,
