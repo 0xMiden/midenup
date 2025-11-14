@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+/// All the artifacts that the [[Component]] contains.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Artifacts {
     artifacts: Vec<Artifact>,
@@ -19,14 +20,19 @@ impl Artifacts {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Artifact {
     /// URI of the form:
-    /// - 'https://<link>/<component name>-<triplet>'
-    /// - 'file://<path>/<component name>-<triplet>'
+    /// - 'https://<link>/<component name>(-<triplet>|.masp)'
+    /// - 'file://<path>/<component name>(-<triplet>|.masp)'
     uri: String,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum TargetTriple {
+    /// Custom triplet used by cargo. Since we use the same triplets as cargo, we
+    /// simply copy them as-is, without any type of parsing.
     Custom(String),
+    /// Used for .masp Libraries that are used in the MidenVM. Components that
+    /// have these libraries as artifacts only have one entry in
+    /// [[Artifacts::artifacts]].
     MidenVM,
 }
 
@@ -46,25 +52,30 @@ impl Artifact {
             return false;
         };
 
-        // <component name>-<triplet>
-        let component_dash_triplet = if let Some(component_dash_triplet) = path.split("/").last() {
-            component_dash_triplet
-        } else {
-            return false;
-        };
-
-        let triplet = if let Some(triplet) = component_dash_triplet
-            .strip_prefix(component_name)
-            .and_then(|dash_triplet| dash_triplet.strip_prefix("-"))
+        // <component name>(-<triplet>|.masp)
+        let suffix = if let Some(suffix) =
+            path.split("/").last().and_then(|suffix| suffix.strip_prefix(component_name))
         {
-            triplet
+            suffix
         } else {
             return false;
         };
 
-        match target {
-            TargetTriple::Custom(target_triplet) => triplet == target_triplet,
-            TargetTriple::MidenVM => true,
+        match suffix {
+            ".masp" => {
+                matches!(target, &TargetTriple::MidenVM)
+            },
+            dash_triplet if suffix.starts_with("-") => {
+                // Safety: This is safe since this only executed if the dash
+                // starts with "-".
+                let triplet = {
+                    let triplet = dash_triplet.strip_prefix("-").unwrap();
+                    TargetTriple::Custom(String::from(triplet))
+                };
+
+                *target == triplet
+            },
+            _ => false,
         }
     }
 }

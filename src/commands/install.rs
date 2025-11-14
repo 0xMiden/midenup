@@ -450,7 +450,7 @@ fn main() {
         match component.get_installed_file() {
             InstalledFile::Executable { .. } => {
                 let artifact_destination = {
-                    component.get_uri_for(&config.target).map(|uri| {
+                    component.get_artifact_uri(&config.target).map(|uri| {
                         let destination =
                             component.get_installed_file().get_path_from(toolchain_directory);
                         (uri, destination)
@@ -460,7 +460,7 @@ fn main() {
             },
             InstalledFile::Library { .. } => {
                 let artifact_destination = {
-                    component.get_uri_for(&TargetTriple::MidenVM).map(|uri| {
+                    component.get_artifact_uri(&TargetTriple::MidenVM).map(|uri| {
                         let destination =
                             component.get_installed_file().get_path_from(toolchain_directory);
 
