@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, bail};
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Config,
+    artifact::{Artifacts, TargetTriple},
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -349,6 +350,14 @@ impl InstalledFile {
             InstalledFile::Library { library_struct, .. } => Some(library_struct),
         }
     }
+    pub fn get_path_from(&self, toolchain_dir: &Path) -> PathBuf {
+        match &self {
+            exe @ InstalledFile::Executable { .. } => {
+                toolchain_dir.join("bin").join(exe.to_string())
+            },
+            lib @ InstalledFile::Library { .. } => toolchain_dir.join("lib").join(lib.to_string()),
+        }
+    }
 }
 
 impl Display for InstalledFile {
@@ -514,6 +523,9 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub aliases: HashMap<Alias, CLICommand>,
+    /// Pre-built artifact.
+    #[serde(flatten)]
+    artifacts: Option<Artifacts>,
     /// The file used by midenup's 'miden' to call the components executable.
     /// If None, then the component's file will be saved as 'miden <name>'.
     /// This distinction exists mainly for components like cargo-miden, which
@@ -534,6 +546,7 @@ impl Component {
             rustup_channel: None,
             installed_file: None,
             aliases: HashMap::new(),
+            artifacts: None,
             symlink_name: None,
         }
     }
@@ -697,6 +710,11 @@ impl Component {
         } else {
             self.call_format.clone()
         }
+    }
+
+    /// Returns the URI for a given [target] (if available).
+    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
 }
 
