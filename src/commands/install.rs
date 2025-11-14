@@ -1,15 +1,15 @@
 use std::{io::Write, path::Path, time::SystemTime};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
 use crate::{
-    Config, InstallationOptions,
-    artifact::TargetTriple,
+    artifact::TargetTriple2,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
     manifest::Manifest,
     utils,
     version::{Authority, GitTarget},
+    Config, InstallationOptions,
 };
 
 /// Installs a specified toolchain by channel or version.

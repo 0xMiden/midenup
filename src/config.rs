@@ -1,9 +1,9 @@
 use std::{ffi::OsString, path::PathBuf, str::FromStr};
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
 use crate::{
-    artifact::TargetTriple, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
+    artifact::TargetTriple2, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
 };
 
 #[derive(Debug)]
@@ -44,10 +44,10 @@ pub struct Config {
     /// The machine's triplet (e.g. x86_64-unknown-linux-gnu,
     /// aarch64-apple-darwin, etc). This is used to determine which
     /// [[artifact::Artifact]] to download.
-    /// If, for whatever reason, we fail to obtain the system's TargetTriple,
-    /// then we leave it as None. In those cases, we will simply install
-    /// everything from source.
-    pub target: Option<TargetTriple>,
+    /// If, for whatever reason (which should be rare), we fail to obtain the
+    /// system's TargetTriple, then we leave it as None. In those cases, we will
+    /// simply install everything from source.
+    pub target: Option<TargetTriple2>,
 }
 
 impl Config {

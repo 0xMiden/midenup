@@ -6,16 +6,16 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config,
-    artifact::{Artifacts, TargetTriple},
+    artifact::{Artifacts, TargetTriple2, TargetTripleError},
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Tags used to identify special qualities of a specific channel.
@@ -713,8 +713,10 @@ impl Component {
     }
 
     /// Returns the URI for a given [target] (if available).
-    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
-        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
+    pub fn get_uri_for(&self, target: TargetTriple2) -> Result<String, Vec<TargetTripleError>> {
+        self.artifacts
+            .as_ref()
+            .and_then(|artifacts| artifacts.get_uri_for(&target, &self.name))
     }
 }
 
