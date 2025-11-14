@@ -40,8 +40,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "initialization": ["init"]
+          }
         },
         {
           "name": "midenc",
@@ -59,6 +58,15 @@
               "build": ["cargo", "miden", "build"]
           },
           "symlink_name": "cargo-miden"
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "installed_executable": "miden-node",
+          "version": "0.10.1",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          }
         }
       ]
     },
@@ -99,8 +107,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "initialization": ["init"]
+          }
         },
         {
           "name": "midenc",
@@ -118,6 +125,15 @@
               "build": ["cargo", "miden", "build"]
           },
           "symlink_name": "cargo-miden"
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "installed_executable": "miden-node",
+          "version": "0.10.1",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          }
         }
       ]
     },
@@ -158,8 +174,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "initialization": ["init"]
+          }
         },
         {
           "name": "midenc",
@@ -177,6 +192,16 @@
               "build": ["cargo", "miden", "build"]
           },
           "symlink_name": "cargo-miden"
+        },
+        {
+          "name": "node",
+          "repository_url": "https://github.com/lambdaclass/miden-node.git",
+          "crate_name": "miden-node",
+          "branch": "fabrizioorsi/create-account-data-dirs",
+          "installed_executable": "miden-node",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          }
         }
       ]
     }

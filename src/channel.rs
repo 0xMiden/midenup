@@ -6,7 +6,7 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
@@ -373,19 +373,40 @@ pub enum CliCommand {
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
     LibPath,
+    /// Resolve the command to a [[Toolchain]]'s var directory (<toolchain>/var).
+    /// Optionally, it can contain a file name, which represents a file in
+    /// <toolchain>/var/<file>.
+    // NOTE: Potentially in the future, we might want this to be an Optional field
+    #[serde(rename = "var_path")]
+    VarPath,
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
 }
 
-impl CliCommand {
-    pub fn resolve_command(
-        &self,
-        channel: &Channel,
-        component: &Component,
-        config: &Config,
-    ) -> anyhow::Result<String> {
-        match self {
+impl fmt::Display for CliCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            CliCommand::Executable => write!(f, "executable"),
+            CliCommand::LibPath => write!(f, "lib_path"),
+            CliCommand::VarPath => write!(f, "var_path"),
+            CliCommand::Verbatim(word) => write!(f, "verbatim: {word}"),
+        }
+    }
+}
+
+pub fn resolve_command(
+    commands: &[CliCommand],
+    channel: &Channel,
+    component: &Component,
+
+    config: &Config,
+) -> anyhow::Result<Vec<String>> {
+    let mut resolution = Vec::with_capacity(commands.len());
+    let mut commands = commands.iter();
+
+    while let Some(command) = commands.next() {
+        match command {
             CliCommand::Executable => {
                 let name = &component.name;
                 let component = channel.get_component(name).with_context(|| {
@@ -395,18 +416,37 @@ impl CliCommand {
                     )
                 })?;
 
-                Ok(component.get_cli_display())
+                resolution.push(component.get_cli_display());
             },
             CliCommand::LibPath => {
                 let channel_dir = channel.get_channel_dir(config);
 
                 let toolchain_path = channel_dir.join("lib");
 
-                Ok(toolchain_path.to_string_lossy().to_string())
+                resolution.push(toolchain_path.to_string_lossy().to_string())
             },
-            CliCommand::Verbatim(name) => Ok(name.to_string()),
+            // The VarPath must be followed by a file name.
+            CliCommand::VarPath => {
+                let channel_dir = channel.get_channel_dir(config);
+
+                let toolchain_path = channel_dir.join("var");
+
+                let next_command =
+                    commands.next().context("var_path needs to be followed by a path name")?;
+
+                let CliCommand::Verbatim(directory_name) = next_command else {
+                    bail!(format!("After var_path a file is required. Got: {}", next_command))
+                };
+
+                let full_path = toolchain_path.join(directory_name);
+
+                resolution.push(full_path.to_string_lossy().to_string())
+            },
+            CliCommand::Verbatim(name) => resolution.push(name.to_string()),
         }
     }
+
+    Ok(resolution)
 }
 
 pub type Alias = String;
@@ -474,11 +514,6 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub aliases: HashMap<Alias, CLICommand>,
-    /// If the component requires initialization, this field holds the
-    /// initialization subcommand(s).
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub initialization: Vec<String>,
     /// The file used by midenup's 'miden' to call the components executable.
     /// If None, then the component's file will be saved as 'miden <name>'.
     /// This distinction exists mainly for components like cargo-miden, which
@@ -498,7 +533,6 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
-            initialization: vec![],
             aliases: HashMap::new(),
             symlink_name: None,
         }
