@@ -1,9 +1,9 @@
-use std::{ffi::OsString, path::PathBuf, str::FromStr};
+use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::{
-    artifact::TargetTriple2, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
+    artifact::TargetTriple, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
 };
 
 #[derive(Debug)]
@@ -47,7 +47,7 @@ pub struct Config {
     /// If, for whatever reason (which should be rare), we fail to obtain the
     /// system's TargetTriple, then we leave it as None. In those cases, we will
     /// simply install everything from source.
-    pub target: Option<TargetTriple2>,
+    pub target: TargetTriple,
 }
 
 impl Config {
@@ -62,9 +62,8 @@ impl Config {
 
         let target = {
             let target = env!("TARGET");
-            TargetTriple::from_str(target).inspect_err(|err| println!("Failed to parse the system's target because of {err}. Installations will default to installing from source."))
-        }
-        .ok();
+            TargetTriple::Custom(target.to_string())
+        };
 
         let config = Config {
             working_directory,
