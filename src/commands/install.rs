@@ -450,19 +450,17 @@ fn main() {
         match component.get_installed_file() {
             InstalledFile::Executable { .. } => {
                 let artifact_destination = {
-                    config.target.as_ref().and_then(|target| component.get_uri_for(target)).map(
-                        |uri| {
-                            let destination =
-                                component.get_installed_file().get_path_from(toolchain_directory);
-                            (uri, destination)
-                        },
-                    )
+                    component.get_uri_for(&config.target).map(|uri| {
+                        let destination =
+                            component.get_installed_file().get_path_from(toolchain_directory);
+                        (uri, destination)
+                    })
                 };
                 installable_components.push((component, artifact_destination))
             },
             InstalledFile::Library { .. } => {
                 let artifact_destination = {
-                    component.get_uri_for(&TargetTriple::miden_vm()).map(|uri| {
+                    component.get_uri_for(&TargetTriple::MidenVM).map(|uri| {
                         let destination =
                             component.get_installed_file().get_path_from(toolchain_directory);
 

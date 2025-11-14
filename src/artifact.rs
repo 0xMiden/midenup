@@ -1,7 +1,4 @@
-use std::{fmt::Display, str::FromStr};
-
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Artifacts {
@@ -10,28 +7,11 @@ pub struct Artifacts {
 
 impl Artifacts {
     /// Get a URI to download an artifact that's valid for [target].
-    pub fn get_uri_for(
-        &self,
-        target: &TargetTriple,
-        component_name: &str,
-    ) -> Result<String, Vec<TargetTripleError>> {
-        let mut errors = Vec::new();
-        let uri = self
-            .artifacts
+    pub fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
+        self.artifacts
             .iter()
-            .find(|artifact| {
-                artifact
-                    .inspect_triplet(component_name)
-                    .inspect_err(|err| errors.push(err.clone()))
-                    .is_ok_and(|triplet| &triplet == target)
-            })
-            .map(|arti| arti.uri.clone());
-
-        if let Some(uri) = uri {
-            Ok(uri)
-        } else {
-            Err(errors)
-        }
+            .find(|artifact| artifact.contains(target, component_name))
+            .map(|arti| arti.uri.clone())
     }
 }
 
@@ -45,7 +25,10 @@ struct Artifact {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct TargetTriple(String);
+pub enum TargetTriple {
+    Custom(String),
+    MidenVM,
+}
 
 impl Artifact {
     /// Returns the triplet that it is pointing towards.  It should be rare for
@@ -54,36 +37,34 @@ impl Artifact {
     ///
     /// NOTE: The component name is only required to separate the triplet from the
     /// filename in the URI.
-    fn inspect_triplet(&self, component_name: &str) -> Result<TargetTriple, TargetTripleError> {
+    fn contains(&self, target: &TargetTriple, component_name: &str) -> bool {
         let path = if let Some(file_path) = self.uri.strip_prefix("file://") {
-            Ok(file_path)
+            file_path
         } else if let Some(url_path) = self.uri.strip_prefix("https://") {
-            Ok(url_path)
+            url_path
         } else {
-            Err(TargetTripleError::UnrecognizedUri(self.uri.clone()))
-        }?;
+            return false;
+        };
 
         // <component name>-<triplet>
-        let component_dash_triplet = path
-            .split("/")
-            .last()
-            .ok_or(TargetTripleError::TripletNotFound(self.uri.clone()))?;
+        let component_dash_triplet = if let Some(component_dash_triplet) = path.split("/").last() {
+            component_dash_triplet
+        } else {
+            return false;
+        };
 
-        let triplet = component_dash_triplet
+        let triplet = if let Some(triplet) = component_dash_triplet
             .strip_prefix(component_name)
             .and_then(|dash_triplet| dash_triplet.strip_prefix("-"))
-            .ok_or(TargetTripleError::UnrecognizedTargetTriple(self.uri.clone()))?;
+        {
+            triplet
+        } else {
+            return false;
+        };
 
-        Ok(TargetTriple(triplet.to_string()))
+        match target {
+            TargetTriple::Custom(target_triplet) => triplet == target_triplet,
+            TargetTriple::MidenVM => true,
+        }
     }
-}
-
-#[derive(Error, Debug, Clone)]
-pub enum TargetTripleError {
-    #[error("Triplet not found in: {0}")]
-    TripletNotFound(String),
-    #[error("URI not found in: {0}")]
-    UnrecognizedUri(String),
-    #[error("Failed to deserialize TargetTriplet because: {0}")]
-    UnrecognizedTargetTriple(String),
 }

@@ -717,10 +717,10 @@ impl Component {
     }
 
     /// Returns the URI for a given [target] (if available).
-    pub fn get_uri_for(&self, target: TargetTriple2) -> Result<String, Vec<TargetTripleError>> {
+    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts
             .as_ref()
-            .and_then(|artifacts| artifacts.get_uri_for(&target, &self.name))
+            .and_then(|artifacts| artifacts.get_uri_for(target, &self.name))
     }
 }
 

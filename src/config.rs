@@ -62,9 +62,8 @@ impl Config {
 
         let target = {
             let target = env!("TARGET");
-            TargetTriple::from_str(target).inspect_err(|err| println!("Failed to parse the system's target because of {err}. Installations will default to installing from source."))
-        }
-        .ok();
+            TargetTriple::Custom(target.to_string())
+        };
 
         let config = Config {
             working_directory,
