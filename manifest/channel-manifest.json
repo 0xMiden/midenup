@@ -147,10 +147,7 @@
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary",
           "artifacts": [
-              {
-                  "target": "zkvm-miden-unknown",
-                  "uri": "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/std.masp"
-              }
+             "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/std.masp"
           ]
         },
         {
@@ -182,10 +179,7 @@
               "simulate": ["executable", "exec"]
           },
           "artifacts": [
-              {
-                  "target": "aarch64-apple-darwin",
-                  "uri": "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/fabrizio"
-              }
+               "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/client-aarch64-apple-darwin"
           ]
         },
         {

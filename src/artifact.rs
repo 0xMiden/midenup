@@ -12,18 +12,13 @@ impl Artifacts {
         self.artifacts
             .iter()
             .find(|artifact| artifact.contains(target, component_name))
-            .map(|arti| arti.uri.clone())
+            .map(|arti| arti.0.clone())
     }
 }
 
 /// Represents a mapping from a given [target] to the [url] which contains it.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct Artifact {
-    /// URI of the form:
-    /// - 'https://<link>/<component name>(-<triplet>|.masp)'
-    /// - 'file://<path>/<component name>(-<triplet>|.masp)'
-    uri: String,
-}
+pub struct Artifact(pub String);
 
 #[derive(Debug, PartialEq)]
 pub enum TargetTriple {
@@ -44,9 +39,9 @@ impl Artifact {
     /// NOTE: The component name is only required to separate the triplet from the
     /// filename in the URI.
     fn contains(&self, target: &TargetTriple, component_name: &str) -> bool {
-        let path = if let Some(file_path) = self.uri.strip_prefix("file://") {
+        let path = if let Some(file_path) = self.0.strip_prefix("file://") {
             file_path
-        } else if let Some(url_path) = self.uri.strip_prefix("https://") {
+        } else if let Some(url_path) = self.0.strip_prefix("https://") {
             url_path
         } else {
             return false;
