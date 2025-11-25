@@ -145,10 +145,7 @@
           "package": "miden-stdlib",
           "version": "0.17.2",
           "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary",
-          "artifacts": [
-             "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/std.masp"
-          ]
+          "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
@@ -177,10 +174,7 @@
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
-          },
-          "artifacts": [
-               "https://github.com/lima-limon-inc/fabriz.io/releases/download/0.0/client-aarch64-apple-darwin"
-          ]
+          }
         },
         {
           "name": "midenc",
