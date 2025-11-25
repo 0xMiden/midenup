@@ -11,8 +11,7 @@ impl Artifacts {
     pub fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
         self.artifacts
             .iter()
-            .find(|artifact| artifact.contains(target, component_name))
-            .map(|arti| arti.0.clone())
+            .find_map(|artifact| artifact.get_uri_for(target, component_name))
     }
 }
 
@@ -32,31 +31,24 @@ pub enum TargetTriple {
 }
 
 impl Artifact {
-    /// Returns the triplet that it is pointing towards.  It should be rare for
-    /// this function to error since all the miden artifacts should follow the
-    /// same standardized format. This format is secribed in [[Artifact]].
+    /// Returns the URI for the specified component + triplet if it has it.
     ///
-    /// NOTE: The component name is only required to separate the triplet from the
+    /// NOTE: The component name is required to separate the triplet from the
     /// filename in the URI.
-    fn contains(&self, target: &TargetTriple, component_name: &str) -> bool {
+    fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
         let path = if let Some(file_path) = self.0.strip_prefix("file://") {
             file_path
         } else if let Some(url_path) = self.0.strip_prefix("https://") {
             url_path
         } else {
-            return false;
+            return None;
         };
 
         // <component name>(-<triplet>|.masp)
-        let suffix = if let Some(suffix) =
-            path.split("/").last().and_then(|suffix| suffix.strip_prefix(component_name))
-        {
-            suffix
-        } else {
-            return false;
-        };
+        let suffix =
+            path.split("/").last().and_then(|suffix| suffix.strip_prefix(component_name))?;
 
-        match suffix {
+        let is_looked_for = match suffix {
             ".masp" => {
                 matches!(target, &TargetTriple::MidenVM)
             },
@@ -71,6 +63,8 @@ impl Artifact {
                 *target == triplet
             },
             _ => false,
-        }
+        };
+
+        if is_looked_for { Some(self.0.clone()) } else { None }
     }
 }
