@@ -17,7 +17,7 @@ impl Artifacts {
 
 /// Represents a mapping from a given [target] to the [url] which contains it.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct Artifact(pub String);
+struct Artifact(String);
 
 #[derive(Debug, PartialEq)]
 pub enum TargetTriple {
