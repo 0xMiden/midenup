@@ -11,7 +11,7 @@ impl Artifacts {
     pub fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
         self.artifacts
             .iter()
-            .find_map(|artifact| artifact.contains(target, component_name))
+            .find_map(|artifact| artifact.get_uri_for(target, component_name))
     }
 }
 
@@ -35,7 +35,7 @@ impl Artifact {
     ///
     /// NOTE: The component name is required to separate the triplet from the
     /// filename in the URI.
-    fn contains(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
+    fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
         let path = if let Some(file_path) = self.0.strip_prefix("file://") {
             file_path
         } else if let Some(url_path) = self.0.strip_prefix("https://") {
