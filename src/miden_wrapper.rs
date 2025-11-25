@@ -90,6 +90,8 @@ impl<'a> ToolchainEnvironment<'a> {
         }
     }
 
+    /// Parses the user's input and returns the required ExecutionEnvironment to
+    /// execute the requested command.
     fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
         let (_, active_channel_type) = self.get_active_channel();
 
@@ -98,8 +100,8 @@ impl<'a> ToolchainEnvironment<'a> {
             (Some(self.installed_channel), ChannelType::Installed),
         ]
         .into_iter()
-        // We look for the first, non-None channel. If the PartialActive Channel
-        // is None, then the Installed channel will be used.
+        // We only consider the channel as available if it's not None. We can
+        // always fallback on the installed channel.
         .filter_map(|(ch, ch_type)| ch.map(|ch| (ch, ch_type)))
         .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type, ch)))
         .find_map(|(comp, ch_type, ch)| {
