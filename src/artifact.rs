@@ -65,10 +65,6 @@ impl Artifact {
             _ => false,
         };
 
-        if is_looked_for {
-            Some(self.0.clone())
-        } else {
-            None
-        }
+        if is_looked_for { Some(self.0.clone()) } else { None }
     }
 }
