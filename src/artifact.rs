@@ -15,7 +15,8 @@ impl Artifacts {
     }
 }
 
-/// Represents a mapping from a given [target] to the [url] which contains it.
+/// Holds a URI used to fetch an artifact. These URIs have the following format:
+/// (https://|file://)<path>/<component name>(-<triplet>|.masp)
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Artifact(String);
 
@@ -53,7 +54,7 @@ impl Artifact {
                 matches!(target, &TargetTriple::MidenVM)
             },
             dash_triplet if suffix.starts_with("-") => {
-                // Safety: This is safe since this only executed if the dash
+                // Safety: This is safe since this only executed if dash_triplet
                 // starts with "-".
                 let triplet = {
                     let triplet = dash_triplet.strip_prefix("-").unwrap();
