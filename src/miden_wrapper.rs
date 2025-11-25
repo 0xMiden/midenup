@@ -83,11 +83,18 @@ impl<'a> ToolchainEnvironment<'a> {
             Active,
         }
 
+        let active_channel = if self.active_channel.is_some() {
+            ChannelType::Active
+        } else {
+            ChannelType::Installed
+        };
         [
             (self.active_channel.clone(), ChannelType::Active),
             (Some(self.installed_channel.clone()), ChannelType::Installed),
         ]
         .iter()
+        // We look for the first, non-None channel. If the PartialActive Channel
+        // is None, then the Installed channel will be used.
         .filter_map(|(ch, ch_type)| ch.as_ref().map(|ch| (ch, ch_type)))
         .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type)))
         .find_map(|(comp, ch_type)| {
@@ -100,15 +107,18 @@ impl<'a> ToolchainEnvironment<'a> {
             }
         })
         .inspect(|resolution| {
-            if let Some(warning_message) = match resolution {
-                (MidenArgument::Alias(comp, _ ), ChannelType::Installed) => Some(format!(
+            if let Some(warning_message) = match (resolution, active_channel) {
+                // We only display an eror message if a user tried to access a
+                // component that was available via the installed channel while
+                // having an active channel that was missing said component.
+                ((MidenArgument::Alias(comp, _ ), ChannelType::Installed), ChannelType::Active) => Some(format!(
                     "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     argument,
                     comp.name,
 
                 )),
-                (MidenArgument::Component(comp), ChannelType::Installed) => Some(format!(
+                ((MidenArgument::Component(comp), ChannelType::Installed), ChannelType::Active) => Some(format!(
                     "{}: {} is installed, but it is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     comp.name,
