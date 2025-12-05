@@ -204,6 +204,73 @@
           }
         }
       ]
+    },
+    {
+      "name": "0.19.1",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.19.1",
+          "installed_library": "std.masp",
+          "library_struct": "miden_stdlib::StdLibrary"
+        },
+        {
+          "name": "base",
+          "package": "miden-lib",
+          "version": "0.12.2",
+          "installed_library": "base.masp",
+          "library_struct": "miden_lib::MidenLib"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.19.1",
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden-vm"
+        },
+        {
+          "name": "client",
+          "package": "miden-client-cli",
+          "version": "0.12.3",
+          "installed_executable": "miden-client",
+          "aliases": {
+              "account": ["executable", "new-account"],
+              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
+              "faucet": ["executable", "mint"],
+              "new-wallet": ["executable", "new-wallet", "--deploy"],
+              "call": ["executable", "call", "--show"],
+              "send": ["executable", "send"],
+              "simulate": ["executable", "exec"]
+          }
+        },
+        {
+          "name": "midenc",
+          "version": "0.5.1",
+          "rustup_channel": "nightly-2025-07-20",
+          "requires": ["base", "std"],
+          "call_format": ["executable", "compile", "-L", "lib_path"]
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.5.1",
+          "rustup_channel": "nightly-2025-07-20",
+          "aliases": {
+              "new": ["cargo", "miden", "new"],
+              "build": ["cargo", "miden", "build"]
+          },
+          "symlink_name": "cargo-miden"
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "version": "0.12.5",
+          "installed_executable": "miden-node",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          }
+        }
+      ]
     }
   ]
 }
