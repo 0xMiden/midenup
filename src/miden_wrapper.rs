@@ -327,7 +327,9 @@ For more information, try 'miden help'.
             }) => {
                 let executables = alias_resolutions
                     .iter()
-                    .map(|commands| resolve_command(commands, active_channel, &component, config))
+                    .map(|commands| {
+                        resolve_command(commands, &argv, active_channel, &component, config)
+                    })
                     .collect::<Result<Vec<_>, _>>()?;
 
                 (executables, active_channel)
@@ -338,6 +340,7 @@ For more information, try 'miden help'.
             }) => {
                 let executables = resolve_command(
                     &component.get_call_format(),
+                    &argv,
                     active_channel,
                     &component,
                     config,

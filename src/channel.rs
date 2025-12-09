@@ -381,6 +381,9 @@ pub enum CliCommand {
     // NOTE: Potentially in the future, we might want this to be an Optional field
     #[serde(rename = "var_path")]
     VarPath,
+    /// Represents the nth passed in argument by the user.
+    #[serde(untagged)]
+    PositionalArgument(u32),
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
@@ -392,6 +395,7 @@ impl fmt::Display for CliCommand {
             CliCommand::Executable => write!(f, "executable"),
             CliCommand::LibPath => write!(f, "lib_path"),
             CliCommand::VarPath => write!(f, "var_path"),
+            CliCommand::PositionalArgument(nth) => write!(f, "positional argument: {nth}"),
             CliCommand::Verbatim(word) => write!(f, "verbatim: {word}"),
         }
     }
@@ -399,6 +403,7 @@ impl fmt::Display for CliCommand {
 
 pub fn resolve_command(
     commands: &[CliCommand],
+    argv: &[OsString],
     channel: &Channel,
     component: &Component,
     config: &Config,
@@ -442,6 +447,16 @@ pub fn resolve_command(
                 let full_path = toolchain_path.join(directory_name);
 
                 resolution.push(full_path.to_string_lossy().to_string())
+            },
+            CliCommand::PositionalArgument(pos) => {
+                // The first two arguments are the 'miden' and the alias name.
+                let arg_at_pos = argv
+                    .iter()
+                    .skip(2)
+                    .nth(*pos as usize)
+                    .with_context(|| format!("Requested positional argument at position {pos}, however, not enough arguments were passed."))?;
+
+                resolution.push(arg_at_pos.to_string_lossy().to_string());
             },
             CliCommand::Verbatim(name) => resolution.push(name.to_string()),
         }
