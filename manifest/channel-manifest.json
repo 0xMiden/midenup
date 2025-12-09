@@ -33,13 +33,13 @@
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
-              "new-wallet": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
+              "account": [["executable", "new-account"]],
+              "deploy": [["executable", "-s", "public", "--account-type", "regular-account-immutable-code"]],
+              "faucet": [["executable", "mint"]],
+              "new-wallet": [["executable", "new-wallet", "--deploy"]],
+              "call": [["executable", "call", "--show"]],
+              "send": [["executable", "send"]],
+              "simulate": [["executable", "exec"]]
           }
         },
         {
@@ -54,8 +54,8 @@
           "version": "0.1.0",
           "rustup_channel": "nightly-2025-03-20",
           "aliases": {
-              "new": ["cargo", "miden", "new"],
-              "build": ["cargo", "miden", "build"]
+              "new": [["cargo", "miden", "new"]],
+              "build": [["cargo", "miden", "build"]]
           },
           "symlink_name": "cargo-miden"
         },
@@ -65,7 +65,7 @@
           "installed_executable": "miden-node",
           "version": "0.10.1",
           "aliases": {
-              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+              "start-node": [["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]]
           }
         }
       ]
@@ -100,13 +100,13 @@
           "version": "0.10.2",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
-              "new-wallet": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
+              "account": [["executable", "new-account"]],
+              "deploy": [["executable", "-s", "public", "--account-type", "regular-account-immutable-code"]],
+              "faucet": [["executable", "mint"]],
+              "new-wallet": [["executable", "new-wallet", "--deploy"]],
+              "call": [["executable", "call", "--show"]],
+              "send": [["executable", "send"]],
+              "simulate": [["executable", "exec"]]
           }
         },
         {
@@ -121,8 +121,8 @@
           "version": "0.1.0",
           "rustup_channel": "nightly-2025-03-20",
           "aliases": {
-              "new": ["cargo", "miden", "new"],
-              "build": ["cargo", "miden", "build"]
+              "new": [["cargo", "miden", "new"]],
+              "build": [["cargo", "miden", "build"]]
           },
           "symlink_name": "cargo-miden"
         },
@@ -132,7 +132,7 @@
           "installed_executable": "miden-node",
           "version": "0.10.1",
           "aliases": {
-              "start-node": ["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]
+              "start-node": [["executable", "bundled", "start",  "--data-directory", "data", "--rpc.url", "http://0.0.0.0:57291"]]
           }
         }
       ]
@@ -167,13 +167,13 @@
           "version": "0.11.8",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
-              "new-wallet": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
+              "account": [["executable", "new-account"]],
+              "deploy": [["executable", "-s", "public", "--account-type", "regular-account-immutable-code"]],
+              "faucet": [["executable", "mint"]],
+              "new-wallet": [["executable", "new-wallet", "--deploy"]],
+              "call": [["executable", "call", "--show"]],
+              "send": [["executable", "send"]],
+              "simulate": [["executable", "exec"]]
           }
         },
         {
@@ -188,8 +188,8 @@
           "version": "0.4.1",
           "rustup_channel": "nightly-2025-07-20",
           "aliases": {
-              "new": ["cargo", "miden", "new"],
-              "build": ["cargo", "miden", "build"]
+              "new": [["cargo", "miden", "new"]],
+              "build": [["cargo", "miden", "build"]]
           },
           "symlink_name": "cargo-miden"
         },
@@ -200,7 +200,7 @@
           "branch": "fabrizioorsi/create-account-data-dirs",
           "installed_executable": "miden-node",
           "aliases": {
-              "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+              "start-node": [["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]]
           }
         }
       ]
