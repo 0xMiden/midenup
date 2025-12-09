@@ -491,25 +491,27 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
-    /// This HashMap associates each alias to the corresponding command that
-    /// needs to be executed.
-    /// NOTE: The list of commands that is resolved can have an "arbitrary"
-    /// ordering: the executable associated with this command is not forced to
-    /// come in first.
+    /// Mapping from alias name to its corresponding command(s).
     ///
-    /// Here's an example aliases entry in a manifest.json:
+    /// Here's an example "aliases" entry in a manifest.json (taken from the
+    /// `miden-client`'s and `miden-node`'s manifest entries respectively).
     ///
     /// ```json
     /// {
-    ///   "name": "component-name",
-    ///   "package": "component-package",
-    ///   "version": "X.Y.Z",
-    ///   "installed_executable": "miden-component",
+    ///   "name": "client",
+    ///   (...)
     ///   "aliases": {
-    ///       "alias1": [{"resolve": "component-name"}, {"verbatim": "argument"}],
-    ///       "alias2": [{"verbatim": "cargo"}, {"resolve": "component-name"}, {"verbatim": "build"}]
+    ///       "account": ["executable", "new-account"],
+    ///       "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
     ///     }
     /// },
+    /// {
+    ///   "name": "node",
+    ///   (...)
+    ///   "aliases": {
+    ///       "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+    ///     }
+    /// }
     /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
