@@ -52,6 +52,12 @@ pub struct Channel {
 
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
+
+    /// These aliases correspond to series of [[CLICommand]]s from multiple
+    /// different binaries.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub aliases: HashMap<Alias, Vec<CLICommand>>,
 }
 
 enum InstallationMotive {
@@ -76,8 +82,9 @@ impl Channel {
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
         tags: Vec<Tags>,
+        aliases: HashMap<Alias, Vec<CLICommand>>,
     ) -> Self {
-        Self { name, alias, components, tags }
+        Self { name, alias, components, tags, aliases }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
@@ -208,6 +215,7 @@ impl Channel {
             alias: self.alias.clone(),
             tags: vec![Tags::Partial],
             components: components_to_install,
+            aliases: self.aliases.clone(),
         };
 
         Some(partial_channel)
@@ -642,10 +650,7 @@ impl Component {
                 let local_latest = last_modification_a;
 
                 let latest_registered_modification =
-                    utils::fs::latest_modification(path_b).ok().map(|modification| {
-                        // std::dbg!(&modification.1);
-                        modification.0
-                    });
+                    utils::fs::latest_modification(path_b).ok().map(|modification| modification.0);
 
                 // last_modification_b should almost always be None, since the
                 // latest modification time is checked on demand. However, if
