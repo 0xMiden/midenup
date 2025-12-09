@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
+    ffi::OsString,
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::PathBuf,
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Config,
+    miden_wrapper::ExecutableTarget,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -119,7 +121,7 @@ impl Channel {
     }
 
     /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
+    pub fn get_aliases(&self) -> HashMap<Alias, Vec<CLICommand>> {
         self.components.iter().fold(HashMap::new(), |mut acc, component| {
             acc.extend(component.aliases.clone());
             acc
@@ -399,9 +401,8 @@ pub fn resolve_command(
     commands: &[CliCommand],
     channel: &Channel,
     component: &Component,
-
     config: &Config,
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<ExecutableTarget> {
     let mut resolution = Vec::with_capacity(commands.len());
     let mut commands = commands.iter();
 
@@ -446,7 +447,15 @@ pub fn resolve_command(
         }
     }
 
-    Ok(resolution)
+    // SAFETY: Safe under the assumption that every executable has at least one
+    // argument. This is guaranteed since there needs to be at least one
+    let command = resolution.first().unwrap().clone();
+
+    let args: Vec<OsString> = resolution.into_iter().skip(1).map(OsString::from).collect();
+
+    let executable = ExecutableTarget { target_exe: command, args };
+
+    Ok(executable)
 }
 
 pub type Alias = String;
@@ -515,7 +524,7 @@ pub struct Component {
     /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CLICommand>,
+    pub aliases: HashMap<Alias, Vec<CLICommand>>,
     /// The file used by midenup's 'miden' to call the components executable.
     /// If None, then the component's file will be saved as 'miden <name>'.
     /// This distinction exists mainly for components like cargo-miden, which
