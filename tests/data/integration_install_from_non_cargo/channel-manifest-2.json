@@ -32,13 +32,13 @@
           "revision": "c107cbed69a1313d67d03229fec59e37db720e6c",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": [["executable", "new-account"]],
-              "deploy": [["executable", "-s", "public", "--account-type", "regular-account-immutable-code"]],
-              "faucet": [["executable", "mint"]],
-              "new-wallet": [["executable", "new-wallet", "--deploy"]],
-              "call": [["executable", "call", "--show"]],
-              "send": [["executable", "send"]],
-              "simulate": [["executable", "exec"]]
+              "account": [["executable", "client", "new-account"]],
+              "deploy": [["executable", "client", "-s", "public", "--account-type", "regular-account-immutable-code"]],
+              "faucet": [["executable", "client", "mint"]],
+              "new-wallet": [["executable", "client", "new-wallet", "--deploy"]],
+              "call": [["executable", "client", "call", "--show"]],
+              "send": [["executable", "client", "send"]],
+              "simulate": [["executable", "client", "exec"]]
            }
         }
       ]
