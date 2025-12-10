@@ -382,13 +382,10 @@ impl Display for InstalledFile {
 /// line. These are used to resolve an [[Alias]] to its associated command.
 /// NOTE: In the manifest
 pub enum CliCommand {
-    /// Resolve the command to a [[Component]]'s corresponding executable.
+    /// Resolve the command to a [[Component]]'s corresponding executable.  This
+    /// requires for the following CliCommand in the manifest to be a
+    /// [[CliCommand::Verbatim]] with the name of the executable to execute.
     Executable,
-    /// Similar to [[CliCommand::Executable]], but requires for the following
-    /// CliCommand to be [[CliCommand::Verbatim]] with the name of the
-    /// executable to execute.
-    #[serde(rename = "specific_executable")]
-    SpecificExecutable,
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
     LibPath,
@@ -410,7 +407,6 @@ impl fmt::Display for CliCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             CliCommand::Executable => write!(f, "executable"),
-            CliCommand::SpecificExecutable => write!(f, "specific executable"),
             CliCommand::LibPath => write!(f, "lib_path"),
             CliCommand::VarPath => write!(f, "var_path"),
             CliCommand::PositionalArgument(nth) => write!(f, "positional argument: {nth}"),
@@ -423,7 +419,6 @@ pub fn resolve_command(
     commands: &[CliCommand],
     argv: &[OsString],
     channel: &Channel,
-    component: &Component,
     config: &Config,
 ) -> anyhow::Result<ExecutableTarget> {
     let mut resolution = Vec::with_capacity(commands.len());
@@ -432,17 +427,6 @@ pub fn resolve_command(
     while let Some(command) = commands.next() {
         match command {
             CliCommand::Executable => {
-                let name = &component.name;
-                let component = channel.get_component(name).with_context(|| {
-                    format!(
-                        "Component named {} is not present in toolchain version {}",
-                        name, channel.name
-                    )
-                })?;
-
-                resolution.push(component.get_cli_display());
-            },
-            CliCommand::SpecificExecutable => {
                 let next_command = commands
                     .next()
                     .context("diff_executable needs to be followed by a component name")?;
