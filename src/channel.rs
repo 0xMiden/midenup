@@ -380,6 +380,11 @@ impl Display for InstalledFile {
 pub enum CliCommand {
     /// Resolve the command to a [[Component]]'s corresponding executable.
     Executable,
+    /// Similar to [[CliCommand::Executable]], but requires for the following
+    /// CliCommand to be [[CliCommand::Verbatim]] with the name of the
+    /// executable to execute.
+    #[serde(rename = "specific_executable")]
+    SpecificExecutable,
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
     LibPath,
@@ -401,6 +406,7 @@ impl fmt::Display for CliCommand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
             CliCommand::Executable => write!(f, "executable"),
+            CliCommand::SpecificExecutable => write!(f, "specific executable"),
             CliCommand::LibPath => write!(f, "lib_path"),
             CliCommand::VarPath => write!(f, "var_path"),
             CliCommand::PositionalArgument(nth) => write!(f, "positional argument: {nth}"),
@@ -431,6 +437,29 @@ pub fn resolve_command(
                 })?;
 
                 resolution.push(component.get_cli_display());
+            },
+            CliCommand::SpecificExecutable => {
+                let next_command = commands
+                    .next()
+                    .context("diff_executable needs to be followed by a component name")?;
+
+                let CliCommand::Verbatim(component_name) = next_command else {
+                    bail!(format!(
+                        "After specific_executable a file is required. Got: {}",
+                        next_command
+                    ))
+                };
+
+                let component_executable = channel
+                    .get_component(component_name)
+                    .map(|comp| comp.get_cli_display())
+                    .with_context(|| {
+                        format!(
+                            "specific executable needs to be followed by an executable component. Could not find executable with {component_name}."
+                        )
+                    })?;
+
+                resolution.push(component_executable)
             },
             CliCommand::LibPath => {
                 let channel_dir = channel.get_channel_dir(config);
