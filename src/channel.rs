@@ -443,7 +443,7 @@ pub fn resolve_command(
                     .map(|comp| comp.get_cli_display())
                     .with_context(|| {
                         format!(
-                            "specific executable needs to be followed by an executable component. Could not find executable with {component_name}."
+                            "Error in manifest: 'executable' needs to be followed by an executable component name. Could not find executable named {component_name}."
                         )
                     })?;
 

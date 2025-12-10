@@ -127,13 +127,12 @@ impl<'a> ToolchainEnvironment<'a> {
         // We only consider the channel as available if it's not None. We can
         // always fallback on the installed channel.
         .filter_map(|(ch, ch_type)| ch.map(|ch| (ch, ch_type)))
-        .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type, ch)))
-        .find_map(|(comp, ch_type, ch)| {
-            if let Some(associated_command) = comp.aliases.get(argument) {
-                Some((ch, (MidenArgument::Alias(associated_command.to_owned()), ch_type))
+        .find_map(|(ch, ch_type)| {
+            if let Some(associated_commands) = ch.get_aliases().get(argument) {
+                Some((ch, (MidenArgument::Alias(associated_commands.to_owned()), ch_type))
                 )
-            } else if comp.name == argument {
-                Some((ch, (MidenArgument::Component(comp.clone()), ch_type))
+            } else if let Some(component) = ch.get_component(argument) {
+                Some((ch, (MidenArgument::Component(component.clone()), ch_type))
                 )
             } else {
                 None
