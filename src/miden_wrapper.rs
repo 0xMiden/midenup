@@ -36,7 +36,7 @@ enum MidenArgument {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(Component, Vec<CLICommand>),
+    Alias(Vec<CLICommand>),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(Component),
 }
@@ -130,7 +130,7 @@ impl<'a> ToolchainEnvironment<'a> {
         .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type, ch)))
         .find_map(|(comp, ch_type, ch)| {
             if let Some(associated_command) = comp.aliases.get(argument) {
-                Some((ch, (MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type))
+                Some((ch, (MidenArgument::Alias(associated_command.to_owned()), ch_type))
                 )
             } else if comp.name == argument {
                 Some((ch, (MidenArgument::Component(comp.clone()), ch_type))
@@ -144,11 +144,10 @@ impl<'a> ToolchainEnvironment<'a> {
                 // We only display an eror message if a user tried to access a
                 // component that was available via the installed channel while
                 // having an active channel that was missing said component.
-                ((MidenArgument::Alias(comp, _ ), ChannelType::Installed), ChannelType::Active) => Some(format!(
-                    "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
+                ((MidenArgument::Alias(_), ChannelType::Installed), ChannelType::Active) => Some(format!(
+                    "{}: {} is an alias which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     argument,
-                    comp.name,
 
                 )),
                 ((MidenArgument::Component(comp), ChannelType::Installed), ChannelType::Active) => Some(format!(
@@ -322,7 +321,7 @@ For more information, try 'miden help'.
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
         | MidenSubcommand::Resolve(resolve) => match toolchain_environment.resolve(&resolve) {
             Ok(ExecutionEnvironment {
-                argument: MidenArgument::Alias(component, alias_resolutions),
+                argument: MidenArgument::Alias(alias_resolutions),
                 active_channel,
             }) => {
                 let executables = alias_resolutions
