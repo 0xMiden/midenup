@@ -32,6 +32,7 @@ enum HelpMessage {
 
 /// The possible non-help commands that a user's input can be resolved into.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum MidenArgument {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need

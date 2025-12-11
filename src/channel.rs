@@ -57,7 +57,7 @@ pub struct Channel {
     /// different binaries.
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, Vec<CLICommand>>,
+    pub aliases: Aliases,
 }
 
 enum InstallationMotive {
@@ -82,7 +82,7 @@ impl Channel {
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
         tags: Vec<Tags>,
-        aliases: HashMap<Alias, Vec<CLICommand>>,
+        aliases: Aliases,
     ) -> Self {
         Self { name, alias, components, tags, aliases }
     }
@@ -127,8 +127,10 @@ impl Channel {
         installed_toolchains_dir.join(format!("{}", self.name))
     }
 
-    /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, Vec<CLICommand>> {
+    /// Aggregate all the aliases that the channel is aware of. This includes:
+    /// - The Channel wide aliases
+    /// - The Component specific aliases
+    pub fn get_aliases(&self) -> Aliases {
         self.components
             .iter()
             .map(|comp| &comp.aliases)
@@ -499,8 +501,13 @@ pub fn resolve_command(
 }
 
 pub type Alias = String;
+
 /// List of the commands that need to be run when [[Alias]] is called.
 pub type CLICommand = Vec<CliCommand>;
+
+/// Mapping from an alias name to its associated list of Commands.
+pub type Aliases = HashMap<Alias, Vec<CLICommand>>;
+
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -564,7 +571,7 @@ pub struct Component {
     /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, Vec<CLICommand>>,
+    pub aliases: Aliases,
     /// The file used by midenup's 'miden' to call the components executable.
     /// If None, then the component's file will be saved as 'miden <name>'.
     /// This distinction exists mainly for components like cargo-miden, which
