@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::PathBuf,
@@ -50,6 +50,11 @@ pub struct Channel {
 
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
+
+    /// Channel-level aliases that can orchestrate multiple components.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub aliases: HashMap<Alias, AliasPipeline>,
 }
 
 enum InstallationMotive {
@@ -73,9 +78,10 @@ impl Channel {
         name: semver::Version,
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
+        aliases: HashMap<Alias, AliasPipeline>,
         tags: Vec<Tags>,
     ) -> Self {
-        Self { name, alias, components, tags }
+        Self { name, alias, components, aliases, tags }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
@@ -119,11 +125,8 @@ impl Channel {
     }
 
     /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
-        self.components.iter().fold(HashMap::new(), |mut acc, component| {
-            acc.extend(component.aliases.clone());
-            acc
-        })
+    pub fn get_aliases(&self) -> HashMap<Alias, AliasPipeline> {
+        self.aliases.clone()
     }
 
     /// Creates a "partial channel" from the original channel, given a toolchain
@@ -201,11 +204,26 @@ impl Channel {
             }
         }
 
+        let allowed: HashSet<_> =
+            components_to_install.iter().map(|c| c.name.to_string()).collect();
+        let aliases = self
+            .aliases
+            .iter()
+            .filter_map(|(alias, pipeline)| {
+                if pipeline.iter().all(|step| allowed.contains(&step.component)) {
+                    Some((alias.clone(), pipeline.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
         let partial_channel = Channel {
             name: self.name.clone(),
             alias: self.alias.clone(),
             tags: vec![Tags::Partial],
             components: components_to_install,
+            aliases,
         };
 
         Some(partial_channel)
@@ -362,7 +380,7 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 /// Represents each possible "word" variant that is passed to the Command
 /// line. These are used to resolve an [[Alias]] to its associated command.
@@ -450,8 +468,16 @@ pub fn resolve_command(
 }
 
 pub type Alias = String;
-/// List of the commands that need to be run when [[Alias]] is called.
-pub type CLICommand = Vec<CliCommand>;
+/// Ordered list of steps that define how an alias should be executed.
+pub type AliasPipeline = Vec<AliasStep>;
+/// A single step in an alias pipeline.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct AliasStep {
+    /// Component whose executable should be used for this step.
+    pub component: String,
+    /// Commands to resolve and execute for this step.
+    pub command: Vec<CliCommand>,
+}
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -491,29 +517,6 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
-    /// This HashMap associates each alias to the corresponding command that
-    /// needs to be executed.
-    /// NOTE: The list of commands that is resolved can have an "arbitrary"
-    /// ordering: the executable associated with this command is not forced to
-    /// come in first.
-    ///
-    /// Here's an example aliases entry in a manifest.json:
-    ///
-    /// ```json
-    /// {
-    ///   "name": "component-name",
-    ///   "package": "component-package",
-    ///   "version": "X.Y.Z",
-    ///   "installed_executable": "miden-component",
-    ///   "aliases": {
-    ///       "alias1": [{"resolve": "component-name"}, {"verbatim": "argument"}],
-    ///       "alias2": [{"verbatim": "cargo"}, {"resolve": "component-name"}, {"verbatim": "build"}]
-    ///     }
-    /// },
-    /// ```
-    #[serde(default)]
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CLICommand>,
     /// The file used by midenup's 'miden' to call the components executable.
     /// If None, then the component's file will be saved as 'miden <name>'.
     /// This distinction exists mainly for components like cargo-miden, which
@@ -533,7 +536,6 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
-            aliases: HashMap::new(),
             symlink_name: None,
         }
     }
@@ -697,6 +699,40 @@ impl Component {
         } else {
             self.call_format.clone()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn alias_pipeline_deserializes_multiple_steps() {
+        let pipeline_json = json!([
+            { "component": "client", "command": ["executable", "first-arg"] },
+            { "component": "faucet", "command": ["executable", "second", "--flag"] }
+        ]);
+
+        let pipeline: AliasPipeline =
+            serde_json::from_value(pipeline_json).expect("pipeline should deserialize");
+
+        assert_eq!(pipeline.len(), 2);
+        assert_eq!(
+            pipeline[0].command,
+            vec![CliCommand::Executable, CliCommand::Verbatim("first-arg".into())]
+        );
+        assert_eq!(pipeline[0].component, "client");
+        assert_eq!(
+            pipeline[1].command,
+            vec![
+                CliCommand::Executable,
+                CliCommand::Verbatim("second".into()),
+                CliCommand::Verbatim("--flag".into())
+            ]
+        );
+        assert_eq!(pipeline[1].component, "faucet");
     }
 }
 

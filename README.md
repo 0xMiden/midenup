@@ -136,6 +136,10 @@ Here's a table with all the currently available aliases:
 | miden send       | Send transaction (state-changing) | miden-client send                                                    |
 | miden simulate   | Simulate transaction (no commit)  | miden-client exec                                                    |
 
+Aliases are defined at the channel level in `manifest/channel-manifest.json`. Each alias is a pipeline of steps, and each step must specify which component's executable to run. Commands use the existing `CliCommand` tokens (`executable`, `lib_path`, `var_path`, or verbatim strings).
+
+Pipeline steps execute in order. User-provided CLI arguments are appended to the first step only.
+
 
 ### Uninstalling a toolchain
 
