@@ -2,7 +2,10 @@ use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, bail};
 
-use crate::{channel::Channel, manifest::Manifest, toolchain::Toolchain, utils};
+use crate::{
+    channel::Channel, manifest::Manifest, miden_wrapper::ExecutableTarget, toolchain::Toolchain,
+    utils,
+};
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -115,8 +118,7 @@ impl Config {
     pub fn execute_command(
         &self,
         active_toolchain: &Channel,
-        target_exe: &str,
-        args: &Vec<OsString>,
+        target_exe: ExecutableTarget,
     ) -> Result<std::process::Child, std::io::Error> {
         let toolchain_opt = self
             .midenup_home
@@ -133,10 +135,10 @@ impl Config {
             None => toolchain_opt.into_os_string(),
         };
 
-        std::process::Command::new(target_exe)
+        std::process::Command::new(target_exe.target_exe)
             .env("MIDENUP_HOME", &self.midenup_home)
             .env("PATH", path)
-            .args(args)
+            .args(target_exe.args)
             .stderr(std::process::Stdio::inherit())
             .stdout(std::process::Stdio::inherit())
             .spawn()

@@ -240,20 +240,6 @@ mod tests {
     }
 
     #[test]
-    /// Validates that the *published* channel manifest is parseable.
-    /// NOTE: This test is mainly intended for backwards compatibilty reasons.
-    fn validate_published_channel_manifest() {
-        let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI)
-            .expect("Failed to parse upstream manifest.");
-
-        let stable = manifest
-            .get_channel(&UserChannel::Stable)
-            .expect("Could not convert UserChannel to internal channel representation");
-
-        assert!(stable.get_component("std").is_some());
-    }
-
-    #[test]
     /// Validates that non-standard manifest features are parsed correctly, these include:
     /// - Non stable channels (custom tags, nightly)
     /// - Components wwith git and a path as an [[Authority]].

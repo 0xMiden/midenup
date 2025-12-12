@@ -32,11 +32,12 @@ enum HelpMessage {
 
 /// The possible non-help commands that a user's input can be resolved into.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 enum MidenArgument {
     /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
     /// represents the list of commands that need to be executed. NOTE: Some of these might need
     /// to get resolved.
-    Alias(Component, CLICommand),
+    Alias(Vec<CLICommand>),
     /// The argument was the name of a component stored in the [[Manifest]].
     Component(Component),
 }
@@ -46,6 +47,30 @@ enum MidenArgument {
 struct ExecutionEnvironment<'a> {
     argument: MidenArgument,
     active_channel: &'a Channel,
+}
+
+pub struct ExecutableTarget {
+    pub target_exe: String,
+    pub args: Vec<OsString>,
+}
+
+impl ExecutableTarget {
+    // Add the user's passed in arguments to the resolved command. If help was
+    // requested, no arguments are passed in order for the underlying executable
+    // to provide help.
+    fn add_arguments(&mut self, argv: Vec<OsString>, help_flag: Option<String>) {
+        if let Some(help_flag) = help_flag {
+            let help_flag = OsString::from(help_flag);
+            self.args.extend([help_flag]);
+        } else {
+            // argv is of the form:
+            // miden <alias|component> ...
+            // So we skip the first two and pass the rest to the underlying executable.
+            let args = argv.into_iter().skip(2);
+
+            self.args.extend(args);
+        };
+    }
 }
 
 enum EnvironmentError {
@@ -92,7 +117,7 @@ impl<'a> ToolchainEnvironment<'a> {
 
     /// Parses the user's input and returns the required ExecutionEnvironment to
     /// execute the requested command.
-    fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
+    fn resolve(&self, argument: &str) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
         let (_, active_channel_type) = self.get_active_channel();
 
         let (channel, argument) = [
@@ -103,13 +128,12 @@ impl<'a> ToolchainEnvironment<'a> {
         // We only consider the channel as available if it's not None. We can
         // always fallback on the installed channel.
         .filter_map(|(ch, ch_type)| ch.map(|ch| (ch, ch_type)))
-        .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type, ch)))
-        .find_map(|(comp, ch_type, ch)| {
-            if let Some(associated_command) = comp.aliases.get(&argument) {
-                Some((ch, (MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type))
+        .find_map(|(ch, ch_type)| {
+            if let Some(associated_commands) = ch.get_aliases().get(argument) {
+                Some((ch, (MidenArgument::Alias(associated_commands.to_owned()), ch_type))
                 )
-            } else if comp.name == argument {
-                Some((ch, (MidenArgument::Component(comp.clone()), ch_type))
+            } else if let Some(component) = ch.get_component(argument) {
+                Some((ch, (MidenArgument::Component(component.clone()), ch_type))
                 )
             } else {
                 None
@@ -120,11 +144,10 @@ impl<'a> ToolchainEnvironment<'a> {
                 // We only display an eror message if a user tried to access a
                 // component that was available via the installed channel while
                 // having an active channel that was missing said component.
-                ((MidenArgument::Alias(comp, _ ), ChannelType::Installed), ChannelType::Active) => Some(format!(
-                    "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
+                ((MidenArgument::Alias(_), ChannelType::Installed), ChannelType::Active) => Some(format!(
+                    "{}: {} is an alias which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     argument,
-                    comp.name,
 
                 )),
                 ((MidenArgument::Component(comp), ChannelType::Installed), ChannelType::Active) => Some(format!(
@@ -140,7 +163,7 @@ impl<'a> ToolchainEnvironment<'a> {
         }
         )
         .map(|(ch, (argument, _))| (ch, argument))
-        .ok_or(EnvironmentError::UnkownArgument(argument))?;
+        .ok_or(EnvironmentError::UnkownArgument(argument.to_string()))?;
 
         Ok(ExecutionEnvironment { argument, active_channel: channel })
     }
@@ -288,7 +311,7 @@ For more information, try 'miden help'.
 
     // We obtain the target executable and prefixes that are associated with the
     // passed subcommand.
-    let (target_exe, mut prefix_args, active_channel) = match parsed_subcommand {
+    let (target_exe, active_channel) = match parsed_subcommand {
         MidenSubcommand::Version => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
@@ -296,81 +319,55 @@ For more information, try 'miden help'.
         // only difference is wheter we append "--help" at the end and if we
         // process additional arguments.
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
-        | MidenSubcommand::Resolve(resolve) => {
-            match toolchain_environment.resolve(resolve.clone()) {
-                Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Alias(component, alias_resolutions),
-                    active_channel,
-                }) => {
-                    let commands =
-                        resolve_command(&alias_resolutions, active_channel, &component, config)?;
+        | MidenSubcommand::Resolve(resolve) => match toolchain_environment.resolve(&resolve) {
+            Ok(ExecutionEnvironment {
+                argument: MidenArgument::Alias(alias_resolutions),
+                active_channel,
+            }) => {
+                let executables = alias_resolutions
+                    .iter()
+                    .map(|commands| resolve_command(commands, &argv, active_channel, config))
+                    .collect::<Result<Vec<_>, _>>()?;
 
-                    // SAFETY: Safe under the assumption that every alias has an
-                    // associated command.
-                    let command = commands.first().unwrap().clone();
-                    let aliased_arguments: Vec<String> = commands.into_iter().skip(1).collect();
+                (executables, active_channel)
+            },
+            Ok(ExecutionEnvironment {
+                argument: MidenArgument::Component(component),
+                active_channel,
+            }) => {
+                let executables =
+                    resolve_command(&component.get_call_format(), &argv, active_channel, config)?;
 
-                    (command, aliased_arguments, active_channel)
-                },
-                Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Component(component),
-                    active_channel,
-                }) => {
-                    let call_convention = resolve_command(
-                        &component.get_call_format(),
-                        active_channel,
-                        &component,
-                        config,
-                    )?;
-
-                    // SAFETY: Safe under the assumption that every call_format has at least one
-                    // argument
-                    let command = call_convention.first().unwrap().clone();
-                    let args: Vec<String> = call_convention.into_iter().skip(1).collect();
-
-                    (command, args, active_channel)
-                },
-                Err(EnvironmentError::UnkownArgument(argument)) => {
-                    let help_message = toolchain_help(&toolchain_environment);
-                    let err_msg = format!(
-                        "Failed to resolve '{}': Neither known alias or component.
+                (vec![executables], active_channel)
+            },
+            Err(EnvironmentError::UnkownArgument(argument)) => {
+                let help_message = toolchain_help(&toolchain_environment);
+                let err_msg = format!(
+                    "Failed to resolve '{}': Neither known alias or component.
 
 {}",
-                        argument, help_message
-                    );
-                    bail!(err_msg);
-                },
-            }
+                    argument, help_message
+                );
+                bail!(err_msg);
+            },
         },
     };
 
-    let rest_of_args = if let Some(help_flag) = help_flag {
-        prefix_args.extend([help_flag]);
-        // If the user requested for help for a specific component, we skip any
-        // additional passed in arguments.
-        argv.iter().skip(argv.len())
-    } else {
-        // argv is of the form:
-        // miden <alias|component> ...
-        // So we skip the first two and pass the rest to the underlying executable.
-        argv.iter().skip(2)
-    };
+    for mut exe in target_exe {
+        exe.add_arguments(argv.clone(), help_flag.clone());
+        let mut command = config
+            .execute_command(active_channel, exe)
+            .with_context(|| format!("failed to run 'miden {subcommand}'"))?;
+        let status = command.wait().with_context(|| {
+            format!("error occurred while waiting for 'miden {subcommand}' to finish executing")
+        })?;
 
-    let prefix_args = prefix_args.iter().map(OsString::from).chain(rest_of_args.cloned()).collect();
-
-    let mut command = config
-        .execute_command(active_channel, &target_exe, &prefix_args)
-        .with_context(|| format!("failed to run 'miden {subcommand}'"))?;
-
-    let status = command.wait().with_context(|| {
-        format!("error occurred while waiting for 'miden {subcommand}' to finish executing")
-    })?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
+        if !status.success() {
+            bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
+        }
     }
+
+    Ok(())
 }
 
 fn display_version(config: &Config) -> String {

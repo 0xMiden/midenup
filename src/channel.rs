@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
+    ffi::OsString,
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::PathBuf,
@@ -12,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Config,
+    miden_wrapper::ExecutableTarget,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -50,6 +52,12 @@ pub struct Channel {
 
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
+
+    /// These aliases correspond to series of [[CLICommand]]s from multiple
+    /// different binaries.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    pub aliases: Aliases,
 }
 
 enum InstallationMotive {
@@ -74,8 +82,9 @@ impl Channel {
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
         tags: Vec<Tags>,
+        aliases: Aliases,
     ) -> Self {
-        Self { name, alias, components, tags }
+        Self { name, alias, components, tags, aliases }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
@@ -118,12 +127,18 @@ impl Channel {
         installed_toolchains_dir.join(format!("{}", self.name))
     }
 
-    /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
-        self.components.iter().fold(HashMap::new(), |mut acc, component| {
-            acc.extend(component.aliases.clone());
-            acc
-        })
+    /// Aggregate all the aliases that the channel is aware of. This includes:
+    /// - The Channel wide aliases
+    /// - The Component specific aliases
+    pub fn get_aliases(&self) -> Aliases {
+        self.components
+            .iter()
+            .map(|comp| &comp.aliases)
+            .chain([self.aliases.clone()].iter())
+            .fold(HashMap::new(), |mut acc, aliases| {
+                acc.extend(aliases.clone());
+                acc
+            })
     }
 
     /// Creates a "partial channel" from the original channel, given a toolchain
@@ -206,6 +221,7 @@ impl Channel {
             alias: self.alias.clone(),
             tags: vec![Tags::Partial],
             components: components_to_install,
+            aliases: self.aliases.clone(),
         };
 
         Some(partial_channel)
@@ -368,7 +384,14 @@ impl Display for InstalledFile {
 /// line. These are used to resolve an [[Alias]] to its associated command.
 /// NOTE: In the manifest
 pub enum CliCommand {
-    /// Resolve the command to a [[Component]]'s corresponding executable.
+    /// Resolve the command to a [[Component]]'s corresponding executable.  This
+    /// requires the following CliCommand in the manifest to be a
+    /// [[CliCommand::Verbatim]] with the name of the executable to execute.
+    /// For example:
+    ///
+    ///   "aliases": {
+    ///       "account": [["executable", "client", "new-account"]],
+    ///   }
     Executable,
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
@@ -379,6 +402,11 @@ pub enum CliCommand {
     // NOTE: Potentially in the future, we might want this to be an Optional field
     #[serde(rename = "var_path")]
     VarPath,
+    /// Represents the nth passed in argument by the user.
+    /// This uses 0 based indexing BUT skips the first *two* arguments from
+    /// argv, i.e.: `miden <component|alias>`.
+    #[serde(untagged)]
+    PositionalArgument(u32),
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
@@ -390,6 +418,7 @@ impl fmt::Display for CliCommand {
             CliCommand::Executable => write!(f, "executable"),
             CliCommand::LibPath => write!(f, "lib_path"),
             CliCommand::VarPath => write!(f, "var_path"),
+            CliCommand::PositionalArgument(nth) => write!(f, "positional argument: {nth}"),
             CliCommand::Verbatim(word) => write!(f, "verbatim: {word}"),
         }
     }
@@ -397,26 +426,38 @@ impl fmt::Display for CliCommand {
 
 pub fn resolve_command(
     commands: &[CliCommand],
+    argv: &[OsString],
     channel: &Channel,
-    component: &Component,
-
     config: &Config,
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<ExecutableTarget> {
     let mut resolution = Vec::with_capacity(commands.len());
     let mut commands = commands.iter();
 
     while let Some(command) = commands.next() {
         match command {
             CliCommand::Executable => {
-                let name = &component.name;
-                let component = channel.get_component(name).with_context(|| {
-                    format!(
-                        "Component named {} is not present in toolchain version {}",
-                        name, channel.name
-                    )
-                })?;
+                let next_command = commands.next().context(
+                    "ERROR: no command was found after 'executable'. It needs to \
+                     be followed by a component name in verbatim form. I",
+                )?;
 
-                resolution.push(component.get_cli_display());
+                let CliCommand::Verbatim(component_name) = next_command else {
+                    bail!(format!(
+                        "After 'executable' verbatim component name is required. Got: {}",
+                        next_command
+                    ))
+                };
+
+                let component_executable = channel
+                    .get_component(component_name)
+                    .map(|comp| comp.get_cli_display())
+                    .with_context(|| {
+                        format!(
+                            "Error in manifest: 'executable' needs to be followed by an executable component name. Could not find executable named {component_name}."
+                        )
+                    })?;
+
+                resolution.push(component_executable)
             },
             CliCommand::LibPath => {
                 let channel_dir = channel.get_channel_dir(config);
@@ -442,16 +483,42 @@ pub fn resolve_command(
 
                 resolution.push(full_path.to_string_lossy().to_string())
             },
+            CliCommand::PositionalArgument(pos) => {
+                let arg_at_pos = argv
+                    .iter()
+                    // The first two arguments are:
+                    // `miden <component|alias>`
+                    .skip(2)
+                    .nth(*pos as usize)
+                    .with_context(|| format!("Requested positional argument at \
+                                              position {pos}, however, not enough \
+                                              arguments were passed."))?;
+
+                resolution.push(arg_at_pos.to_string_lossy().to_string());
+            },
             CliCommand::Verbatim(name) => resolution.push(name.to_string()),
         }
     }
 
-    Ok(resolution)
+    // SAFETY: Safe under the assumption that every executable has at least one
+    // argument, which is guaranteed.
+    let command = resolution.first().unwrap().clone();
+
+    let args: Vec<OsString> = resolution.into_iter().skip(1).map(OsString::from).collect();
+
+    let executable = ExecutableTarget { target_exe: command, args };
+
+    Ok(executable)
 }
 
 pub type Alias = String;
+
 /// List of the commands that need to be run when [[Alias]] is called.
 pub type CLICommand = Vec<CliCommand>;
+
+/// Mapping from an alias name to its associated list of Commands.
+pub type Aliases = HashMap<Alias, Vec<CLICommand>>;
+
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -491,29 +558,31 @@ pub struct Component {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
-    /// This HashMap associates each alias to the corresponding command that
-    /// needs to be executed.
-    /// NOTE: The list of commands that is resolved can have an "arbitrary"
-    /// ordering: the executable associated with this command is not forced to
-    /// come in first.
+    /// Mapping from alias name to its corresponding command(s).
     ///
-    /// Here's an example aliases entry in a manifest.json:
+    /// Here's an example "aliases" entry in a manifest.json (taken from the
+    /// `miden-client`'s and `miden-node`'s manifest entries respectively).
     ///
     /// ```json
     /// {
-    ///   "name": "component-name",
-    ///   "package": "component-package",
-    ///   "version": "X.Y.Z",
-    ///   "installed_executable": "miden-component",
+    ///   "name": "client",
+    ///   (...)
     ///   "aliases": {
-    ///       "alias1": [{"resolve": "component-name"}, {"verbatim": "argument"}],
-    ///       "alias2": [{"verbatim": "cargo"}, {"resolve": "component-name"}, {"verbatim": "build"}]
+    ///       "account": ["executable", "new-account"],
+    ///       "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
     ///     }
     /// },
+    /// {
+    ///   "name": "node",
+    ///   (...)
+    ///   "aliases": {
+    ///       "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+    ///     }
+    /// }
     /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CLICommand>,
+    pub aliases: Aliases,
     /// The file used by midenup's 'miden' to call the components executable.
     /// If None, then the component's file will be saved as 'miden <name>'.
     /// This distinction exists mainly for components like cargo-miden, which
@@ -616,10 +685,7 @@ impl Component {
                 let local_latest = last_modification_a;
 
                 let latest_registered_modification =
-                    utils::fs::latest_modification(path_b).ok().map(|modification| {
-                        // std::dbg!(&modification.1);
-                        modification.0
-                    });
+                    utils::fs::latest_modification(path_b).ok().map(|modification| modification.0);
 
                 // last_modification_b should almost always be None, since the
                 // latest modification time is checked on demand. However, if
@@ -693,7 +759,7 @@ impl Component {
     /// Returns the String representation under which midenup calls a component.
     pub fn get_call_format(&self) -> Vec<CliCommand> {
         if self.call_format.is_empty() {
-            vec![CliCommand::Executable]
+            vec![CliCommand::Executable, CliCommand::Verbatim(self.name.to_string())]
         } else {
             self.call_format.clone()
         }
