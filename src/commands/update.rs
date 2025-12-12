@@ -59,6 +59,7 @@ midenup install stable
                         alias: upstream_stable.alias.clone(),
                         tags: local_stable.tags.clone(),
                         components,
+                        aliases: upstream_stable.aliases.clone(),
                     }
                 };
 
@@ -162,6 +163,7 @@ fn update_channel(
             alias: upstream_channel.alias.clone(),
             tags: local_channel.tags.clone(),
             components,
+            aliases: upstream_channel.aliases.clone(),
         }
     };
     let mut path_warning_displayed = false;
