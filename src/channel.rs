@@ -759,7 +759,7 @@ impl Component {
     /// Returns the String representation under which midenup calls a component.
     pub fn get_call_format(&self) -> Vec<CliCommand> {
         if self.call_format.is_empty() {
-            vec![CliCommand::Executable]
+            vec![CliCommand::Executable, CliCommand::Verbatim(self.name.to_string())]
         } else {
             self.call_format.clone()
         }
