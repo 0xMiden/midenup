@@ -385,8 +385,13 @@ impl Display for InstalledFile {
 /// NOTE: In the manifest
 pub enum CliCommand {
     /// Resolve the command to a [[Component]]'s corresponding executable.  This
-    /// requires for the following CliCommand in the manifest to be a
+    /// requires the following CliCommand in the manifest to be a
     /// [[CliCommand::Verbatim]] with the name of the executable to execute.
+    /// For example:
+    ///
+    ///   "aliases": {
+    ///       "account": [["executable", "client", "new-account"]],
+    ///   }
     Executable,
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
     #[serde(rename = "lib_path")]
@@ -398,6 +403,8 @@ pub enum CliCommand {
     #[serde(rename = "var_path")]
     VarPath,
     /// Represents the nth passed in argument by the user.
+    /// This uses 0 based indexing BUT skips the first *two* arguments from
+    /// argv, i.e.: `miden <component|alias>`.
     #[serde(untagged)]
     PositionalArgument(u32),
     /// An argument that is passed verbatim, as is.
@@ -429,13 +436,14 @@ pub fn resolve_command(
     while let Some(command) = commands.next() {
         match command {
             CliCommand::Executable => {
-                let next_command = commands
-                    .next()
-                    .context("diff_executable needs to be followed by a component name")?;
+                let next_command = commands.next().context(
+                    "ERROR: no command was found after 'executable'. It needs to \
+                     be followed by a component name in verbatim form.",
+                )?;
 
                 let CliCommand::Verbatim(component_name) = next_command else {
                     bail!(format!(
-                        "After specific_executable a file is required. Got: {}",
+                        "After 'executable' verbatim component name is required. Got: {}",
                         next_command
                     ))
                 };
@@ -476,12 +484,15 @@ pub fn resolve_command(
                 resolution.push(full_path.to_string_lossy().to_string())
             },
             CliCommand::PositionalArgument(pos) => {
-                // The first two arguments are the 'miden' and the alias name.
                 let arg_at_pos = argv
                     .iter()
+                    // The first two arguments are:
+                    // `miden <component|alias>`
                     .skip(2)
                     .nth(*pos as usize)
-                    .with_context(|| format!("Requested positional argument at position {pos}, however, not enough arguments were passed."))?;
+                    .with_context(|| format!("Requested positional argument at \
+                                              position {pos}, however, not enough \
+                                              arguments were passed."))?;
 
                 resolution.push(arg_at_pos.to_string_lossy().to_string());
             },
@@ -490,7 +501,7 @@ pub fn resolve_command(
     }
 
     // SAFETY: Safe under the assumption that every executable has at least one
-    // argument. This is guaranteed since there needs to be at least one
+    // argument, which is guaranteed.
     let command = resolution.first().unwrap().clone();
 
     let args: Vec<OsString> = resolution.into_iter().skip(1).map(OsString::from).collect();
