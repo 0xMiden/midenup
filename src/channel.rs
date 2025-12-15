@@ -378,7 +378,7 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 /// Represents each possible "word" variant that is passed to the Command
 /// line. These are used to resolve an [[Alias]] to its associated command.
@@ -410,6 +410,17 @@ pub enum CliCommand {
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
+}
+
+impl Serialize for CliCommand {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            _ => serializer.serialize_unit(),
+        }
+    }
 }
 
 impl fmt::Display for CliCommand {
