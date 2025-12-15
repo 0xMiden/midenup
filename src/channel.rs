@@ -401,7 +401,7 @@ pub enum CliCommand {
     /// <toolchain>/var/<file>.
     // NOTE: Potentially in the future, we might want this to be an Optional field
     #[serde(rename = "var_path")]
-    VarPath,
+    VarPath { file: Option<PathBuf> },
     /// Represents the nth passed in argument by the user.
     /// This uses 0 based indexing BUT skips the first *two* arguments from
     /// argv, i.e.: `miden <component|alias>`.
@@ -428,7 +428,15 @@ impl fmt::Display for CliCommand {
         match &self {
             CliCommand::Executable => write!(f, "executable"),
             CliCommand::LibPath => write!(f, "lib_path"),
-            CliCommand::VarPath => write!(f, "var_path"),
+            CliCommand::VarPath { file } => {
+                let path_repr = file
+                    .as_ref()
+                    .and_then(|path| path.clone().into_os_string().into_string().ok())
+                    .map(|path| format!(": {path}"))
+                    .unwrap_or_default();
+
+                write!(f, "var_path{path_repr}")
+            },
             CliCommand::PositionalArgument(nth) => write!(f, "positional argument: {nth}"),
             CliCommand::Verbatim(word) => write!(f, "verbatim: {word}"),
         }
@@ -478,19 +486,16 @@ pub fn resolve_command(
                 resolution.push(toolchain_path.to_string_lossy().to_string())
             },
             // The VarPath must be followed by a file name.
-            CliCommand::VarPath => {
+            CliCommand::VarPath { file: directory_name } => {
                 let channel_dir = channel.get_channel_dir(config);
 
                 let toolchain_path = channel_dir.join("var");
 
-                let next_command =
-                    commands.next().context("var_path needs to be followed by a path name")?;
-
-                let CliCommand::Verbatim(directory_name) = next_command else {
-                    bail!(format!("After var_path a file is required. Got: {}", next_command))
+                let full_path = if let Some(directory_name) = directory_name {
+                    toolchain_path.join(directory_name)
+                } else {
+                    toolchain_path
                 };
-
-                let full_path = toolchain_path.join(directory_name);
 
                 resolution.push(full_path.to_string_lossy().to_string())
             },
