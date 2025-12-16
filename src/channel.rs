@@ -7,16 +7,16 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config,
     miden_wrapper::ExecutableTarget,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Tags used to identify special qualities of a specific channel.
@@ -378,7 +378,7 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 /// Represents each possible "word" variant that is passed to the Command
 /// line. These are used to resolve an [[Alias]] to its associated command.
@@ -401,7 +401,10 @@ pub enum CliCommand {
     /// <toolchain>/var/<file>.
     // NOTE: Potentially in the future, we might want this to be an Optional field
     #[serde(rename = "var_path")]
-    VarPath { file: Option<PathBuf> },
+    VarPath {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        file: Option<PathBuf>,
+    },
     /// Represents the nth passed in argument by the user.
     /// This uses 0 based indexing BUT skips the first *two* arguments from
     /// argv, i.e.: `miden <component|alias>`.
@@ -410,17 +413,6 @@ pub enum CliCommand {
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
-}
-
-impl Serialize for CliCommand {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            _ => serializer.serialize_unit(),
-        }
-    }
 }
 
 impl fmt::Display for CliCommand {
