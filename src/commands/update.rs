@@ -268,7 +268,24 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
         }
 
         for exe in exes_to_uninstall {
-            uninstall_executable(exe, &toolchain_dir)?;
+            let result = uninstall_executable(exe, &toolchain_dir);
+            match result {
+                // If we fail to explicitely uninstall the executable, we simply
+                // keep going. Failure in most cases originates from the "exe"
+                // not being found in the toolchain_dir.  If the package is not
+                // found, then the new, updated, version can simply be placed in
+                // the directory without any issues.
+                // This discrepancy can be caused when an update is cut mid-way
+                // through.
+                Err(commands::uninstall::UninstallError::FailedToUninstallPackage(name, ..)) => {
+                    println!(
+                        "INFO: Failed to uninstall old version of {name}. Proceeding regardless."
+                    );
+                    continue;
+                },
+                Err(err) => return Err(err)?,
+                Ok(_) => continue,
+            };
         }
 
         commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
