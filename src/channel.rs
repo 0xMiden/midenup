@@ -418,19 +418,7 @@ impl Serialize for CliCommand {
         S: serde::Serializer,
     {
         match self {
-            CliCommand::Executable => {
-                serializer.serialize_unit_variant("CliCommand", 0, "executable")
-            },
-            CliCommand::LibPath => serializer.serialize_unit_variant("CliCommand", 1, "lib_path"),
-            CliCommand::VarPath { file: Some(file) } => {
-                use serde::ser::SerializeMap;
-                let mut map = serializer.serialize_map(Some(1))?;
-                map.serialize_entry("var_path", &file)?;
-                map.end()
-            },
-            CliCommand::VarPath { file: None } => serializer.serialize_str("var_path"),
-            CliCommand::PositionalArgument(num) => serializer.serialize_u32(*num),
-            CliCommand::Verbatim(string) => serializer.serialize_str(string),
+            _ => serializer.serialize_unit(),
         }
     }
 }
