@@ -378,8 +378,8 @@ impl Display for InstalledFile {
     }
 }
 
-#[derive(Debug, Clone)]
-// #[serde(rename_all = "snake_case")]
+#[derive(Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
 /// Represents each possible "word" variant that is passed to the Command
 /// line. These are used to resolve an [[Alias]] to its associated command.
 /// NOTE: In the manifest
@@ -394,24 +394,21 @@ pub enum CliCommand {
     ///   }
     Executable,
     /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
-    // #[serde(rename = "lib_path")]
+    #[serde(rename = "lib_path")]
     LibPath,
     /// Resolve the command to a [[Toolchain]]'s var directory (<toolchain>/var).
     /// Optionally, it can contain a file name, which represents a file in
     /// <toolchain>/var/<file>.
     // NOTE: Potentially in the future, we might want this to be an Optional field
-    // #[serde(rename = "var_path")]
-    VarPath {
-        // #[serde(skip_serializing_if = "Option::is_none")]
-        file: Option<PathBuf>,
-    },
+    #[serde(rename = "var_path")]
+    VarPath { file: Option<PathBuf> },
     /// Represents the nth passed in argument by the user.
     /// This uses 0 based indexing BUT skips the first *two* arguments from
     /// argv, i.e.: `miden <component|alias>`.
-    // #[serde(untagged)]
+    #[serde(untagged)]
     PositionalArgument(u32),
     /// An argument that is passed verbatim, as is.
-    // #[serde(untagged)]
+    #[serde(untagged)]
     Verbatim(String),
 }
 
@@ -435,35 +432,6 @@ impl Serialize for CliCommand {
             CliCommand::PositionalArgument(num) => serializer.serialize_u32(*num),
             CliCommand::Verbatim(string) => serializer.serialize_str(string),
         }
-    }
-}
-
-impl core::str::FromStr for CliCommand {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<CliCommand, Self::Err> {
-        match s {
-            "executable" => Ok(CliCommand::Executable),
-            "lib_path" => Ok(CliCommand::Executable),
-        }
-    }
-}
-
-impl<'de> serde::de::Deserialize<'de> for CliCommand {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Unexpected;
-        use serde_untagged::UntaggedEnumVisitor;
-
-        UntaggedEnumVisitor::new()
-            .string(|s| {
-                s.parse::<CliCommand>().map_err(|err| {
-                    serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
-                })
-            })
-            .deserialize(deserializer)
     }
 }
 
