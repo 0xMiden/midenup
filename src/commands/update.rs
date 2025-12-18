@@ -137,7 +137,7 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let channel_to_install = upstream_channel.clone();
+    let mut channel_to_install = upstream_channel.clone();
 
     let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
 
@@ -146,24 +146,6 @@ fn update_channel(
         return Ok(());
     }
 
-    let mut channel_to_install = {
-        let components_to_delete =
-            comp_to_delete_with_motive.iter().map(|(comp, _)| comp).collect::<HashSet<_>>();
-
-        let components = upstream_channel
-            .components
-            .iter()
-            .filter(|comp| components_to_delete.contains(comp))
-            .cloned()
-            .collect();
-
-        Channel {
-            name: upstream_channel.name.clone(),
-            alias: upstream_channel.alias.clone(),
-            tags: local_channel.tags.clone(),
-            components,
-        }
-    };
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
@@ -268,7 +250,24 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
         }
 
         for exe in exes_to_uninstall {
-            uninstall_executable(exe, &toolchain_dir)?;
+            let result = uninstall_executable(exe, &toolchain_dir);
+            match result {
+                // If we fail to explicitely uninstall the executable, we simply
+                // keep going. Failure in most cases originates from the "exe"
+                // not being found in the toolchain_dir.  If the package is not
+                // found, then the new, updated, version can simply be placed in
+                // the directory without any issues.
+                // This discrepancy can be caused when an update is cut mid-way
+                // through.
+                Err(commands::uninstall::UninstallError::FailedToUninstallPackage(name, ..)) => {
+                    println!(
+                        "INFO: Failed to uninstall old version of {name}. Proceeding regardless."
+                    );
+                    continue;
+                },
+                Err(err) => return Err(err)?,
+                Ok(_) => continue,
+            };
         }
 
         commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
