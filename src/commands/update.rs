@@ -137,7 +137,7 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let channel_to_install = upstream_channel.clone();
+    let mut channel_to_install = upstream_channel.clone();
 
     let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
 
@@ -146,24 +146,6 @@ fn update_channel(
         return Ok(());
     }
 
-    let mut channel_to_install = {
-        let components_to_delete =
-            comp_to_delete_with_motive.iter().map(|(comp, _)| comp).collect::<HashSet<_>>();
-
-        let components = upstream_channel
-            .components
-            .iter()
-            .filter(|comp| components_to_delete.contains(comp))
-            .cloned()
-            .collect();
-
-        Channel {
-            name: upstream_channel.name.clone(),
-            alias: upstream_channel.alias.clone(),
-            tags: local_channel.tags.clone(),
-            components,
-        }
-    };
     let mut path_warning_displayed = false;
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
