@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Config,
-    artifact::{Artifacts, TargetTriple, TargetTripleError},
+    artifact::{Artifacts, TargetTriple},
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -718,9 +718,7 @@ impl Component {
 
     /// Returns the URI for a given [target] (if available).
     pub fn get_artifact_uri(&self, target: &TargetTriple) -> Option<String> {
-        self.artifacts
-            .as_ref()
-            .and_then(|artifacts| artifacts.get_uri_for(target, &self.name))
+        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
 }
 

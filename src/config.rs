@@ -1,6 +1,6 @@
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 
 use crate::{
     artifact::TargetTriple, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,

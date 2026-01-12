@@ -8,10 +8,8 @@ pub struct Artifacts {
 
 impl Artifacts {
     /// Get a URI to download an artifact that's valid for [target].
-    pub fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
-        self.artifacts
-            .iter()
-            .find_map(|artifact| artifact.get_uri_for(target, component_name))
+    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts.iter().find_map(|artifact| artifact.get_uri_for(target))
     }
 }
 
@@ -31,12 +29,21 @@ pub enum TargetTriple {
     MidenVM,
 }
 
+impl TargetTriple {
+    fn get_uri_extension(&self) -> String {
+        match &self {
+            Self::MidenVM => String::from(".masp"),
+            Self::Custom(triplet) => triplet.to_string(),
+        }
+    }
+}
+
 impl Artifact {
     /// Returns the URI for the specified component + triplet if it has it.
     ///
     /// NOTE: The component name is required to separate the triplet from the
     /// filename in the URI.
-    fn get_uri_for(&self, target: &TargetTriple, component_name: &str) -> Option<String> {
+    fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
         let path = if let Some(file_path) = self.0.strip_prefix("file://") {
             file_path
         } else if let Some(url_path) = self.0.strip_prefix("https://") {
@@ -46,26 +53,14 @@ impl Artifact {
         };
 
         // <component name>(-<triplet>|.masp)
-        let suffix =
-            path.split("/").last().and_then(|suffix| suffix.strip_prefix(component_name))?;
+        let uri_extension = path.split("/").last()?;
 
-        let is_looked_for = match suffix {
-            ".masp" => {
-                matches!(target, &TargetTriple::MidenVM)
-            },
-            dash_triplet if suffix.starts_with("-") => {
-                // Safety: This is safe since this only executed if dash_triplet
-                // starts with "-".
-                let triplet = {
-                    let triplet = dash_triplet.strip_prefix("-").unwrap();
-                    TargetTriple::Custom(String::from(triplet))
-                };
+        let wanted_uri_extension = target.get_uri_extension();
 
-                *target == triplet
-            },
-            _ => false,
-        };
-
-        if is_looked_for { Some(self.0.clone()) } else { None }
+        if uri_extension.contains(&wanted_uri_extension) {
+            Some(self.0.clone())
+        } else {
+            None
+        }
     }
 }
