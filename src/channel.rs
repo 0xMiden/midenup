@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{bail, Context};
@@ -11,10 +11,11 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    artifact::{Artifacts, TargetTriple},
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
-    Config,
+    Config, Config,
 };
 
 /// Tags used to identify special qualities of a specific channel.
@@ -347,6 +348,14 @@ impl InstalledFile {
         match &self {
             InstalledFile::Executable { .. } => None,
             InstalledFile::Library { library_struct, .. } => Some(library_struct),
+        }
+    }
+    pub fn get_path_from(&self, toolchain_dir: &Path) -> PathBuf {
+        match &self {
+            exe @ InstalledFile::Executable { .. } => {
+                toolchain_dir.join("bin").join(exe.to_string())
+            },
+            lib @ InstalledFile::Library { .. } => toolchain_dir.join("lib").join(lib.to_string()),
         }
     }
 }

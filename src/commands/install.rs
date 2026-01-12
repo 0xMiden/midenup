@@ -1,12 +1,19 @@
-use std::{io::Write, time::SystemTime};
+use std::{
+    fs::{File, Permissions},
+    io::Write,
+    os::unix::fs::PermissionsExt,
+    path::Path,
+    time::SystemTime,
+};
 
 use anyhow::{Context, bail};
 
 use crate::{
     Config, InstallationOptions,
+    artifact::TargetTriple,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
-    manifest::Manifest,
+    manifest::{HTTP_ERROR_CODES, Manifest},
     utils,
     version::{Authority, GitTarget},
 };
@@ -83,6 +90,10 @@ pub fn install(
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
+    {
+        // Install artifacts
+        install_artifacts(&toolchain_dir, &config.target, channel).unwrap();
+    }
 
     let install_script_contents = generate_install_script(config, channel, options);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
@@ -199,6 +210,75 @@ pub fn install(
                 .as_bytes(),
         )
         .context("Couldn't create local manifest file")?;
+
+    Ok(())
+}
+
+fn install_artifacts(
+    toolchain_directory: &Path,
+    target: &Option<TargetTriple>,
+    channel: &Channel,
+) -> Result<(), String> {
+    let Some(target) = target else { return Ok(()) };
+    for component in &channel.components {
+        let artifact_uri = component.get_uri_for(target);
+
+        let Some(uri) = artifact_uri else {
+            continue;
+        };
+        let installed_file = component.get_installed_file();
+        let destination = installed_file.get_path_from(toolchain_directory);
+        let _ = install_artifact(uri, &destination);
+    }
+    Ok(())
+}
+pub fn install_artifact(uri: String, to: &Path) -> Result<(), String> {
+    if let Some(binary_path) = uri.strip_prefix("file://") {
+        todo!()
+    } else if uri.starts_with("https://") {
+        let mut data = Vec::new();
+        let mut handle = curl::easy::Easy::new();
+        handle
+            .follow_location(true)
+            .map_err(|_| String::from("Failed to initialize curl"))?;
+        handle.url(&uri).map_err(|error| {
+            format!("Error while trying to curl binary: {}", error.description())
+        })?;
+        {
+            let response_code = handle.response_code().map_err(|_| {
+                String::from("Failed to get response code; despite HTTP protocol supporting it.")
+            })?;
+            if HTTP_ERROR_CODES.contains(&response_code) {
+                return Err(format!("Webpage returned error. Does {} exist?", uri));
+            }
+
+            let mut transfer = handle.transfer();
+            transfer
+                .write_function(|new_data| {
+                    data.extend_from_slice(new_data);
+                    Ok(new_data.len())
+                })
+                .unwrap();
+            transfer.perform().map_err(|error| {
+                format!("Error while trying to curl binary: {}", error.description())
+            })?
+        }
+        if data.is_empty() {
+            return Err(format!("Webpage {} is empty.", uri));
+        }
+        let mut file = File::create(to).map_err(|error| {
+            format!("Failed to create download file in {} because of {}", to.display(), error)
+        })?;
+        // We set the same flags that cargo uses when producing an executable.
+        file.set_permissions(Permissions::from_mode(0o755)).map_err(|error| {
+            format!("Failed to set permissions in {} because of {}", to.display(), error)
+        })?;
+        file.write_all(&data).map_err(|error| {
+            format!("Failed to write download file to {} because of {}", to.display(), error)
+        })?;
+    } else {
+        return Err(format!("Unrecognized URI type: {}", uri));
+    }
 
     Ok(())
 }

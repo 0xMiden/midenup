@@ -1,8 +1,9 @@
-use std::{ffi::OsString, path::PathBuf};
-
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 
 use crate::{channel::Channel, manifest::Manifest, toolchain::Toolchain, utils};
+use std::{path::PathBuf, str::FromStr};
+
+use crate::artifact::TargetTriple;
 
 #[derive(Debug)]
 /// This struct holds contextual information about the environment in which
@@ -39,6 +40,13 @@ pub struct Config {
     /// tests. At the time of writing, this is mostly done to install debug
     /// builds of the various miden components to speed tests up.
     pub debug: bool,
+    /// The machine's triple (e.g. x86_64-unknown-linux-gnu,
+    /// aarch64-apple-darwin, etc). This is used to determine which
+    /// [[artifact::Artifact]]
+    ///
+    /// If we fail to obtain it, then we simply leave it as None. In those
+    /// cases, we defer
+    pub target: Option<TargetTriple>,
 }
 
 impl Config {
@@ -51,11 +59,18 @@ impl Config {
         let working_directory =
             std::env::current_dir().context("Could not obtain present working directory")?;
 
+        let target = {
+            let target = env!("TARGET");
+            TargetTriple::from_str(target)
+        }
+        .ok();
+
         let config = Config {
             working_directory,
             midenup_home,
             manifest,
             debug,
+            target,
         };
 
         Ok(config)
