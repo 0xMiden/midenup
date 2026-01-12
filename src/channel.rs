@@ -6,15 +6,15 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
+    Config,
 };
 
 /// Tags used to identify special qualities of a specific channel.
@@ -521,6 +521,12 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     symlink_name: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub initialization: Vec<String>,
+    /// Pre-built artifact.
+    #[serde(flatten)]
+    artifacts: Option<Artifacts>,
 }
 
 impl Component {
@@ -535,6 +541,7 @@ impl Component {
             installed_file: None,
             aliases: HashMap::new(),
             symlink_name: None,
+            artifacts: None,
         }
     }
 
@@ -697,6 +704,11 @@ impl Component {
         } else {
             self.call_format.clone()
         }
+    }
+
+    /// Returns
+    pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
 }
 
