@@ -271,7 +271,7 @@
           }
         },
         {
-          "name": "debugger",
+          "name": "debug",
           "package": "miden-debug",
           "version": "0.4.4",
           "installed_executable": "miden-debug",
