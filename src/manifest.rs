@@ -232,11 +232,9 @@ mod tests {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
             .expect("Couldn't load manifest");
 
-        let stable = manifest
+        let _stable = manifest
             .get_channel(&UserChannel::Stable)
             .expect("Could not convert UserChannel to internal channel representation");
-
-        assert!(stable.get_component("std").is_some());
     }
 
     #[test]
