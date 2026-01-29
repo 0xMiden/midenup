@@ -3,7 +3,7 @@ use std::{
     collections::HashMap,
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use anyhow::{Context, bail};
@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     Config,
+    artifact::{Artifacts, TargetTriple},
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -349,6 +350,14 @@ impl InstalledFile {
             InstalledFile::Library { library_struct, .. } => Some(library_struct),
         }
     }
+    pub fn get_path_from(&self, toolchain_dir: &Path) -> PathBuf {
+        match &self {
+            exe @ InstalledFile::Executable { .. } => {
+                toolchain_dir.join("bin").join(exe.to_string())
+            },
+            lib @ InstalledFile::Library { .. } => toolchain_dir.join("lib").join(lib.to_string()),
+        }
+    }
 }
 
 impl Display for InstalledFile {
@@ -521,6 +530,12 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     symlink_name: Option<String>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub initialization: Vec<String>,
+    /// Pre-built artifact.
+    #[serde(flatten)]
+    artifacts: Option<Artifacts>,
 }
 
 impl Component {
@@ -535,6 +550,8 @@ impl Component {
             installed_file: None,
             aliases: HashMap::new(),
             symlink_name: None,
+            initialization: Vec::new(),
+            artifacts: None,
         }
     }
 
@@ -697,6 +714,11 @@ impl Component {
         } else {
             self.call_format.clone()
         }
+    }
+
+    /// Returns the URI for a given [target] (if available).
+    pub fn get_artifact_uri(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
 }
 
