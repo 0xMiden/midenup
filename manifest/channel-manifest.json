@@ -218,7 +218,7 @@
         {
           "name": "base",
           "package": "miden-lib",
-          "version": "0.12.2",
+          "version": "0.12.4",
           "installed_library": "base.masp",
           "library_struct": "miden_lib::MidenLib"
         },
@@ -232,7 +232,7 @@
         {
           "name": "client",
           "package": "miden-client-cli",
-          "version": "0.12.3",
+          "version": "0.12.6",
           "installed_executable": "miden-client",
           "aliases": {
               "account": ["executable", "new-account"],
@@ -264,7 +264,7 @@
         {
           "name": "node",
           "package": "miden-node",
-          "version": "0.12.5",
+          "version": "0.12.8",
           "installed_executable": "miden-node",
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
