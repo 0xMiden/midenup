@@ -766,7 +766,9 @@ Error: {}",
         let Behavior::Midenup { command, .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
-        command.execute(&config_v1, &mut local_manifest).expect("Failed to install stable");
+        command
+            .execute(&config_v1, &mut local_manifest)
+            .expect("Failed to install stable");
 
         let (mut local_manifest, config_v2) = test_setup(&midenup_home, FILE_2);
 

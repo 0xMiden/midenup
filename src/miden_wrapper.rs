@@ -101,8 +101,8 @@ impl<'a> ToolchainEnvironment<'a> {
         })
         .inspect(|resolution| {
             // Only warn when there is an active toolchain subset in effect.
-            if self.active_channel.is_some() {
-                if let Some(warning_message) = match resolution {
+            if self.active_channel.is_some()
+                && let Some(warning_message) = match resolution {
                     (MidenArgument::Alias(comp, _), ChannelType::Installed) => Some(format!(
                         "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
                         "WARNING".yellow().bold(),
@@ -115,9 +115,9 @@ impl<'a> ToolchainEnvironment<'a> {
                         comp.name,
                     )),
                     _ => None,
-                } {
-                    println!("{warning_message}")
                 }
+            {
+                println!("{warning_message}")
             }
         })
         .map(|(ch, _)| ch)
