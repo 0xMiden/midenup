@@ -341,7 +341,10 @@
           "name": "faucet-client",
           "package": "miden-faucet-client",
           "version": "0.13.0",
-          "installed_executable": "miden-faucet-client"
+          "installed_executable": "miden-faucet-client",
+          "aliases": {
+            "mint": ["executable", "mint"]
+          }
         }
       ]
     }
