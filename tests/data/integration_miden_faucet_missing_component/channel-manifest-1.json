@@ -1,0 +1,18 @@
+{
+  "manifest_version": "1.0",
+  "date": 1745931671,
+  "channels": [
+    {
+      "name": "0.1.0",
+      "components": [
+        {
+          "name": "client",
+          "repository_url": "https://github.com/0xMiden/miden-client.git",
+          "crate_name": "miden-client-cli",
+          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
+          "installed_executable": "miden-client"
+        }
+      ]
+    }
+  ]
+}

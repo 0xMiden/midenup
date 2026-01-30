@@ -737,6 +737,59 @@ Error: {}",
     }
 
     #[test]
+    /// Ensures that when a new component is added to a previously installed toolchain,
+    /// `miden` can install the missing component without failing due to the existing
+    /// installation indicator.
+    fn integration_miden_mint_missing_component_update() {
+        let test_name = "integration_miden_mint_missing_component_update";
+        let test_env = environment_setup(test_name);
+
+        let tmp_home = test_env.midenup_dir;
+        let midenup_home = tmp_home.join("midenup");
+
+        const FILE_1: &str = full_path_manifest!(
+            "tests/data/integration_miden_faucet_missing_component/channel-manifest-1.json"
+        );
+        const FILE_2: &str = full_path_manifest!(
+            "tests/data/integration_miden_faucet_missing_component/channel-manifest-2.json"
+        );
+
+        let (mut local_manifest, config_v1) = test_setup(&midenup_home, FILE_1);
+
+        let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command.execute(&config_v1, &mut local_manifest).expect("Failed to initialize");
+
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command.execute(&config_v1, &mut local_manifest).expect("Failed to install stable");
+
+        let (mut local_manifest, config_v2) = test_setup(&midenup_home, FILE_2);
+
+        let command = Midenup::try_parse_from(["miden", "mint", "--help"]).unwrap();
+        let Behavior::Miden(argv) = command.behavior else {
+            panic!("Error while parsing test command. Expected Miden Behavior, got Midenup");
+        };
+        miden_wrapper::miden_wrapper(argv.clone(), &config_v2, &mut local_manifest)
+            .unwrap_or_else(|err| panic!("Failed to run: {} Error: {err}", get_full_command(argv)));
+
+        let installed_channel = local_manifest
+            .get_channel_by_name(&semver::Version::new(0, 1, 0))
+            .expect("Expected 0.1.0 toolchain to be present in local manifest");
+        assert!(
+            installed_channel
+                .components
+                .iter()
+                .any(|component| component.name.as_ref() == "faucet-client"),
+            "Expected faucet-client to be installed after manifest update"
+        );
+    }
+
+    #[test]
     /// This tests checks that midenup's update behavior works correctly
     fn integration_update_test() {
         let test_name = "integration_update_test";

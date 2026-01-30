@@ -100,26 +100,26 @@ impl<'a> ToolchainEnvironment<'a> {
             }
         })
         .inspect(|resolution| {
-            if let Some(warning_message) = match resolution {
-                (MidenArgument::Alias(comp, _ ), ChannelType::Installed) => Some(format!(
-                    "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
-                    "WARNING".yellow().bold(),
-                    argument,
-                    comp.name,
-
-                )),
-                (MidenArgument::Component(comp), ChannelType::Installed) => Some(format!(
-                    "{}: {} is installed, but it is not part of the current active toolchain.",
-                    "WARNING".yellow().bold(),
-                    comp.name,
-
-                )),
-                _ => None,
-            } {
-                println!("{warning_message}")
+            // Only warn when there is an active toolchain subset in effect.
+            if self.active_channel.is_some() {
+                if let Some(warning_message) = match resolution {
+                    (MidenArgument::Alias(comp, _), ChannelType::Installed) => Some(format!(
+                        "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
+                        "WARNING".yellow().bold(),
+                        argument,
+                        comp.name,
+                    )),
+                    (MidenArgument::Component(comp), ChannelType::Installed) => Some(format!(
+                        "{}: {} is installed, but it is not part of the current active toolchain.",
+                        "WARNING".yellow().bold(),
+                        comp.name,
+                    )),
+                    _ => None,
+                } {
+                    println!("{warning_message}")
+                }
             }
-        }
-        )
+        })
         .map(|(ch, _)| ch)
         .ok_or(EnvironmentError::UnkownArgument(argument))
     }

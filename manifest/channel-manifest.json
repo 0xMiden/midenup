@@ -35,11 +35,21 @@
           "aliases": {
               "account": ["executable", "new-account"],
               "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
               "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
+          }
+        },
+        {
+          "name": "faucet-client",
+          "repository_url": "https://github.com/0xMiden/miden-faucet.git",
+          "crate_name": "miden-faucet-client",
+          "revision": "af7a1655b5c214552138547112d74fb9cc38c855",
+          "installed_executable": "miden-faucet-client",
+          "aliases": {
+              "mint": ["executable", "mint"],
+              "faucet": ["executable", "mint"]
           }
         },
         {
@@ -102,11 +112,21 @@
           "aliases": {
               "account": ["executable", "new-account"],
               "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
               "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
+          }
+        },
+        {
+          "name": "faucet-client",
+          "repository_url": "https://github.com/0xMiden/miden-faucet.git",
+          "crate_name": "miden-faucet-client",
+          "revision": "af7a1655b5c214552138547112d74fb9cc38c855",
+          "installed_executable": "miden-faucet-client",
+          "aliases": {
+              "mint": ["executable", "mint"],
+              "faucet": ["executable", "mint"]
           }
         },
         {
@@ -169,11 +189,21 @@
           "aliases": {
               "account": ["executable", "new-account"],
               "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
               "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
+          }
+        },
+        {
+          "name": "faucet-client",
+          "repository_url": "https://github.com/0xMiden/miden-faucet.git",
+          "crate_name": "miden-faucet-client",
+          "revision": "af7a1655b5c214552138547112d74fb9cc38c855",
+          "installed_executable": "miden-faucet-client",
+          "aliases": {
+              "mint": ["executable", "mint"],
+              "faucet": ["executable", "mint"]
           }
         },
         {
@@ -237,11 +267,21 @@
           "aliases": {
               "account": ["executable", "new-account"],
               "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
               "new-wallet": ["executable", "new-wallet", "--deploy"],
               "call": ["executable", "call", "--show"],
               "send": ["executable", "send"],
               "simulate": ["executable", "exec"]
+          }
+        },
+        {
+          "name": "faucet-client",
+          "repository_url": "https://github.com/0xMiden/miden-faucet.git",
+          "crate_name": "miden-faucet-client",
+          "revision": "af7a1655b5c214552138547112d74fb9cc38c855",
+          "installed_executable": "miden-faucet-client",
+          "aliases": {
+              "mint": ["executable", "mint"],
+              "faucet": ["executable", "mint"]
           }
         },
         {

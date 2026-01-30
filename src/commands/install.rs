@@ -1,4 +1,4 @@
-use std::{io::Write, path::Path, time::SystemTime};
+use std::{collections::HashSet, io::Write, path::Path, time::SystemTime};
 
 use anyhow::{Context, bail};
 
@@ -25,16 +25,25 @@ pub fn install(
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
 
     let installation_indicator = toolchain_dir.join("installation-successful");
-    let is_partial = local_manifest
+    let (is_partial, has_missing_components) = local_manifest
         .get_channel_by_name(&channel.name)
-        .map(|ch| ch.is_partially_installed())
-        .unwrap_or(false);
+        .map(|installed_channel| {
+            let installed_components: HashSet<&str> =
+                installed_channel.components.iter().map(|comp| comp.name.as_ref()).collect();
+            let required_components: HashSet<&str> =
+                channel.components.iter().map(|comp| comp.name.as_ref()).collect();
+            let has_missing_components = !required_components.is_subset(&installed_components);
+
+            (installed_channel.is_partially_installed(), has_missing_components)
+        })
+        .unwrap_or((false, false));
 
     if installation_indicator.exists()
     // If the channel is "partial" then that means that only a subset of the
     // components got installed.  In that case, we can procede to install the
     // remaining components.
     && !is_partial
+    && !has_missing_components
     {
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
