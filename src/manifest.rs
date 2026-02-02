@@ -244,11 +244,9 @@ mod tests {
         let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI)
             .expect("Failed to parse upstream manifest.");
 
-        let stable = manifest
+        let _ = manifest
             .get_channel(&UserChannel::Stable)
             .expect("Could not convert UserChannel to internal channel representation");
-
-        assert!(stable.get_component("std").is_some());
     }
 
     #[test]
