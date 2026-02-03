@@ -224,12 +224,15 @@ mod tests {
     use std::borrow::Cow;
 
     use super::Manifest;
-    use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
+    use crate::{
+        channel::UserChannel, full_path, full_path_manifest, manifest::ChannelAlias,
+        version::Authority,
+    };
 
     #[test]
     /// Validates that the current channel manifest is parseable.
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
+        let manifest = Manifest::load_from(full_path_manifest!("manifest/channel-manifest.json"))
             .expect("Couldn't load manifest");
 
         let _stable = manifest
@@ -254,8 +257,9 @@ mod tests {
     /// - Non stable channels (custom tags, nightly)
     /// - Components wwith git and a path as an [[Authority]].
     fn unit_test_manifest_additional() {
-        const FILE: &str =
-            "file://tests/data/unit_test_manifest_additional/manifest-non-stable.json";
+        const FILE: &str = full_path_manifest!(
+            "bin/midenup/tests/data/unit_test_manifest_additional/manifest-non-stable.json"
+        );
         let manifest = Manifest::load_from(FILE).unwrap();
         {
             let custom_build = manifest

@@ -2,11 +2,11 @@
 
 .PHONY: clippy
 clippy: ## Runs Clippy with configs
-	cargo clippy -- -D warnings
+	cargo clippy --workspace -- -D warnings
 
 .PHONY: fix
 fix: ## Runs Fix with configs
-	cargo fix --allow-staged --allow-dirty --all-targets
+	cargo fix --workspace --allow-staged --allow-dirty --all-targets
 
 .PHONY: format
 format: ## Runs Format using nightly toolchain
@@ -37,8 +37,8 @@ integration-test: ## Run all integration tests
 
 .PHONY: build
 build: ## Builds with default parameters
-	cargo build
+	cargo build --workspace
 
 .PHONY: build-release
 build-release: ## Builds with release profile
-	cargo build --release
+	cargo build --workspace --release

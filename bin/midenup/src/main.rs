@@ -316,7 +316,7 @@ mod tests {
     #[macro_export]
     macro_rules! full_path {
         ($file:expr) => {
-            concat!(env!("CARGO_MANIFEST_DIR"), "/", $file)
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../../", $file)
         };
     }
 
@@ -419,7 +419,7 @@ Error: {}",
         let midenup_home = tmp_home.join("midenup");
 
         const FILE: &str = full_path_manifest!(
-            "tests/data/integration_install_uninstall_test/channel-manifest.json"
+            "bin/midenup/tests/data/integration_install_uninstall_test/channel-manifest.json"
         );
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
@@ -530,8 +530,9 @@ Error: {}",
 
         // SIDENOTE: This tests uses a toolchain with version number 0.14.0. This
         // is simply used for testing purposes and is not a "real" toolchain.
-        const FILE: &str =
-            full_path_manifest!("tests/data/integration_miden_test/channel-manifest.json");
+        const FILE: &str = full_path_manifest!(
+            "bin/midenup/tests/data/integration_miden_test/channel-manifest.json"
+        );
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
         let toolchain_dir = midenup_home.join("toolchains");
@@ -648,7 +649,7 @@ Error: {}",
         let midenup_home = tmp_home_path.join("midenup");
 
         const FILE: &str = full_path_manifest!(
-            "tests/data/integration_miden_toolchain_toml/channel-manifest.json"
+            "bin/midenup/tests/data/integration_miden_toolchain_toml/channel-manifest.json"
         );
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
@@ -669,8 +670,9 @@ Error: {}",
         assert!(miden_toolchain_file.exists());
 
         // Now, we update the file to include the vm
-        let toolchain_with_components =
-            full_path!("tests/data/integration_miden_toolchain_toml/miden-toolchain-1.toml");
+        let toolchain_with_components = full_path!(
+            "bin/midenup/tests/data/integration_miden_toolchain_toml/miden-toolchain-1.toml"
+        );
         std::fs::copy(toolchain_with_components, &miden_toolchain_file).unwrap();
 
         // `miden` should now install the components listed in the toolchain file.
@@ -689,8 +691,9 @@ Error: {}",
         assert!(installed_channel.components.len() == 1);
 
         // Now, we'll add the miden compiler to the list.
-        let toolchain_with_components =
-            full_path!("tests/data/integration_miden_toolchain_toml/miden-toolchain-2.toml");
+        let toolchain_with_components = full_path!(
+            "bin/midenup/tests/data/integration_miden_toolchain_toml/miden-toolchain-2.toml"
+        );
         std::fs::copy(toolchain_with_components, miden_toolchain_file).unwrap();
 
         // `miden` should now install:
@@ -749,8 +752,9 @@ Error: {}",
         // WARNING: This test uses toolchain files which were created for
         // testing purposes only. For instance, they are lacking many components
         // in order to save time.
-        let manifest: &str =
-            full_path_manifest!("tests/data/integration_update_test/channel-manifest-1.json");
+        let manifest: &str = full_path_manifest!(
+            "bin/midenup/tests/data/integration_update_test/channel-manifest-1.json"
+        );
         let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
         let toolchain_dir = midenup_home.join("toolchains");
 
@@ -773,8 +777,9 @@ Error: {}",
         // Now, we re-generate the config with a newer manifest that contains
         // version 0.15.0. This is trying to emulate the release of a new stable
         // version
-        let manifest: &str =
-            full_path_manifest!("tests/data/integration_update_test/channel-manifest-2.json");
+        let manifest: &str = full_path_manifest!(
+            "bin/midenup/tests/data/integration_update_test/channel-manifest-2.json"
+        );
         let (_, config) = test_setup(&midenup_home, manifest);
 
         // Now, we update stable. The stable symlink should point to
@@ -815,8 +820,9 @@ Error: {}",
         // - Add the miden-client to 0.14.0's toolchain dir
         // - Change 0.14.0's std's authority from Cargo to Git.
         // However this should *not* update stable.
-        let manifest: &str =
-            full_path_manifest!("tests/data/integration_update_test/channel-manifest-3.json");
+        let manifest: &str = full_path_manifest!(
+            "bin/midenup/tests/data/integration_update_test/channel-manifest-3.json"
+        );
         let (_, config) = test_setup(&midenup_home, manifest);
 
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
@@ -949,7 +955,7 @@ Error: {}",
 
         // Initial manifest with a client tracked by Authority::Git::Revision
         let manifest: &str = full_path_manifest!(
-            "tests/data/integration_install_from_non_cargo/channel-manifest-1.json"
+            "bin/midenup/tests/data/integration_install_from_non_cargo/channel-manifest-1.json"
         );
         let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
 
@@ -1026,7 +1032,7 @@ Error: {}",
         // managed by git and also we create a new file on the miden-vm path to
         // trigger an update.
         let manifest: &str = full_path_manifest!(
-            "tests/data/integration_install_from_non_cargo/channel-manifest-2.json"
+            "bin/midenup/tests/data/integration_install_from_non_cargo/channel-manifest-2.json"
         );
         let (_, config) = test_setup(&midenup_home, manifest);
         {
@@ -1086,7 +1092,7 @@ Error: {}",
         let midenup_home = tmp_home.join("midenup");
 
         const FILE_PRE_UPDATE: &str = full_path_manifest!(
-            "tests/data/unit_test_manifest_additional/manifest-uncompilable-midenc.json"
+            "bin/midenup/tests/data/unit_test_manifest_additional/manifest-uncompilable-midenc.json"
         );
 
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
