@@ -1,0 +1,58 @@
+name: New component released
+
+on:
+  schedule:
+    # Runs every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+
+env:
+  RUST_CACHE_KEY: rust-cache-20250701
+
+jobs:
+  update-manifest:
+    name: Update manifest with new release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update stable
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: scripts/update-manifest
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+
+      - name: Build update-manifest script
+        run: cargo build --release --manifest-path scripts/update-manifest/Cargo.toml
+      - name: Update manifest
+        id: update
+        # The brach suffix will contain a '+' separated string containing all
+        # the elements that will undergo an update.
+        run: |
+          echo "branch_suffix=$(./scripts/update-manifest/target/release/update-manifest file://manifest/channel-manifest.json)" >> $GITHUB_OUTPUT
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if git diff --quiet manifest/channel-manifest.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          body: "This PR was automatically opened by the new-release github action."
+          branch: "ci/update-manifest-${{ steps.update.outputs.branch_suffix }}"
+          base: main
