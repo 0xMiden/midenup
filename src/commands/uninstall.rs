@@ -9,8 +9,8 @@ use anyhow::{Context, bail};
 use thiserror::Error;
 
 use crate::{
-    Config,
     channel::{Channel, Component, InstalledFile, UserChannel},
+    config::Config,
     manifest::Manifest,
     version::Authority,
 };

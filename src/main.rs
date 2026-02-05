@@ -1,25 +1,8 @@
-mod artifact;
-mod channel;
-mod commands;
-mod config;
-mod external;
-mod manifest;
-mod miden_wrapper;
-mod toolchain;
-mod utils;
-mod version;
-
 use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand, ValueEnum};
-
-pub use self::config::Config;
-use self::{
-    channel::UserChannel,
-    manifest::{Manifest, ManifestError},
-    miden_wrapper::miden_wrapper,
-};
+use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
+use midenup_lib::{channel, commands, config, manifest, miden_wrapper, options};
 
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
@@ -44,66 +27,6 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
-/// Optional installation settings.
-#[derive(Debug, Parser, Clone, Copy)]
-struct InstallationOptions {
-    #[clap(long, short, default_value = "false")]
-    /// Displays the entirety of cargo's output when performing installations.
-    verbose: bool,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for InstallationOptions {
-    fn default() -> Self {
-        Self { verbose: false }
-    }
-}
-
-/// Optional update settings.
-#[derive(Debug, Parser, Clone, Copy)]
-struct UpdateOptions {
-    #[clap(long, short, default_value = "false")]
-    /// Displays the entirety of cargo's output when performing installations.
-    verbose: bool,
-
-    /// Determines how midenup will handle updates for components installed from a path
-    #[clap(value_enum, short, long, default_value = "off")]
-    path_update: PathUpdate,
-}
-
-#[derive(Default, Debug, Parser, Clone, Copy, ValueEnum)]
-enum PathUpdate {
-    #[default]
-    Off,
-    All,
-    Interactive,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for UpdateOptions {
-    fn default() -> Self {
-        Self {
-            verbose: false,
-            path_update: PathUpdate::default(),
-        }
-    }
-}
-
-impl From<InstallationOptions> for UpdateOptions {
-    fn from(value: InstallationOptions) -> Self {
-        UpdateOptions {
-            verbose: value.verbose,
-            ..Default::default()
-        }
-    }
-}
-
-impl From<UpdateOptions> for InstallationOptions {
-    fn from(value: UpdateOptions) -> Self {
-        InstallationOptions { verbose: value.verbose }
-    }
-}
-
 #[derive(Debug, Subcommand)]
 
 /// All the available Midenup Commands
@@ -116,16 +39,16 @@ enum Commands {
     Install {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
 
         #[clap(flatten)]
-        options: InstallationOptions,
+        options: options::InstallationOptions,
     },
     /// Uninstall a Miden toolchain
     Uninstall {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
     },
     /// Show information about the midenup environment
     #[command(subcommand)]
@@ -135,7 +58,7 @@ enum Commands {
     Set {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
     },
     /// Sets the system's default toolchain.
     ///
@@ -145,7 +68,7 @@ enum Commands {
     Override {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
     },
     /// Update your installed Miden toolchains.
     Update {
@@ -156,14 +79,12 @@ enum Commands {
         ///   that to be stable.
         #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
-        channel: Option<UserChannel>,
+        channel: Option<channel::UserChannel>,
 
         #[clap(flatten)]
-        options: UpdateOptions,
+        options: options::UpdateOptions,
     },
 }
-
-const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 
 const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 /// Global configuration options for `midenup`
@@ -195,7 +116,11 @@ struct GlobalArgs {
 
 impl Commands {
     /// Execute the requested subcommand
-    fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
+    fn execute(
+        &self,
+        config: &config::Config,
+        local_manifest: &mut manifest::Manifest,
+    ) -> anyhow::Result<()> {
         match &self {
             Self::Init => commands::init(config),
             Self::Install { channel, options } => {
@@ -243,7 +168,7 @@ fn main() -> anyhow::Result<()> {
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
-            Config::init(midenup_home, manifest_uri, false)?
+            config::Config::init(midenup_home, manifest_uri, false)?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
@@ -268,7 +193,7 @@ fn main() -> anyhow::Result<()> {
                             )
                 )?;
 
-            Config::init(midenup_home, &config.manifest_uri, config.debug)?
+            config::Config::init(midenup_home, &config.manifest_uri, config.debug)?
         },
     };
 
@@ -279,16 +204,18 @@ fn main() -> anyhow::Result<()> {
             "file://{}",
             local_manifest_path.to_str().context("Couldn't convert miden directory")?,
         );
-        match Manifest::load_from(local_manifest_uri) {
+        match manifest::Manifest::load_from(local_manifest_uri) {
             Ok(manifest) => Ok(manifest),
-            Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
+            Err(manifest::ManifestError::Empty | manifest::ManifestError::Missing(_)) => {
+                Ok(manifest::Manifest::default())
+            },
             Err(err) => Err(err),
         }
         .context("Error parsing local manifest")
     }?;
 
     let result = match cli.behavior {
-        Behavior::Miden(argv) => miden_wrapper(argv, &config, &mut local_manifest),
+        Behavior::Miden(argv) => miden_wrapper::miden_wrapper(argv, &config, &mut local_manifest),
         Behavior::Midenup { command: subcommand, .. } => {
             subcommand.execute(&config, &mut local_manifest)
         },
@@ -322,20 +249,16 @@ mod tests {
 
     use std::{fs::OpenOptions, path::Path};
 
-    type LocalManifest = Manifest;
+    type LocalManifest = manifest::Manifest;
+    use midenup_lib::{channel, config, manifest, miden_wrapper, utils, version};
     use tempdir::TempDir;
 
-    use crate::{
-        channel::*,
-        manifest::*,
-        version::{Authority, GitTarget},
-        *,
-    };
+    use crate::*;
 
     /// Simple auxiliary function to setup a midneup directory environment in
     /// tests.
     /// Additionally, it changes the PWD to a new temp dir to isolate test execution.
-    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
+    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, config::Config) {
         let local_manifest = {
             let local_manifest_path = midenup_home.join("manifest").with_extension("json");
             let local_manifest_uri = format!(
@@ -343,9 +266,11 @@ mod tests {
                 local_manifest_path.to_str().expect("Couldn't convert miden directory"),
             );
 
-            match Manifest::load_from(local_manifest_uri) {
+            match manifest::Manifest::load_from(local_manifest_uri) {
                 Ok(manifest) => Ok(manifest),
-                Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
+                Err(manifest::ManifestError::Empty | manifest::ManifestError::Missing(_)) => {
+                    Ok(manifest::Manifest::default())
+                },
                 Err(err) => Err(err),
             }
             .unwrap_or_else(|_| {
@@ -353,7 +278,7 @@ mod tests {
             })
         };
 
-        let config = Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
+        let config = config::Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
             .unwrap_or_else(|err| {
                 panic!(
                     "Failed to construct config from manifest {} and midenup_home at {}.
@@ -409,7 +334,7 @@ Error: {}",
 
     #[test]
     /// Integration test to check that installing and uninstalling works. Tries
-    /// to install a toolchain under a [[UserChannel]] (via the `stable` alias)
+    /// to install a toolchain under a [[channel::UserChannel]] (via the `stable` alias)
     /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
         let test_name = "integration_install_uninstall_test";
@@ -843,13 +768,13 @@ Error: {}",
         assert!(!toolchain_0_15_0.join("lib").join("base.masp").exists());
 
         let std_version = &local_manifest
-            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .get_channel(&channel::UserChannel::Version(semver::Version::new(0, 14, 0)))
             .expect("Couldn't find toolchain 0.14.0 in local manifest")
             .get_component("std")
             .expect("Couldn't find std library despite being listed in manifest.")
             .version;
 
-        matches!(std_version, Authority::Git { .. });
+        matches!(std_version, version::Authority::Git { .. });
 
         let toolchain_0_14_0 = toolchain_dir.join("0.14.0");
         let vm_exe_v14 = toolchain_0_14_0.join("bin").join("miden");
@@ -912,7 +837,7 @@ Error: {}",
 
         // We test if the in-memory representation of the local manifest
         // contains the stable alias
-        assert_eq!(stable_channel.alias, Some(ChannelAlias::Stable));
+        assert_eq!(stable_channel.alias, Some(channel::ChannelAlias::Stable));
 
         // We read the filesystem again, to check that the "stable" alias was
         // correclty saved
@@ -924,13 +849,13 @@ Error: {}",
                     "ERROR: The local_manifest in the filesystem has no alias, when it should have stable alias"
                 )
                 .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
-            &ChannelAlias::Stable
+            &channel::ChannelAlias::Stable
         );
     }
 
     #[test]
     /// Validates that midenup manages to install components with [[Authority]]s
-    /// different than [[Authority::Cargo]]. Besides installing these components,
+    /// different than [[version::Authority::Cargo]]. Besides installing these components,
     /// we verify that midenup manages to update them when needed.
     fn integration_install_from_non_cargo() {
         let test_name = "integration_install_from_non_cargo";
@@ -947,7 +872,7 @@ Error: {}",
         };
         let midenup_home = test_env.midenup_dir;
 
-        // Initial manifest with a client tracked by Authority::Git::Revision
+        // Initial manifest with a client tracked by version::Authority::Git::Revision
         let manifest: &str = full_path_manifest!(
             "tests/data/integration_install_from_non_cargo/channel-manifest-1.json"
         );
@@ -968,7 +893,7 @@ Error: {}",
 
             let vm_from_path = stable_channel.get_component("vm").unwrap();
             let last_modification = match vm_from_path.version {
-                Authority::Path { last_modification, .. } => last_modification.unwrap(),
+                version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
                     "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
                 ),
@@ -976,7 +901,10 @@ Error: {}",
 
             let client_from_git = stable_channel.get_component("client").unwrap();
             let revision = match &client_from_git.version {
-                Authority::Git { target: GitTarget::Revision { hash }, .. } => hash.clone(),
+                version::Authority::Git {
+                    target: version::GitTarget::Revision { hash },
+                    ..
+                } => hash.clone(),
                 authority => panic!(
                     "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
                 ),
@@ -1000,7 +928,7 @@ Error: {}",
 
             let vm_from_path = stable_channel.get_component("vm").unwrap();
             let last_modification = match vm_from_path.version {
-                Authority::Path { last_modification, .. } => last_modification.unwrap(),
+                version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
                     "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
                 ),
@@ -1008,7 +936,10 @@ Error: {}",
 
             let client_from_git = stable_channel.get_component("client").unwrap();
             let revision = match &client_from_git.version {
-                Authority::Git { target: GitTarget::Revision { hash }, .. } => hash.clone(),
+                version::Authority::Git {
+                    target: version::GitTarget::Revision { hash },
+                    ..
+                } => hash.clone(),
                 authority => panic!(
                     "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
                 ),
@@ -1053,7 +984,7 @@ Error: {}",
 
             let vm_from_path = stable_channel.get_component("vm").unwrap();
             let last_modification = match vm_from_path.version {
-                Authority::Path { last_modification, .. } => last_modification.unwrap(),
+                version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
                     "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
                 ),
@@ -1061,7 +992,10 @@ Error: {}",
 
             let client_from_git = stable_channel.get_component("client").unwrap();
             let revision = match &client_from_git.version {
-                Authority::Git { target: GitTarget::Revision { hash }, .. } => hash.clone(),
+                version::Authority::Git {
+                    target: version::GitTarget::Revision { hash },
+                    ..
+                } => hash.clone(),
                 authority => panic!(
                     "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
                 ),

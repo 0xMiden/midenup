@@ -5,9 +5,9 @@ use anyhow::Context;
 use colored::Colorize;
 
 use crate::{
-    Config,
     channel::UserChannel,
     commands,
+    config::Config,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
 };
