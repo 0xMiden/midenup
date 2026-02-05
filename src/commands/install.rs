@@ -3,11 +3,12 @@ use std::{io::Write, path::Path, time::SystemTime};
 use anyhow::{Context, bail};
 
 use crate::{
-    Config, InstallationOptions,
     artifact::TargetTriple,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
+    config::Config,
     manifest::Manifest,
+    options::InstallationOptions,
     utils,
     version::{Authority, GitTarget},
 };

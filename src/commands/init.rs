@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
 
 /// This functions bootstrap the `midenup` environment (creates basic directory
 /// structure, creates the miden executable symlink, etc.), if not already

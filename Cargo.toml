@@ -3,6 +3,14 @@ name = "midenup"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "midenup_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "midenup"
+path = "src/main.rs"
+
 [dependencies]
 anyhow = "1.0"
 curl = "0.4.47"
