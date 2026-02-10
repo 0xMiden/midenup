@@ -38,7 +38,9 @@ integration-test: ## Run all integration tests
 .PHONY: build
 build: ## Builds with default parameters
 	cargo build
+	cargo build --manifest-path scripts/update-manifest/Cargo.toml
 
 .PHONY: build-release
 build-release: ## Builds with release profile
 	cargo build --release
+	cargo build --release --manifest-path scripts/update-manifest/Cargo.toml

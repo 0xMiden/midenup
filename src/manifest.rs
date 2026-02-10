@@ -232,10 +232,6 @@ impl Manifest {
         self.channels.iter()
     }
 
-    pub fn get_channels_mut(&mut self) -> impl Iterator<Item = &mut Channel> {
-        self.channels.iter_mut()
-    }
-
     fn set_date(&mut self, new_date: SystemTime) -> Result<(), ManifestError> {
         let time = new_date
             .duration_since(std::time::UNIX_EPOCH)
