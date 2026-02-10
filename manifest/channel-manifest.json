@@ -343,6 +343,15 @@
           "symlink_name": "cargo-miden"
         },
         {
+          "name": "node",
+          "package": "miden-node",
+          "version": "0.13.4",
+          "installed_executable": "miden-node",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          }
+        },
+        {
           "name": "faucet-client",
           "package": "miden-faucet-client",
           "version": "0.13.0",
