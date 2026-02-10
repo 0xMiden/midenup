@@ -3,7 +3,7 @@
   "date": 1749330054,
   "channels": [
     {
-      "name": "0.15.0",
+      "name": "0.9.0",
       "components": [
         {
           "name": "std",
@@ -72,7 +72,7 @@
       ]
     },
     {
-      "name": "0.16.0",
+      "name": "0.10.0",
       "components": [
         {
           "name": "std",
@@ -140,7 +140,7 @@
       ]
     },
     {
-      "name": "0.17.2",
+      "name": "0.11.5",
       "components": [
         {
           "name": "std",
@@ -209,7 +209,7 @@
       ]
     },
     {
-      "name": "0.19.1",
+      "name": "0.12.4",
       "components": [
         {
           "name": "std",
@@ -286,7 +286,7 @@
       ]
     },
     {
-      "name": "0.20.3",
+      "name": "0.13.3",
       "components": [
         {
           "name": "core",
