@@ -1,9 +1,17 @@
-use std::{borrow::Cow, path::Path};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    path::Path,
+    time::SystemTime,
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::channel::{Channel, ChannelAlias, UserChannel};
+use crate::{
+    channel::{Channel, ChannelAlias, UserChannel},
+    version::Authority,
+};
 
 const MANIFEST_VERSION: &str = "1.0.0";
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
@@ -46,6 +54,12 @@ pub enum ManifestError {
     InternalCurlError(String),
     #[error("unsupported channel manifest URI: `{0}`")]
     Unsupported(String),
+    #[error("Failed to update time in manifest: `{0}`")]
+    InvalidTime(String),
+    #[error("invalid UTF-8: `{0}`")]
+    InvalidUtf8(String),
+    #[error("failed to serialize manifest: `{0}`")]
+    Serialization(String),
 }
 
 impl Manifest {
@@ -217,7 +231,208 @@ impl Manifest {
     pub fn get_channels(&self) -> impl Iterator<Item = &Channel> {
         self.channels.iter()
     }
+
+    fn set_date(&mut self, new_date: SystemTime) -> Result<(), ManifestError> {
+        let time = new_date
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|dur| dur.as_secs())
+            .and_then(|secs| i64::try_from(secs).ok())
+            .ok_or(ManifestError::InvalidTime(format!(
+                "Failed to set {:?} as the Manifest's time",
+                new_date
+            )))?;
+
+        self.date = time;
+        Ok(())
+    }
+
+    fn fetch_latest_releases(&self) -> Result<LatestReleases, ManifestError> {
+        let mut crates = HashMap::new();
+
+        for channel in self.get_channels() {
+            for component in &channel.components {
+                let Authority::Cargo { package, .. } = &component.version else {
+                    continue;
+                };
+
+                let crate_name = package.as_deref().unwrap_or(&component.name);
+
+                // Skip if already fetched.
+                if crates.contains_key(crate_name) {
+                    continue;
+                }
+
+                let entries = Manifest::fetch_released_versions(crate_name)?;
+
+                let mut mapping: HashMap<MajorMinor, IndexEntry> = HashMap::new();
+                for entry in entries {
+                    let key = MajorMinor {
+                        major: entry.version.major,
+                        minor: entry.version.minor,
+                    };
+                    mapping
+                        .entry(key)
+                        .and_modify(|existing| {
+                            if entry.version.patch > existing.version.patch {
+                                *existing = entry.clone();
+                            }
+                        })
+                        .or_insert(entry);
+                }
+
+                crates.insert(crate_name.to_string(), CrateVersions { mapping });
+            }
+        }
+
+        Ok(LatestReleases { crates })
+    }
+
+    /// The sparse's index format can be found here:
+    /// https://doc.rust-lang.org/cargo/reference/registry-index.html#index-files
+    fn sparse_index_url(crate_name: &str) -> String {
+        let path = match crate_name.len() {
+            // The first 3 cases are only kept for compatibility/future proofing.
+            // Miden packages will probably not fall under these cases.
+            1 => format!("1/{crate_name}"),
+            2 => format!("2/{crate_name}"),
+            3 => format!("3/{}/{crate_name}", &crate_name[0..1]),
+            _ => {
+                let first_two = &crate_name[0..2];
+                let next_two = &crate_name[2..4];
+                format!("{first_two}/{next_two}/{crate_name}")
+            },
+        };
+        format!("https://index.crates.io/{path}")
+    }
+
+    /// Get all the available versions from a crate.
+    /// For more information about crates.io API and format, see:
+    /// - https://crates.io/data-access
+    /// - https://doc.rust-lang.org/cargo/reference/registry-index.html
+    fn fetch_released_versions(crate_name: &str) -> Result<Vec<IndexEntry>, ManifestError> {
+        let url = Manifest::sparse_index_url(crate_name);
+        let mut data = Vec::new();
+
+        let mut handle = curl::easy::Easy::new();
+        handle.url(&url).map_err(|e| ManifestError::InternalCurlError(e.to_string()))?;
+        {
+            let mut transfer = handle.transfer();
+            transfer
+                .write_function(|new_data| {
+                    data.extend_from_slice(new_data);
+                    Ok(new_data.len())
+                })
+                .unwrap();
+            transfer
+                .perform()
+                .map_err(|e| ManifestError::InternalCurlError(e.to_string()))?;
+        }
+
+        let body =
+            String::from_utf8(data).map_err(|e| ManifestError::InvalidUtf8(e.to_string()))?;
+
+        let index_entries = body
+            .lines()
+            .map(|line| {
+                serde_json::from_str::<IndexEntry>(line)
+                    .map_err(|e| ManifestError::Serialization(e.to_string()))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(index_entries)
+    }
 }
+
+/// Struct containing information about the update result.
+pub struct ManifestUpdateResult {
+    /// Set of all the changed packages. If none were changed, it will be empty.
+    pub changed_packages: HashSet<String>,
+
+    /// The Manifest's new time. If no packages are updated, the time is left
+    /// untouched and this will be None.
+    pub new_date: Option<SystemTime>,
+}
+impl Manifest {
+    /// Tries to update the manifest, checking all the registered crates for
+    /// newer release.
+    pub fn update(&mut self) -> Result<ManifestUpdateResult, ManifestError> {
+        let latest_releases = self.fetch_latest_releases()?;
+
+        let mut changed_packages = HashSet::new();
+        for channel in &mut self.channels {
+            for component in &mut channel.components {
+                let Authority::Cargo { package, version } = &mut component.version else {
+                    continue;
+                };
+
+                let crate_name = package.as_deref().unwrap_or(&component.name);
+                let key = MajorMinor {
+                    major: version.major,
+                    minor: version.minor,
+                };
+
+                let Some(crate_versions) = latest_releases.crates.get(crate_name) else {
+                    continue;
+                };
+                let Some(latest) = crate_versions.mapping.get(&key) else {
+                    continue;
+                };
+
+                if version.patch > latest.version.patch {
+                    continue;
+                }
+
+                *version = latest.version.clone();
+                changed_packages.insert(crate_name.to_string());
+            }
+        }
+
+        if changed_packages.is_empty() {
+            let update_result = ManifestUpdateResult { changed_packages, new_date: None };
+
+            return Ok(update_result);
+        }
+
+        let now = std::time::SystemTime::now();
+        self.set_date(now)?;
+
+        let update_result = ManifestUpdateResult { changed_packages, new_date: Some(now) };
+
+        Ok(update_result)
+    }
+}
+
+// Helper structures
+/// An entry in the crate's crates.io sparse index
+#[derive(Deserialize, Debug, Clone)]
+struct IndexEntry {
+    /// The crate's version
+    #[serde(rename = "vers")]
+    version: semver::Version,
+    // We ignore the rest of the values.
+}
+
+/// Key used in [[CreateVersions]]
+#[derive(Debug, PartialEq, Eq, Hash)]
+struct MajorMinor {
+    major: u64,
+    minor: u64,
+}
+
+/// Mapping from every major.minor release to its latest crates.io index entry
+#[derive(Debug)]
+struct CrateVersions {
+    mapping: HashMap<MajorMinor, IndexEntry>,
+}
+
+/// Stores all the crates present in the manifest and their respective
+/// [[CrateVersions]] mappings.
+#[derive(Debug)]
+struct LatestReleases {
+    crates: HashMap<CrateName, CrateVersions>,
+}
+type CrateName = String;
 
 #[cfg(test)]
 mod tests {
