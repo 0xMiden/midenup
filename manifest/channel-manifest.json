@@ -57,6 +57,7 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           },
+          "call_format": ["cargo", "miden"],
           "symlink_name": "cargo-miden"
         },
         {
@@ -124,6 +125,7 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           },
+          "call_format": ["cargo", "miden"],
           "symlink_name": "cargo-miden"
         },
         {
@@ -191,6 +193,7 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           },
+          "call_format": ["cargo", "miden"],
           "symlink_name": "cargo-miden"
         },
         {
@@ -259,6 +262,7 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           },
+          "call_format": ["cargo", "miden"],
           "symlink_name": "cargo-miden"
         },
         {
@@ -335,6 +339,7 @@
               "new": ["cargo", "miden", "new"],
               "build": ["cargo", "miden", "build"]
           },
+          "call_format": ["cargo", "miden"],
           "symlink_name": "cargo-miden"
         },
         {
