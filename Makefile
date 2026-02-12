@@ -42,3 +42,9 @@ build: ## Builds with default parameters
 .PHONY: build-release
 build-release: ## Builds with release profile
 	cargo build --release
+
+# --- docs ----------------------------------------------------------------------------------------
+
+.PHONY: serve-docs
+serve-docs: ## Builds docusaurus documentation & serves documentation site
+	$(MAKE) -C docs/
