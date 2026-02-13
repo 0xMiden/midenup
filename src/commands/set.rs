@@ -3,8 +3,8 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config,
     channel::UserChannel,
+    config::Config,
     toolchain::{Toolchain, ToolchainFile},
 };
 
