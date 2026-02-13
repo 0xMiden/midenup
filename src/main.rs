@@ -1100,4 +1100,57 @@ Error: {}",
         let manifest = midenup_home.join("manifest").with_extension("json");
         assert!(manifest.exists());
     }
+
+    #[test]
+    /// Validates that every component present in the stable toolchain from the
+    /// published manifest is able to be executed.
+    ///
+    /// This relies on every component respecting the --help flag, which is an
+    /// assumption we already make in the miden_wrapper.rs file. This stems from
+    /// the fact that the help command is generated automatically. See:
+    /// - https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag
+    fn integration_test_components_are_runnable() {
+        let test_name = "integration_test_components";
+        let test_env = environment_setup(test_name);
+
+        let tmp_home = test_env.midenup_dir;
+        let midenup_home = tmp_home.join("midenup");
+
+        const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+
+        // Install the latest stable toolchain
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Expected Midenup behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        let stable_channel = local_manifest
+            .get_latest_stable()
+            .expect("No stable channel found after installing stable")
+            .clone();
+
+        println!("Installed: {}", stable_channel);
+
+        // Verify each executable component is accessible and runnable
+        for component in &stable_channel.components {
+            // Skip libraries
+            if matches!(component.get_installed_file(), InstalledFile::Library { .. }) {
+                continue;
+            }
+
+            let argv: Vec<OsString> =
+                vec!["miden".into(), "help".into(), component.name.as_ref().into()];
+
+            miden_wrapper::miden_wrapper(argv, &config, &mut local_manifest).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "Component '{}' is not runnable through the 'miden' interface: {}",
+                        component.name, err
+                    )
+                },
+            );
+        }
+    }
 }
