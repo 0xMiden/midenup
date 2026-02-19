@@ -485,7 +485,7 @@ fn main() {
             let mut executables = Vec::new();
 
             let exe_name = component.get_installed_file();
-            if let InstalledFile::Executable { ref binary_name } = exe_name {
+            if let InstalledFile::Executable { ref binary_name, alias_only: _ } = exe_name {
                 let miden_display = component.get_symlink_name();
                 executables.push((miden_display, binary_name.clone()));
             }
