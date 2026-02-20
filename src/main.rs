@@ -24,7 +24,7 @@ use self::{
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
 #[command(multicall(true))]
-#[command(author, version, about = "The Miden toolchain installer", long_about = None)]
+#[command(author, about = "The Miden toolchain installer", long_about = None)]
 pub struct Midenup {
     #[command(subcommand)]
     behavior: Behavior,
@@ -37,7 +37,7 @@ enum Behavior {
         #[command(flatten)]
         config: GlobalArgs,
         #[command(subcommand)]
-        command: Commands,
+        command: Option<Commands>,
     },
     /// Invoke components of the current Miden toolchain
     #[command(external_subcommand)]
@@ -191,6 +191,13 @@ struct GlobalArgs {
     /// Display verbose output, mainly used during install.
     #[clap(short, long, action, default_value_t = false)]
     verbose: bool,
+
+    // This flag needed to be implemented manually in order to use the
+    // `display_version` function and circumvent `clap`'s default `--version`
+    // output.
+    /// Displays `midenup`'s version information.
+    #[clap(short = 'V', long, action, default_value_t = false)]
+    version: bool,
 }
 
 impl Commands {
@@ -289,8 +296,18 @@ fn main() -> anyhow::Result<()> {
 
     let result = match cli.behavior {
         Behavior::Miden(argv) => miden_wrapper(argv, &config, &mut local_manifest),
-        Behavior::Midenup { command: subcommand, .. } => {
-            subcommand.execute(&config, &mut local_manifest)
+        Behavior::Midenup {
+            config: ref global_args,
+            command: subcommand,
+        } => {
+            if global_args.version {
+                println!("{}", miden_wrapper::display_version(&config));
+                Ok(())
+            } else if let Some(subcommand) = subcommand {
+                subcommand.execute(&config, &mut local_manifest)
+            } else {
+                bail!("no subcommand provided. Run `midenup --help` for usage information.")
+            }
         },
     };
 
@@ -426,7 +443,7 @@ Error: {}",
 
         // We begin by initializing the midenup directory
         let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -438,7 +455,7 @@ Error: {}",
 
         // Now, we install stable
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
 
@@ -461,7 +478,7 @@ Error: {}",
 
         // Now we install a separate toolchain.
         let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -490,7 +507,7 @@ Error: {}",
 
         // Now, we'll uninstall 0.16.0.
         let command = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
 
@@ -571,7 +588,7 @@ Error: {}",
         // Now, we set a global default toolchain. This should change the
         // current active toolchain to 0.15.0.
         let command = Midenup::try_parse_from(["midenup", "override", "0.15.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -596,7 +613,7 @@ Error: {}",
         // By default, the active toolchain is the latest stable version. In the
         // case of the manifest present in FILE, that is version 0.16.0.
         let command = Midenup::try_parse_from(["midenup", "set", "0.14.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -657,7 +674,7 @@ Error: {}",
         // 0.16.0 as the active one on the current project. Since the toolchain
         // is not installed, the component list is left empty.
         let command = Midenup::try_parse_from(["midenup", "set", "0.16.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -714,7 +731,7 @@ Error: {}",
         // Now, we try updating the installed toolchain. This should only update
         // the installed components and ignore the rest.
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -725,7 +742,7 @@ Error: {}",
         // Finally, we attempt to install the entire stable toolchain, which
         // should install the remaining components.
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -756,7 +773,7 @@ Error: {}",
 
         // We begin by initializing the midenup directory
         let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -765,7 +782,7 @@ Error: {}",
 
         // Now, we install stable. That is going to be version 0.14.0
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -780,7 +797,7 @@ Error: {}",
         // Now, we update stable. The stable symlink should point to
         // version 0.15.0
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to update stable");
@@ -820,7 +837,7 @@ Error: {}",
         let (_, config) = test_setup(&midenup_home, manifest);
 
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -861,7 +878,7 @@ Error: {}",
         // Now, we use the same manifest that we used previously to update the
         // current stable toolchain.
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -893,7 +910,7 @@ Error: {}",
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -955,7 +972,7 @@ Error: {}",
 
         // We install stable
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -988,7 +1005,7 @@ Error: {}",
         // We call for an update, to check that midenup recognizes that no
         // component needs to be updated.
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to update");
@@ -1040,7 +1057,7 @@ Error: {}",
         }
 
         let command = Midenup::try_parse_from(["midenup", "update", "--path-update=all"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to update");
@@ -1092,7 +1109,7 @@ Error: {}",
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
