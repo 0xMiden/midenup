@@ -346,7 +346,7 @@ For more information, try 'miden help'.
     }
 }
 
-fn display_version(config: &Config) -> String {
+pub(crate) fn display_version(config: &Config) -> String {
     // NOTE: These files are generated in the project's build.rs.
 
     let compiled_cargo_version = include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
