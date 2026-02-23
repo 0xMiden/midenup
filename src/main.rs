@@ -1138,7 +1138,7 @@ Error: {}",
 
         // Install the latest stable toolchain
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Expected Midenup behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
