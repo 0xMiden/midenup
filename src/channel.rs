@@ -330,6 +330,14 @@ pub enum InstalledFile {
     Executable {
         #[serde(rename = "installed_executable")]
         binary_name: String,
+        /// The component is executable (i.e. a CLI Binary) but it is *not* intended
+        /// to be executed on its own, rather only under aliases.
+        /// An example of this behavior is `cargo miden`, which is only intended to
+        /// be executed under the `miden new` and `miden build` aliases.
+        /// IMPORTANT: In order for alias_only to take effect, binary_name
+        /// *must* also be specified in the manifest.
+        #[serde(default)]
+        alias_only: bool,
     },
     /// The component installs a MaspLibrary.
     #[serde(untagged)]
@@ -363,10 +371,11 @@ impl InstalledFile {
 impl Display for InstalledFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            InstalledFile::Executable { binary_name: executable_name } => {
-                f.write_str(executable_name)
-            },
-            InstalledFile::Library { library_name, .. } => f.write_str(library_name),
+            InstalledFile::Executable {
+                binary_name: executable_name,
+                alias_only: _,
+            } => f.write_str(executable_name),
+            InstalledFile::Library { library_name, library_struct: _ } => f.write_str(library_name),
         }
     }
 }
@@ -689,7 +698,11 @@ impl Component {
         if let Some(installed_file) = &self.installed_file {
             installed_file.clone()
         } else {
-            InstalledFile::Executable { binary_name: self.name.to_string() }
+            InstalledFile::Executable {
+                binary_name: self.name.to_string(),
+                // If not specified, all executable components are *not* alias_only
+                alias_only: false,
+            }
         }
     }
 

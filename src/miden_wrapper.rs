@@ -1,4 +1,4 @@
-use std::{ffi::OsString, string::ToString};
+use std::{ffi::OsString, fmt::Display, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
@@ -42,6 +42,18 @@ enum MidenArgument {
 
 enum EnvironmentError {
     UnkownArgument(String),
+    LibraryAsExecutable(String),
+    AliasOnly(String),
+}
+
+impl Display for EnvironmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            EnvironmentError::UnkownArgument(err) => write!(f, "{err}"),
+            EnvironmentError::LibraryAsExecutable(err) => write!(f, "{err}"),
+            EnvironmentError::AliasOnly(err) => write!(f, "{err}"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -92,23 +104,35 @@ impl<'a> ToolchainEnvironment<'a> {
         .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type)))
         .find_map(|(comp, ch_type)| {
             if let Some(associated_command) = comp.aliases.get(&argument) {
-                Some((MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type))
+                Some(Ok((MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type)))
             } else if comp.name == argument {
-                Some((MidenArgument::Component(comp.clone()), ch_type))
+                match comp.get_installed_file() {
+                    InstalledFile::Executable { alias_only: false, binary_name: _ } => {
+                        Some(Ok((MidenArgument::Component(comp.clone()), ch_type)))
+                    },
+                    InstalledFile::Executable { alias_only: true, binary_name: _ } => {
+                        let aliases = comp.aliases.keys().map(|alias| format!("'{}'", alias)).collect::<Vec<_>>().join(", ");
+                        Some(Err(EnvironmentError::AliasOnly(format!("'{}' is not intended to be called via 'miden', but rather by its aliases: {aliases}", comp.name))))
+                    },
+                    InstalledFile::Library { library_name, library_struct: _ } => {
+                        Some(Err(EnvironmentError::LibraryAsExecutable(
+                            format!("'{}' installs the {} library. It is not intended to be executed as a binary.", comp.name, library_name))))
+                    },
+                }
             } else {
                 None
             }
         })
         .inspect(|resolution| {
             if let Some(warning_message) = match resolution {
-                (MidenArgument::Alias(comp, _ ), ChannelType::Installed) => Some(format!(
+                Ok((MidenArgument::Alias(comp, _ ), ChannelType::Installed)) => Some(format!(
                     "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     argument,
                     comp.name,
 
                 )),
-                (MidenArgument::Component(comp), ChannelType::Installed) => Some(format!(
+                Ok((MidenArgument::Component(comp), ChannelType::Installed)) => Some(format!(
                     "{}: {} is installed, but it is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     comp.name,
@@ -120,15 +144,20 @@ impl<'a> ToolchainEnvironment<'a> {
             }
         }
         )
+        .unwrap_or(Err(EnvironmentError::UnkownArgument(format!("Failed to resolve '{}': Neither known alias or component.", argument))))
         .map(|(ch, _)| ch)
-        .ok_or(EnvironmentError::UnkownArgument(argument))
     }
 
     fn get_executables_display(&self) -> String {
         self.get_active_channel()
             .components
             .iter()
-            .filter(|c| matches!(c.get_installed_file(), InstalledFile::Executable { .. }))
+            .filter(|c| {
+                matches!(
+                    c.get_installed_file(),
+                    InstalledFile::Executable { binary_name: _, alias_only: false }
+                )
+            })
             .map(|c| format!("  {}\n", c.name.bold()))
             .collect::<String>()
     }
@@ -303,13 +332,13 @@ For more information, try 'miden help'.
 
                     (command, args)
                 },
-                Err(EnvironmentError::UnkownArgument(argument)) => {
+                Err(err) => {
                     let help_message = toolchain_help(&toolchain_environment);
                     let err_msg = format!(
-                        "Failed to resolve '{}': Neither known alias or component.
+                        "{}
 
 {}",
-                        argument, help_message
+                        err, help_message
                     );
                     bail!(err_msg);
                 },
