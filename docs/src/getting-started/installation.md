@@ -22,7 +22,7 @@ The `midenup init` command initializes the `$MIDENUP_HOME` directory and creates
 
 ## Configure PATH Environment Variable
 
-**This is a critical step!** You must ensure `$MIDENUP_HOME/bin` is added to your shell `$PATH`. `midenup` will automatically display the required commands for your operating sytem if it detects that its binaries are not accessible from the `$PATH`.
+**This is a critical step!** You must ensure `$MIDENUP_HOME/bin` is added to your shell `$PATH`. `midenup` will automatically display the required commands for your operating system if it detects that its binaries are not accessible from the `$PATH`.
 
 In any case, you can always obtain the current value of `$MIDENUP_HOME` using `midenup show home`. Here's a list of manual commands
 
@@ -31,7 +31,7 @@ In any case, you can always obtain the current value of `$MIDENUP_HOME` using `m
 Add the following to your `~/.zprofile` file:
 
 ```bash title=">_ Terminal"
-export MIDENUP_HOME="/Users/$(whoami)$/Library/Application Support/midenup"
+export MIDENUP_HOME="/Users/$(whoami)/Library/Application Support/midenup"
 export PATH=${MIDENUP_HOME}/bin:$PATH
 ```
 
