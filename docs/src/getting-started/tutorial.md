@@ -2,7 +2,7 @@
 
 A typical usage of midenup and miden might look like the following:
 
-1. midenup has been downloade and correctly configured following the instructions of the [Installation](installation.md) page or [README](https://github.com/0xMiden/midenup)
+1. midenup has been downloaded and correctly configured following the instructions of the [Installation](installation.md) page or [README](https://github.com/0xMiden/midenup)
 2. The latest stable toolchain can then be installed:
 
    ```shell title=">_ Terminal"

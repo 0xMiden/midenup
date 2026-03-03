@@ -34,4 +34,4 @@ To denote this, `midenup` tags the channel as `stable` in the Channel's `alias` 
 
 ## Component
 
-Components are the individual binaries/libraries used in Miden. Besides having a version, each Component present in a [channel](#channels) showcases additional metadata like from where to obtain the source code, wheter it has a pre-built binary, the file it installs, its dependencies, etc.
+Components are the individual binaries/libraries used in Miden. Besides having a version, each Component present in a [channel](#channels) showcases additional metadata like from where to obtain the source code, whether it has a pre-built binary, the file it installs, its dependencies, etc.

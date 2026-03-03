@@ -4,7 +4,7 @@ The midenup tool is mainly in charge of "toolchain management" which consists of
 
 ## Midenup directory
 
-Midenup stores all of its files and directories in a single directory called `midenup`. By default, this directory will reside in `$XDG_DATA_HOME/midneup` (for more information regarding `XDG_DATA_HOME` see [here](https://specifications.freedesktop.org/basedir-spec/latest/#variables)).
+Midenup stores all of its files and directories in a single directory called `midenup`. By default, this directory will reside in `$XDG_DATA_HOME/midenup` (for more information regarding `XDG_DATA_HOME` see [here](https://specifications.freedesktop.org/basedir-spec/latest/#variables)).
 
 Most notably, this directory stores:
 
@@ -21,10 +21,10 @@ After creating the directory, `midenup` constructs a rust script named `install.
 
 It is important to note that midenup's install scripts are intended to also serve as a "description" of what the toolchain looks like in the system. That is, the components described inside the `install.rs`file should also be the components that are actually installed in the system; making the `install.rs` file idempotent.
 
-Adittionally, if installation fails mid way through, midenup uses a log file, `.installation-in-progress`, to determine where to resume the installation from.
+Additionally, if installation fails mid way through, midenup uses a log file, `.installation-in-progress`, to determine where to resume the installation from.
 
 - After each component is installed, a line is added to the log with the name of the component.
-- After all the componenent are installed, `midenup` changes the name of the file to `installation-successful` to indicate that installation finalized. With this change now in place, if a re-install is issued, `midenup` will simply skip the install all-together.
+- After all the components are installed, `midenup` changes the name of the file to `installation-successful` to indicate that installation finalized. With this change now in place, if a re-install is issued, `midenup` will simply skip the install all-together.
 
 ## Update
 

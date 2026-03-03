@@ -2,7 +2,7 @@
 
 ## Installing a toolchain
 
-In order to get started with `midenup`, a toolchain should be installed. A toolchain is simmply a collection of miden programs (e.g. the vm, the client, the compiler, etc).
+In order to get started with `midenup`, a toolchain should be installed. A toolchain is simply a collection of miden programs (e.g. the vm, the client, the compiler, etc).
 Toolchains are installed via "Channels", which are a specific release of a toolchain with instructions on how to obtain it.
 
 Most users will want to install the latest stable toolchain from the official midenup channel, like so:
@@ -27,7 +27,7 @@ This functionality is still in early stages of development. Currently, this requ
 If required, a specific toolchain version can also be installed with the `midenup install <toolchain-version>` syntax, like so:
 
 ```shell title=">_ Terminal"
-midneup install 0.15.0
+midenup install 0.15.0
 ```
 
 To list all the currently installed toolchains in the system, run:

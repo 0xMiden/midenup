@@ -11,4 +11,4 @@ Once installed, components can be called directly with `miden <component-name>`.
 
 Since some tasks in Miden development come up frequently, the `miden` CLI is also aware of a number of aliases. This include things like compiling a project, creating an account, deploying a local node, etc.
 
-The list of currently avaialble aliases can be found with `miden help toolchain`. Aliases are channel specific, so different channels may have different number of aliases all together. A typical usage of these aliases can be found on the [tutorial](../getting-started/tutorial.md)
+The list of currently available aliases can be found with `miden help toolchain`. Aliases are channel specific, so different channels may have different number of aliases all together. A typical usage of these aliases can be found on the [tutorial](../getting-started/tutorial.md)
