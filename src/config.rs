@@ -133,11 +133,9 @@ impl Config {
         target_exe: &str,
         args: &Vec<OsString>,
     ) -> Result<std::process::Child, std::io::Error> {
-        let toolchain_opt = self
-            .midenup_home
-            .join("toolchains")
-            .join(active_toolchain.name.to_string())
-            .join("opt");
+        let toolchain_name = active_toolchain.name.to_string();
+        let sysroot = self.midenup_home.join("toolchains").join(&toolchain_name);
+        let toolchain_opt = sysroot.join("opt");
 
         let path = match std::env::var_os("PATH") {
             Some(prev_path) => {
@@ -150,6 +148,8 @@ impl Config {
 
         std::process::Command::new(target_exe)
             .env("MIDENUP_HOME", &self.midenup_home)
+            .env("MIDENUP_TOOLCHAIN", &toolchain_name)
+            .env("MIDEN_SYSROOT", &sysroot)
             .env("PATH", path)
             .args(args)
             .stderr(std::process::Stdio::inherit())
