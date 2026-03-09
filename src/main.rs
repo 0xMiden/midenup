@@ -390,6 +390,8 @@ Error: {}",
         #[allow(dead_code)]
         tmp_dir: TempDir,
         midenup_dir: PathBuf,
+        #[allow(dead_code)]
+        cargo_home: PathBuf,
         present_working_dir: PathBuf,
     }
 
@@ -401,7 +403,15 @@ Error: {}",
 
         let tmp_midenup_home = tmp_dir.path().join("midenup");
 
+        let tmp_cargo_home = tmp_dir.path().join("cargo");
+
         std::fs::create_dir(&tmp_present_working_directory).unwrap();
+
+        // Set CARGO_HOME in order to not use the system's default `.cargo/bin`
+        // directory.
+        unsafe {
+            std::env::set_var("CARGO_HOME", &tmp_cargo_home);
+        }
 
         std::env::set_current_dir(&tmp_present_working_directory).unwrap_or_else(|err| {
             panic!(
@@ -413,6 +423,7 @@ Error: {}",
         TestEnvironment {
             tmp_dir,
             midenup_dir: tmp_midenup_home,
+            cargo_home: tmp_cargo_home,
             present_working_dir: tmp_present_working_directory,
         }
     }
@@ -433,6 +444,7 @@ Error: {}",
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
+        let cargo_home = test_env.cargo_home;
         let midenup_home = tmp_home.join("midenup");
 
         const FILE: &str = full_path_manifest!(
@@ -450,8 +462,9 @@ Error: {}",
 
         // We check that the basic midenup directory structure is present
         assert!(midenup_home.exists());
-        assert!(midenup_home.join("bin").exists());
         assert!(toolchain_dir.exists());
+        // The miden symlink should be in $CARGO_HOME/bin
+        assert!(cargo_home.join("bin").join("miden").exists());
 
         // Now, we install stable
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
@@ -543,6 +556,7 @@ Error: {}",
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
+        let cargo_home = test_env.cargo_home;
         let midenup_home = tmp_home.join("midenup");
 
         // SIDENOTE: This tests uses a toolchain with version number 0.14.0. This
@@ -571,8 +585,9 @@ Error: {}",
 
         // midenup initialized check
         assert!(midenup_home.exists());
-        assert!(midenup_home.join("bin").exists());
         assert!(toolchain_dir.exists());
+        // The miden symlink should be in $CARGO_HOME/bin
+        assert!(cargo_home.join("bin").join("miden").exists());
 
         // Stable toolchain installed check
         let latest_toolchain = toolchain_dir.join("0.16.0");
