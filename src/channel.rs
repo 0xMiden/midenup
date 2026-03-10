@@ -19,10 +19,9 @@ use crate::{
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
+#[serde(untagged)]
 pub enum MigrationStrategy {
-    #[serde(untagged)]
-    NewName { old_channel: semver::Version },
+    NameChange { old_channel: semver::Version },
 }
 
 /// Tags used to identify special qualities of a specific channel.
@@ -33,8 +32,10 @@ pub enum Tags {
     /// have been installed.
     Partial,
     /// The channel has been moved to a new channel or potentially even removed.
-    #[serde(untagged)]
-    Migrated { migrated: MigrationStrategy },
+    Migration {
+        #[serde(flatten)]
+        migration: MigrationStrategy,
+    },
 }
 
 /// Represents a specific release channel for a toolchain.
@@ -83,8 +84,8 @@ impl Channel {
     /// If this channel has a migration tag, returns the target channel name.
     pub fn migrated_into(&self) -> Option<&semver::Version> {
         self.tags.iter().find_map(|tag| match tag {
-            Tags::Migrated {
-                migrated: MigrationStrategy::NewName { old_channel },
+            Tags::Migration {
+                migration: MigrationStrategy::NameChange { old_channel },
             } => Some(old_channel),
             _ => None,
         })
@@ -260,7 +261,7 @@ impl PartialEq for Channel {
 
         let migrated_into = |a: &Channel, b: &Channel| {
             a.tags.iter().any(|tag| {
-                matches!(tag, Tags::Migrated {migrated: MigrationStrategy::NewName { old_channel }
+                matches!(tag, Tags::Migration {migration: MigrationStrategy::NameChange { old_channel }
             } if old_channel == &b.name)
             })
         };
@@ -484,6 +485,24 @@ pub fn resolve_command(
     }
 
     Ok(resolution)
+}
+
+/// Checks if both the `bin` and `lib` directories within the given toolchain
+/// directory are empty, indicating the toolchain has been deleted.
+pub fn is_toolchain_deleted(toolchain_dir: &Path) -> bool {
+    let bin_empty = toolchain_dir
+        .join("bin")
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true);
+
+    let lib_empty = toolchain_dir
+        .join("lib")
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true);
+
+    bin_empty && lib_empty
 }
 
 pub type Alias = String;

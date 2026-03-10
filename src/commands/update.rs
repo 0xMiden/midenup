@@ -5,7 +5,7 @@ use colored::Colorize;
 
 use crate::{
     Config, PathUpdate, UpdateOptions,
-    channel::{Channel, Component, InstalledFile, UserChannel},
+    channel::{Channel, Component, InstalledFile, UserChannel, is_toolchain_deleted},
     commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
@@ -137,15 +137,7 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let mut channel_to_install = {
-        let mut channel_to_install = upstream_channel.clone();
-        if let Some(new_channel) = upstream_channel.migrated_into() {
-            channel_to_install.name = new_channel.clone();
-            channel_to_install
-        } else {
-            channel_to_install
-        }
-    };
+    let mut channel_to_install = upstream_channel.clone();
 
     let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
 
@@ -278,6 +270,20 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
             };
         }
 
+        // After removing the components, we check if we can remove the
+        // toolchain entirely.
+        let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
+        if is_entirely_removed {
+            // We now remove the toolchain directory with all the remaining files.
+            std::fs::remove_dir_all(&toolchain_dir).context(format!(
+                "midenup failed to delete the toolchain directory.
+         However, manual removal should be safe. The toolchain's PATH is the following:
+{}
+",
+                toolchain_dir.display()
+            ))?;
+        };
+
         commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
     }
     Ok(())
@@ -325,6 +331,8 @@ pub enum UpdateMotive {
     Removed,
     /// A newer version was released.
     NewerVersion,
+    /// The entire channel was migrated.
+    Migrated,
 }
 /// This functions compares the Channel &older, with a newer channel [newer]
 /// and returns the list of [Components] that need to be updated.
@@ -336,6 +344,10 @@ pub enum UpdateMotive {
 /// - An *older* version of a component is released and thus a downgrade is due.
 /// - A components [Authority] got changed and thus needs to be removed and re-installed with the
 ///   new [Authority]
+///
+/// There is one notable exception to this rule which is when a channel is
+/// migrated into a different channel. In that case, every component is marked
+/// for update.
 pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component, UpdateMotive)> {
     let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
     let current = HashSet::from_iter(older.components.iter());
@@ -360,6 +372,13 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
                 // This should't be possible, but if somehow the component is
                 // missing, then we trigger an update for said component regardless.
                 None => Some((current_component, UpdateMotive::Added)),
+                // If the new channel was migrated, then every component should
+                // be deleted; unless explicitely told otherwise by the users
+                // (for example in components which were compile from a path at
+                // a given time).
+                Some(new_component) if newer.migrated_into().is_some() => {
+                    Some((current_component, UpdateMotive::Migrated))
+                },
                 // We only want to update components that share the same name but
                 // differ in some other field.
                 Some(new_component) if !current_component.is_up_to_date(new_component) => {
