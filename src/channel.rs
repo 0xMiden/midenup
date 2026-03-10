@@ -18,6 +18,13 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrationStrategy {
+    #[serde(untagged)]
+    NewName { new_channel: String },
+}
+
 /// Tags used to identify special qualities of a specific channel.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
@@ -25,6 +32,9 @@ pub enum Tags {
     /// The channel is partially installed, i.e. only a subset of components
     /// have been installed.
     Partial,
+    /// The channel has been moved to a new channel or potentially even removed.
+    #[serde(untagged)]
+    Migrated { migrated: MigrationStrategy },
 }
 
 /// Represents a specific release channel for a toolchain.
