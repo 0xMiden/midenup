@@ -2,7 +2,7 @@ use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
-use midenup_lib::{channel, commands, config, manifest, miden_wrapper, options};
+use midenup::{channel, commands, config, manifest, miden_wrapper, options};
 
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
@@ -267,7 +267,7 @@ mod tests {
     use std::{fs::OpenOptions, path::Path};
 
     type LocalManifest = manifest::Manifest;
-    use midenup_lib::{
+    use midenup::{
         channel::{self, InstalledFile},
         config, manifest, miden_wrapper, utils, version,
     };
