@@ -22,7 +22,7 @@ use crate::{
 #[serde(rename_all = "snake_case")]
 pub enum MigrationStrategy {
     #[serde(untagged)]
-    NewName { new_channel: String },
+    NewName { old_channel: semver::Version },
 }
 
 /// Tags used to identify special qualities of a specific channel.
@@ -80,6 +80,16 @@ impl Display for InstallationMotive {
     }
 }
 impl Channel {
+    /// If this channel has a migration tag, returns the target channel name.
+    pub fn migrated_into(&self) -> Option<&semver::Version> {
+        self.tags.iter().find_map(|tag| match tag {
+            Tags::Migrated {
+                migrated: MigrationStrategy::NewName { old_channel },
+            } => Some(old_channel),
+            _ => None,
+        })
+    }
+
     pub fn new(
         name: semver::Version,
         alias: Option<ChannelAlias>,
@@ -247,7 +257,15 @@ impl PartialEq for Channel {
     fn eq(&self, other: &Self) -> bool {
         // NOTE: To channels are equal regardless of their aliases
         let equal_name = self.name == other.name;
-        if !equal_name {
+
+        let migrated_into = |a: &Channel, b: &Channel| {
+            a.tags.iter().any(|tag| {
+                matches!(tag, Tags::Migrated {migrated: MigrationStrategy::NewName { old_channel }
+            } if old_channel == &b.name)
+            })
+        };
+
+        if !equal_name && !migrated_into(self, other) && !migrated_into(other, self) {
             return false;
         }
 

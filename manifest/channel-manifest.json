@@ -287,6 +287,13 @@
     },
     {
       "name": "0.13.3",
+      "tags": [
+        {
+          "migration": {
+            "old_channel": "0.20.3"
+          }
+        }
+      ],
       "components": [
         {
           "name": "core",

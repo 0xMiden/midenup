@@ -137,7 +137,15 @@ fn update_channel(
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let mut channel_to_install = upstream_channel.clone();
+    let mut channel_to_install = {
+        let mut channel_to_install = upstream_channel.clone();
+        if let Some(new_channel) = upstream_channel.migrated_into() {
+            channel_to_install.name = new_channel.clone();
+            channel_to_install
+        } else {
+            channel_to_install
+        }
+    };
 
     let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
 
