@@ -38,18 +38,11 @@ cargo install midenup && midenup init
 > Until this crate has been published to crates.io, it is only possible to
 > install using `cargo install --path .` or `cargo install --git <repo_uri>`.
 
-The `midenup init` command initializes the `$MIDENUP_HOME` directory, and symlinks `midenup` to `$MIDENUP_HOME/bin/miden` so that all of the executable Miden components can be accessed using the `miden` command.
-
-You must also ensure `$MIDENUP_HOME/bin` is added to your shell `$PATH`. You can obtain the current value of `$MIDENUP_HOME` using `midenup show home` if you don't set it explicitly. For example, you might have something like this in your shell profile (assuming a `sh`-like shell):
-
-```
-export MIDENUP_HOME=$XDG_DATA_DIR/midenup
-export PATH=${MIDENUP_HOME}/bin:$PATH
-```
+The `midenup init` command initializes the `$MIDENUP_HOME` directory, and creates a `miden` symlink in `$CARGO_HOME/bin` (default `~/.cargo/bin`) pointing to the `midenup` executable. Since Rust users typically already have `$CARGO_HOME/bin` in their PATH, the `miden` command should be available immediately.
 
 > [!WARNING]
-> If you forget to do the step above, some functionality will not work as
-> expected!
+> If `miden` is not found after running `midenup init`, ensure `$CARGO_HOME/bin`
+> is in your PATH.
 
 You are now ready to install your first toolchain!
 

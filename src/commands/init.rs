@@ -1,6 +1,22 @@
+use std::path::PathBuf;
+
 use anyhow::Context;
 
 use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
+
+/// Get the user's cargo bin directory. If the user has '$CARGO_HOME/bin' set,
+/// then use it. If not, fallback to '$HOME/.cargo/bin'.
+/// This relies on the behavior described here:
+/// https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-reads
+fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
+    if let Some(cargo_home) = std::env::var_os("CARGO_HOME") {
+        return Ok(PathBuf::from(cargo_home).join("bin"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        return Ok(home.join(".cargo").join("bin"));
+    }
+    anyhow::bail!("Could not determine cargo bin directory. Set CARGO_HOME or HOME.")
+}
 
 /// This functions bootstrap the `midenup` environment (creates basic directory
 /// structure, creates the miden executable symlink, etc.), if not already
@@ -12,8 +28,6 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 /// The following is a sketch of the directory tree and contents
 ///
 /// $MIDENUP_HOME
-/// |- bin/
-/// | |- miden --> $CARGO_INSTALL_DIR/midenup
 /// |- opt/
 /// | |- symlinks
 /// |- toolchains
@@ -24,6 +38,9 @@ use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
 /// | | | |- std.masp
 /// |- config.toml
 /// |- manifest.json
+///
+/// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing
+/// to the midenup executable.
 pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     let mut already_initialized = true;
 
@@ -45,18 +62,17 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         already_initialized = false;
     }
 
-    let bin_dir = config.midenup_home.join("bin");
-    if !bin_dir.exists() {
-        std::fs::create_dir_all(&bin_dir).with_context(|| {
-            format!("failed to initialize MIDENUP_HOME subdirectory: '{}'", bin_dir.display())
+    // Write the symlink for `miden` to $CARGO_HOME/bin
+    let cargo_bin = cargo_bin_dir()?;
+    if !cargo_bin.exists() {
+        // In most cases, this directory should already directory
+        std::fs::create_dir_all(&cargo_bin).with_context(|| {
+            format!("failed to create cargo bin directory: '{}'", cargo_bin.display())
         })?;
-        already_initialized = false;
     }
-
-    // Write the symlink for `miden` to $MIDENUP_HOME/bin
     let current_exe =
         std::env::current_exe().expect("unable to get location of current executable");
-    let miden_exe = bin_dir.join("miden");
+    let miden_exe = cargo_bin.join("miden");
     if !miden_exe.exists() {
         utils::fs::symlink(&miden_exe, &current_exe)?;
         already_initialized = false;
@@ -99,14 +115,19 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
 
         println!(
             "
-Could not find `miden` executable in the system's PATH. To enable it, add midenup's bin directory to your system's PATH. 
+Could not find `miden` executable in the system's PATH.
+
+The `miden` symlink was placed in $CARGO_HOME/bin ({cargo_bin_display}), which should already be \
+in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in your PATH.
+
+You may also need to add midenup's opt directory for toolchain components:
 
 export MIDENUP_HOME='{midenup_home_dir}/midenup'
-export PATH=${{MIDENUP_HOME}}/bin:$PATH
 export PATH=${{MIDENUP_HOME}}/opt:$PATH
 
 To your shell's profile file.
-"
+",
+            cargo_bin_display = cargo_bin.display(),
         );
     }
 
