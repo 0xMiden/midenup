@@ -1,4 +1,4 @@
-use std::{ffi::OsString, string::ToString};
+use std::{ffi::OsString, fmt::Display, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
@@ -50,6 +50,18 @@ struct ExecutionEnvironment<'a> {
 
 enum EnvironmentError {
     UnkownArgument(String),
+    LibraryAsExecutable(String),
+    AliasOnly(String),
+}
+
+impl Display for EnvironmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            EnvironmentError::UnkownArgument(err) => write!(f, "{err}"),
+            EnvironmentError::LibraryAsExecutable(err) => write!(f, "{err}"),
+            EnvironmentError::AliasOnly(err) => write!(f, "{err}"),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -93,9 +105,9 @@ impl<'a> ToolchainEnvironment<'a> {
     /// Parses the user's input and returns the required ExecutionEnvironment to
     /// execute the requested command.
     fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
-        let (_, active_channel_type) = self.get_active_channel();
+        // let (_, active_channel_type) = self.get_active_channel();
 
-        let (channel, argument) = [
+        [
             (self.active_channel.as_ref() , ChannelType::Active),
             (Some(self.installed_channel), ChannelType::Installed),
         ]
@@ -106,28 +118,38 @@ impl<'a> ToolchainEnvironment<'a> {
         .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type, ch)))
         .find_map(|(comp, ch_type, ch)| {
             if let Some(associated_command) = comp.aliases.get(&argument) {
-                Some((ch, (MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type))
-                )
+                Some(Ok((ch, (MidenArgument::Alias(comp.clone(), associated_command.to_owned()), ch_type))))
             } else if comp.name == argument {
-                Some((ch, (MidenArgument::Component(comp.clone()), ch_type))
-                )
+                match comp.get_installed_file() {
+                    InstalledFile::Executable { alias_only: false, binary_name: _ } => {
+                        Some(Ok((ch, (MidenArgument::Component(comp.clone()), ch_type))))
+                    },
+                    InstalledFile::Executable { alias_only: true, binary_name: _ } => {
+                        let aliases = comp.aliases.keys().map(|alias| format!("'{}'", alias)).collect::<Vec<_>>().join(", ");
+                        Some(Err(EnvironmentError::AliasOnly(format!("'{}' is not intended to be called via 'miden', but rather by its aliases: {aliases}", comp.name))))
+                    },
+                    InstalledFile::Library { library_name, library_struct: _ } => {
+                        Some(Err(EnvironmentError::LibraryAsExecutable(
+                            format!("'{}' installs the {} library. It is not intended to be executed as a binary.", comp.name, library_name))))
+                    },
+                }
             } else {
                 None
             }
         })
-        .inspect(|(_, resolution)| {
-            if let Some(warning_message) = match (resolution, active_channel_type) {
+        .inspect(|resolution| {
+            if let Some(warning_message) = match resolution {
                 // We only display an eror message if a user tried to access a
                 // component that was available via the installed channel while
                 // having an active channel that was missing said component.
-                ((MidenArgument::Alias(comp, _ ), ChannelType::Installed), ChannelType::Active) => Some(format!(
+                Ok((_, (MidenArgument::Alias(comp, _ ), ChannelType::Installed))) => Some(format!(
                     "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     argument,
                     comp.name,
 
                 )),
-                ((MidenArgument::Component(comp), ChannelType::Installed), ChannelType::Active) => Some(format!(
+                Ok((_, (MidenArgument::Component(comp), ChannelType::Installed))) => Some(format!(
                     "{}: {} is installed, but it is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     comp.name,
@@ -139,10 +161,8 @@ impl<'a> ToolchainEnvironment<'a> {
             }
         }
         )
-        .map(|(ch, (argument, _))| (ch, argument))
-        .ok_or(EnvironmentError::UnkownArgument(argument))?;
-
-        Ok(ExecutionEnvironment { argument, active_channel: channel })
+        .unwrap_or(Err(EnvironmentError::UnkownArgument(format!("Failed to resolve '{}': Neither known alias or component.", argument))))
+        .map(|(channel, (argument, _))| Ok(ExecutionEnvironment { argument, active_channel: channel }))?
     }
 
     fn get_executables_display(&self) -> String {
@@ -150,7 +170,12 @@ impl<'a> ToolchainEnvironment<'a> {
             .0
             .components
             .iter()
-            .filter(|c| matches!(c.get_installed_file(), InstalledFile::Executable { .. }))
+            .filter(|c| {
+                matches!(
+                    c.get_installed_file(),
+                    InstalledFile::Executable { binary_name: _, alias_only: false }
+                )
+            })
             .map(|c| format!("  {}\n", c.name.bold()))
             .collect::<String>()
     }
@@ -330,13 +355,13 @@ For more information, try 'miden help'.
 
                     (command, args, active_channel)
                 },
-                Err(EnvironmentError::UnkownArgument(argument)) => {
+                Err(err) => {
                     let help_message = toolchain_help(&toolchain_environment);
                     let err_msg = format!(
-                        "Failed to resolve '{}': Neither known alias or component.
+                        "{}
 
 {}",
-                        argument, help_message
+                        err, help_message
                     );
                     bail!(err_msg);
                 },

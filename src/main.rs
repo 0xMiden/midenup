@@ -1152,8 +1152,14 @@ Error: {}",
 
         // Verify each executable component is accessible and runnable
         for component in &stable_channel.components {
+            let component_type = component.get_installed_file();
             // Skip libraries
-            if matches!(component.get_installed_file(), InstalledFile::Library { .. }) {
+            if matches!(component_type, InstalledFile::Library { .. }) {
+                continue;
+            }
+
+            // Skip components not meant to be executed directly
+            if matches!(component_type, InstalledFile::Executable { alias_only: true, .. }) {
                 continue;
             }
 
