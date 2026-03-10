@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Context;
 
-use crate::{Config, DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
 
 /// Get the user's cargo bin directory. If the user has '$CARGO_HOME/bin' set,
 /// then use it. If not, fallback to '$HOME/.cargo/bin'.

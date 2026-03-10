@@ -11,8 +11,8 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config,
     artifact::{Artifacts, TargetTriple},
+    config::Config,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},

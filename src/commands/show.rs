@@ -2,7 +2,7 @@ use clap::Subcommand;
 use colored::Colorize;
 
 use crate::{
-    Config,
+    config::Config,
     manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
 };

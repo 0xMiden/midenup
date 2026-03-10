@@ -4,10 +4,11 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, InstallationOptions,
     channel::{Channel, UserChannel},
     commands,
+    config::Config,
     manifest::Manifest,
+    options::InstallationOptions,
 };
 
 /// Represents a `miden-toolchain.toml` file. These file contains the desired
