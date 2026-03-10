@@ -94,7 +94,7 @@ midenup install stable
             let mut channels_to_update = Vec::new();
             for local_channel in local_manifest.get_channels() {
                 let upstream_channel =
-                    config.manifest.get_channels().find(|up_c| up_c.name == local_channel.name);
+                    config.manifest.get_channels().find(|up_c| *up_c == local_channel);
                 let Some(upstream_channel) = upstream_channel else {
                     // NOTE: A bit of an edge case. If the channel is present in
                     // the local manifest but not in upstream, then it probably
