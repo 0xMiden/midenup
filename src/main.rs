@@ -11,7 +11,7 @@ mod version;
 
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand, ValueEnum};
 
 pub use self::config::Config;
@@ -1104,5 +1104,65 @@ Error: {}",
         // After install is executed, the local manifest should be present
         let manifest = midenup_home.join("manifest").with_extension("json");
         assert!(manifest.exists());
+    }
+
+    /// Integration test to check that migration works correctly:
+    /// - Updating a toolchain with a migration tag installs into the NEW name directory and
+    ///    removes the OLD directory.
+    #[test]
+    fn migration_test() {
+        let test_name = "migration_test";
+        let test_env = environment_setup(test_name);
+        let tmp_home = test_env.midenup_dir;
+        let midenup_home = tmp_home.join("midenup");
+        let toolchain_dir = midenup_home.join("toolchains");
+
+        // Load manifest 1 (channel "0.20.3", no migration tag)
+        let manifest: &str =
+            full_path_manifest!("tests/data/migration_test/channel-manifest-1.json");
+        let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
+
+        // Initialize midenup
+        let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to initialize midenup");
+
+        // Install stable (0.20.3)
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // Check that binaries are installed in the bin directory
+        assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-vm").exists());
+        assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-client").exists());
+        // Check that libraries are installed in the lib directory
+        assert!(toolchain_dir.join("0.20.3").join("lib").join("core.masp").exists());
+
+        // Swap to manifest 2 (channel "0.13.0" with migration from "0.20.3")
+        let manifest: &str =
+            full_path_manifest!("tests/data/migration_test/channel-manifest-2.json");
+        let (_, config) = test_setup(&midenup_home, manifest);
+
+        // Perform global update
+        let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
+        let Behavior::Midenup { command, .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to perform global update");
+
+        // Check 1: Components installed in 0.13.0 directory
+        assert!(toolchain_dir.join("0.13.0").exists());
+        assert!(toolchain_dir.join("0.13.0").join("installation-successful").exists());
+
+        // Check 2: The 0.20.3 directory has been entirely deleted
+        assert!(!toolchain_dir.join("0.20.3").exists());
     }
 }
