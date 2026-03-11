@@ -146,7 +146,8 @@ fn update_channel(
         return Ok(());
     }
 
-    let mut path_warning_displayed = false;
+    display_warnings(&comp_to_delete_with_motive, options);
+
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
     for (component, motive) in comp_to_delete_with_motive {
@@ -170,36 +171,17 @@ fn update_channel(
                     // Since uninstalling a component from the filesystem is
                     // potentially irreversible, we take special precautions before
                     // uninstalling them.
-                    Authority::Path { path, crate_name, .. } => {
-                        if !path_warning_displayed {
-                            println!(
-                                "{}: The following elements are installed from a specific path in the filesystem.",
-                                "WARNING".yellow().bold(),
-                            );
-                            if matches!(options.path_update, PathUpdate::Off) {
-                                println!(
-                                "
-To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
-Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
-                            );
+                    Authority::Path { crate_name, .. } => match options.path_update {
+                        PathUpdate::Interactive => {
+                            match handle_path_uninstall_interactive(crate_name)? {
+                                InteractiveResult::Cancel => return Ok(()),
+                                InteractiveResult::ComponentUpdate(update_decision) => {
+                                    update_decision
+                                },
                             }
-                            path_warning_displayed = true;
-                        }
-
-                        println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
-
-                        match options.path_update {
-                            PathUpdate::Interactive => {
-                                match handle_path_uninstall_interactive(crate_name)? {
-                                    InteractiveResult::Cancel => return Ok(()),
-                                    InteractiveResult::ComponentUpdate(update_decision) => {
-                                        update_decision
-                                    },
-                                }
-                            },
-                            PathUpdate::All => Some(crate_name),
-                            PathUpdate::Off => None,
-                        }
+                        },
+                        PathUpdate::All => Some(crate_name),
+                        PathUpdate::Off => None,
                     },
                 };
 
@@ -316,7 +298,7 @@ fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<Inter
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum UpdateMotive {
     /// This component was added to the toolchain and wasn't there before.
     Added,
@@ -388,3 +370,37 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
 
     Vec::from_iter(components)
 }
+
+fn display_warnings(components_with_motive: &[(Component, UpdateMotive)], options: &UpdateOptions) {
+    let components_with_motive = components_with_motive.iter();
+
+    // Warning for components installed from a PATH.
+    {
+        let components_from_path: Vec<String> = components_with_motive
+            .clone()
+            .filter_map(|(comp, _)| match &comp.version {
+                Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
+                _ => None,
+            })
+            .map(|(path, crate_name)| {
+                format!("- {} is installed from {}.\n", crate_name.bold(), path.display(),)
+            })
+            .collect();
+        if !components_from_path.is_empty() {
+            println!(
+                "{}: The following elements are installed from a specific path in the filesystem.",
+                "WARNING".yellow().bold(),
+            );
+
+            if matches!(options.path_update, PathUpdate::Off) {
+                println!(
+                                "
+To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
+Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
+                            );
+            }
+            for component_message in components_from_path {
+                println!("{}", component_message);
+            }
+        }
+    }
