@@ -270,21 +270,14 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
             };
         }
 
+        commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
+
         // After removing the components, we check if we can remove the
         // toolchain entirely.
         let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
         if is_entirely_removed {
-            // We now remove the toolchain directory with all the remaining files.
-            std::fs::remove_dir_all(&toolchain_dir).context(format!(
-                "midenup failed to delete the toolchain directory.
-         However, manual removal should be safe. The toolchain's PATH is the following:
-{}
-",
-                toolchain_dir.display()
-            ))?;
+            commands::uninstall(config, local_channel, local_manifest)?;
         };
-
-        commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
     }
     Ok(())
 }

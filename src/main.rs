@@ -204,7 +204,12 @@ impl Commands {
                 };
                 commands::install(config, channel, local_manifest, options)
             },
-            Self::Uninstall { channel, .. } => commands::uninstall(config, channel, local_manifest),
+            Self::Uninstall { channel, .. } => {
+                let Some(channel) = config.manifest.get_channel(channel) else {
+                    bail!("channel '{}' doesn't exist or is unavailable", channel);
+                };
+                commands::uninstall(config, channel, local_manifest)
+            },
             Self::Update { channel, options } => {
                 commands::update(config, channel.as_ref(), local_manifest, options)
             },
