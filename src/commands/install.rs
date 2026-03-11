@@ -3,11 +3,12 @@ use std::{io::Write, path::Path, time::SystemTime};
 use anyhow::{Context, bail};
 
 use crate::{
-    Config, InstallationOptions,
     artifact::TargetTriple,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
+    config::Config,
     manifest::Manifest,
+    options::InstallationOptions,
     utils,
     version::{Authority, GitTarget},
 };
@@ -485,7 +486,7 @@ fn main() {
             let mut executables = Vec::new();
 
             let exe_name = component.get_installed_file();
-            if let InstalledFile::Executable { ref binary_name } = exe_name {
+            if let InstalledFile::Executable { ref binary_name, alias_only: _ } = exe_name {
                 let miden_display = component.get_symlink_name();
                 executables.push((miden_display, binary_name.clone()));
             }

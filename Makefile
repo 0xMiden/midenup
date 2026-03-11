@@ -35,6 +35,10 @@ integration-test: ## Run all integration tests
 
 # --- building ------------------------------------------------------------------------------------
 
+.PHONY: check
+check: ## Perform a check build with default parameters
+	cargo check
+
 .PHONY: build
 build: ## Builds with default parameters
 	cargo build

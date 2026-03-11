@@ -1,30 +1,15 @@
-mod artifact;
-mod channel;
-mod commands;
-mod config;
-mod external;
-mod manifest;
-mod miden_wrapper;
-mod toolchain;
-mod utils;
-mod version;
-
 use std::{ffi::OsString, path::PathBuf};
 
-use anyhow::{anyhow, bail, Context};
-use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand, ValueEnum};
+use anyhow::{Context, anyhow, bail};
+use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
+use midenup::{channel, commands, config, manifest, miden_wrapper, options};
 
 pub use self::config::Config;
-use self::{
-    channel::UserChannel,
-    manifest::{Manifest, ManifestError},
-    miden_wrapper::miden_wrapper,
-};
 
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
 #[command(multicall(true))]
-#[command(author, version, about = "The Miden toolchain installer", long_about = None)]
+#[command(author, about = "The Miden toolchain installer", long_about = None)]
 pub struct Midenup {
     #[command(subcommand)]
     behavior: Behavior,
@@ -37,71 +22,11 @@ enum Behavior {
         #[command(flatten)]
         config: GlobalArgs,
         #[command(subcommand)]
-        command: Commands,
+        command: Option<Commands>,
     },
     /// Invoke components of the current Miden toolchain
     #[command(external_subcommand)]
     Miden(Vec<OsString>),
-}
-
-/// Optional installation settings.
-#[derive(Debug, Parser, Clone, Copy)]
-struct InstallationOptions {
-    #[clap(long, short, default_value = "false")]
-    /// Displays the entirety of cargo's output when performing installations.
-    verbose: bool,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for InstallationOptions {
-    fn default() -> Self {
-        Self { verbose: false }
-    }
-}
-
-/// Optional update settings.
-#[derive(Debug, Parser, Clone, Copy)]
-struct UpdateOptions {
-    #[clap(long, short, default_value = "false")]
-    /// Displays the entirety of cargo's output when performing installations.
-    verbose: bool,
-
-    /// Determines how midenup will handle updates for components installed from a path
-    #[clap(value_enum, short, long, default_value = "off")]
-    path_update: PathUpdate,
-}
-
-#[derive(Default, Debug, Parser, Clone, Copy, ValueEnum)]
-enum PathUpdate {
-    #[default]
-    Off,
-    All,
-    Interactive,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for UpdateOptions {
-    fn default() -> Self {
-        Self {
-            verbose: false,
-            path_update: PathUpdate::default(),
-        }
-    }
-}
-
-impl From<InstallationOptions> for UpdateOptions {
-    fn from(value: InstallationOptions) -> Self {
-        UpdateOptions {
-            verbose: value.verbose,
-            ..Default::default()
-        }
-    }
-}
-
-impl From<UpdateOptions> for InstallationOptions {
-    fn from(value: UpdateOptions) -> Self {
-        InstallationOptions { verbose: value.verbose }
-    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -116,16 +41,16 @@ enum Commands {
     Install {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
 
         #[clap(flatten)]
-        options: InstallationOptions,
+        options: options::InstallationOptions,
     },
     /// Uninstall a Miden toolchain
     Uninstall {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
     },
     /// Show information about the midenup environment
     #[command(subcommand)]
@@ -135,7 +60,7 @@ enum Commands {
     Set {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
     },
     /// Sets the system's default toolchain.
     ///
@@ -145,7 +70,7 @@ enum Commands {
     Override {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: UserChannel,
+        channel: channel::UserChannel,
     },
     /// Update your installed Miden toolchains.
     Update {
@@ -156,14 +81,12 @@ enum Commands {
         ///   that to be stable.
         #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
-        channel: Option<UserChannel>,
+        channel: Option<channel::UserChannel>,
 
         #[clap(flatten)]
-        options: UpdateOptions,
+        options: options::UpdateOptions,
     },
 }
-
-const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 
 const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 /// Global configuration options for `midenup`
@@ -191,11 +114,22 @@ struct GlobalArgs {
     /// Display verbose output, mainly used during install.
     #[clap(short, long, action, default_value_t = false)]
     verbose: bool,
+
+    // This flag needed to be implemented manually in order to use the
+    // `display_version` function and circumvent `clap`'s default `--version`
+    // output.
+    /// Displays `midenup`'s version information.
+    #[clap(short = 'V', long, action, default_value_t = false)]
+    version: bool,
 }
 
 impl Commands {
     /// Execute the requested subcommand
-    fn execute(&self, config: &Config, local_manifest: &mut Manifest) -> anyhow::Result<()> {
+    fn execute(
+        &self,
+        config: &config::Config,
+        local_manifest: &mut manifest::Manifest,
+    ) -> anyhow::Result<()> {
         match &self {
             Self::Init => commands::init(config),
             Self::Install { channel, options } => {
@@ -248,7 +182,7 @@ fn main() -> anyhow::Result<()> {
 
             let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                 .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
-            Config::init(midenup_home, manifest_uri, false)?
+            config::Config::init(midenup_home, manifest_uri, false)?
         },
         Behavior::Midenup { ref config, .. } => {
             let midenup_home = config
@@ -273,7 +207,7 @@ fn main() -> anyhow::Result<()> {
                             )
                 )?;
 
-            Config::init(midenup_home, &config.manifest_uri, config.debug)?
+            config::Config::init(midenup_home, &config.manifest_uri, config.debug)?
         },
     };
 
@@ -284,18 +218,30 @@ fn main() -> anyhow::Result<()> {
             "file://{}",
             local_manifest_path.to_str().context("Couldn't convert miden directory")?,
         );
-        match Manifest::load_from(local_manifest_uri) {
+        match manifest::Manifest::load_from(local_manifest_uri) {
             Ok(manifest) => Ok(manifest),
-            Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
+            Err(manifest::ManifestError::Empty | manifest::ManifestError::Missing(_)) => {
+                Ok(manifest::Manifest::default())
+            },
             Err(err) => Err(err),
         }
         .context("Error parsing local manifest")
     }?;
 
     let result = match cli.behavior {
-        Behavior::Miden(argv) => miden_wrapper(argv, &config, &mut local_manifest),
-        Behavior::Midenup { command: subcommand, .. } => {
-            subcommand.execute(&config, &mut local_manifest)
+        Behavior::Miden(argv) => miden_wrapper::miden_wrapper(argv, &config, &mut local_manifest),
+        Behavior::Midenup {
+            config: ref global_args,
+            command: subcommand,
+        } => {
+            if global_args.version {
+                println!("{}", miden_wrapper::display_version(&config));
+                Ok(())
+            } else if let Some(subcommand) = subcommand {
+                subcommand.execute(&config, &mut local_manifest)
+            } else {
+                bail!("no subcommand provided. Run `midenup --help` for usage information.")
+            }
         },
     };
 
@@ -327,20 +273,19 @@ mod tests {
 
     use std::{fs::OpenOptions, path::Path};
 
-    type LocalManifest = Manifest;
+    type LocalManifest = manifest::Manifest;
+    use midenup::{
+        channel::{self, InstalledFile},
+        config, manifest, miden_wrapper, utils, version,
+    };
     use tempdir::TempDir;
 
-    use crate::{
-        channel::*,
-        manifest::*,
-        version::{Authority, GitTarget},
-        *,
-    };
+    use crate::*;
 
     /// Simple auxiliary function to setup a midneup directory environment in
     /// tests.
     /// Additionally, it changes the PWD to a new temp dir to isolate test execution.
-    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, Config) {
+    fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, config::Config) {
         let local_manifest = {
             let local_manifest_path = midenup_home.join("manifest").with_extension("json");
             let local_manifest_uri = format!(
@@ -348,9 +293,11 @@ mod tests {
                 local_manifest_path.to_str().expect("Couldn't convert miden directory"),
             );
 
-            match Manifest::load_from(local_manifest_uri) {
+            match manifest::Manifest::load_from(local_manifest_uri) {
                 Ok(manifest) => Ok(manifest),
-                Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
+                Err(manifest::ManifestError::Empty | manifest::ManifestError::Missing(_)) => {
+                    Ok(manifest::Manifest::default())
+                },
                 Err(err) => Err(err),
             }
             .unwrap_or_else(|_| {
@@ -358,7 +305,7 @@ mod tests {
             })
         };
 
-        let config = Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
+        let config = config::Config::init(midenup_home.to_path_buf().clone(), manifest_uri, true)
             .unwrap_or_else(|err| {
                 panic!(
                     "Failed to construct config from manifest {} and midenup_home at {}.
@@ -378,6 +325,8 @@ Error: {}",
         #[allow(dead_code)]
         tmp_dir: TempDir,
         midenup_dir: PathBuf,
+        #[allow(dead_code)]
+        cargo_home: PathBuf,
         present_working_dir: PathBuf,
     }
 
@@ -389,7 +338,15 @@ Error: {}",
 
         let tmp_midenup_home = tmp_dir.path().join("midenup");
 
+        let tmp_cargo_home = tmp_dir.path().join("cargo");
+
         std::fs::create_dir(&tmp_present_working_directory).unwrap();
+
+        // Set CARGO_HOME in order to not use the system's default `.cargo/bin`
+        // directory.
+        unsafe {
+            std::env::set_var("CARGO_HOME", &tmp_cargo_home);
+        }
 
         std::env::set_current_dir(&tmp_present_working_directory).unwrap_or_else(|err| {
             panic!(
@@ -401,6 +358,7 @@ Error: {}",
         TestEnvironment {
             tmp_dir,
             midenup_dir: tmp_midenup_home,
+            cargo_home: tmp_cargo_home,
             present_working_dir: tmp_present_working_directory,
         }
     }
@@ -414,13 +372,14 @@ Error: {}",
 
     #[test]
     /// Integration test to check that installing and uninstalling works. Tries
-    /// to install a toolchain under a [[UserChannel]] (via the `stable` alias)
+    /// to install a toolchain under a [[channel::UserChannel]] (via the `stable` alias)
     /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
         let test_name = "integration_install_uninstall_test";
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
+        let cargo_home = test_env.cargo_home;
         let midenup_home = tmp_home.join("midenup");
 
         const FILE: &str = full_path_manifest!(
@@ -431,19 +390,20 @@ Error: {}",
 
         // We begin by initializing the midenup directory
         let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
 
         // We check that the basic midenup directory structure is present
         assert!(midenup_home.exists());
-        assert!(midenup_home.join("bin").exists());
         assert!(toolchain_dir.exists());
+        // The miden symlink should be in $CARGO_HOME/bin
+        assert!(cargo_home.join("bin").join("miden").exists());
 
         // Now, we install stable
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
 
@@ -466,7 +426,7 @@ Error: {}",
 
         // Now we install a separate toolchain.
         let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -495,7 +455,7 @@ Error: {}",
 
         // Now, we'll uninstall 0.16.0.
         let command = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
 
@@ -531,6 +491,7 @@ Error: {}",
         let test_env = environment_setup(test_name);
 
         let tmp_home = test_env.midenup_dir;
+        let cargo_home = test_env.cargo_home;
         let midenup_home = tmp_home.join("midenup");
 
         // SIDENOTE: This tests uses a toolchain with version number 0.14.0. This
@@ -559,8 +520,9 @@ Error: {}",
 
         // midenup initialized check
         assert!(midenup_home.exists());
-        assert!(midenup_home.join("bin").exists());
         assert!(toolchain_dir.exists());
+        // The miden symlink should be in $CARGO_HOME/bin
+        assert!(cargo_home.join("bin").join("miden").exists());
 
         // Stable toolchain installed check
         let latest_toolchain = toolchain_dir.join("0.16.0");
@@ -576,7 +538,7 @@ Error: {}",
         // Now, we set a global default toolchain. This should change the
         // current active toolchain to 0.15.0.
         let command = Midenup::try_parse_from(["midenup", "override", "0.15.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -601,7 +563,7 @@ Error: {}",
         // By default, the active toolchain is the latest stable version. In the
         // case of the manifest present in FILE, that is version 0.16.0.
         let command = Midenup::try_parse_from(["midenup", "set", "0.14.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -662,7 +624,7 @@ Error: {}",
         // 0.16.0 as the active one on the current project. Since the toolchain
         // is not installed, the component list is left empty.
         let command = Midenup::try_parse_from(["midenup", "set", "0.16.0"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -719,7 +681,7 @@ Error: {}",
         // Now, we try updating the installed toolchain. This should only update
         // the installed components and ignore the rest.
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -730,7 +692,7 @@ Error: {}",
         // Finally, we attempt to install the entire stable toolchain, which
         // should install the remaining components.
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -761,7 +723,7 @@ Error: {}",
 
         // We begin by initializing the midenup directory
         let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -770,7 +732,7 @@ Error: {}",
 
         // Now, we install stable. That is going to be version 0.14.0
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -785,7 +747,7 @@ Error: {}",
         // Now, we update stable. The stable symlink should point to
         // version 0.15.0
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to update stable");
@@ -825,7 +787,7 @@ Error: {}",
         let (_, config) = test_setup(&midenup_home, manifest);
 
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -848,13 +810,13 @@ Error: {}",
         assert!(!toolchain_0_15_0.join("lib").join("base.masp").exists());
 
         let std_version = &local_manifest
-            .get_channel(&UserChannel::Version(semver::Version::new(0, 14, 0)))
+            .get_channel(&channel::UserChannel::Version(semver::Version::new(0, 14, 0)))
             .expect("Couldn't find toolchain 0.14.0 in local manifest")
             .get_component("std")
             .expect("Couldn't find std library despite being listed in manifest.")
             .version;
 
-        matches!(std_version, Authority::Git { .. });
+        matches!(std_version, version::Authority::Git { .. });
 
         let toolchain_0_14_0 = toolchain_dir.join("0.14.0");
         let vm_exe_v14 = toolchain_0_14_0.join("bin").join("miden");
@@ -866,7 +828,7 @@ Error: {}",
         // Now, we use the same manifest that we used previously to update the
         // current stable toolchain.
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command
@@ -898,7 +860,7 @@ Error: {}",
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
 
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -917,7 +879,7 @@ Error: {}",
 
         // We test if the in-memory representation of the local manifest
         // contains the stable alias
-        assert_eq!(stable_channel.alias, Some(ChannelAlias::Stable));
+        assert_eq!(stable_channel.alias, Some(channel::ChannelAlias::Stable));
 
         // We read the filesystem again, to check that the "stable" alias was
         // correclty saved
@@ -929,13 +891,13 @@ Error: {}",
                     "ERROR: The local_manifest in the filesystem has no alias, when it should have stable alias"
                 )
                 .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
-            &ChannelAlias::Stable
+            &channel::ChannelAlias::Stable
         );
     }
 
     #[test]
     /// Validates that midenup manages to install components with [[Authority]]s
-    /// different than [[Authority::Cargo]]. Besides installing these components,
+    /// different than [[version::Authority::Cargo]]. Besides installing these components,
     /// we verify that midenup manages to update them when needed.
     fn integration_install_from_non_cargo() {
         let test_name = "integration_install_from_non_cargo";
@@ -952,7 +914,7 @@ Error: {}",
         };
         let midenup_home = test_env.midenup_dir;
 
-        // Initial manifest with a client tracked by Authority::Git::Revision
+        // Initial manifest with a client tracked by version::Authority::Git::Revision
         let manifest: &str = full_path_manifest!(
             "tests/data/integration_install_from_non_cargo/channel-manifest-1.json"
         );
@@ -960,7 +922,7 @@ Error: {}",
 
         // We install stable
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -973,7 +935,7 @@ Error: {}",
 
             let vm_from_path = stable_channel.get_component("vm").unwrap();
             let last_modification = match vm_from_path.version {
-                Authority::Path { last_modification, .. } => last_modification.unwrap(),
+                version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
                     "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
                 ),
@@ -981,7 +943,10 @@ Error: {}",
 
             let client_from_git = stable_channel.get_component("client").unwrap();
             let revision = match &client_from_git.version {
-                Authority::Git { target: GitTarget::Revision { hash }, .. } => hash.clone(),
+                version::Authority::Git {
+                    target: version::GitTarget::Revision { hash },
+                    ..
+                } => hash.clone(),
                 authority => panic!(
                     "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
                 ),
@@ -993,7 +958,7 @@ Error: {}",
         // We call for an update, to check that midenup recognizes that no
         // component needs to be updated.
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to update");
@@ -1005,7 +970,7 @@ Error: {}",
 
             let vm_from_path = stable_channel.get_component("vm").unwrap();
             let last_modification = match vm_from_path.version {
-                Authority::Path { last_modification, .. } => last_modification.unwrap(),
+                version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
                     "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
                 ),
@@ -1013,7 +978,10 @@ Error: {}",
 
             let client_from_git = stable_channel.get_component("client").unwrap();
             let revision = match &client_from_git.version {
-                Authority::Git { target: GitTarget::Revision { hash }, .. } => hash.clone(),
+                version::Authority::Git {
+                    target: version::GitTarget::Revision { hash },
+                    ..
+                } => hash.clone(),
                 authority => panic!(
                     "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
                 ),
@@ -1045,7 +1013,7 @@ Error: {}",
         }
 
         let command = Midenup::try_parse_from(["midenup", "update", "--path-update=all"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to update");
@@ -1058,7 +1026,7 @@ Error: {}",
 
             let vm_from_path = stable_channel.get_component("vm").unwrap();
             let last_modification = match vm_from_path.version {
-                Authority::Path { last_modification, .. } => last_modification.unwrap(),
+                version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
                     "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
                 ),
@@ -1066,7 +1034,10 @@ Error: {}",
 
             let client_from_git = stable_channel.get_component("client").unwrap();
             let revision = match &client_from_git.version {
-                Authority::Git { target: GitTarget::Revision { hash }, .. } => hash.clone(),
+                version::Authority::Git {
+                    target: version::GitTarget::Revision { hash },
+                    ..
+                } => hash.clone(),
                 authority => panic!(
                     "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
                 ),
@@ -1097,7 +1068,7 @@ Error: {}",
         let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
 
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -1107,8 +1078,8 @@ Error: {}",
     }
 
     /// Integration test to check that migration works correctly:
-    /// - Updating a toolchain with a migration tag installs into the NEW name directory and
-    ///    removes the OLD directory.
+    /// - Updating a toolchain with a migration tag installs into the NEW name directory and removes
+    ///   the OLD directory.
     #[test]
     fn migration_test() {
         let test_name = "migration_test";
@@ -1124,7 +1095,7 @@ Error: {}",
 
         // Initialize midenup
         let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command
@@ -1133,7 +1104,7 @@ Error: {}",
 
         // Install stable (0.20.3)
         let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
@@ -1151,7 +1122,7 @@ Error: {}",
 
         // Perform global update
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-        let Behavior::Midenup { command, .. } = command.behavior else {
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
         };
         command
@@ -1164,5 +1135,64 @@ Error: {}",
 
         // Check 2: The 0.20.3 directory has been entirely deleted
         assert!(!toolchain_dir.join("0.20.3").exists());
+    }
+
+    /// Validates that every component present in the stable toolchain from the
+    /// published manifest is able to be executed.
+    ///
+    /// This relies on every component respecting the --help flag, which is an
+    /// assumption we already make in the miden_wrapper.rs file. This stems from
+    /// the fact that the help command is generated automatically. See:
+    /// - https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag
+    #[test]
+    fn integration_test_components_are_runnable() {
+        let test_name = "integration_test_components";
+        let test_env = environment_setup(test_name);
+
+        let tmp_home = test_env.midenup_dir;
+        let midenup_home = tmp_home.join("midenup");
+
+        const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
+        let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+
+        // Install the latest stable toolchain
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
+            panic!("Expected Midenup behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        let stable_channel = local_manifest
+            .get_latest_stable()
+            .expect("No stable channel found after installing stable")
+            .clone();
+
+        println!("Installed: {}", stable_channel);
+
+        // Verify each executable component is accessible and runnable
+        for component in &stable_channel.components {
+            let component_type = component.get_installed_file();
+            // Skip libraries
+            if matches!(component_type, InstalledFile::Library { .. }) {
+                continue;
+            }
+
+            // Skip components not meant to be executed directly
+            if matches!(component_type, InstalledFile::Executable { alias_only: true, .. }) {
+                continue;
+            }
+
+            let argv: Vec<OsString> =
+                vec!["miden".into(), "help".into(), component.name.as_ref().into()];
+
+            miden_wrapper::miden_wrapper(argv, &config, &mut local_manifest).unwrap_or_else(
+                |err| {
+                    panic!(
+                        "Component '{}' is not runnable through the 'miden' interface: {}",
+                        component.name, err
+                    )
+                },
+            );
+        }
     }
 }

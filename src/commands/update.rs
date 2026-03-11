@@ -4,12 +4,13 @@ use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
-    Config, PathUpdate, UpdateOptions,
     channel::{
         Channel, Component, InstalledFile, MigrationStrategy, UserChannel, is_toolchain_deleted,
     },
     commands::{self, uninstall::uninstall_executable},
+    config::Config,
     manifest::Manifest,
+    options::{PathUpdate, UpdateOptions},
     version::Authority,
 };
 
