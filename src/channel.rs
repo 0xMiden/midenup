@@ -81,12 +81,10 @@ impl Display for InstallationMotive {
     }
 }
 impl Channel {
-    /// If this channel has a migration tag, returns the target channel name.
-    pub fn migrated_into(&self) -> Option<&semver::Version> {
+    /// If this channel has a migration tag, returns the migration strategy.
+    pub fn migrated_into(&self) -> Option<&MigrationStrategy> {
         self.tags.iter().find_map(|tag| match tag {
-            Tags::Migration {
-                migration: MigrationStrategy::NameChange { old_channel },
-            } => Some(old_channel),
+            Tags::Migration { migration } => Some(migration),
             _ => None,
         })
     }

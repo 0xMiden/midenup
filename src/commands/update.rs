@@ -5,7 +5,9 @@ use colored::Colorize;
 
 use crate::{
     Config, PathUpdate, UpdateOptions,
-    channel::{Channel, Component, InstalledFile, UserChannel, is_toolchain_deleted},
+    channel::{
+        Channel, Component, InstalledFile, MigrationStrategy, UserChannel, is_toolchain_deleted,
+    },
     commands::{self, uninstall::uninstall_executable},
     manifest::Manifest,
     version::Authority,
@@ -146,7 +148,7 @@ fn update_channel(
         return Ok(());
     }
 
-    display_warnings(&comp_to_delete_with_motive, options);
+    display_warnings(&comp_to_delete_with_motive, upstream_channel, options);
 
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
@@ -298,7 +300,7 @@ fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<Inter
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum UpdateMotive {
     /// This component was added to the toolchain and wasn't there before.
     Added,
@@ -307,7 +309,7 @@ pub enum UpdateMotive {
     /// A newer version was released.
     NewerVersion,
     /// The entire channel was migrated.
-    Migrated,
+    Migrated { strategy: MigrationStrategy },
 }
 /// This functions compares the Channel &older, with a newer channel [newer]
 /// and returns the list of [Components] that need to be updated.
@@ -351,15 +353,18 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
                 // be deleted; unless explicitely told otherwise by the users
                 // (for example in components which were compile from a path at
                 // a given time).
-                Some(new_component) if newer.migrated_into().is_some() => {
-                    Some((current_component, UpdateMotive::Migrated))
+                Some(new_component) => {
+                    if let Some(strategy) = newer.migrated_into() {
+                        Some((
+                            current_component,
+                            UpdateMotive::Migrated { strategy: strategy.clone() },
+                        ))
+                    } else if !current_component.is_up_to_date(new_component) {
+                        Some((current_component, UpdateMotive::NewerVersion))
+                    } else {
+                        None
+                    }
                 },
-                // We only want to update components that share the same name but
-                // differ in some other field.
-                Some(new_component) if !current_component.is_up_to_date(new_component) => {
-                    Some((current_component, UpdateMotive::NewerVersion))
-                },
-                _ => None,
             }
         });
 
@@ -371,7 +376,11 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
     Vec::from_iter(components)
 }
 
-fn display_warnings(components_with_motive: &[(Component, UpdateMotive)], options: &UpdateOptions) {
+fn display_warnings(
+    components_with_motive: &[(Component, UpdateMotive)],
+    newer: &Channel,
+    options: &UpdateOptions,
+) {
     let components_with_motive = components_with_motive.iter();
 
     // Warning for components installed from a PATH.
@@ -404,3 +413,29 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
             }
         }
     }
+
+    // Warning for migrated components
+    {
+        let migrated_components: Vec<String> = components_with_motive
+            .filter_map(|(component, motive)| match &motive {
+                UpdateMotive::Migrated { strategy } => Some((component, strategy)),
+                _ => None,
+            })
+            .map(|(component, strategy)| match strategy {
+                MigrationStrategy::NameChange { old_channel } => {
+                    format!("- {} from {} into {}", component.name, old_channel, newer)
+                },
+            })
+            .collect();
+        if !migrated_components.is_empty() {
+            println!(
+                "{}: The following elements are going to be migrated.",
+                "WARNING".yellow().bold(),
+            );
+
+            for component_message in migrated_components {
+                println!("{}", component_message);
+            }
+        }
+    }
+}
