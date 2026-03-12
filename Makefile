@@ -2,7 +2,7 @@
 
 .PHONY: clippy
 clippy: ## Runs Clippy with configs
-	cargo clippy -- -D warnings
+	cargo clippy --all --all-targets -- -D clippy::all -D warnings
 
 .PHONY: fix
 fix: ## Runs Fix with configs
