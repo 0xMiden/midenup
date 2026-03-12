@@ -16,31 +16,38 @@ on:
       - "manifest/**"
       - "docs/**"
 
+env:
+  # Set the new value when the cache grows too much and we hit the runner's disk space limit
+  # via https://github.com/rust-lang/docs.rs/pull/2433
+  RUST_CACHE_KEY: rust-cache-20260312
+
 jobs:
   build:
     name: build
-    # Run this job after the linter, so the cache is hot
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@main
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@v5
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
+          # Use a common cache for the basic compilation/formatter/clippy checks
+          shared-key: ${{ github.workflow }}-shared
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
           # Only update the cache on push onto the main branch. This strikes a nice balance between
           # cache hits and cache evictions (github has a 10GB cache limit).
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-      - name: build
+      - name: Build
         run: |
           rustup update --no-self-update
           make build-release
-
-      - name: Upload resulting executable
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: midenup_exe
           path: target/release/midenup
 
   install-stable:
-    name: install the stable toolchain via the CLI
+    name: Install the stable toolchain via the CLI
     needs: [build]
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
@@ -51,7 +58,7 @@ jobs:
         with:
           name: midenup_exe
           path: .
-      - name: Mark midenup it as executable
+      - name: Mark midenup as executable
         run: |
           chmod +x midenup
       - name: install stable
