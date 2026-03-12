@@ -39,9 +39,12 @@ impl ShowCommand {
                             )
                         },
                         ToolchainJustification::Override => {
-                            println!("This is because the system's default has been overriden. You can change to a different toolchain with:
+                            println!(
+                                "This is because the system's default has been overriden. You can \
+                                 change to a different toolchain with:
 midenup override
-")
+"
+                            )
                         },
                         ToolchainJustification::Default => {
                             println!("This is because not other toolchain was specified")

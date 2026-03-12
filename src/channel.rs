@@ -186,7 +186,8 @@ impl Channel {
         }
         if !components_not_found.is_empty() {
             println!(
-                "{}: Some elements present in the current Toolchain are not present in the upstream channel: {}",
+                "{}: Some elements present in the current Toolchain are not present in the \
+                 upstream channel: {}",
                 "WARNING".yellow().bold(),
                 self.name
             );
@@ -211,8 +212,8 @@ impl Channel {
             #[allow(clippy::single_match)]
             match toolchain_justification {
                 ToolchainJustification::MidenToolchainFile { path } => println!(
-                    "Check the `miden_toolchain.toml` file in {} to see if any \
-                         component is misspelled or got removed from upstream",
+                    "Check the `miden_toolchain.toml` file in {} to see if any component is \
+                     misspelled or got removed from upstream",
                     path.display()
                 ),
                 _ => (),
@@ -383,6 +384,7 @@ impl InstalledFile {
             InstalledFile::Library { library_struct, .. } => Some(library_struct),
         }
     }
+
     pub fn get_path_from(&self, toolchain_dir: &Path) -> PathBuf {
         match &self {
             exe @ InstalledFile::Executable { .. } => {
@@ -547,8 +549,8 @@ pub struct Component {
     /// For instance: `miden-vm`'s executable is stored as 'miden'. This field indicates which type
     /// of file the component will install.
     ///
-    /// IMPORTANT: If this field is missing from the manifest, then it means that the component will
-    /// install an executable that is named just like the crate. To access this value, use
+    /// IMPORTANT: If this field is missing from the manifest, then it means that the component
+    /// will install an executable that is named just like the crate. To access this value, use
     /// [`Component::get_installed_file`].
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -556,8 +558,8 @@ pub struct Component {
     installed_file: Option<InstalledFile>,
     /// A map that associates each alias to the corresponding command that needs to be executed.
     ///
-    /// NOTE: The list of commands that is resolved can have an "arbitrary" ordering: the executable
-    /// associated with this command is not forced to come in first.
+    /// NOTE: The list of commands that is resolved can have an "arbitrary" ordering: the
+    /// executable associated with this command is not forced to come in first.
     ///
     /// Here's an example aliases entry in a manifest.json:
     ///

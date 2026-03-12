@@ -87,7 +87,8 @@ midenup install stable
                 .manifest
                 .get_channel(&UserChannel::Version(version.clone()))
                 .context(format!(
-                    "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got removed."
+                    "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got \
+                     removed."
                 ))?;
 
             update_channel(config, &local_channel, upstream_channel, local_manifest, options)?
@@ -224,8 +225,7 @@ fn update_channel(
             // toolchain back to a valid state.
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
             Err(e) => bail!(format!(
-                "Couldn't delete installation complete indicator in: {}\
-             because of {e}",
+                "Couldn't delete installation complete indicator in: {}because of {e}",
                 &installation_indicator.display()
             )),
         }
@@ -401,10 +401,11 @@ fn display_warnings(
 
             if matches!(options.path_update, PathUpdate::Off) {
                 println!(
-                                "
+                    "
 To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
-Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
-                            );
+Alternatively, pass the '--path-update=interactive' flag to interactively select which \
+                     path-managed components to update.",
+                );
             }
             for component_message in components_from_path {
                 println!("{}", component_message);

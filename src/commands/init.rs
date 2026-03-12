@@ -123,7 +123,8 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
 Could not find `miden` executable in the system's PATH.
 
 The `miden` symlink was placed in $CARGO_HOME/bin ({cargo_bin_display}), which should already be \
-in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in your PATH.
+             in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in your \
+             PATH.
 
 You may also need to add midenup's opt directory for toolchain components:
 

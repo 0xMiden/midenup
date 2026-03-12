@@ -156,7 +156,8 @@ impl Toolchain {
 
         let Some(channel) = config.manifest.get_channel(desired_channel) else {
             bail!(
-                "Channel '{}' is set because {}, however the channel doesn't exist or is unavailable",
+                "Channel '{}' is set because {}, however the channel doesn't exist or is \
+                 unavailable",
                 desired_channel,
                 match justification {
                     ToolchainJustification::Default => Cow::Borrowed("it is the default"),

@@ -24,7 +24,10 @@ pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
         })?;
         {
             let response_code = handle.response_code().map_err(|_| {
-                String::from("Failed to get response code from webpage; despite HTTP protocol supporting it.")
+                String::from(
+                    "Failed to get response code from webpage; despite HTTP protocol supporting \
+                     it.",
+                )
             })?;
             if HTTP_ERROR_CODES.contains(&response_code) {
                 return Err(format!("Webpage returned error. Does {} exist?", uri));

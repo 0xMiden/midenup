@@ -40,8 +40,8 @@ pub struct Config {
     /// The machine's triplet (e.g. `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, etc).
     ///
     /// This is used to determine which artifact to download. If, for whatever reason (which should
-    /// be rare), we fail to obtain the system's target triple, then we leave it as `None`. In those
-    /// cases, we will simply install everything from source.
+    /// be rare), we fail to obtain the system's target triple, then we leave it as `None`. In
+    /// those cases, we will simply install everything from source.
     pub target: TargetTriple,
 }
 

@@ -49,9 +49,9 @@ pub enum ManifestError {
 }
 
 impl Manifest {
+    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
-    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
 
     /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
@@ -263,7 +263,11 @@ mod tests {
         {
             let custom_build = manifest
                 .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
-                .unwrap_or_else(|| {panic!("Could not convert UserChannel to internal channel representation from {FILE}",)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Could not convert UserChannel to internal channel representation from \
+                         {FILE}",
+                    )
                 });
 
             #[allow(unused_variables)]

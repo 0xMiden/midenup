@@ -124,8 +124,8 @@ pub enum Authority {
         ///
         /// This has to be specified because some repositories hold multiple crates inside them.
         crate_name: String,
-        /// If the target is missing from the [crate::manifest::Manifest], then we assume that it is
-        /// pointing to the tip of the `main` branch
+        /// If the target is missing from the [crate::manifest::Manifest], then we assume that it
+        /// is pointing to the tip of the `main` branch
         #[serde(default)]
         #[serde(flatten)]
         target: GitTarget,

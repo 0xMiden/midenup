@@ -765,7 +765,8 @@ Error: {}",
             .expect("Couldn't obtain directory where the stable directory is pointing to");
         assert_eq!(stable_toolchain, newer_toolchain);
 
-        // Now, we perform a "global" update. This performs an update on every *installed* toolchain.
+        // Now, we perform a "global" update. This performs an update on every *installed*
+        // toolchain.
         //
         // The manifest file tests/data/integration_update_test/channel-manifest-3.json, besides
         // adding toolchain 0.16.0, also changed some fields on components from version 0.15.0.
@@ -884,9 +885,15 @@ Error: {}",
                 .get_channels()
                 .next()
                 .expect(
-                    "ERROR: The local_manifest in the filesystem has no alias, when it should have stable alias"
+                    "ERROR: The local_manifest in the filesystem has no alias, when it should \
+                     have stable alias"
                 )
-                .alias.as_ref().expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
+                .alias
+                .as_ref()
+                .expect(
+                    "ERROR: The installed stable toolchain should be marked as stable in the \
+                     local manifest"
+                ),
             &channel::ChannelAlias::Stable
         );
     }
@@ -933,7 +940,8 @@ Error: {}",
             let last_modification = match vm_from_path.version {
                 version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
-                    "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
+                    "Failed to recognize miden_vm's Authority as Path, despite being installed \
+                     like so."
                 ),
             };
 
@@ -944,7 +952,8 @@ Error: {}",
                     ..
                 } => hash.clone(),
                 authority => panic!(
-                    "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
+                    "Failed to recognize miden_client's Authority as Git, despite being installed \
+                     like so. Found: {authority}"
                 ),
             };
 
@@ -968,7 +977,8 @@ Error: {}",
             let last_modification = match vm_from_path.version {
                 version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
-                    "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
+                    "Failed to recognize miden_vm's Authority as Path, despite being installed \
+                     like so."
                 ),
             };
 
@@ -979,7 +989,8 @@ Error: {}",
                     ..
                 } => hash.clone(),
                 authority => panic!(
-                    "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
+                    "Failed to recognize miden_client's Authority as Git, despite being installed \
+                     like so. Found: {authority}"
                 ),
             };
 
@@ -1023,7 +1034,8 @@ Error: {}",
             let last_modification = match vm_from_path.version {
                 version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
                 _ => panic!(
-                    "Failed to recognize miden_vm's Authority as Path, despite being installed like so."
+                    "Failed to recognize miden_vm's Authority as Path, despite being installed \
+                     like so."
                 ),
             };
 
@@ -1034,7 +1046,8 @@ Error: {}",
                     ..
                 } => hash.clone(),
                 authority => panic!(
-                    "Failed to recognize miden_client's Authority as Git, despite being installed like so. Found: {authority}"
+                    "Failed to recognize miden_client's Authority as Git, despite being installed \
+                     like so. Found: {authority}"
                 ),
             };
 

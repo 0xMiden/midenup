@@ -24,12 +24,13 @@ pub mod git {
         //
         // Source: https://github.com/git/git/blob/41905d60226a0346b22f0d0d99428c746a5a3b14/builtin/ls-remote.c#L169
         let revision_hash: String = String::from_utf8(check_revision_hash.stdout)
-        .context(format!(
-            "failed to format latest git rev-hash from branch {branch_name}, does the branch exist?.",
-        ))?
-        .chars()
-        .take_while(|&c| c != '\t')
-        .collect();
+            .context(format!(
+                "failed to format latest git rev-hash from branch {branch_name}, does the branch \
+                 exist?.",
+            ))?
+            .chars()
+            .take_while(|&c| c != '\t')
+            .collect();
 
         Ok(revision_hash)
     }

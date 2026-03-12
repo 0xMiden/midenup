@@ -43,8 +43,14 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
 
     println!("Setting {channel} as the new default toolchain\n");
     if let ToolchainJustification::MidenToolchainFile { path } = justification {
-        println!("{}: There is a toolchain file present in {}, which sets the current active toolchain to be {}.
-This will take prescedence over the configuration done by `midenup override`.", "WARNING".yellow(), path.display(), active.channel);
+        println!(
+            "{}: There is a toolchain file present in {}, which sets the current active toolchain \
+             to be {}.
+This will take prescedence over the configuration done by `midenup override`.",
+            "WARNING".yellow(),
+            path.display(),
+            active.channel
+        );
     };
     utils::fs::symlink(&default_path, &channel_dir)?;
 

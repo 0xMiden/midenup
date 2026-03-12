@@ -406,8 +406,8 @@ pub fn display_version(config: &Config) -> String {
 
     let midenup_version = env!(
         "CARGO_PKG_VERSION",
-        "CARGO_PKG_VERSION environment variable not set.\
-                 This should be set by cargo by default; however, if not, it can be manually set using the `version` field in the Cargo.toml file"
+        "CARGO_PKG_VERSION environment variable not set.This should be set by cargo by default; \
+         however, if not, it can be manually set using the `version` field in the Cargo.toml file"
     );
     let cargo_version = {
         std::process::Command::new("cargo")
@@ -445,7 +445,8 @@ pub fn display_version(config: &Config) -> String {
 
     let github_issue = {
         let short_body = format!(
-            "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
+            "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: \
+             {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
         );
         format!(
             "https://github.com/0xMiden/midenup/issues/new?title=bug:<YOUR_ISSUE>&body={short_body}"

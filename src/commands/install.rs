@@ -477,8 +477,7 @@ fn main() {
     // Currently, these includes:
     //
     // - A symlink that adds the 'miden ' prefix to the corresponding executable,   done in order to
-    //   "trick" clap into displaying midenup compatile messages, for more information, see:
-    //   https://github.com/0xMiden/midenup/pull/73.
+    //   "trick" clap into displaying midenup compatile messages, for more information, see: https://github.com/0xMiden/midenup/pull/73.
     let symlinks = channel
         .components
         .iter()
@@ -505,16 +504,19 @@ fn main() {
     let dependencies = dependencies
         .into_iter()
         .map(|(component, artifact)| {
-            let installed_file = component
-                .get_installed_file();
+            let installed_file = component.get_installed_file();
             let library_struct = installed_file
                 .get_library_struct()
-                .with_context(|| format!("Component {} is marked as library, \
-                                          however the manifest does not contain the associated Library struct \
-                                          from where it will obtain the `.masp` file. \n\
-                                          The manifest should contain a line like the following: \n\
-                                          library_struct: \"miden_stdlib::MidenStdLib::default()\""
-                                         , component.name)).unwrap();
+                .with_context(|| {
+                    format!(
+                        "Component {} is marked as library, however the manifest does not contain \
+                         the associated Library struct from where it will obtain the `.masp` \
+                         file. \nThe manifest should contain a line like the following: \
+                         \nlibrary_struct: \"miden_stdlib::MidenStdLib::default()\"",
+                        component.name
+                    )
+                })
+                .unwrap();
             let exposing_function = format!("{library_struct}::default()");
             let artifact = artifact.unwrap_or_default();
             match &component.version {
