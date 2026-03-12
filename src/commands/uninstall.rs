@@ -61,12 +61,18 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
     // Now that the installation indicator is deleted, we can remove the
     // symlink. If anything goes wrong during this process, re-issuing the
     // installation should brink the symlink back.
-    if config.manifest.is_latest_stable(channel) {
+    {
         let stable_symlink = installed_toolchains_dir.join("stable");
 
-        // If the symlink doesn't exist, then it probably means that
-        // installation got cut off mid way through.
-        if stable_symlink.exists() {
+        // Only remove the stable symlink if it actually points to the
+        // toolchain being uninstalled. This prevents removing a symlink
+        // that was just created for a migrated channel.
+        let symlink_points_to_this_channel = std::fs::read_link(&stable_symlink)
+            .ok()
+            .map(|target| target == toolchain_dir)
+            .unwrap_or(false);
+
+        if symlink_points_to_this_channel {
             std::fs::remove_file(stable_symlink).context("Couldn't remove symlink")?;
         }
     }

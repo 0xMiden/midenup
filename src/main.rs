@@ -1135,6 +1135,17 @@ Error: {}",
 
         // Check 2: The 0.20.3 directory has been entirely deleted
         assert!(!toolchain_dir.join("0.20.3").exists());
+
+        // Check 3: The stable symlink points to the new channel directory
+        let stable_symlink = toolchain_dir.join("stable");
+        assert!(stable_symlink.exists(), "stable symlink should exist after migration");
+        let symlink_target =
+            std::fs::read_link(&stable_symlink).expect("stable should be a symlink");
+        assert_eq!(
+            symlink_target,
+            toolchain_dir.join("0.13.0"),
+            "stable symlink should point to the migrated channel"
+        );
     }
 
     /// Validates that every component present in the stable toolchain from the
