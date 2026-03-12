@@ -1,6 +1,14 @@
 [package]
 name = "midenup"
 version = "0.2.0"
+description = "The Miden toolchain manager"
+authors = ["Miden contributors"]
+repository = "https://github.com/0xMiden/midenup"
+homepage = "https://github.com/0xMiden/midenup"
+documentation = "https://github.com/0xMiden/midenup"
+categories = ["compilers"]
+keywords = ["miden"]
+license = "MIT"
 edition = "2024"
 
 [lib]
