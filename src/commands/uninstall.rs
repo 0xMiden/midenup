@@ -9,7 +9,7 @@ use anyhow::{Context, bail};
 use thiserror::Error;
 
 use crate::{
-    channel::{Channel, Component, InstalledFile, UserChannel},
+    channel::{Channel, Component, InstalledFile},
     config::Config,
     manifest::Manifest,
     version::Authority,
@@ -33,18 +33,14 @@ pub enum UninstallError {
 
 pub fn uninstall(
     config: &Config,
-    channel: &UserChannel,
+    channel: &Channel,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    let Some(internal_channel) = config.manifest.get_channel(channel) else {
-        bail!("channel '{}' doesn't exist or is unavailable", channel);
-    };
-
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
 
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &internal_channel.name));
+    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
     if !toolchain_dir.exists() {
-        bail!("Channel {} is not installed, nothing to uninstall.", channel);
+        bail!("Channel {} is not installed, nothing to uninstall.", channel.name);
     };
 
     // NOTE: If either of the installed components files are missing, we
@@ -65,17 +61,23 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
     // Now that the installation indicator is deleted, we can remove the
     // symlink. If anything goes wrong during this process, re-issuing the
     // installation should brink the symlink back.
-    if config.manifest.is_latest_stable(internal_channel) {
+    {
         let stable_symlink = installed_toolchains_dir.join("stable");
 
-        // If the symlink doesn't exist, then it probably means that
-        // installation got cut off mid way through.
-        if stable_symlink.exists() {
+        // Only remove the stable symlink if it actually points to the
+        // toolchain being uninstalled. This prevents removing a symlink
+        // that was just created for a migrated channel.
+        let symlink_points_to_this_channel = std::fs::read_link(&stable_symlink)
+            .ok()
+            .map(|target| target == toolchain_dir)
+            .unwrap_or(false);
+
+        if symlink_points_to_this_channel {
             std::fs::remove_file(stable_symlink).context("Couldn't remove symlink")?;
         }
     }
 
-    local_manifest.remove_channel(internal_channel.name.clone());
+    local_manifest.remove_channel(channel.name.clone());
 
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
     let mut local_manifest_file =

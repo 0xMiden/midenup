@@ -4,6 +4,8 @@ use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 use midenup::{channel, commands, config, manifest, miden_wrapper, options};
 
+pub use self::config::Config;
+
 #[derive(Debug, Parser)]
 #[command(name = "midenup")]
 #[command(multicall(true))]
@@ -136,7 +138,12 @@ impl Commands {
                 };
                 commands::install(config, channel, local_manifest, options)
             },
-            Self::Uninstall { channel, .. } => commands::uninstall(config, channel, local_manifest),
+            Self::Uninstall { channel, .. } => {
+                let Some(channel) = config.manifest.get_channel(channel) else {
+                    bail!("channel '{}' doesn't exist or is unavailable", channel);
+                };
+                commands::uninstall(config, channel, local_manifest)
+            },
             Self::Update { channel, options } => {
                 commands::update(config, channel.as_ref(), local_manifest, options)
             },
@@ -1070,7 +1077,77 @@ Error: {}",
         assert!(manifest.exists());
     }
 
+    /// Integration test to check that migration works correctly:
+    /// - Updating a toolchain with a migration tag installs into the NEW name directory and removes
+    ///   the OLD directory.
     #[test]
+    fn integration_migration_test() {
+        let test_name = "integration_migration_test";
+        let test_env = environment_setup(test_name);
+        let tmp_home = test_env.midenup_dir;
+        let midenup_home = tmp_home.join("midenup");
+        let toolchain_dir = midenup_home.join("toolchains");
+
+        // Load manifest 1 (channel "0.20.3", no migration tag)
+        let manifest: &str =
+            full_path_manifest!("tests/data/integration_migration_test/channel-manifest-1.json");
+        let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
+
+        // Initialize midenup
+        let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to initialize midenup");
+
+        // Install stable (0.20.3)
+        let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command.execute(&config, &mut local_manifest).expect("Failed to install stable");
+
+        // Check that binaries are installed in the bin directory
+        assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-vm").exists());
+        assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-client").exists());
+        // Check that libraries are installed in the lib directory
+        assert!(toolchain_dir.join("0.20.3").join("lib").join("core.masp").exists());
+
+        // Swap to manifest 2 (channel "0.13.0" with migration from "0.20.3")
+        let manifest: &str =
+            full_path_manifest!("tests/data/integration_migration_test/channel-manifest-2.json");
+        let (_, config) = test_setup(&midenup_home, manifest);
+
+        // Perform global update
+        let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
+        let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
+            panic!("Error while parsing test command. Expected Midenup Behavior, got Miden");
+        };
+        command
+            .execute(&config, &mut local_manifest)
+            .expect("Failed to perform global update");
+
+        // Check 1: Components installed in 0.13.0 directory
+        assert!(toolchain_dir.join("0.13.0").exists());
+        assert!(toolchain_dir.join("0.13.0").join("installation-successful").exists());
+
+        // Check 2: The 0.20.3 directory has been entirely deleted
+        assert!(!toolchain_dir.join("0.20.3").exists());
+
+        // Check 3: The stable symlink points to the new channel directory
+        let stable_symlink = toolchain_dir.join("stable");
+        assert!(stable_symlink.exists(), "stable symlink should exist after migration");
+        let symlink_target =
+            std::fs::read_link(&stable_symlink).expect("stable should be a symlink");
+        assert_eq!(
+            symlink_target,
+            toolchain_dir.join("0.13.0"),
+            "stable symlink should point to the migrated channel"
+        );
+    }
+
     /// Validates that every component present in the stable toolchain from the
     /// published manifest is able to be executed.
     ///
@@ -1078,6 +1155,7 @@ Error: {}",
     /// assumption we already make in the miden_wrapper.rs file. This stems from
     /// the fact that the help command is generated automatically. See:
     /// - https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag
+    #[test]
     fn integration_test_components_are_runnable() {
         let test_name = "integration_test_components";
         let test_env = environment_setup(test_name);

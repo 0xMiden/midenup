@@ -4,7 +4,9 @@ use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
-    channel::{Channel, Component, InstalledFile, UserChannel},
+    channel::{
+        Channel, Component, InstalledFile, MigrationStrategy, UserChannel, is_toolchain_deleted,
+    },
     commands::{self, uninstall::uninstall_executable},
     config::Config,
     manifest::Manifest,
@@ -95,7 +97,7 @@ midenup install stable
             let mut channels_to_update = Vec::new();
             for local_channel in local_manifest.get_channels() {
                 let upstream_channel =
-                    config.manifest.get_channels().find(|up_c| up_c.name == local_channel.name);
+                    config.manifest.get_channels().find(|up_c| *up_c == local_channel);
                 let Some(upstream_channel) = upstream_channel else {
                     // NOTE: A bit of an edge case. If the channel is present in
                     // the local manifest but not in upstream, then it probably
@@ -147,7 +149,8 @@ fn update_channel(
         return Ok(());
     }
 
-    let mut path_warning_displayed = false;
+    display_warnings(&comp_to_delete_with_motive, upstream_channel, options);
+
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
     for (component, motive) in comp_to_delete_with_motive {
@@ -171,36 +174,17 @@ fn update_channel(
                     // Since uninstalling a component from the filesystem is
                     // potentially irreversible, we take special precautions before
                     // uninstalling them.
-                    Authority::Path { path, crate_name, .. } => {
-                        if !path_warning_displayed {
-                            println!(
-                                "{}: The following elements are installed from a specific path in the filesystem.",
-                                "WARNING".yellow().bold(),
-                            );
-                            if matches!(options.path_update, PathUpdate::Off) {
-                                println!(
-                                "
-To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
-Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
-                            );
+                    Authority::Path { crate_name, .. } => match options.path_update {
+                        PathUpdate::Interactive => {
+                            match handle_path_uninstall_interactive(crate_name)? {
+                                InteractiveResult::Cancel => return Ok(()),
+                                InteractiveResult::ComponentUpdate(update_decision) => {
+                                    update_decision
+                                },
                             }
-                            path_warning_displayed = true;
-                        }
-
-                        println!("- {} is installed from {}.", crate_name.bold(), path.display(),);
-
-                        match options.path_update {
-                            PathUpdate::Interactive => {
-                                match handle_path_uninstall_interactive(crate_name)? {
-                                    InteractiveResult::Cancel => return Ok(()),
-                                    InteractiveResult::ComponentUpdate(update_decision) => {
-                                        update_decision
-                                    },
-                                }
-                            },
-                            PathUpdate::All => Some(crate_name),
-                            PathUpdate::Off => None,
-                        }
+                        },
+                        PathUpdate::All => Some(crate_name),
+                        PathUpdate::Off => None,
                     },
                 };
 
@@ -272,6 +256,13 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
         }
 
         commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
+
+        // After removing the components, we check if we can remove the
+        // toolchain entirely.
+        let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
+        if is_entirely_removed {
+            commands::uninstall(config, local_channel, local_manifest)?;
+        };
     }
     Ok(())
 }
@@ -310,7 +301,7 @@ fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<Inter
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum UpdateMotive {
     /// This component was added to the toolchain and wasn't there before.
     Added,
@@ -318,6 +309,8 @@ pub enum UpdateMotive {
     Removed,
     /// A newer version was released.
     NewerVersion,
+    /// The entire channel was migrated.
+    Migrated { strategy: MigrationStrategy },
 }
 /// This functions compares the Channel &older, with a newer channel [newer]
 /// and returns the list of [Components] that need to be updated.
@@ -329,6 +322,10 @@ pub enum UpdateMotive {
 /// - An *older* version of a component is released and thus a downgrade is due.
 /// - A components [Authority] got changed and thus needs to be removed and re-installed with the
 ///   new [Authority]
+///
+/// There is one notable exception to this rule which is when a channel is
+/// migrated into a different channel. In that case, every component is marked
+/// for update.
 pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component, UpdateMotive)> {
     let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
     let current = HashSet::from_iter(older.components.iter());
@@ -353,12 +350,22 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
                 // This should't be possible, but if somehow the component is
                 // missing, then we trigger an update for said component regardless.
                 None => Some((current_component, UpdateMotive::Added)),
-                // We only want to update components that share the same name but
-                // differ in some other field.
-                Some(new_component) if !current_component.is_up_to_date(new_component) => {
-                    Some((current_component, UpdateMotive::NewerVersion))
+                // If the new channel was migrated, then every component should
+                // be deleted; unless explicitely told otherwise by the users
+                // (for example in components which were compile from a path at
+                // a given time).
+                Some(new_component) => {
+                    if let Some(strategy) = newer.migrated_into() {
+                        Some((
+                            current_component,
+                            UpdateMotive::Migrated { strategy: strategy.clone() },
+                        ))
+                    } else if !current_component.is_up_to_date(new_component) {
+                        Some((current_component, UpdateMotive::NewerVersion))
+                    } else {
+                        None
+                    }
                 },
-                _ => None,
             }
         });
 
@@ -368,4 +375,68 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
         .map(|(comp, motive)| ((*comp).clone(), motive));
 
     Vec::from_iter(components)
+}
+
+fn display_warnings(
+    components_with_motive: &[(Component, UpdateMotive)],
+    newer: &Channel,
+    options: &UpdateOptions,
+) {
+    let components_with_motive = components_with_motive.iter();
+
+    // Warning for components installed from a PATH.
+    {
+        let components_from_path: Vec<String> = components_with_motive
+            .clone()
+            .filter_map(|(comp, _)| match &comp.version {
+                Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
+                _ => None,
+            })
+            .map(|(path, crate_name)| {
+                format!("- {} is installed from {}.\n", crate_name.bold(), path.display(),)
+            })
+            .collect();
+        if !components_from_path.is_empty() {
+            println!(
+                "{}: The following elements are installed from a specific path in the filesystem.",
+                "WARNING".yellow().bold(),
+            );
+
+            if matches!(options.path_update, PathUpdate::Off) {
+                println!(
+                                "
+To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
+Alternatively, pass the '--path-update=interactive' flag to interactively select which path-managed components to update.",
+                            );
+            }
+            for component_message in components_from_path {
+                println!("{}", component_message);
+            }
+        }
+    }
+
+    // Warning for migrated components
+    {
+        let migrated_components: Vec<String> = components_with_motive
+            .filter_map(|(component, motive)| match &motive {
+                UpdateMotive::Migrated { strategy } => Some((component, strategy)),
+                _ => None,
+            })
+            .map(|(component, strategy)| match strategy {
+                MigrationStrategy::NameChange { old_channel } => {
+                    format!("- {} from {} into {}", component.name, old_channel, newer)
+                },
+            })
+            .collect();
+        if !migrated_components.is_empty() {
+            println!(
+                "{}: The following elements are going to be migrated.",
+                "WARNING".yellow().bold(),
+            );
+
+            for component_message in migrated_components {
+                println!("{}", component_message);
+            }
+        }
+    }
 }
