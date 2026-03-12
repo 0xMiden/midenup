@@ -25,6 +25,9 @@ jobs:
   build:
     name: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      artifact-metadata: write
     steps:
       - uses: actions/checkout@v5
       - name: Cache Cargo
@@ -50,6 +53,8 @@ jobs:
     name: Install the stable toolchain via the CLI
     needs: [build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
     steps:
       - uses: actions/checkout@v4

@@ -7,6 +7,11 @@ on:
     paths:
       - manifest/**
 
+# Grant GITHUB_TOKEN the permissions required to make a Pages deployment
+permissions:
+  pages: write
+  id-token: write
+
 jobs:
   upload-manifest:
     name: upload manifest
@@ -24,16 +29,9 @@ jobs:
   deploy:
     name: Deploy github page containing midenup manifest
     needs: upload-manifest
-
-    # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
-    permissions:
-      pages: write
-      id-token: write
-
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
