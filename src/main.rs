@@ -1081,8 +1081,8 @@ Error: {}",
     /// - Updating a toolchain with a migration tag installs into the NEW name directory and removes
     ///   the OLD directory.
     #[test]
-    fn migration_test() {
-        let test_name = "migration_test";
+    fn integration_migration_test() {
+        let test_name = "integration_migration_test";
         let test_env = environment_setup(test_name);
         let tmp_home = test_env.midenup_dir;
         let midenup_home = tmp_home.join("midenup");
@@ -1090,7 +1090,7 @@ Error: {}",
 
         // Load manifest 1 (channel "0.20.3", no migration tag)
         let manifest: &str =
-            full_path_manifest!("tests/data/migration_test/channel-manifest-1.json");
+            full_path_manifest!("tests/data/integration_migration_test/channel-manifest-1.json");
         let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
 
         // Initialize midenup
@@ -1117,7 +1117,7 @@ Error: {}",
 
         // Swap to manifest 2 (channel "0.13.0" with migration from "0.20.3")
         let manifest: &str =
-            full_path_manifest!("tests/data/migration_test/channel-manifest-2.json");
+            full_path_manifest!("tests/data/integration_migration_test/channel-manifest-2.json");
         let (_, config) = test_setup(&midenup_home, manifest);
 
         // Perform global update
