@@ -11,8 +11,9 @@ use crate::{
     options::InstallationOptions,
 };
 
-/// Represents a `miden-toolchain.toml` file. These file contains the desired
-/// toolchain to be used.
+/// Represents a `miden-toolchain.toml` file.
+///
+/// These file contains the desired toolchain to be used.
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ToolchainFile {
     toolchain: Toolchain,
@@ -46,8 +47,7 @@ impl Default for Toolchain {
 
 /// Used to specify why Midenup believes the current toolchain is what it is.
 pub enum ToolchainJustification {
-    /// There exists a miden toolchain file present in
-    /// [[MidenToolchainFile::path]].
+    /// There exists a miden toolchain file present at `path`
     MidenToolchainFile { path: PathBuf },
     /// The system's default toolchain was overriden (via `midenup set`).
     Override,
@@ -60,9 +60,10 @@ impl Toolchain {
         Toolchain { channel, components }
     }
 
-    /// Returns the miden-toolchain.toml file, if it exists.
-    /// It looks for the file from the present working directory upwards, until
-    /// the root directory is reached.
+    /// Returns the `miden-toolchain.toml` file, if it exists.
+    ///
+    /// It looks for the file from the present working directory upwards, until the root directory
+    /// is reached.
     fn toolchain_file() -> anyhow::Result<Option<PathBuf>> {
         // Check for a `miden-toolchain.toml` file in $CWD and recursively upwards.
         let present_working_dir =
@@ -83,6 +84,7 @@ impl Toolchain {
     }
 
     /// Returns the current active Toolchain according to the following prescedence:
+    ///
     /// 1. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
     /// 2. The toolchain that has been set as the system's default. If set, a `default` symlink is
     ///    added to the `midenup` directory.
@@ -112,8 +114,8 @@ impl Toolchain {
                 .file_name()
                 .and_then(|name| name.to_str())
                 .context("Couldn't read channel name from directory")?;
-            // NOTE: This has to be a UserChannel because the default channel
-            // could be a channel like "stable"
+            // NOTE: This has to be a UserChannel because the default channel could be a channel
+            // like "stable"
             let channel = UserChannel::from_str(channel_name)?;
 
             let installed_components_file = {

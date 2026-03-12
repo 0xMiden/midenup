@@ -5,44 +5,45 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{CLICommand, Channel, Component, InstalledFile, resolve_command},
+    channel::{Channel, CliCommands, Component, InstalledFile, resolve_command},
     manifest::Manifest,
     toolchain::Toolchain,
 };
 
 /// These are the know help messages variants that midenup is aware of.
 enum HelpMessage {
-    /// Show the default help message, similar to the one you would get with
-    /// clap's "--help" flag.
+    /// Show the default help message, similar to the one you would get with clap's "--help" flag.
     Default,
-
-    /// Show a help message specific to the current active [[Toolchain]].
-    /// NOTE: This help message *could* trigger an install if the active
-    /// [[Toolchain]] is not installed.
+    /// Show a help message specific to the current active [Toolchain].
+    ///
+    /// NOTE: This help message *could* trigger an install if the active [Toolchain] is not
+    /// installed.
     Toolchain,
-
-    /// This variant represents a "fallback" option where we save the user's
-    /// input so that we later on try to map it to a [[Component]].  This
-    /// mapping is dependent on the currently active [[Toolchain]]. These will
-    /// try to be resolved into a [[MidenArgument]].
-    /// NOTE: This help message *could* trigger an install if the active
-    /// [[Toolchain]] is not installed.
+    /// This variant represents a "fallback" option where we save the user's input so that we later
+    /// on try to map it to a [Component].
+    ///
+    /// This mapping is dependent on the currently active [Toolchain]. These will try to be resolved
+    /// into a [MidenArgument].
+    ///
+    /// NOTE: This help message *could* trigger an install if the active [Toolchain] is not
+    /// installed.
     Resolve(String),
 }
 
 /// The possible non-help commands that a user's input can be resolved into.
 #[derive(Debug)]
 enum MidenArgument {
-    /// The passed argument was an Alias stored in the local [[Manifest]]. [[AliasResolution]]
-    /// represents the list of commands that need to be executed. NOTE: Some of these might need
-    /// to get resolved.
-    Alias(Component, CLICommand),
-    /// The argument was the name of a component stored in the [[Manifest]].
+    /// The passed argument was an alias stored in the local [Manifest].
+    ///
+    /// [AliasResolution] represents the list of commands that need to be executed.
+    ///
+    /// NOTE: Some of these might need to get resolved.
+    Alias(Component, CliCommands),
+    /// The argument was the name of a component stored in the [Manifest].
     Component(Component),
 }
 
-/// Struct containing the command to execute and the channel to execute it
-/// against.
+/// Struct containing the command to execute and the channel to execute it against.
 struct ExecutionEnvironment<'a> {
     argument: MidenArgument,
     active_channel: &'a Channel,
@@ -66,17 +67,16 @@ impl Display for EnvironmentError {
 
 #[derive(Debug)]
 struct ToolchainEnvironment<'a> {
-    /// We use the original channel as a fallback to
-    /// [[ToolchainEnvironment::active_channel]]. If the active channel does not
-    /// contain a requested component, for convenience's sake, we check if it
-    /// exists in the original_channel. If it does, we execute it, after
-    /// displaying a warning message.
+    /// We use the original channel as a fallback to [`ToolchainEnvironment::active_channel`].
+    ///
+    /// If the active channel does not contain a requested component, for convenience's sake, we
+    /// check if it exists in the original_channel. If it does, we execute it, after displaying a
+    /// warning message.
     installed_channel: &'a Channel,
-
-    /// This is the channel that is currently active. This *might* differ
-    /// slightly from the original upstream channel equivalent in some
-    /// scenarios, like:
-    /// - The user only selected a subset of components for downloads.
+    /// This is the channel that is currently active.
+    ///
+    /// This *might* differ slightly from the original upstream channel equivalent in some
+    /// scenarios, e.g. the user only selected a subset of components for downloads.
     active_channel: Option<Channel>,
 }
 
@@ -90,10 +90,10 @@ impl<'a> ToolchainEnvironment<'a> {
         ToolchainEnvironment { installed_channel, active_channel }
     }
 
-    /// This is the channel that is currently active. This *might* differ
-    /// slightly from the original upstream channel equivalent in some
-    /// scenarios, like:
-    /// - The user only selected a subset of components for downloads.
+    /// This is the channel that is currently active.
+    ///
+    /// This *might* differ slightly from the original upstream channel equivalent in some
+    /// scenarios, e.g. the user only selected a subset of components for downloads.
     fn get_active_channel(&self) -> (&Channel, ChannelType) {
         if let Some(active_channel) = self.active_channel.as_ref() {
             (active_channel, ChannelType::Active)
@@ -102,18 +102,16 @@ impl<'a> ToolchainEnvironment<'a> {
         }
     }
 
-    /// Parses the user's input and returns the required ExecutionEnvironment to
-    /// execute the requested command.
+    /// Parses the user's input and returns the required [ExecutionEnvironment] to execute the
+    /// requested command.
     fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
-        // let (_, active_channel_type) = self.get_active_channel();
-
         [
             (self.active_channel.as_ref() , ChannelType::Active),
             (Some(self.installed_channel), ChannelType::Installed),
         ]
         .into_iter()
-        // We only consider the channel as available if it's not None. We can
-        // always fallback on the installed channel.
+        // We only consider the channel as available if it's not None. We can always fallback on the
+        // installed channel.
         .filter_map(|(ch, ch_type)| ch.map(|ch| (ch, ch_type)))
         .flat_map(|(ch, ch_type)| ch.components.iter().map(move |comp| (comp, ch_type, ch)))
         .find_map(|(comp, ch_type, ch)| {
@@ -139,9 +137,9 @@ impl<'a> ToolchainEnvironment<'a> {
         })
         .inspect(|resolution| {
             if let Some(warning_message) = match resolution {
-                // We only display an eror message if a user tried to access a
-                // component that was available via the installed channel while
-                // having an active channel that was missing said component.
+                // We only display an eror message if a user tried to access a component that was
+                // available via the installed channel while having an active channel that was
+                // missing said component.
                 Ok((_, (MidenArgument::Alias(comp, _ ), ChannelType::Installed))) => Some(format!(
                     "{}: {} is an alias from component {}, which is installed but is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
@@ -205,23 +203,26 @@ impl<'a> ToolchainEnvironment<'a> {
 
 /// These are the possible types of subcommands that `miden` is aware of.
 enum MidenSubcommand {
-    /// Aliases that correspond to a tuple of a known component + a set of
-    /// prefixed arguments. For more information, see [[MidenAliases]].
-    /// NOTE: With the exception of [[HelpMessage::Default]], this command
-    /// *could* trigger an install if the active [[Toolchain]] is not installed.
+    /// Aliases that correspond to a tuple of a known component + a set of prefixed arguments.
+    ///
+    /// For more information, see [MidenAliases].
+    ///
+    /// NOTE: With the exception of [`HelpMessage::Default`], this command *could* trigger an
+    /// install if the active [Toolchain] is not installed.
     Help(HelpMessage),
     /// Displays midenup cargo version ang git revision hash.
     Version,
-    /// The user passed in a subcommand that needs to be resolved using the
-    /// currently active [[Toolchain]]. Resolution can result in one of the
-    /// following elements:
+    /// The user passed in a subcommand that needs to be resolved using the currently active
+    /// [Toolchain].
+    ///
+    /// Resolution can result in one of the following elements:
+    ///
     /// - An alias
-    /// - A [[Component]]
+    /// - A [Component]
     ///
     /// If it's none of those, then we error out.
     ///
-    /// NOTE: This command *could* trigger an install if the active
-    /// [[Toolchain]] is not installed.
+    /// NOTE: This command *could* trigger an install if the active [Toolchain] is not installed.
     Resolve(String),
 }
 
@@ -266,8 +267,8 @@ For more information, try 'miden help'.
 
     let parsed_subcommand = parse_subcommand(subcommand, &argv);
 
-    // NOTE: We handle these case first to avoid triggering an install when help
-    // related commands are run.
+    // NOTE: We handle these case first to avoid triggering an install when help related commands
+    // are run.
     match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => {
             println!("{}", default_help());
@@ -302,24 +303,21 @@ For more information, try 'miden help'.
             return Ok(());
         },
         MidenSubcommand::Help(HelpMessage::Resolve(_)) => {
-            // NOTE: We rely on the different component's CLI interfaces to
-            // recognize the "--help" flag. Currently, this relies on the fact
-            // that clap recognizes said flag by default.
+            // NOTE: We rely on the different component's CLI interfaces to recognize the "--help"
+            // flag. Currently, this relies on the fact that clap recognizes said flag by default.
             // Source: https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
             Some(String::from("--help"))
         },
         _ => None,
     };
 
-    // We obtain the target executable and prefixes that are associated with the
-    // passed subcommand.
+    // We obtain the target executable and prefixes that are associated with the passed subcommand.
     let (target_exe, mut prefix_args, active_channel) = match parsed_subcommand {
         MidenSubcommand::Version => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
-        // Resolution, either for help or for actual execution is the same. The
-        // only difference is wheter we append "--help" at the end and if we
-        // process additional arguments.
+        // Resolution, either for help or for actual execution is the same. The only difference is
+        // wheter we append "--help" at the end and if we process additional arguments.
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
         | MidenSubcommand::Resolve(resolve) => {
             match toolchain_environment.resolve(resolve.clone()) {
@@ -330,8 +328,7 @@ For more information, try 'miden help'.
                     let commands =
                         resolve_command(&alias_resolutions, active_channel, &component, config)?;
 
-                    // SAFETY: Safe under the assumption that every alias has an
-                    // associated command.
+                    // SAFETY: Safe under the assumption that every alias has an associated command.
                     let command = commands.first().unwrap().clone();
                     let aliased_arguments: Vec<String> = commands.into_iter().skip(1).collect();
 
@@ -371,12 +368,14 @@ For more information, try 'miden help'.
 
     let rest_of_args = if let Some(help_flag) = help_flag {
         prefix_args.extend([help_flag]);
-        // If the user requested for help for a specific component, we skip any
-        // additional passed in arguments.
+        // If the user requested for help for a specific component, we skip any additional passed in
+        // arguments.
         argv.iter().skip(argv.len())
     } else {
         // argv is of the form:
+        //
         // miden <alias|component> ...
+        //
         // So we skip the first two and pass the rest to the underlying executable.
         argv.iter().skip(2)
     };

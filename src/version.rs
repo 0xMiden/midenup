@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum GitTarget {
-    #[serde(untagged)]
     /// The components is pointing to a specific revision in the repository.
+    #[serde(untagged)]
     Revision {
         #[serde(rename = "revision")]
         hash: String,
@@ -23,19 +23,20 @@ pub enum GitTarget {
         #[serde(rename = "tag")]
         name: String,
     },
-    #[serde(untagged)]
     /// The components is pointing to a specific *branch* in the repository.
-    /// NOTE: When an update is issued, these type of components will trigger an
-    /// update if the branch they were pointing to had new commits since the
-    /// time the component was installed. This means that these components are
-    /// *not* deterministic and their behavior could change in-between updates.
+    ///
+    /// NOTE: When an update is issued, these type of components will trigger an update if the
+    /// branch they were pointing to had new commits since the time the component was installed.
+    /// This means that these components are _not_ deterministic and their behavior could change
+    /// in-between updates.
+    #[serde(untagged)]
     Branch {
-        #[serde(rename = "branch")]
         /// This is the name of the branch being tracked.
+        #[serde(rename = "branch")]
         name: String,
-        /// This field represents the revision hash that is currently presently
-        /// installed. This is only meant to be used in the local manifest in
-        /// order to check for updates.
+        /// This field represents the revision hash that is currently presently installed.
+        ///
+        /// This is only meant to be used in the local manifest in order to check for updates.
         latest_revision: Option<String>,
     },
 }
@@ -53,8 +54,9 @@ impl PartialEq for GitTarget {
         match (&self, other) {
             (Self::Revision { hash: hasha }, Self::Revision { hash: hashb }) => hasha == hashb,
             (Self::Tag { name: taga }, Self::Tag { name: tagb }) => taga == tagb,
-            // Two components are "equal" if they are pointing to the same
-            // branch. Comparison between latest available commit is done ad-hoc
+            // Two components are "equal" if they are pointing to the same branch.
+            //
+            // Comparison between latest available commit is done ad-hoc
             (Self::Branch { name: name_a, .. }, Self::Branch { name: name_b, .. }) => {
                 name_a == name_b
             },
@@ -105,26 +107,25 @@ pub enum Authority {
     Path {
         /// The path to the crate.
         path: PathBuf,
-
-        /// This is the name of the crate that holds the executable we're going
-        /// to install. This has to be specified because cargo needs the name of
-        /// the crate to handle uninstallation.
+        /// This is the name of the crate that holds the executable we're going to install.
+        ///
+        /// This has to be specified because cargo needs the name of the crate to handle
+        /// uninstallation.
         crate_name: String,
-
         /// Represents the latest modification done inside this directory.
         last_modification: Option<SystemTime>,
     },
     /// The authority for this tool/toolchain is a git repository.
     #[serde(untagged)]
     Git {
-        /// Points to the git repository containting the [Component].
+        /// Points to the git repository containting the [crate::channel::Component].
         repository_url: String,
-        /// This is the name of the crate that holds the executable we're going
-        /// to install. This has to be specified because some repositories hold
-        /// multiple crates inside them.
+        /// This is the name of the crate that holds the executable we're going to install.
+        ///
+        /// This has to be specified because some repositories hold multiple crates inside them.
         crate_name: String,
-        /// NOTE: If the target is missing from the [Manifest], then we assume
-        /// that it is pointing to the tip of the `main` branch
+        /// If the target is missing from the [crate::manifest::Manifest], then we assume that it is
+        /// pointing to the tip of the `main` branch
         #[serde(default)]
         #[serde(flatten)]
         target: GitTarget,
@@ -132,8 +133,9 @@ pub enum Authority {
     /// The authority for this tool/toolchain is crates.io
     #[serde(untagged)]
     Cargo {
-        /// The name of the crates.io package under which this tool is provided
-        /// If None, then the package's name is the same as the component's
+        /// The name of the crates.io package under which this tool is provided.
+        ///
+        /// If `None`, then the package name is the same as the component
         #[serde(skip_serializing_if = "Option::is_none")]
         package: Option<String>,
         /// The semantic versioning string for the package to fetch

@@ -4,10 +4,11 @@ use anyhow::Context;
 
 use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
 
-/// Get the user's cargo bin directory. If the user has '$CARGO_HOME/bin' set,
-/// then use it. If not, fallback to '$HOME/.cargo/bin'.
-/// This relies on the behavior described here:
-/// https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-reads
+/// Get the user's cargo bin directory.
+///
+/// If the user has `$CARGO_HOME/bin` set, then use it. If not, fallback to `$HOME/.cargo/bin`.
+///
+/// This relies on the behavior described [here](https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-reads)
 fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
     if let Some(cargo_home) = std::env::var_os("CARGO_HOME") {
         return Ok(PathBuf::from(cargo_home).join("bin"));
@@ -18,15 +19,19 @@ fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
     anyhow::bail!("Could not determine cargo bin directory. Set CARGO_HOME or HOME.")
 }
 
-/// This functions bootstrap the `midenup` environment (creates basic directory
-/// structure, creates the miden executable symlink, etc.), if not already
-/// initialized. The boolean represents whether midenup had already been
-/// initalized or not.
-/// NOTE: An environment is considered to be "uninitialized" if *at least* one element
-/// (be it a file, directory, etc) is missing,
+/// This functions bootstrap the `midenup` environment, if not already initialized.
 ///
-/// The following is a sketch of the directory tree and contents
+/// Initialization is comprised of:
 ///
+/// * Create `MIDENUP_HOME` directory structure
+/// * Create the `miden` executable symlink
+///
+/// NOTE: An environment is considered to be "uninitialized" if *at least* one element (be it a
+/// file, directory, etc) is missing,
+///
+/// The following is a sketch of the directory tree and contents:
+///
+/// ```text,ignore
 /// $MIDENUP_HOME
 /// |- opt/
 /// | |- symlinks
@@ -38,9 +43,10 @@ fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
 /// | | | |- std.masp
 /// |- config.toml
 /// |- manifest.json
+/// ```
 ///
-/// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing
-/// to the midenup executable.
+/// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
+/// executable.
 pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
     let mut already_initialized = true;
 
@@ -89,9 +95,8 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         already_initialized = false;
     }
 
-    // We check if the `miden` executable is accessible via the $PATH. This is
-    // most certainly not going to be the case the first time `midenup` is
-    // initialized.
+    // We check if the `miden` executable is accessible via the $PATH. This is most certainly not
+    // going to be the case the first time `midenup` is initialized.
     let miden_is_accessible = std::process::Command::new("miden")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
@@ -104,8 +109,8 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         let midenup_home_dir = if std::env::var(DEFAULT_USER_DATA_DIR).is_ok() {
             String::from("${{XDG_DATA_HOME}}")
         } else {
-            // Some OSs, like MacOs, don't define the XDG_* family of
-            // environment variables. In those cases, we fall back on data_dir
+            // Some OSs, like MacOs, don't define the XDG_* family of environment variables. In
+            // those cases, we fall back on data_dir
             already_initialized = false;
 
             dirs::data_dir()

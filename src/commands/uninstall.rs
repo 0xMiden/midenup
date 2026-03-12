@@ -43,10 +43,9 @@ pub fn uninstall(
         bail!("Channel {} is not installed, nothing to uninstall.", channel.name);
     };
 
-    // NOTE: If either of the installed components files are missing, we
-    // continue with the uninstall process regardless. All the installed
-    // components and additional files are going to get deleted by
-    // remove_dir_all.
+    // NOTE: If either of the installed components files are missing, we continue with the uninstall
+    // process regardless. All the installed components and additional files are going to get
+    // deleted by remove_dir_all.
     match uninstall_channel(&toolchain_dir) {
         Ok(()) => (),
         Err(UninstallError::MissingInstalledComponentsFile(path)) => {
@@ -58,15 +57,13 @@ Uninstallation will procede by deleting toolchain manually, instead of going thr
         Err(err) => bail!("Failed to uninstall {err}"),
     }
 
-    // Now that the installation indicator is deleted, we can remove the
-    // symlink. If anything goes wrong during this process, re-issuing the
-    // installation should brink the symlink back.
+    // Now that the installation indicator is deleted, we can remove the symlink. If anything goes
+    // wrong during this process, re-issuing the installation should brink the symlink back.
     {
         let stable_symlink = installed_toolchains_dir.join("stable");
 
-        // Only remove the stable symlink if it actually points to the
-        // toolchain being uninstalled. This prevents removing a symlink
-        // that was just created for a migrated channel.
+        // Only remove the stable symlink if it actually points to the toolchain being uninstalled.
+        // This prevents removing a symlink that was just created for a migrated channel.
         let symlink_points_to_this_channel = std::fs::read_link(&stable_symlink)
             .ok()
             .map(|target| target == toolchain_dir)
@@ -114,21 +111,20 @@ fn uninstall_channel(toolchain_dir: &PathBuf) -> Result<(), UninstallError> {
         if installed_successfully.exists() {
             installed_successfully
         } else if installation_in_progress.exists() {
-            // If this file exists, it means that installation got cut off
-            // before finishing.  In this case, we simply delete the components
-            // that managed to get installed.
+            // If this file exists, it means that installation got cut off before finishing.
+            // In this case, we simply delete the components that managed to get installed.
             installation_in_progress
         } else {
-            // If neither of those files are present, then we will rely on
-            // remove_dir_all to handle deletion
+            // If neither of those files are present, then we will rely on remove_dir_all to handle
+            // deletion
             return Err(UninstallError::MissingInstalledComponentsFile(
                 toolchain_dir.to_path_buf(),
             ));
         }
     };
-    // This is the channel.json at the time of installation. We use this to
-    // reconstruct the Component struct and thus figure out how the component
-    // was installed, i.e git, cargo, path.
+
+    // This is the channel.json at the time of installation. We use this to reconstruct the
+    // Component struct and thus figure out how the component was installed, i.e git, cargo, path.
     let channel_content_path = toolchain_dir.join(".installed_channel.json");
     let channel_content = std::fs::read_to_string(&channel_content_path).map_err(|err| {
         UninstallError::ChannelJsonMissing(channel_content_path.clone(), err.to_string())
@@ -147,11 +143,11 @@ fn uninstall_channel(toolchain_dir: &PathBuf) -> Result<(), UninstallError> {
         .collect::<Option<Vec<&Component>>>()
         .expect("Couldn't find installed component in channel");
 
-    // Right after reading the components list, we delete the file. This way, if
-    // anything goes wrong during uninstallation, a user can simply re-install
-    // to get back to a "stable" state.
-    // NOTE: We are ignoring errors when deleting this file, since it will
-    // (hopefully) get deleted at the end of this function.
+    // Right after reading the components list, we delete the file. This way, if anything goes wrong
+    // during uninstallation, a user can simply re-install to get back to a "stable" state.
+    //
+    // NOTE: We are ignoring errors when deleting this file, since it will (hopefully) get deleted
+    // at the end of this function.
     let _ = std::fs::remove_file(installed_components_path);
 
     let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =

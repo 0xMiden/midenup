@@ -6,47 +6,42 @@ use crate::{
     artifact::TargetTriple, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
 };
 
+/// This struct holds contextual information about the environment in which midenup/miden will
+/// operate under. This meant to be a *read-only* data structure.
 #[derive(Debug)]
-/// This struct holds contextual information about the environment in which
-/// midenup/miden will operate under. This meant to be a *read-only* data
-/// structure.
 pub struct Config {
-    /// The path to the current working directory in which midenup/miden was
-    /// called from.
+    /// The path to the current working directory in which midenup/miden was called from.
     pub working_directory: PathBuf,
-    /// The path to the midenup's home directory, which holds all the installed
-    /// toolchains with their respective libraries and executables.
+    /// The path to the midenup's home directory, which holds all the installed toolchains with
+    /// their respective libraries and executables.
     ///
-    /// By default, it will point to $XDG_DATA_HOME/midenup; although a custom
-    /// path can be specified via the MIDENUP_HOME environment variable, like
-    /// so:
+    /// By default, it will point to `$XDG_DATA_HOME/midenup`; although a custom path can be
+    /// specified via the `MIDENUP_HOME` environment variable, like so:
     ///
-    /// MIDENUP_HOME=/path/to/custom/home midenup
+    /// `MIDENUP_HOME=/path/to/custom/home midenup`
     pub midenup_home: PathBuf,
-    /// This represents the upstream manifest, which contains the state of all
-    /// the available toolchains with their respective components.
+    /// This represents the upstream manifest, which contains the state of all the available
+    /// toolchains with their respective components.
     ///
-    /// It is usually going to be obtained from cURLing the URI present in
-    /// [crate::manifest::Manifest::PUBLISHED_MANIFEST_URI], although it could
-    /// also be obtained from a different source (be it a local file or a
-    /// different URL) for debugging purposes. The source can be specified via
-    /// the MIDENUP_MANIFEST_URI environment variable. For example:
+    /// It is usually going to be obtained from `curl`ing the URI present in
+    /// [`crate::manifest::Manifest::PUBLISHED_MANIFEST_URI`], although it could also be obtained
+    /// from a different source (be it a local file or a different URL) for debugging purposes. The
+    /// source can be specified via the `MIDENUP_MANIFEST_URI` environment variable. For example:
     ///
-    /// MIDENUP_MANIFEST_URI=file://your-custom-manifest.json midenup
+    /// `MIDENUP_MANIFEST_URI=file://your-custom-manifest.json midenup`
     ///
-    /// For more information about the Manifest's fields and format, see
-    /// [Manifest].
+    /// For more information about the Manifest's fields and format, see [Manifest].
     pub manifest: Manifest,
-    /// This flag is used to detect/distinguish when midenup is being used in
-    /// tests. At the time of writing, this is mostly done to install debug
-    /// builds of the various miden components to speed tests up.
+    /// This flag is used to detect/distinguish when midenup is being used in tests.
+    ///
+    /// At the time of writing, this is mostly done to install debug builds of the various miden
+    /// components to speed tests up.
     pub debug: bool,
-    /// The machine's triplet (e.g. x86_64-unknown-linux-gnu,
-    /// aarch64-apple-darwin, etc). This is used to determine which
-    /// [[artifact::Artifact]] to download.
-    /// If, for whatever reason (which should be rare), we fail to obtain the
-    /// system's TargetTriple, then we leave it as None. In those cases, we will
-    /// simply install everything from source.
+    /// The machine's triplet (e.g. `x86_64-unknown-linux-gnu`, `aarch64-apple-darwin`, etc).
+    ///
+    /// This is used to determine which artifact to download. If, for whatever reason (which should
+    /// be rare), we fail to obtain the system's target triple, then we leave it as `None`. In those
+    /// cases, we will simply install everything from source.
     pub target: TargetTriple,
 }
 
@@ -86,12 +81,11 @@ impl Config {
             bail!("channel '{}' doesn't exist or is unavailable", current_toolchain.channel);
         };
 
-        // If the currently active channel doesn't exist, then there's nothing
-        // to update regarding the opt/ symlink.
+        // If the currently active channel doesn't exist, then there's nothing to update regarding
+        // the opt/ symlink.
         if !active_channel.get_channel_dir(config).exists() {
-            // However, if the opt directory still exists, then we remove it in
-            // order to avoid a "dangling symlink". This can happen when an
-            // uninstall is issued.
+            // However, if the opt directory still exists, then we remove it in order to avoid a
+            // "dangling symlink". This can happen when an uninstall is issued.
             if std::fs::read_link(&opt_dir).is_ok() {
                 std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
             }

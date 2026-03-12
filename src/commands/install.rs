@@ -32,9 +32,8 @@ pub fn install(
         .unwrap_or(false);
 
     if installation_indicator.exists()
-    // If the channel is "partial" then that means that only a subset of the
-    // components got installed.  In that case, we can procede to install the
-    // remaining components.
+    // If the channel is "partial" then that means that only a subset of the components got
+    // installed. In that case, we can procede to install the remaining components.
     && !is_partial
     {
         bail!("the '{}' toolchain is already installed", &channel.name);
@@ -46,7 +45,7 @@ pub fn install(
         })?;
     }
 
-    // bin/ directory which holds binaries.
+    // `bin/` directory which holds binaries.
     let bin_dir = toolchain_dir.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
@@ -54,7 +53,7 @@ pub fn install(
         })?;
     }
 
-    // lib/ directory which holds MASP libraries.
+    // `lib/` directory which holds MASP libraries.
     let lib_dir = toolchain_dir.join("lib");
     if !lib_dir.exists() {
         std::fs::create_dir_all(&lib_dir).with_context(|| {
@@ -62,15 +61,15 @@ pub fn install(
         })?;
     }
 
-    // opt/ directory which holds symlinks to binaries in bin/.
-    // These are used in order to preserve a "midenup" compatible
-    // interface. This relies on the fact that clap uses argv[0] in order to
-    // display executable names names. These symlinks have the following format:
-    // `miden <component name>`
-    // Then, when `miden` is invoked, it uses these symlinks to execute the
-    // underlying binary.  With this setup, `clap` displays the name as: `miden
-    // <component name>` instead of just `binary_name` when displaying help
-    // messages.
+    // `opt/` directory which holds symlinks to binaries in `bin/`.
+    //
+    // These are used in order to preserve a "midenup" compatible interface. This relies on the fact
+    // that clap uses argv[0] in order to display executable names names. These symlinks have the
+    // following format: `miden <component name>`
+    //
+    // Then, when `miden` is invoked, it uses these symlinks to execute the underlying binary. With
+    // this setup, `clap` displays the name as: `miden <component name>` instead of just
+    // `binary_name` when displaying help messages.
     let opt_dir = toolchain_dir.join("opt");
     if !opt_dir.exists() {
         std::fs::create_dir_all(&opt_dir).with_context(|| {
@@ -79,9 +78,9 @@ pub fn install(
     }
 
     let install_file_path = toolchain_dir.join("install").with_extension("rs");
-    // NOTE: Even when performing an update, we still need to re-generate the
-    // install script.  This is because, the versions that will be installed are
-    // written directly into the file; so the file can't be "re-used".
+    // NOTE: Even when performing an update, we still need to re-generate the install script.
+    // This is because, the versions that will be installed are written directly into the file; so
+    // the file can't be "re-used".
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
@@ -119,8 +118,7 @@ pub fn install(
 
     // If this channel is the new stable, we update the symlink
     if is_latest_stable {
-        // NOTE: This is an absolute file path, maybe a relative symlink would be more
-        // suitable
+        // NOTE: This is an absolute file path, maybe a relative symlink would be more suitable
         let stable_dir = installed_toolchains_dir.join("stable");
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
@@ -142,17 +140,17 @@ pub fn install(
 
         for component in channel_to_save.components.iter_mut() {
             match &component.version {
-                // If a component was installed with --branch, then write down the
-                // current commit. This is used on updates to check if any new commits
-                // were pushed since installation.
+                // If a component was installed with --branch, then write down the current commit.
+                // This is used on updates to check if any new commits were pushed since
+                // installation.
                 Authority::Git {
                     repository_url,
                     crate_name,
                     target: GitTarget::Branch { name, latest_revision: _ },
                 } => {
-                    // If, for whatever reason, we fail to find the latest hash, we
-                    // simply leave it empty. That does mean that an update will be
-                    // triggered even if the component does not need it.
+                    // If, for whatever reason, we fail to find the latest hash, we simply leave it
+                    // empty. That does mean that an update will be triggered even if the component
+                    // does not need it.
                     let revision_hash = utils::git::find_latest_hash(repository_url, name).ok();
 
                     component.version = Authority::Git {
@@ -165,10 +163,9 @@ pub fn install(
                     };
                 },
                 Authority::Path { path, crate_name, last_modification: _ } => {
-                    // If a component was installed with --path, then write down
-                    // the latest modification time found inside the directory
-                    // (or the current time as a fallback). This is used on
-                    // updates to check if anything changed.
+                    // If a component was installed with --path, then write down the latest
+                    // modification time found inside the directory (or the current time as a
+                    // fallback). This is used on updates to check if anything changed.
                     let latest_time = utils::fs::latest_modification(path)
                         .ok()
                         .map(|(latest_modification, _)| latest_modification)
@@ -206,8 +203,9 @@ pub fn install(
 }
 
 /// This function generates the install script that will later be saved in
-/// `midenup/toolchains/<version>/install.rs`. This file is then executed by
-/// `cargo -Zscript`.
+/// `midenup/toolchains/<version>/install.rs`.
+///
+/// This file is then executed by `cargo -Zscript`.
 fn generate_install_script(
     config: &Config,
     channel: &Channel,
@@ -475,10 +473,12 @@ fn main() {
     }
 
     // List of all the symlinks that need to be installed.
+    //
     // Currently, these includes:
-    // - A symlink that adds the 'miden ' prefix to the corresponding executable,
-    //   done in order to "trick" clap into displaying midenup compatile messages,
-    //   for more information, see: https://github.com/0xMiden/midenup/pull/73.
+    //
+    // - A symlink that adds the 'miden ' prefix to the corresponding executable,   done in order to
+    //   "trick" clap into displaying midenup compatile messages, for more information, see:
+    //   https://github.com/0xMiden/midenup/pull/73.
     let symlinks = channel
         .components
         .iter()
@@ -611,8 +611,7 @@ fn main() {
         ["--profile", "release"]
     };
 
-    // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of
-    // information.
+    // NOTE: We do not pass cargo's --verbose flag since it displays a *lot* of information.
     let verbosity = if !options.verbose {
         upon::value! {
             quiet_flag: "--quiet"
@@ -631,9 +630,8 @@ fn main() {
 
     let curl_version = env!("CURL_VERSION");
 
-    // This determines whether to panic if a component fails to be install.
-    // In release builds, we want midenup to keep going; but on debug builds we
-    // want to catch those errors.
+    // This determines whether to panic if a component fails to be install. In release builds, we
+    // want midenup to keep going; but on debug builds we want to catch those errors.
     let install_keep_going = {
         #[cfg(debug_assertions)]
         {

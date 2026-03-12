@@ -1,10 +1,9 @@
-// This file holds functions which are used in the cargo install script, after
-// being imported via include_str.
-//
-// Since these functions are intended to be used in the install script, they
-// should *not* import utilities from any crate besides the standard library and
-// they should also prioritize qualifying over importing, in order to avoid
-// duplicate "use" declarations.
+//! This module holds functions which are used in the cargo install script, after being imported
+//! via include_str.
+//!
+//! Since these functions are intended to be used in the install script, they should _NOT_ import
+//! utilities from any crate besides the standard library and they should also prioritize qualifying
+//! over importing, in order to avoid duplicate `use` declarations.
 
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 

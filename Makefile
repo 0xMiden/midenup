@@ -17,7 +17,7 @@ format-check: ## Runs Format using nightly toolchain but only in check mode
 	cargo +nightly fmt --all --check
 
 .PHONY: lint
-lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
+lint: format clippy docs ## Runs all linting tasks at once (Clippy, formatting)
 
 # --- testing -------------------------------------------------------------------------------------
 
@@ -46,3 +46,7 @@ build: ## Builds with default parameters
 .PHONY: build-release
 build-release: ## Builds with release profile
 	cargo build --release
+
+.PHONY: docs
+docs: ## Builds documentation
+	cargo doc

@@ -31,9 +31,10 @@ midenup install stable
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()
-                // NOTE: This means that there is no stable toolchain upstream.  This
-                // is most likely an edge-case that shouldn't happen. If it does
-                // happen, it probably means there's an error in midenup's parsing.
+                // NOTE: This means that there is no stable toolchain upstream.
+                //
+                // This is most likely an edge-case that shouldn't happen. If it does happen, it
+                // probably means there's an error in midenup's parsing.
                 .context("ERROR: No stable channel found in upstream")?;
 
             if upstream_stable.name > local_stable.name {
@@ -76,8 +77,7 @@ midenup install stable
             }
         },
         Some(UserChannel::Version(version)) => {
-            // Check if any individual component changed since the last the
-            // manifest was synced
+            // Check if any individual component changed since the last the manifest was synced
             let local_channel = local_manifest
                 .get_channel(&UserChannel::Version(version.clone()))
                 .context(format!("ERROR: No installed channel found with version {version}"))?
@@ -99,9 +99,9 @@ midenup install stable
                 let upstream_channel =
                     config.manifest.get_channels().find(|up_c| *up_c == local_channel);
                 let Some(upstream_channel) = upstream_channel else {
-                    // NOTE: A bit of an edge case. If the channel is present in
-                    // the local manifest but not in upstream, then it probably
-                    // either:
+                    // NOTE: A bit of an edge case. If the channel is present in the local manifest
+                    // but not in upstream, then it probably either:
+                    //
                     // - is a developer toolchain.
                     // - the upstream channel got removed from upstream (possibly for being too
                     //   old/deprecated/got rolled back)
@@ -120,14 +120,15 @@ midenup install stable
     Ok(())
 }
 
-/// This function executes the actual update. It is in charge of "preparing the
-/// environmet" to then call [commands::install]. That preparation mainly
-/// consists of:
-/// - Uninstalls components (via cargo uninstall).
-/// - Removes the installation indicator file.
+/// This function executes the actual update. It is in charge of "preparing the environmet" to then
+/// call [`commands::install`]. Preparation primarily consists of:
 ///
-/// The channel that is finally installed might differ slighltly from the
-/// upstream channel in the following scenarios:
+/// - Uninstalling components (via `cargo uninstall`).
+/// - Removing the installation indicator file.
+///
+/// The channel that is finally installed might differ slighltly from the upstream channel in the
+/// following scenarios:
+///
 /// - A component is explicitely not updated. In that the case, the "old" component will be written
 ///   to the install.rs file to ensure consistency.
 fn update_channel(
@@ -145,7 +146,7 @@ fn update_channel(
     let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
 
     if comp_to_delete_with_motive.is_empty() {
-        std::println!("Toolchain {} is up to date", local_channel);
+        println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     }
 
@@ -154,8 +155,7 @@ fn update_channel(
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
     for (component, motive) in comp_to_delete_with_motive {
-        // If the component got added to the toolchain, then there's nothing to
-        // delete.
+        // If the component got added to the toolchain, then there's nothing to delete.
         if matches!(motive, UpdateMotive::Added) {
             continue;
         }
@@ -171,9 +171,8 @@ fn update_channel(
                         Some(package_name)
                     },
                     Authority::Git { crate_name, .. } => Some(crate_name),
-                    // Since uninstalling a component from the filesystem is
-                    // potentially irreversible, we take special precautions before
-                    // uninstalling them.
+                    // Since uninstalling a component from the filesystem is potentially
+                    // irreversible, we take special precautions before uninstalling them.
                     Authority::Path { crate_name, .. } => match options.path_update {
                         PathUpdate::Interactive => {
                             match handle_path_uninstall_interactive(crate_name)? {
@@ -196,6 +195,7 @@ fn update_channel(
                         channel_to_install.get_component_mut(&component.name)
                     else {
                         // This else case can occur when:
+                        //
                         // - A user doesn't want to uninstall a component and
                         // - Said component is not present in the upstream channel, which means that
                         //   the component got removed from the toolchain entirely after the update.
@@ -219,9 +219,9 @@ fn update_channel(
         let installation_indicator = toolchain_dir.join("installation-successful");
         match std::fs::remove_file(&installation_indicator) {
             Ok(()) => (),
-            // NOTE: If the installation indicator is not present, then it means
-            // that an update got stopped mid way through. If that's the case, then
-            // this update run will bring the toolchain back to a valid state.
+            // NOTE: If the installation indicator is not present, then it means that an update got
+            // stopped mid way through. If that's the case, then this update run will bring the
+            // toolchain back to a valid state.
             Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
             Err(e) => bail!(format!(
                 "Couldn't delete installation complete indicator in: {}\
@@ -237,13 +237,11 @@ fn update_channel(
         for exe in exes_to_uninstall {
             let result = uninstall_executable(exe, &toolchain_dir);
             match result {
-                // If we fail to explicitely uninstall the executable, we simply
-                // keep going. Failure in most cases originates from the "exe"
-                // not being found in the toolchain_dir.  If the package is not
-                // found, then the new, updated, version can simply be placed in
-                // the directory without any issues.
-                // This discrepancy can be caused when an update is cut mid-way
-                // through.
+                // If we fail to explicitely uninstall the executable, we simply keep going.
+                // Failure in most cases originates from the "exe" not being found in the
+                // `toolchain_dir`.  If the package is not found, then the new, updated, version can
+                // simply be placed in the directory without any issues. This discrepancy can be
+                // caused when an update is cut mid-way through.
                 Err(commands::uninstall::UninstallError::FailedToUninstallPackage(name, ..)) => {
                     println!(
                         "INFO: Failed to uninstall old version of {name}. Proceeding regardless."
@@ -257,8 +255,7 @@ fn update_channel(
 
         commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
 
-        // After removing the components, we check if we can remove the
-        // toolchain entirely.
+        // After removing the components, we check if we can remove the toolchain entirely.
         let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
         if is_entirely_removed {
             commands::uninstall(config, local_channel, local_manifest)?;
@@ -270,10 +267,10 @@ fn update_channel(
 enum InteractiveResult {
     /// Cancel the update all together. Useful for potential miss-clicks.
     Cancel,
-
     /// Wether to update the component or not.
     ComponentUpdate(Option<String>),
 }
+
 fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<InteractiveResult> {
     println!(
         "Would you like to update this component? (N/y/c)
@@ -312,9 +309,12 @@ pub enum UpdateMotive {
     /// The entire channel was migrated.
     Migrated { strategy: MigrationStrategy },
 }
-/// This functions compares the Channel &older, with a newer channel [newer]
-/// and returns the list of [Components] that need to be updated.
+
+/// This functions compares the Channel &older, with a newer channel [newer] and returns the list
+/// of [Components] that need to be updated.
+///
 /// NOTE: A component can be marked for update in the following scenarios:
+///
 /// - The component got removed from the newer channel entirely and thus needs to be removed from
 ///   the system.
 /// - A new component is present in the upstream manifest and thus needs to be installed.
@@ -323,37 +323,34 @@ pub enum UpdateMotive {
 /// - A components [Authority] got changed and thus needs to be removed and re-installed with the
 ///   new [Authority]
 ///
-/// There is one notable exception to this rule which is when a channel is
-/// migrated into a different channel. In that case, every component is marked
-/// for update.
+/// There is one notable exception to this rule which is when a channel is migrated into a different
+/// channel. In that case, every component is marked for update.
 pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component, UpdateMotive)> {
     let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
     let current = HashSet::from_iter(older.components.iter());
 
-    // This is the subset of new components present in the channel since
-    // last sync.
-    // NOTE: Equality between components is done via their name, see
-    // [Component::eq].
+    // This is the subset of new components present in the channel since last sync.
+    //
+    // NOTE: Equality between components is done via their name, see [Component::eq].
     let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
 
     // This is the subset of old components that need to be removed.
     let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
 
-    // These are the elements that are present in boths sets. We are only
-    // interested in those which need updating.
+    // These are the elements that are present in boths sets. We are only interested in those which
+    // need updating.
     let components_to_update = current
         .iter()
         .filter(|comp| new_channel.contains(**comp))
         .filter_map(|current_component| {
             let new_component = new_channel.get(*current_component);
             match new_component {
-                // This should't be possible, but if somehow the component is
-                // missing, then we trigger an update for said component regardless.
+                // This should't be possible, but if somehow the component is missing, then we
+                // trigger an update for said component regardless.
                 None => Some((current_component, UpdateMotive::Added)),
-                // If the new channel was migrated, then every component should
-                // be deleted; unless explicitely told otherwise by the users
-                // (for example in components which were compile from a path at
-                // a given time).
+                // If the new channel was migrated, then every component should be deleted; unless
+                // explicitely told otherwise by the users (for example in components which were
+                // compile from a path at a given time).
                 Some(new_component) => {
                     if let Some(strategy) = newer.migrated_into() {
                         Some((

@@ -1,4 +1,4 @@
-// This file contains some general purpose functions.
+//! This module contains some general purpose functions.
 
 pub mod git {
     use std::path::PathBuf;
@@ -19,7 +19,9 @@ pub mod git {
             ))?;
 
         // This returns a string of the form:
+        //
         // sym_ref\tref_name
+        //
         // Source: https://github.com/git/git/blob/41905d60226a0346b22f0d0d99428c746a5a3b14/builtin/ls-remote.c#L169
         let revision_hash: String = String::from_utf8(check_revision_hash.stdout)
         .context(format!(
@@ -91,12 +93,14 @@ pub mod fs {
         std::os::windows::fs::symlink_file(to, from).context("could not create symlink")
     }
 
-    /// Returns the latest registered modification time inside a directory,
-    /// including its subdirectories. This is intended as a "best effort"
-    /// aproximation, if it encounters any errors while reading an entry, it simply
-    /// skips it. Additionally, as a safety net, the [[ENTRY_LIMIT]] sets an upper
-    /// bound on the number of entries the function can check before returning.
     const ENTRY_LIMIT: u32 = u32::MAX;
+
+    /// Returns the latest registered modification time inside a directory, including its
+    /// subdirectories.
+    ///
+    /// This is intended as a "best effort" approximation, if it encounters any errors while reading
+    /// an entry, it simply skips it. Additionally, as a safety net, the `ENTRY_LIMIT` sets an upper
+    /// bound on the number of entries the function can check before returning.
     pub fn latest_modification(dir: &PathBuf) -> anyhow::Result<(SystemTime, PathBuf)> {
         fn traverse_directories(
             dir: &PathBuf,

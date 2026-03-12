@@ -1,3 +1,5 @@
+#![deny(warnings)]
+
 mod artifact;
 pub mod channel;
 pub mod commands;

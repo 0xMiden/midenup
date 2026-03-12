@@ -44,22 +44,19 @@ pub enum Tags {
 /// channel you are interested in to learn more.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
-    /// Channels are identified by their name. The name corresponds to the
-    /// channel's version.  The version can contain suffixes such as "-custom",
-    /// "-beta".
+    /// Channels are identified by their name. The name corresponds to the channel's version.
+    /// The version can contain suffixes such as "-custom", "-beta".
     pub name: semver::Version,
-
-    /// This is used to tag special channels. Most notably, the current "stable"
-    /// channel is marked with the [ChannelAlias::Stable] alias.
+    /// This is used to tag special channels. Most notably, the current "stable" channel is marked
+    /// with the [`ChannelAlias::Stable`] alias.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
-
     /// Set of tags used to denote a special characteristic about the channel.
+    ///
     /// Mainly used for locally installed channels.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Tags>,
-
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
 }
@@ -68,6 +65,7 @@ enum InstallationMotive {
     ExplicitelySelected,
     Dependency { comp_name: String },
 }
+
 impl Display for InstallationMotive {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -80,6 +78,7 @@ impl Display for InstallationMotive {
         }
     }
 }
+
 impl Channel {
     /// If this channel has a migration tag, returns the migration strategy.
     pub fn migrated_into(&self) -> Option<&MigrationStrategy> {
@@ -107,9 +106,10 @@ impl Channel {
         let name = name.as_ref();
         self.components.iter_mut().find(|c| c.name == name)
     }
-    /// Is this channel a stable release? Does not imply that it has the
-    /// `stable` alias.  To find out the latest stable [Channel], use:
-    /// [Manifest::get_latest_stable].
+
+    /// Is this channel a stable release? Does not imply that it has the `stable` alias.
+    ///
+    /// To find out the latest stable [Channel], use [crate::manifest::Manifest::get_latest_stable].
     pub fn is_stable(&self) -> bool {
         self.alias.as_ref().is_none_or(|alias| matches!(alias, ChannelAlias::Stable))
     }
@@ -120,9 +120,8 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
     }
 
-    /// Determines if the current toolchain was installed "partially", i.e.,
-    /// containing only a subset of all the available components. This can be the
-    /// case with `miden-toolchain.toml`.
+    /// Determines if the current toolchain was installed "partially", i.e., containing only a
+    /// subset of all the available components. This can be the case with `miden-toolchain.toml`.
     pub fn is_partially_installed(&self) -> bool {
         self.tags.iter().any(|tag| matches!(tag, Tags::Partial))
     }
@@ -139,16 +138,16 @@ impl Channel {
     }
 
     /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
+    pub fn get_aliases(&self) -> HashMap<Alias, CliCommands> {
         self.components.iter().fold(HashMap::new(), |mut acc, component| {
             acc.extend(component.aliases.clone());
             acc
         })
     }
 
-    /// Creates a "partial channel" from the original channel, given a toolchain
-    /// "Partial" in this context refers to the fact that the channel will not
-    /// install all the available components, but rather a subset.
+    /// Creates a "partial channel" from the original channel, given a toolchain "Partial" in this
+    /// context refers to the fact that the channel will not install all the available components,
+    /// but rather a subset.
     pub fn create_subset(
         &self,
         current_toolchain: &Toolchain,
@@ -163,9 +162,8 @@ impl Channel {
 
         for component_name in current_toolchain.components.iter() {
             let Some(component) = self.get_component(component_name) else {
-                // NOTE: In order to provide more helpful error messages, we
-                // collect all the missing components and return a single error
-                // message at the end.
+                // NOTE: In order to provide more helpful error messages, we collect all the missing
+                // components and return a single error message at the end.
                 components_not_found
                     .entry(component_name.to_string())
                     .or_default()
@@ -233,16 +231,17 @@ impl Channel {
 }
 
 impl Eq for Component {}
-/// NOTE: Two component are "partially equal" if their names are the
-/// same. This does not mean that they're equal, since they could differ
-/// in fields like versions.
-/// This is implmented manually, in order to make use of HashSets with
-/// components.
+
+/// NOTE: Two component are "partially equal" if their names are the same.
+///
+/// This does not mean that they're equal, since they could differ in fields like versions. This is
+/// implmented manually, in order to make use of HashSets with components.
 impl PartialEq for Component {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
+
 impl Hash for Component {
     fn hash<H>(&self, state: &mut H)
     where
@@ -299,18 +298,16 @@ impl Display for Channel {
     }
 }
 
-/// A special alias/tag that a channel can posses. For more information see
-/// [Channel::alias].
+/// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
-    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a
-    /// time.
+    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a time.
     Stable,
     /// Represents either `nightly` or `nightly-$SUFFIX`
     Nightly(Option<Cow<'static, str>>),
-    /// An ad-hoc named alias for a channel. This can be used to tag custom
-    /// channels with names such as `0.15.0-stable`.
+    /// An ad-hoc named alias for a channel. This can be used to tag custom channels with names such
+    /// as `0.15.0-stable`.
     #[serde(untagged)]
     Tag(Cow<'static, str>),
 }
@@ -348,7 +345,7 @@ impl core::str::FromStr for ChannelAlias {
     }
 }
 
-/// Represents the file that the [[Component]] will install in the system.
+/// Represents the file that the [Component] will install in the system.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
@@ -357,12 +354,14 @@ pub enum InstalledFile {
     Executable {
         #[serde(rename = "installed_executable")]
         binary_name: String,
-        /// The component is executable (i.e. a CLI Binary) but it is *not* intended
-        /// to be executed on its own, rather only under aliases.
-        /// An example of this behavior is `cargo miden`, which is only intended to
-        /// be executed under the `miden new` and `miden build` aliases.
-        /// IMPORTANT: In order for alias_only to take effect, binary_name
-        /// *must* also be specified in the manifest.
+        /// The component is executable (i.e. a CLI Binary) but it is *not* intended to be executed
+        /// on its own, rather only under aliases.
+        ///
+        /// An example of this behavior is `cargo miden`, which is only intended to be executed
+        /// under the `miden new` and `miden build` aliases.
+        ///
+        /// IMPORTANT: In order for alias_only to take effect, binary_name *must* also be specified
+        /// in the manifest.
         #[serde(default)]
         alias_only: bool,
     },
@@ -371,9 +370,8 @@ pub enum InstalledFile {
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
-        /// This is the name of the struct which exposes the
-        /// `Library::write_to_file()` function, that is used to generate the
-        /// associated `.masp` file.
+        /// This is the name of the struct which exposes the `Library::write_to_file()` function,
+        /// that is used to generate the associated `.masp` file.
         library_struct: String,
     },
 }
@@ -407,20 +405,20 @@ impl Display for InstalledFile {
     }
 }
 
+/// Represents each possible "word" variant that is passed to the command line.
+///
+/// These are used to resolve an [Alias] to its associated command.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
-/// Represents each possible "word" variant that is passed to the Command
-/// line. These are used to resolve an [[Alias]] to its associated command.
-/// NOTE: In the manifest
 pub enum CliCommand {
-    /// Resolve the command to a [[Component]]'s corresponding executable.
+    /// Resolve the command to a [Component]'s corresponding executable.
     Executable,
-    /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
+    /// Resolve the command to a toolchain library directory (`<toolchain>/lib`)
     #[serde(rename = "lib_path")]
     LibPath,
-    /// Resolve the command to a [[Toolchain]]'s var directory (<toolchain>/var).
-    /// Optionally, it can contain a file name, which represents a file in
-    /// <toolchain>/var/<file>.
+    /// Resolve the command to a toolchain var directory (`<toolchain>/var`).
+    ///
+    /// Optionally, it can contain a file name, which represents a file in `<toolchain>/var/<file>`.
     // NOTE: Potentially in the future, we might want this to be an Optional field
     #[serde(rename = "var_path")]
     VarPath,
@@ -444,7 +442,6 @@ pub fn resolve_command(
     commands: &[CliCommand],
     channel: &Channel,
     component: &Component,
-
     config: &Config,
 ) -> anyhow::Result<Vec<String>> {
     let mut resolution = Vec::with_capacity(commands.len());
@@ -494,8 +491,8 @@ pub fn resolve_command(
     Ok(resolution)
 }
 
-/// Checks if both the `bin` and `lib` directories within the given toolchain
-/// directory are empty, indicating the toolchain has been deleted.
+/// Checks if both the `bin` and `lib` directories within the given toolchain directory are empty,
+/// indicating the toolchain has been deleted.
 pub fn is_toolchain_deleted(toolchain_dir: &Path) -> bool {
     let bin_empty = toolchain_dir
         .join("bin")
@@ -513,8 +510,10 @@ pub fn is_toolchain_deleted(toolchain_dir: &Path) -> bool {
 }
 
 pub type Alias = String;
-/// List of the commands that need to be run when [[Alias]] is called.
-pub type CLICommand = Vec<CliCommand>;
+
+/// List of the commands that need to be run when [Alias] is called.
+pub type CliCommands = Vec<CliCommand>;
+
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -523,8 +522,7 @@ pub struct Component {
     /// The versioning authority for this component.
     #[serde(flatten)]
     pub version: Authority,
-    /// Optional features to enable, if applicable, when installing this
-    /// component.
+    /// Optional features to enable, if applicable, when installing this component.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
@@ -532,33 +530,34 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
-    /// Commands used to call the [[Component]]'s associated executable.
-    /// IMPORTANT: This requires the [[Component::installed_file]] field to be
-    /// an [[InstalledFile::Executable]] either explicitly or implicitly.
+    /// Commands used to call the [Component]'s associated executable.
+    ///
+    /// IMPORTANT: This requires the [`Component::installed_file`] field to be an
+    /// [`InstalledFile::Executable`] either explicitly or implicitly.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     call_format: Vec<CliCommand>,
-    /// If not None, then this component requires a specific toolchain to
-    /// compile.
+    /// If not None, then this component requires a specific toolchain to compile.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rustup_channel: Option<String>,
-    /// This field is used for crates that install files whose name is different
-    /// than that of the crate. For instance: miden-vm's executable is stored as
-    /// 'miden'.
-    /// This field indicates which type of file the component will install.
-    /// IMPORTANT: If this field is missing from the manifest, then it means
-    /// that the component will install an executable that is named just like
-    /// the crate. To access this value, use [[Component::get_installed_file]].
+    /// This field is used for crates that install files whose name is different than that of the
+    /// crate.
+    ///
+    /// For instance: `miden-vm`'s executable is stored as 'miden'. This field indicates which type
+    /// of file the component will install.
+    ///
+    /// IMPORTANT: If this field is missing from the manifest, then it means that the component will
+    /// install an executable that is named just like the crate. To access this value, use
+    /// [`Component::get_installed_file`].
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
-    /// This HashMap associates each alias to the corresponding command that
-    /// needs to be executed.
-    /// NOTE: The list of commands that is resolved can have an "arbitrary"
-    /// ordering: the executable associated with this command is not forced to
-    /// come in first.
+    /// A map that associates each alias to the corresponding command that needs to be executed.
+    ///
+    /// NOTE: The list of commands that is resolved can have an "arbitrary" ordering: the executable
+    /// associated with this command is not forced to come in first.
     ///
     /// Here's an example aliases entry in a manifest.json:
     ///
@@ -576,11 +575,11 @@ pub struct Component {
     /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CLICommand>,
+    pub aliases: HashMap<Alias, CliCommands>,
     /// The file used by midenup's 'miden' to call the components executable.
-    /// If None, then the component's file will be saved as 'miden <name>'.
-    /// This distinction exists mainly for components like cargo-miden, which
-    /// differ in how they are called.
+    ///
+    /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
+    /// exists mainly for components like `cargo-miden`, which differ in how they are called.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     symlink_name: Option<String>,
@@ -609,19 +608,19 @@ impl Component {
         }
     }
 
-    /// NOTE: This method is used to check if the current Component is up to
-    /// date with its upstream equivalent. This is used to check if they
-    /// different in fields BESIDES the name. The [Component::eq] implementation
-    /// only tests name equality and is only used to check for components that
-    /// got added/removed.
+    /// This method is used to check if the current [Component] is up to date with its  upstream
+    /// equivalent.
+    ///
+    /// This is used to check if they different in fields _besides_ the name. The [`Component::eq`]
+    /// implementation only tests name equality and is only used to check for components that got
+    /// added/removed.
     pub fn is_up_to_date(&self, upstream: &Self) -> bool {
         match (&self.version, &upstream.version) {
-            // NOTE: Components that are installed via git BRANCHES are a special
-            // case because we need to check if new commits have been pushed since
-            // the component was installed.  When these components are installed,
-            // the lastest available commit hash is saved with them in the local
-            // manifest. We use this to check if an update is in order.
-            // Do note that the upstream manifest is not needed for these.
+            // NOTE: Components that are installed via git BRANCHES are a special case because we
+            // need to check if new commits have been pushed since the component was installed.
+            // When these components are installed, the lastest available commit hash is saved with
+            // them in the local manifest. We use this to check if an update is in order. Do note
+            // that the upstream manifest is not needed for these.
             (
                 Authority::Git {
                     repository_url: repository_url_a,
@@ -645,9 +644,9 @@ impl Component {
                     return false;
                 }
 
-                // If, for whatever reason, we fail to find the latest hash,
-                // we simply leave it empty. That does mean that an update
-                // will be triggered even if the component does not need it.
+                // If, for whatever reason, we fail to find the latest hash, we simply leave it
+                // empty. That does mean that an update will be triggered even if the component does
+                // not need it.
                 let latest_upstream_revision =
                     utils::git::find_latest_hash(repository_url_b.as_str(), name_b).ok();
 
@@ -692,21 +691,19 @@ impl Component {
                         modification.0
                     });
 
-                // last_modification_b should almost always be None, since the
-                // latest modification time is checked on demand. However, if
-                // for whatever reason, the manifest contains a latest
-                // modification time, we honor it.
+                // last_modification_b should almost always be None, since the latest modification
+                // time is checked on demand. However, if for whatever reason, the manifest contains
+                // a latest modification time, we honor it.
                 let new_latest = last_modification_b.or(latest_registered_modification);
 
                 match (local_latest, new_latest) {
                     (Some(local_latest), Some(new_latest)) => {
                         return new_latest <= *local_latest;
                     },
-                    // If anything failed, we simply mark the component as
-                    // needing an update.
-                    // The idea being that components installed from a path are
-                    // skipped during updates by default and are only updated if
-                    // the user explicitly passes the necessary flags.
+                    // If anything failed, we simply mark the component as needing an update.
+                    // The idea being that components installed from a path are skipped during
+                    // updates by default and are only updated if the user explicitly passes the
+                    // necessary flags.
                     _ => return false,
                 }
             },
@@ -737,8 +734,9 @@ impl Component {
     }
 
     /// Returns the name of the executable corresponding to this component.
-    /// If the component does not specify the installed file name, that means
-    /// that it installs and executable named exactly like the crate.
+    ///
+    /// If the component does not specify the installed file name, that means that it installs and
+    /// executable named exactly like the crate.
     pub fn get_installed_file(&self) -> InstalledFile {
         if let Some(installed_file) = &self.installed_file {
             installed_file.clone()
@@ -751,7 +749,7 @@ impl Component {
         }
     }
 
-    /// Returns the String representation under which midenup calls a component.
+    /// Returns the string representation under which midenup calls a component.
     pub fn get_cli_display(&self) -> String {
         format!("miden {}", self.name)
     }
@@ -765,7 +763,7 @@ impl Component {
         }
     }
 
-    /// Returns the String representation under which midenup calls a component.
+    /// Returns the string representation under which midenup calls a component.
     pub fn get_call_format(&self) -> Vec<CliCommand> {
         if self.call_format.is_empty() {
             vec![CliCommand::Executable]
@@ -774,17 +772,18 @@ impl Component {
         }
     }
 
-    /// Returns the URI for a given [target] (if available).
+    /// Returns the URI for a given `target` (if available).
     pub fn get_artifact_uri(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
     }
 }
 
-/// User-facing channel reference. The main difference with this and [Channel]
-/// is the definition of "stable". The definition of "stable" 'under the hood'
-/// is the lastest available non-nightly channel. If the user passes
-/// [UserChannel::Stable] as the target channel, we then handle the mapping from
-/// it to the underlying [Channel] representation.
+/// User-facing channel reference.
+///
+/// The main difference with this and [Channel] is the definition of "stable". The definition of
+/// "stable" 'under the hood' is the lastest available non-nightly channel. If the user passes
+/// [`UserChannel::Stable`] as the target channel, we then handle the mapping from it to the
+/// underlying [Channel] representation.
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum UserChannel {
