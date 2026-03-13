@@ -227,16 +227,14 @@ enum MidenSubcommand {
 }
 
 fn parse_subcommand(subcommand: &str, argv: &[OsString]) -> MidenSubcommand {
-    if subcommand == "help" {
-        match argv.get(2).and_then(|c| c.to_str()) {
+    match subcommand {
+        "help" | "--help" | "-h" => match argv.get(2).and_then(|c| c.to_str()) {
             None => MidenSubcommand::Help(HelpMessage::Default),
             Some("toolchain") => MidenSubcommand::Help(HelpMessage::Toolchain),
             Some(other) => MidenSubcommand::Help(HelpMessage::Resolve(other.to_string())),
-        }
-    } else if subcommand == "--version" {
-        MidenSubcommand::Version
-    } else {
-        MidenSubcommand::Resolve(subcommand.to_string())
+        },
+        "--version" => MidenSubcommand::Version,
+        _ => MidenSubcommand::Resolve(subcommand.to_string()),
     }
 }
 
