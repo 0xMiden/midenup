@@ -1,18 +1,42 @@
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fmt::{self, Display},
     hash::{Hash, Hasher},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
-use anyhow::Context;
+use anyhow::{Context, bail};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    Config, utils,
+    artifact::{Artifacts, TargetTriple},
+    config::Config,
+    toolchain::{Toolchain, ToolchainJustification},
+    utils,
     version::{Authority, GitTarget},
 };
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum MigrationStrategy {
+    NameChange { old_channel: semver::Version },
+}
+
+/// Tags used to identify special qualities of a specific channel.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "snake_case")]
+pub enum Tags {
+    /// The channel is partially installed, i.e. only a subset of components
+    /// have been installed.
+    Partial,
+    /// The channel has been moved to a new channel or potentially even removed.
+    Migration {
+        #[serde(flatten)]
+        migration: MigrationStrategy,
+    },
+}
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -20,27 +44,57 @@ use crate::{
 /// channel you are interested in to learn more.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Channel {
-    /// Channels are identified by their name. The name corresponds to the
-    /// channel's version.  The version can contain suffixes such as "-custom",
-    /// "-beta".
+    /// Channels are identified by their name. The name corresponds to the channel's version.
+    /// The version can contain suffixes such as "-custom", "-beta".
     pub name: semver::Version,
-
-    /// This is used to tag special channels. Most notably, the current "stable"
-    /// channel is marked with the [ChannelAlias::Stable] alias.
+    /// This is used to tag special channels. Most notably, the current "stable" channel is marked
+    /// with the [`ChannelAlias::Stable`] alias.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
-
+    /// Set of tags used to denote a special characteristic about the channel.
+    ///
+    /// Mainly used for locally installed channels.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<Tags>,
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
 }
 
+enum InstallationMotive {
+    ExplicitelySelected,
+    Dependency { comp_name: String },
+}
+
+impl Display for InstallationMotive {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InstallationMotive::Dependency { comp_name } => {
+                write!(f, "is a depency of component {comp_name}")
+            },
+            InstallationMotive::ExplicitelySelected => {
+                write!(f, "was explictely selected for installation")
+            },
+        }
+    }
+}
+
 impl Channel {
+    /// If this channel has a migration tag, returns the migration strategy.
+    pub fn migrated_into(&self) -> Option<&MigrationStrategy> {
+        self.tags.iter().find_map(|tag| match tag {
+            Tags::Migration { migration } => Some(migration),
+            _ => None,
+        })
+    }
+
     pub fn new(
         name: semver::Version,
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
+        tags: Vec<Tags>,
     ) -> Self {
-        Self { name, alias, components }
+        Self { name, alias, components, tags }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
@@ -52,9 +106,10 @@ impl Channel {
         let name = name.as_ref();
         self.components.iter_mut().find(|c| c.name == name)
     }
-    /// Is this channel a stable release? Does not imply that it has the
-    /// `stable` alias.  To find out the latest stable [Channel], use:
-    /// [Manifest::get_latest_stable].
+
+    /// Is this channel a stable release? Does not imply that it has the `stable` alias.
+    ///
+    /// To find out the latest stable [Channel], use [crate::manifest::Manifest::get_latest_stable].
     pub fn is_stable(&self) -> bool {
         self.alias.as_ref().is_none_or(|alias| matches!(alias, ChannelAlias::Stable))
     }
@@ -65,57 +120,16 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
     }
 
+    /// Determines if the current toolchain was installed "partially", i.e., containing only a
+    /// subset of all the available components. This can be the case with `miden-toolchain.toml`.
+    pub fn is_partially_installed(&self) -> bool {
+        self.tags.iter().any(|tag| matches!(tag, Tags::Partial))
+    }
+
     pub fn is_latest_nightly(&self) -> bool {
         self.alias
             .as_ref()
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
-    }
-
-    /// This functions compares the Channel &self, with a newer channel [newer]
-    /// and returns the list of [Components] that need to be updated.
-    /// NOTE: A component can be marked for update in the following scenarios:
-    /// - The component got removed from the newer channel entirely and thus needs to be removed
-    ///   from the system.
-    /// - A new component is present in the upstream manifest and thus needs to be installed.
-    /// - A newer version of a present component is released and thus an upgrade is due.
-    /// - An *older* version of a component is released and thus a downgrade is due.
-    /// - A components [Authority] got changed and thus needs to be removed and re-installed with
-    ///   the new [Authority]
-    pub fn components_to_update(&self, newer: &Self) -> Vec<Component> {
-        let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
-        let current = HashSet::from_iter(self.components.iter());
-
-        // This is the subset of new components present in the channel since
-        // last sync.
-        // NOTE: Equality between components is done via their name, see
-        // [Component::eq].
-        let new_components = new_channel.difference(&current);
-
-        // This is the subset of old components that need to be removed.
-        let old_components = current.difference(&new_channel);
-
-        // These are the elements that are present in boths sets. We are only
-        // interested in those which need updating.
-        let components_to_update = current.intersection(&new_channel).filter(|current_component| {
-            let new_component = new_channel.get(*current_component);
-            if let Some(new_component) = new_component {
-                // We only want to update components that share the same name but
-                // differ in some other field.
-                !current_component.is_up_to_date(new_component)
-            } else {
-                // This should't be possible, but if somehow the component is
-                // missing, then we trigger an update for said component
-                // regardless.
-                true
-            }
-        });
-
-        let components = new_components
-            .chain(old_components)
-            .chain(components_to_update)
-            .map(|c| (*c).clone());
-
-        Vec::from_iter(components)
     }
 
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
@@ -124,25 +138,111 @@ impl Channel {
     }
 
     /// Get all the aliases that the Channel is aware of
-    pub fn get_aliases(&self) -> HashMap<Alias, CLICommand> {
+    pub fn get_aliases(&self) -> HashMap<Alias, CliCommands> {
         self.components.iter().fold(HashMap::new(), |mut acc, component| {
             acc.extend(component.aliases.clone());
             acc
         })
     }
+
+    /// Creates a "partial channel" from the original channel, given a toolchain "Partial" in this
+    /// context refers to the fact that the channel will not install all the available components,
+    /// but rather a subset.
+    pub fn create_subset(
+        &self,
+        current_toolchain: &Toolchain,
+        toolchain_justification: &ToolchainJustification,
+    ) -> Option<Channel> {
+        if current_toolchain.components.is_empty() {
+            return None;
+        }
+        let mut components_to_install: Vec<Component> = Vec::new();
+
+        let mut components_not_found: HashMap<String, Vec<InstallationMotive>> = HashMap::new();
+
+        for component_name in current_toolchain.components.iter() {
+            let Some(component) = self.get_component(component_name) else {
+                // NOTE: In order to provide more helpful error messages, we collect all the missing
+                // components and return a single error message at the end.
+                components_not_found
+                    .entry(component_name.to_string())
+                    .or_default()
+                    .push(InstallationMotive::ExplicitelySelected);
+
+                continue;
+            };
+            components_to_install.push(component.clone());
+
+            for depenency_name in &component.requires {
+                let Some(dependency) = self.get_component(depenency_name) else {
+                    components_not_found.entry(depenency_name.to_string()).or_default().push(
+                        InstallationMotive::Dependency { comp_name: component_name.to_string() },
+                    );
+                    continue;
+                };
+
+                components_to_install.push(dependency.clone());
+            }
+        }
+        if !components_not_found.is_empty() {
+            println!(
+                "{}: Some elements present in the current Toolchain are not present in the \
+                 upstream channel: {}",
+                "WARNING".yellow().bold(),
+                self.name
+            );
+            println!();
+
+            for (missing_component_name, motive) in components_not_found {
+                let motives = motive
+                    .iter()
+                    .map(|motive| motive.to_string())
+                    .collect::<Vec<String>>()
+                    .join(" and ");
+
+                println!(
+                    "- {missing_component_name}, which {motives}, is missing in upstream channel"
+                );
+            }
+
+            println!();
+            println!("These components will be ignored for the current install.");
+            println!();
+            // TODO: Add messages for the other justifications
+            #[allow(clippy::single_match)]
+            match toolchain_justification {
+                ToolchainJustification::MidenToolchainFile { path } => println!(
+                    "Check the `miden_toolchain.toml` file in {} to see if any component is \
+                     misspelled or got removed from upstream",
+                    path.display()
+                ),
+                _ => (),
+            }
+        }
+
+        let partial_channel = Channel {
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            tags: vec![Tags::Partial],
+            components: components_to_install,
+        };
+
+        Some(partial_channel)
+    }
 }
 
 impl Eq for Component {}
-/// NOTE: Two component are "partially equal" if their names are the
-/// same. This does not mean that they're equal, since they could differ
-/// in fields like versions.
-/// This is implmented manually, in order to make use of HashSets with
-/// components.
+
+/// NOTE: Two component are "partially equal" if their names are the same.
+///
+/// This does not mean that they're equal, since they could differ in fields like versions. This is
+/// implmented manually, in order to make use of HashSets with components.
 impl PartialEq for Component {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
     }
 }
+
 impl Hash for Component {
     fn hash<H>(&self, state: &mut H)
     where
@@ -156,7 +256,15 @@ impl PartialEq for Channel {
     fn eq(&self, other: &Self) -> bool {
         // NOTE: To channels are equal regardless of their aliases
         let equal_name = self.name == other.name;
-        if !equal_name {
+
+        let migrated_into = |a: &Channel, b: &Channel| {
+            a.tags.iter().any(|tag| {
+                matches!(tag, Tags::Migration {migration: MigrationStrategy::NameChange { old_channel }
+            } if old_channel == &b.name)
+            })
+        };
+
+        if !equal_name && !migrated_into(self, other) && !migrated_into(other, self) {
             return false;
         }
 
@@ -176,18 +284,32 @@ impl PartialEq for Channel {
     }
 }
 
-/// A special alias/tag that a channel can posses. For more information see
-/// [Channel::alias].
+impl Display for Channel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self.alias {
+            Some(ChannelAlias::Stable) => write!(f, "Channel stable ({})", self.name),
+            Some(ChannelAlias::Tag(tag)) => write!(f, "Channel {}-{}", self.name, tag.as_ref()),
+            Some(ChannelAlias::Nightly(tag)) => {
+                let nightly_suffix =
+                    tag.as_ref().map(|suffix| format!("-{}", suffix)).unwrap_or(String::from(""));
+                write!(f, "Nightly channel {}{}", self.name, nightly_suffix)
+            },
+            None => write!(f, "Channel {}", self.name),
+        }
+    }
+}
+
+/// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
-    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a
-    /// time.
+    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a time.
     Stable,
     /// Represents either `nightly` or `nightly-$SUFFIX`
     Nightly(Option<Cow<'static, str>>),
-    /// An ad-hoc named alias for a channel. This can be used to tag custom
-    /// channels with names such as `0.15.0-stable`.
+    /// An ad-hoc named alias for a channel. This can be used to tag custom channels with names such
+    /// as `0.15.0-stable`.
+    #[serde(untagged)]
     Tag(Cow<'static, str>),
 }
 
@@ -224,59 +346,111 @@ impl core::str::FromStr for ChannelAlias {
     }
 }
 
-/// Represents the file that the [[Component]] will install in the system.
+/// Represents the file that the [Component] will install in the system.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
-    /// Te component installs an executable.
+    /// The component installs an executable.
     #[serde(untagged)]
     Executable {
         #[serde(rename = "installed_executable")]
         binary_name: String,
+        /// The component is executable (i.e. a CLI Binary) but it is *not* intended to be executed
+        /// on its own, rather only under aliases.
+        ///
+        /// An example of this behavior is `cargo miden`, which is only intended to be executed
+        /// under the `miden new` and `miden build` aliases.
+        ///
+        /// IMPORTANT: In order for alias_only to take effect, binary_name *must* also be specified
+        /// in the manifest.
+        #[serde(default)]
+        alias_only: bool,
     },
-    /// Te component installs a MaspLibrary.
+    /// The component installs a MaspLibrary.
     #[serde(untagged)]
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
+        /// This is the name of the struct which exposes the `Library::write_to_file()` function,
+        /// that is used to generate the associated `.masp` file.
+        library_struct: String,
     },
+}
+
+impl InstalledFile {
+    pub fn get_library_struct(&self) -> Option<&str> {
+        match &self {
+            InstalledFile::Executable { .. } => None,
+            InstalledFile::Library { library_struct, .. } => Some(library_struct),
+        }
+    }
+
+    pub fn get_path_from(&self, toolchain_dir: &Path) -> PathBuf {
+        match &self {
+            exe @ InstalledFile::Executable { .. } => {
+                toolchain_dir.join("bin").join(exe.to_string())
+            },
+            lib @ InstalledFile::Library { .. } => toolchain_dir.join("lib").join(lib.to_string()),
+        }
+    }
 }
 
 impl Display for InstalledFile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            InstalledFile::Executable { binary_name: executable_name } => {
-                f.write_str(executable_name)
-            },
-            InstalledFile::Library { library_name } => f.write_str(library_name),
+            InstalledFile::Executable {
+                binary_name: executable_name,
+                alias_only: _,
+            } => f.write_str(executable_name),
+            InstalledFile::Library { library_name, library_struct: _ } => f.write_str(library_name),
         }
     }
 }
 
+/// Represents each possible "word" variant that is passed to the command line.
+///
+/// These are used to resolve an [Alias] to its associated command.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
-/// Represents each possible "word" variant that is passed to the Command
-/// line. These are used to resolve an [[Alias]] to its associated command.
-/// NOTE: In the manifest
 pub enum CliCommand {
-    /// Resolve the command to a [[Component]]'s corresponding executable.
+    /// Resolve the command to a [Component]'s corresponding executable.
     Executable,
-    /// Resolve the command to a [[Toolchain]]'s library path (<toolchain>/lib)
+    /// Resolve the command to a toolchain library directory (`<toolchain>/lib`)
     #[serde(rename = "lib_path")]
     LibPath,
+    /// Resolve the command to a toolchain var directory (`<toolchain>/var`).
+    ///
+    /// Optionally, it can contain a file name, which represents a file in `<toolchain>/var/<file>`.
+    // NOTE: Potentially in the future, we might want this to be an Optional field
+    #[serde(rename = "var_path")]
+    VarPath,
     /// An argument that is passed verbatim, as is.
     #[serde(untagged)]
     Verbatim(String),
 }
 
-impl CliCommand {
-    pub fn resolve_command(
-        &self,
-        channel: &Channel,
-        component: &Component,
-        config: &Config,
-    ) -> anyhow::Result<String> {
-        match self {
+impl fmt::Display for CliCommand {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &self {
+            CliCommand::Executable => write!(f, "executable"),
+            CliCommand::LibPath => write!(f, "lib_path"),
+            CliCommand::VarPath => write!(f, "var_path"),
+            CliCommand::Verbatim(word) => write!(f, "verbatim: {word}"),
+        }
+    }
+}
+
+pub fn resolve_command(
+    commands: &[CliCommand],
+    channel: &Channel,
+    component: &Component,
+    config: &Config,
+) -> anyhow::Result<Vec<String>> {
+    let mut resolution = Vec::with_capacity(commands.len());
+    let mut commands = commands.iter();
+
+    while let Some(command) = commands.next() {
+        match command {
             CliCommand::Executable => {
                 let name = &component.name;
                 let component = channel.get_component(name).with_context(|| {
@@ -286,23 +460,62 @@ impl CliCommand {
                     )
                 })?;
 
-                Ok(component.get_cli_display())
+                resolution.push(component.get_cli_display());
             },
             CliCommand::LibPath => {
                 let channel_dir = channel.get_channel_dir(config);
 
                 let toolchain_path = channel_dir.join("lib");
 
-                Ok(toolchain_path.to_string_lossy().to_string())
+                resolution.push(toolchain_path.to_string_lossy().to_string())
             },
-            CliCommand::Verbatim(name) => Ok(name.to_string()),
+            // The VarPath must be followed by a file name.
+            CliCommand::VarPath => {
+                let channel_dir = channel.get_channel_dir(config);
+
+                let toolchain_path = channel_dir.join("var");
+
+                let next_command =
+                    commands.next().context("var_path needs to be followed by a path name")?;
+
+                let CliCommand::Verbatim(directory_name) = next_command else {
+                    bail!(format!("After var_path a file is required. Got: {}", next_command))
+                };
+
+                let full_path = toolchain_path.join(directory_name);
+
+                resolution.push(full_path.to_string_lossy().to_string())
+            },
+            CliCommand::Verbatim(name) => resolution.push(name.to_string()),
         }
     }
+
+    Ok(resolution)
+}
+
+/// Checks if both the `bin` and `lib` directories within the given toolchain directory are empty,
+/// indicating the toolchain has been deleted.
+pub fn is_toolchain_deleted(toolchain_dir: &Path) -> bool {
+    let bin_empty = toolchain_dir
+        .join("bin")
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true);
+
+    let lib_empty = toolchain_dir
+        .join("lib")
+        .read_dir()
+        .map(|mut entries| entries.next().is_none())
+        .unwrap_or(true);
+
+    bin_empty && lib_empty
 }
 
 pub type Alias = String;
-/// List of the commands that need to be run when [[Alias]] is called.
-pub type CLICommand = Vec<CliCommand>;
+
+/// List of the commands that need to be run when [Alias] is called.
+pub type CliCommands = Vec<CliCommand>;
+
 /// An installable component of a toolchain
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Component {
@@ -311,8 +524,7 @@ pub struct Component {
     /// The versioning authority for this component.
     #[serde(flatten)]
     pub version: Authority,
-    /// Optional features to enable, if applicable, when installing this
-    /// component.
+    /// Optional features to enable, if applicable, when installing this component.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub features: Vec<String>,
@@ -320,33 +532,34 @@ pub struct Component {
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
-    /// Commands used to call the [[Component]]'s associated executable.
-    /// IMPORTANT: This requires the [[Component::installed_file]] field to be
-    /// an [[InstalledFile::Executable]] either explicitly or implicitly.
+    /// Commands used to call the [Component]'s associated executable.
+    ///
+    /// IMPORTANT: This requires the [`Component::installed_file`] field to be an
+    /// [`InstalledFile::Executable`] either explicitly or implicitly.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     call_format: Vec<CliCommand>,
-    /// If not None, then this component requires a specific toolchain to
-    /// compile.
+    /// If not None, then this component requires a specific toolchain to compile.
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rustup_channel: Option<String>,
-    /// This field is used for crates that install files whose name is different
-    /// than that of the crate. For instance: miden-vm's executable is stored as
-    /// 'miden'.
-    /// This field indicates which type of file the component will install.
-    /// IMPORTANT: If this field is missing from the manifest, then it means
-    /// that the component will install an executable that is named just like
-    /// the crate. To access this value, use [[Component::get_installed_file]].
+    /// This field is used for crates that install files whose name is different than that of the
+    /// crate.
+    ///
+    /// For instance: `miden-vm`'s executable is stored as 'miden'. This field indicates which type
+    /// of file the component will install.
+    ///
+    /// IMPORTANT: If this field is missing from the manifest, then it means that the component
+    /// will install an executable that is named just like the crate. To access this value, use
+    /// [`Component::get_installed_file`].
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(flatten)]
     installed_file: Option<InstalledFile>,
-    /// This HashMap associates each alias to the corresponding command that
-    /// needs to be executed.
-    /// NOTE: The list of commands that is resolved can have an "arbitrary"
-    /// ordering: the executable associated with this command is not forced to
-    /// come in first.
+    /// A map that associates each alias to the corresponding command that needs to be executed.
+    ///
+    /// NOTE: The list of commands that is resolved can have an "arbitrary" ordering: the
+    /// executable associated with this command is not forced to come in first.
     ///
     /// Here's an example aliases entry in a manifest.json:
     ///
@@ -364,12 +577,20 @@ pub struct Component {
     /// ```
     #[serde(default)]
     #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CLICommand>,
-    /// If the component requires initialization, this field holds the
-    /// initialization subcommand(s).
+    pub aliases: HashMap<Alias, CliCommands>,
+    /// The file used by midenup's 'miden' to call the components executable.
+    ///
+    /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
+    /// exists mainly for components like `cargo-miden`, which differ in how they are called.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    symlink_name: Option<String>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub initialization: Vec<String>,
+    /// Pre-built artifact.
+    #[serde(flatten)]
+    artifacts: Option<Artifacts>,
 }
 
 impl Component {
@@ -382,24 +603,26 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
-            initialization: vec![],
             aliases: HashMap::new(),
+            symlink_name: None,
+            initialization: Vec::new(),
+            artifacts: None,
         }
     }
 
-    /// NOTE: This method is used to check if the current Component is up to
-    /// date with its upstream equivalent. This is used to check if they
-    /// different in fields BESIDES the name. The [Component::eq] implementation
-    /// only tests name equality and is only used to check for components that
-    /// got added/removed.
+    /// This method is used to check if the current [Component] is up to date with its  upstream
+    /// equivalent.
+    ///
+    /// This is used to check if they different in fields _besides_ the name. The [`Component::eq`]
+    /// implementation only tests name equality and is only used to check for components that got
+    /// added/removed.
     pub fn is_up_to_date(&self, upstream: &Self) -> bool {
         match (&self.version, &upstream.version) {
-            // NOTE: Components that are installed via git BRANCHES are a special
-            // case because we need to check if new commits have been pushed since
-            // the component was installed.  When these components are installed,
-            // the lastest available commit hash is saved with them in the local
-            // manifest. We use this to check if an update is in order.
-            // Do note that the upstream manifest is not needed for these.
+            // NOTE: Components that are installed via git BRANCHES are a special case because we
+            // need to check if new commits have been pushed since the component was installed.
+            // When these components are installed, the lastest available commit hash is saved with
+            // them in the local manifest. We use this to check if an update is in order. Do note
+            // that the upstream manifest is not needed for these.
             (
                 Authority::Git {
                     repository_url: repository_url_a,
@@ -423,9 +646,9 @@ impl Component {
                     return false;
                 }
 
-                // If, for whatever reason, we fail to find the latest hash,
-                // we simply leave it empty. That does mean that an update
-                // will be triggered even if the component does not need it.
+                // If, for whatever reason, we fail to find the latest hash, we simply leave it
+                // empty. That does mean that an update will be triggered even if the component does
+                // not need it.
                 let latest_upstream_revision =
                     utils::git::find_latest_hash(repository_url_b.as_str(), name_b).ok();
 
@@ -470,21 +693,19 @@ impl Component {
                         modification.0
                     });
 
-                // last_modification_b should almost always be None, since the
-                // latest modification time is checked on demand. However, if
-                // for whatever reason, the manifest contains a latest
-                // modification time, we honor it.
+                // last_modification_b should almost always be None, since the latest modification
+                // time is checked on demand. However, if for whatever reason, the manifest contains
+                // a latest modification time, we honor it.
                 let new_latest = last_modification_b.or(latest_registered_modification);
 
                 match (local_latest, new_latest) {
                     (Some(local_latest), Some(new_latest)) => {
                         return new_latest <= *local_latest;
                     },
-                    // If anything failed, we simply mark the component as
-                    // needing an update.
-                    // The idea being that components installed from a path are
-                    // skipped during updates by default and are only updated if
-                    // the user explicitly passes the necessary flags.
+                    // If anything failed, we simply mark the component as needing an update.
+                    // The idea being that components installed from a path are skipped during
+                    // updates by default and are only updated if the user explicitly passes the
+                    // necessary flags.
                     _ => return false,
                 }
             },
@@ -515,22 +736,36 @@ impl Component {
     }
 
     /// Returns the name of the executable corresponding to this component.
-    /// If the component does not specify the installed file name, that means
-    /// that it installs and executable named exactly like the crate.
+    ///
+    /// If the component does not specify the installed file name, that means that it installs and
+    /// executable named exactly like the crate.
     pub fn get_installed_file(&self) -> InstalledFile {
         if let Some(installed_file) = &self.installed_file {
             installed_file.clone()
         } else {
-            InstalledFile::Executable { binary_name: self.name.to_string() }
+            InstalledFile::Executable {
+                binary_name: self.name.to_string(),
+                // If not specified, all executable components are *not* alias_only
+                alias_only: false,
+            }
         }
     }
 
-    /// Returns the String representation under which midenup calls a component.
+    /// Returns the string representation under which midenup calls a component.
     pub fn get_cli_display(&self) -> String {
         format!("miden {}", self.name)
     }
 
-    /// Returns the String representation under which midenup calls a component.
+    /// Returns the name of symlink associated with a component.
+    pub fn get_symlink_name(&self) -> String {
+        if let Some(symlink_name) = &self.symlink_name {
+            symlink_name.clone()
+        } else {
+            format!("miden {}", self.name)
+        }
+    }
+
+    /// Returns the string representation under which midenup calls a component.
     pub fn get_call_format(&self) -> Vec<CliCommand> {
         if self.call_format.is_empty() {
             vec![CliCommand::Executable]
@@ -538,13 +773,19 @@ impl Component {
             self.call_format.clone()
         }
     }
+
+    /// Returns the URI for a given `target` (if available).
+    pub fn get_artifact_uri(&self, target: &TargetTriple) -> Option<String> {
+        self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
+    }
 }
 
-/// User-facing channel reference. The main difference with this and [Channel]
-/// is the definition of "stable". The definition of "stable" 'under the hood'
-/// is the lastest available non-nightly channel. If the user passes
-/// [UserChannel::Stable] as the target channel, we then handle the mapping from
-/// it to the underlying [Channel] representation.
+/// User-facing channel reference.
+///
+/// The main difference with this and [Channel] is the definition of "stable". The definition of
+/// "stable" 'under the hood' is the lastest available non-nightly channel. If the user passes
+/// [`UserChannel::Stable`] as the target channel, we then handle the mapping from it to the
+/// underlying [Channel] representation.
 #[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum UserChannel {
@@ -598,218 +839,5 @@ impl core::str::FromStr for UserChannel {
                 .map(Self::Version)
                 .map_err(|err| anyhow!("invalid channel version: {err}")),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::collections::HashMap;
-
-    use crate::{
-        channel::{Channel, Component},
-        version::{Authority, GitTarget},
-    };
-
-    #[test]
-    /// This tests checks that the [Channel::components_to_update] functions behaves as intended.
-    /// Here the following updates need to be performed:
-    /// - vm requires update 0.12.0 -> 0.15.0
-    /// - std requires downgrade from 0.15.0 -> 0.12.0
-    /// - a so called "removed-component" needs to be deleted
-    /// - a so called "new-component" needs to be added
-    fn check_components_to_update() {
-        let old_components = [
-            Component {
-                name: std::borrow::Cow::Borrowed("vm"),
-                version: Authority::Cargo {
-                    package: Some(String::from("miden-vm")),
-                    version: semver::Version::new(0, 12, 0),
-                },
-                features: vec![String::from("executable"), String::from("concurrent")],
-                requires: Vec::new(),
-                call_format: Vec::new(),
-                rustup_channel: None,
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-            Component {
-                name: std::borrow::Cow::Borrowed("std"),
-                version: Authority::Cargo {
-                    package: Some(String::from("miden-stdlib")),
-                    version: semver::Version::new(0, 15, 0),
-                },
-                features: Vec::new(),
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-            Component {
-                name: std::borrow::Cow::Borrowed("removed-component"),
-                version: Authority::Cargo {
-                    package: Some(String::from("deleted-repo")),
-                    version: semver::Version::new(0, 82, 77),
-                },
-                features: Vec::new(),
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-            Component {
-                name: std::borrow::Cow::Borrowed("base"),
-                version: Authority::Cargo {
-                    package: Some(String::from("miden-lib")),
-                    version: semver::Version::new(0, 9, 0),
-                },
-                features: Vec::new(),
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-        ];
-
-        let new_components = [
-            Component {
-                name: std::borrow::Cow::Borrowed("vm"),
-                version: Authority::Cargo {
-                    package: Some(String::from("miden-vm")),
-                    version: semver::Version::new(0, 15, 0),
-                },
-                features: vec![String::from("executable"), String::from("concurrent")],
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-            Component {
-                name: std::borrow::Cow::Borrowed("std"),
-                version: Authority::Cargo {
-                    package: Some(String::from("miden-stdlib")),
-                    version: semver::Version::new(0, 12, 0),
-                },
-                features: Vec::new(),
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-            Component {
-                name: std::borrow::Cow::Borrowed("new-component"),
-                version: Authority::Cargo {
-                    package: Some(String::from("new-repo")),
-                    version: semver::Version::new(78, 69, 87),
-                },
-                features: Vec::new(),
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-            Component {
-                name: std::borrow::Cow::Borrowed("base"),
-                version: Authority::Cargo {
-                    package: Some(String::from("miden-lib")),
-                    version: semver::Version::new(0, 9, 0),
-                },
-                features: Vec::new(),
-                requires: Vec::new(),
-                rustup_channel: None,
-                call_format: Vec::new(),
-                installed_file: None,
-                initialization: vec![],
-                aliases: HashMap::new(),
-            },
-        ];
-
-        let old = Channel {
-            name: semver::Version::new(0, 0, 1),
-            alias: None,
-            components: old_components.to_vec(),
-        };
-
-        let new = Channel {
-            name: semver::Version::new(0, 0, 2),
-            alias: None,
-            components: new_components.to_vec(),
-        };
-
-        let components = old.components_to_update(&new);
-
-        assert_eq!(components.len(), 4);
-        assert!(components.iter().any(|c| c.name == "vm"));
-        assert!(components.iter().any(|c| c.name == "removed-component"));
-        assert!(components.iter().any(|c| c.name == "std"));
-        assert!(components.iter().any(|c| c.name == "new-component"));
-    }
-
-    #[test]
-    /// Since the components that are tracked via git branches need special
-    /// treatment, we need to check that their behavior complies even if their
-    /// Authority changes.
-    fn update_component_from_git_to_cargo() {
-        let old_components = [Component {
-            name: std::borrow::Cow::Borrowed("client"),
-            version: Authority::Git {
-                repository_url: String::from("https://github.com/0xMiden/miden-client.git"),
-                crate_name: String::from("miden-client-cli"),
-                target: GitTarget::Branch {
-                    name: String::from("main"),
-                    latest_revision: None,
-                },
-            },
-            features: Vec::new(),
-            requires: Vec::new(),
-            call_format: Vec::new(),
-            rustup_channel: None,
-            installed_file: None,
-            initialization: vec![],
-            aliases: HashMap::new(),
-        }];
-
-        let new_components = [Component {
-            name: std::borrow::Cow::Borrowed("client"),
-            version: Authority::Cargo {
-                package: Some(String::from("miden-client-cli")),
-                version: semver::Version::new(0, 15, 0),
-            },
-            features: Vec::new(),
-            requires: Vec::new(),
-            rustup_channel: None,
-            call_format: Vec::new(),
-            installed_file: None,
-            initialization: vec![],
-            aliases: HashMap::new(),
-        }];
-
-        let old = Channel {
-            name: semver::Version::new(0, 0, 1),
-            alias: None,
-            components: old_components.to_vec(),
-        };
-
-        let new = Channel {
-            name: semver::Version::new(0, 0, 2),
-            alias: None,
-            components: new_components.to_vec(),
-        };
-
-        let components = old.components_to_update(&new);
-
-        assert_eq!(components.len(), 1);
     }
 }

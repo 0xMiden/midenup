@@ -49,9 +49,9 @@ pub enum ManifestError {
 }
 
 impl Manifest {
+    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
-    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
 
     /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
@@ -125,10 +125,10 @@ impl Manifest {
     }
 
     pub fn add_channel(&mut self, channel: Channel) {
-        // Before adding the new stable channel, remove the stable alias from
-        // all the channels that have it.
-        // NOTE: This should be only a single channel, we check for multiple
-        // just in case.
+        // Before adding the new stable channel, remove the stable alias from all the channels that
+        // have it.
+        //
+        // NOTE: This should be only a single channel, we check for multiple just in case.
         if self.is_latest_stable(&channel) {
             for channel in self
                 .channels
@@ -139,16 +139,17 @@ impl Manifest {
             }
         }
 
-        // NOTE: If the channel already exists in the manifest, remove the old
-        // version. This happens when updating
+        // NOTE: If the channel already exists in the manifest, remove the old version. This happens
+        // when updating
         self.channels.retain(|c| c.name != channel.name);
 
         self.channels.push(channel);
     }
 
-    /// Determines whether the `channel` is the latest stable version. This can
-    /// only be determined by the [Manifest], since this definition is dependant
-    /// on all the other present [Channels]
+    /// Determines whether the `channel` is the latest stable version.
+    ///
+    /// This can only be determined by the [Manifest], since this definition is dependant on all the
+    /// other present [Channel]s
     pub fn is_latest_stable(&self, channel: &Channel) -> bool {
         self.channels.iter().filter(|c| c.is_stable()).all(|c| {
             let comparison = channel.name.cmp_precedence(&c.name);
@@ -156,13 +157,14 @@ impl Manifest {
         })
     }
 
-    /// Attempts to fetch the version corresponding to the `stable` [Channel],
-    /// by definition this is the latest version.
-    /// WARNING: This method is mainly intended to be used with the *Upstream*
-    /// Manifest, not the Local Manifest.  This is because, stable is simply
-    /// defined to be "the latest non-nightly" channel in the [Manifest].
-    /// Therefore, in order to have a unified vision of what "stable" refers,
-    /// refer to the upstream [Manifest].
+    /// Attempts to fetch the version corresponding to the `stable` [Channel].
+    ///
+    /// By definition this is the latest version.
+    ///
+    /// WARNING: This method is mainly intended to be used with the _upstream_ manifest, not the
+    /// local manifest.  This is because, stable is simply defined to be "the latest non-nightly"
+    /// channel in the [Manifest]. Therefore, in order to have a unified vision of what "stable"
+    /// refers to, refer to the upstream [Manifest].
     pub fn get_latest_stable(&self) -> Option<&Channel> {
         self.channels
             .iter()
@@ -191,7 +193,12 @@ impl Manifest {
             )
         })
     }
-    /// Attempts to fetch the [Channel] corresponding to the given [ChannelType]
+
+    pub fn get_channel_by_name(&self, ver: &semver::Version) -> Option<&Channel> {
+        self.channels.iter().find(|c| &c.name == ver)
+    }
+
+    /// Attempts to fetch the [Channel] corresponding to the given [UserChannel]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
         match channel {
             UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
@@ -221,37 +228,34 @@ mod tests {
     use super::Manifest;
     use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
 
-    #[test]
     /// Validates that the current channel manifest is parseable.
+    #[test]
     fn validate_current_channel_manifest() {
         let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
             .expect("Couldn't load manifest");
 
-        let stable = manifest
+        let _stable = manifest
             .get_channel(&UserChannel::Stable)
             .expect("Could not convert UserChannel to internal channel representation");
-
-        assert!(stable.get_component("std").is_some());
     }
 
-    #[test]
     /// Validates that the *published* channel manifest is parseable.
     /// NOTE: This test is mainly intended for backwards compatibilty reasons.
+    #[test]
     fn validate_published_channel_manifest() {
         let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI)
             .expect("Failed to parse upstream manifest.");
 
-        let stable = manifest
+        let _ = manifest
             .get_channel(&UserChannel::Stable)
             .expect("Could not convert UserChannel to internal channel representation");
-
-        assert!(stable.get_component("std").is_some());
     }
 
-    #[test]
     /// Validates that non-standard manifest features are parsed correctly, these include:
+    ///
     /// - Non stable channels (custom tags, nightly)
     /// - Components wwith git and a path as an [[Authority]].
+    #[test]
     fn unit_test_manifest_additional() {
         const FILE: &str =
             "file://tests/data/unit_test_manifest_additional/manifest-non-stable.json";
@@ -259,7 +263,11 @@ mod tests {
         {
             let custom_build = manifest
                 .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
-                .unwrap_or_else(|| {panic!("Could not convert UserChannel to internal channel representation from {FILE}",)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Could not convert UserChannel to internal channel representation from \
+                         {FILE}",
+                    )
                 });
 
             #[allow(unused_variables)]

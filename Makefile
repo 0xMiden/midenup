@@ -2,7 +2,7 @@
 
 .PHONY: clippy
 clippy: ## Runs Clippy with configs
-	cargo clippy -- -D warnings
+	cargo clippy --all --all-targets -- -D clippy::all -D warnings
 
 .PHONY: fix
 fix: ## Runs Fix with configs
@@ -17,7 +17,7 @@ format-check: ## Runs Format using nightly toolchain but only in check mode
 	cargo +nightly fmt --all --check
 
 .PHONY: lint
-lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
+lint: format clippy docs ## Runs all linting tasks at once (Clippy, formatting)
 
 # --- testing -------------------------------------------------------------------------------------
 
@@ -35,6 +35,10 @@ integration-test: ## Run all integration tests
 
 # --- building ------------------------------------------------------------------------------------
 
+.PHONY: check
+check: ## Perform a check build with default parameters
+	cargo check
+
 .PHONY: build
 build: ## Builds with default parameters
 	cargo build
@@ -44,7 +48,6 @@ build-release: ## Builds with release profile
 	cargo build --release
 
 # --- docs ----------------------------------------------------------------------------------------
-
 .PHONY: serve-docs
 serve-docs: ## Builds docusaurus documentation & serves documentation site
 	$(MAKE) -C docs/

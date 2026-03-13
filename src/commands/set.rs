@@ -3,16 +3,16 @@ use std::io::Write;
 use anyhow::Context;
 
 use crate::{
-    Config,
     channel::UserChannel,
+    config::Config,
     toolchain::{Toolchain, ToolchainFile},
 };
 
 const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
 
-/// This function creates the [miden-toolchain.toml] in the present working
-/// directory. This file contains the desired [Toolchain] with a list of the
-/// components that make it up.
+/// This function creates the `miden-toolchain.toml` in the present working directory.
+///
+/// That file contains the desired toolchain with a list of the components that make it up.
 pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_path =
         config.working_directory.join(TOOLCHAIN_FILE_NAME).with_extension("toml");

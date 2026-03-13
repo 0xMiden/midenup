@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, next]
@@ -17,80 +20,85 @@ on:
 env:
   # Set the new value when the cache grows too much and we hit the runner's disk space limit
   # via https://github.com/rust-lang/docs.rs/pull/2433
-  RUST_CACHE_KEY: rust-cache-20250701
+  RUST_CACHE_KEY: rust-cache-20260312
 
 jobs:
   lint:
-    name: clippy
+    name: lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: run clippy
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - name: Install Rust
         run: |
-          rustup update --no-self-update stable
-          rustup component add clippy
+          rustup update --no-self-update stable nightly
+          rustc --version
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Use a common cache for the basic compilation/formatter/clippy checks
+          shared-key: ${{ github.workflow }}-shared
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Clippy
+        run: |
           make clippy
 
   rustfmt:
     name: rustfmt
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: run rustfmt
-        run: |
-          rustup update --no-self-update nightly
-          rustup +nightly component add rustfmt
-          make format-check
-  build:
-    name: build
     # Run this job after the linter, so the cache is hot
     needs: [lint]
-    runs-on: ubuntu-latest
+    # But run this check even if the lint check failed
+    if: ${{ always() }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          # Only update the cache on push onto the main branch. This strikes a nice balance between
-          # cache hits and cache evictions (github has a 10GB cache limit).
-          save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-
-      - name: build
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - name: Install Rust
         run: |
-          rustup update --no-self-update
-          make build
+          rustup update --no-self-update nightly
+          rustc --version
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # Use a common cache for the basic compilation/formatter/clippy checks
+          shared-key: ${{ github.workflow }}-shared
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          # But do not save this cache, just use it
+          save-if: false
+      - name: Formatting
+        run: |
+          rustup +nightly component add rustfmt
+          make format-check
 
   unit_tests:
     name: unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
       - name: Install rust
         run: |
           rustup update --no-self-update
           rustc --version
-
-      - uses: taiki-e/install-action@nextest
-
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          # Use a common cache for the basic compilation/formatter/clippy checks
-          shared-key: ${{ github.workflow }}-shared
+          # NOTE: We use a different cache for the tests, so they can be run in parallel, but we
+          # also share the cache for the tests for efficiency
+          shared-key: ${{ github.workflow }}-shared-tests
           prefix-key: ${{ env.RUST_CACHE_KEY }}
-          save-if: ${{ github.ref == 'refs/heads/next' }}
-
-      - name: Check tests
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@nextest
+      - name: Check
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
         # error occurs
         run: cargo check --tests
-
-      - name: Run tests
+      - name: Test
         run: make test
 
   integration_test:
-    # These tests will
     name: integration tests
     # We only want to run the integration tests if the unit tests pass, and that has the added
     # benefit that we can re-use the cache from the unit test job for all integration tests
@@ -98,45 +106,27 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Install rust and all the rust toolchains present in the manifest
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - name: Install Rust
         run: |
           rustup update --no-self-update
-          ./.github/auxiliary_scripts/install-toolchains.sh
           rustc --version
-
-      - name: Free up disk space
+      - name: Install all toolchains present in the manifest
         run: |
-
-          echo "Initial disk usage:"
-          df -h
-
-          echo "Removing pre installed files we do not need"
-
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /usr/share/swift || true
-
-          echo ""
-          echo "New disk usage"
-          df -h
-
-      - uses: taiki-e/install-action@nextest
-
-      - uses: Swatinem/rust-cache@v2
+          ./.github/auxiliary_scripts/install-toolchains.sh
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          # Use a common cache for the basic compilation/formatter/clippy checks
-          shared-key: ${{ github.workflow }}-shared
+          shared-key: ${{ github.workflow }}-shared-tests
           prefix-key: ${{ env.RUST_CACHE_KEY }}
+          # Do not persist the cache, leave that to the unit tests, we just use the cache here
           save-if: false
-
-      - name: Check tests
+      - uses: taiki-e/install-action@nextest
+      - name: Check
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
         # error occurs
         run: cargo check --tests
-
-      - name: run tests
+      - name: Test
         run: make integration-test
