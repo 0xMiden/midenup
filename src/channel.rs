@@ -18,6 +18,8 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
+pub use semver;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(untagged)]
 pub enum MigrationStrategy {

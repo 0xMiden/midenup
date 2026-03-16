@@ -53,6 +53,15 @@ impl Manifest {
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
 
+    /// Generates a new Manifest from a list of updated channels.
+    pub fn update_channels(manifest: Manifest, channels: Vec<Channel>) -> Self {
+        Self {
+            manifest_version: manifest.manifest_version,
+            date: manifest.date,
+            channels,
+        }
+    }
+
     /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
         let uri = uri.as_ref();
