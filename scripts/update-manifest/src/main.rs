@@ -5,7 +5,6 @@ use midenup::manifest::Manifest;
 use midenup::version::Authority;
 use std::collections::HashMap;
 
-
 #[derive(Parser)]
 #[command(name = "update-manifest", about = "Parse and update midenup's manifest.")]
 /// Options parsed by
@@ -50,17 +49,27 @@ fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
     }
 }
 
-type ComponentName = String;
-struct Relesases {
-    //
-    releases: HashMap<ComponentName, Vec<semver::Version>>,
+type CrateName = String;
+
+struct Releases {
+    releases: HashMap<CrateName, Vec<semver::Version>>,
 }
 
-// impl Releases {
-//     //
-// }
+impl Releases {
+    fn new() -> Self {
+        Self { releases: HashMap::new() }
+    }
 
-fn update_channel(channel: &Channel, options: &Options) -> Channel {
+    fn get(&mut self, crate_name: &str) -> anyhow::Result<&Vec<semver::Version>> {
+        if !self.releases.contains_key(crate_name) {
+            let versions = find_all_versions(crate_name)?;
+            self.releases.insert(crate_name.to_string(), versions);
+        }
+        Ok(self.releases.get(crate_name).unwrap())
+    }
+}
+
+fn update_channel(channel: &Channel, releases: &mut Releases, options: &Options) -> Channel {
     let vm_version = get_vm_version(channel).expect("Could not find VM version in channel");
     println!("    VM version: {vm_version}");
 
@@ -69,9 +78,10 @@ fn update_channel(channel: &Channel, options: &Options) -> Channel {
             continue;
         };
         let crate_name = package.as_deref().unwrap_or(&component.name);
-        let versions = find_all_versions(crate_name)
+        let versions = releases
+            .get(crate_name)
             .unwrap_or_else(|e| panic!("Could not query crates.io for {crate_name}: {e}"));
-        for version in &versions {
+        for version in versions {
             println!("    {crate_name} {version}");
         }
     }
@@ -88,10 +98,11 @@ fn main() -> anyhow::Result<()> {
 
     let options = Options::from(cli);
 
+    let mut releases = Releases::new();
     let mut updated_channels = Vec::new();
     for mut channel in manifest.get_channels() {
         println!("  - Channel: {}", channel.name);
-        let updated_channel = update_channel(&mut channel, &options);
+        let updated_channel = update_channel(&mut channel, &mut releases, &options);
         updated_channels.push(updated_channel);
     }
 
