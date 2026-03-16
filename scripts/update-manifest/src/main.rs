@@ -3,6 +3,8 @@ use midenup::channel::semver;
 use midenup::channel::Channel;
 use midenup::manifest::Manifest;
 use midenup::version::Authority;
+use std::collections::HashMap;
+
 
 #[derive(Parser)]
 #[command(name = "update-manifest", about = "Parse and update midenup's manifest.")]
@@ -26,6 +28,20 @@ impl Options {
     }
 }
 
+fn find_all_versions(crate_name: &str) -> anyhow::Result<Vec<semver::Version>> {
+    let client = crates_io_api::SyncClient::new(
+        "midenup (https://github.com/0xMiden/midenup)",
+        std::time::Duration::from_millis(1000),
+    )?;
+    let crate_response = client.get_crate(crate_name)?;
+    let versions = crate_response
+        .versions
+        .into_iter()
+        .filter_map(|v| v.num.parse::<semver::Version>().ok())
+        .collect();
+    Ok(versions)
+}
+
 fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
     let vm = channel.get_component("vm")?;
     match &vm.version {
@@ -34,10 +50,32 @@ fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
     }
 }
 
+type ComponentName = String;
+struct Relesases {
+    //
+    releases: HashMap<ComponentName, Vec<semver::Version>>,
+}
+
+// impl Releases {
+//     //
+// }
+
 fn update_channel(channel: &Channel, options: &Options) -> Channel {
-    let vm_version = get_vm_version(channel).expect("Could find VM channel");
-    println!("    VM version: {:?}", vm_version);
-    // todo!();
+    let vm_version = get_vm_version(channel).expect("Could not find VM version in channel");
+    println!("    VM version: {vm_version}");
+
+    for component in &channel.components {
+        let Authority::Cargo { package, .. } = &component.version else {
+            continue;
+        };
+        let crate_name = package.as_deref().unwrap_or(&component.name);
+        let versions = find_all_versions(crate_name)
+            .unwrap_or_else(|e| panic!("Could not query crates.io for {crate_name}: {e}"));
+        for version in &versions {
+            println!("    {crate_name} {version}");
+        }
+    }
+
     channel.clone()
 }
 
