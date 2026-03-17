@@ -1,3 +1,4 @@
+use cargo_toml;
 use clap::Parser;
 use midenup::channel::semver;
 use midenup::channel::Channel;
@@ -5,6 +6,7 @@ use midenup::channel::Component;
 use midenup::manifest::Manifest;
 use midenup::version::Authority;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "update-manifest", about = "Parse and update midenup's manifest.")]
@@ -35,6 +37,101 @@ fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
         _ => None,
     }
 }
+
+/// Structure that wraps a git repository that has the following structure:
+///
+/// parent_directory
+/// ├── original_<repo_name>/
+/// ├── <worktree1>/
+/// ├── <worktree2>/
+/// ├── (...)
+/// └── <worktreeN>/
+struct GitRepo {
+    // Parent temporary directory where all the worktrees will live. This is
+    // saved to simplify debugging.
+    parent_directory: PathBuf,
+    original_repo: PathBuf,
+    worktrees: Vec<GitWorktree>,
+}
+
+struct GitWorktree {
+    path: PathBuf,
+}
+
+impl GitRepo {
+    fn original_repo_format(parent_directory: PathBuf) -> PathBuf {
+        parent_directory.join("original")
+    }
+    fn new(ccrate: Crate) -> Self {
+        let temp_dir = tempdir::TempDir::new("midenup-update-manifest")
+            .expect("Failed to create temp directory");
+
+        let clone_path = temp_dir.into_path();
+        let original_repo_path = GitRepo::original_repo_format(clone_path.clone());
+
+        let repo_url = ccrate.repository_url;
+        let output = std::process::Command::new("git")
+            .args(["clone", &repo_url, &original_repo_path.display().to_string()])
+            .output()
+            .expect("Failed to execute git clone");
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            panic!("git clone failed: {stderr}");
+        }
+
+        // To prevent race conditions, we create GitWorktrees ahead of time.
+        let mut worktrees = Vec::new();
+        {
+            for version in &ccrate.versions {
+                let tag = version.to_string();
+                let worktree_path = clone_path.join(&tag);
+
+                let output = std::process::Command::new("git")
+                    .current_dir(&original_repo_path)
+                    .args(["worktree", "add", &worktree_path.display().to_string(), &tag])
+                    .output()
+                    .expect("Failed to execute git worktree add");
+
+                if !output.status.success() {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    panic!("git worktree add failed for {tag}: {stderr}");
+                }
+
+                worktrees.push(GitWorktree { path: worktree_path });
+            }
+        }
+
+        GitRepo {
+            parent_directory: clone_path,
+            original_repo: original_repo_path,
+            worktrees,
+        }
+    }
+
+    // Maybe remove?
+    fn git_command<I, S>(&self, args: I) -> anyhow::Result<()>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<std::ffi::OsStr>,
+    {
+        let output = std::process::Command::new("git")
+            .current_dir(&self.original_repo)
+            .args(args)
+            .output()
+            .expect("Failed to execute git command");
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            anyhow::bail!("git command failed: {stderr}");
+        }
+
+        Ok(())
+    }
+
+    // fn get_dependencies(&self, string
+}
+// fn get_dependencies(repo_url: &str) ->
 
 struct CratesIOApi {
     client: crates_io_api::SyncClient,
@@ -81,15 +178,46 @@ type RepositoryURL = String;
 struct Crate {
     name: CrateName,
     versions: Vec<CrateVersion>,
-    repository: RepositoryURL,
+    repository_url: RepositoryURL,
 }
 
 impl Crate {
     fn new(name: CrateName, crates_io_info: QueriedCrateInfo) -> Crate {
         let versions = crates_io_info.versions;
         let repository = crates_io_info.repository;
-        Crate { name, versions, repository }
+        Crate {
+            name,
+            versions,
+            repository_url: repository,
+        }
     }
+}
+
+struct CrateWithSource {
+    name: CrateName,
+    repository: GitRepo,
+}
+impl CrateWithSource {
+    fn new(ccrate: Crate) -> Self {
+        let name = ccrate.name.clone();
+        let repository = GitRepo::new(ccrate);
+
+        CrateWithSource { name, repository }
+    }
+}
+
+// These are crates that are the corner
+enum CompatibilityCrates {
+    //
+}
+
+// Dependency graph used to determine compatibility between components.
+// By compatibility we mean that the underlying miden-protocol is the same.
+// This assumption is based on:
+// https://github.com/0xMiden/midenup/pull/142#discussion_r2749774499
+// TODO: Escape hatch
+struct DependencyGraph {
+    //
 }
 
 // I think I like vector a bit better since it makes it a bit easier to serialize.
@@ -101,35 +229,59 @@ struct Crates {
 impl Crates {
     // TODO: Save in disk already known releases with their corresponding VM versions.
     // Only fetch the new ones.
-    // We iterate over the Manifest twice since creating the releases struct
-    // consists of a lot of paralellizable IO operations.
     fn new(manifest: &Manifest) -> Self {
         let client = CratesIOApi::new();
 
         let mut crates: Vec<Crate> = Vec::new();
-        let placeholder = semver::Version::new(0, 0, 0);
 
-        for channel in manifest.get_channels() {
-            for component in &channel.components {
-                let Authority::Cargo { package, .. } = &component.version else {
-                    continue;
-                };
-                let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
-                if crates.iter().any(|c| c.name == crate_name) {
-                    continue;
+        // The first iteration fetches the available known data for these
+        // components over at crates.io. This loop is fairly paralellizable,
+        // however, we are limited by crates.io rate-limits; that's why we are
+        // doing it serially.
+        // Source: https://crates.io/data-access#api
+        {
+            for channel in manifest.get_channels() {
+                for component in &channel.components {
+                    let Authority::Cargo { package, .. } = &component.version else {
+                        continue;
+                    };
+                    let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
+                    if crates.iter().any(|c| c.name == crate_name) {
+                        continue;
+                    }
+
+                    let crate_info = client.fetch_info(&crate_name).unwrap_or_else(|e| {
+                        panic!("Could not query crates.io for {crate_name} for repository: {e}")
+                    });
+
+                    let ccrate = Crate::new(crate_name, crate_info);
+                    crates.push(ccrate);
                 }
-
-                let crate_info = client.fetch_info(&crate_name).unwrap_or_else(|e| {
-                    panic!("Could not query crates.io for {crate_name} for repository: {e}")
-                });
-
-                // let versions: HashMap<CrateVersion, MidenVMVersion> =
-                //     versions.into_iter().map(|v| (v, placeholder.clone())).collect();
-
-                let ccrate = Crate::new(crate_name, crate_info);
-                crates.push(ccrate);
             }
         }
+
+        // We now iterate again to remove un-needed version numbers. We're only
+        // interested in versions present in the manifest.
+        {
+            let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
+            for channel in manifest.get_channels() {
+                for component in &channel.components {
+                    let Authority::Cargo { package, version } = &component.version else {
+                        continue;
+                    };
+                    let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
+
+                    used_version.entry(crate_name).or_default().push(version.clone());
+                }
+            }
+
+            for ccrate in &mut crates {
+                if let Some(used) = used_version.get(&ccrate.name) {
+                    ccrate.versions.retain(|v| used.contains(v));
+                }
+            }
+        }
+
         Self { crates }
     }
 
@@ -177,14 +329,14 @@ fn main() -> anyhow::Result<()> {
 
     let mut releases = Crates::new(&manifest);
     std::dbg!(&releases);
-    let mut updated_channels = Vec::new();
-    for mut channel in manifest.get_channels() {
-        println!("  - Channel: {}", channel.name);
-        let updated_channel = update_channel(&mut channel, &mut releases, &options);
-        updated_channels.push(updated_channel);
-    }
+    // let mut updated_channels = Vec::new();
+    // for mut channel in manifest.get_channels() {
+    //     println!("  - Channel: {}", channel.name);
+    //     let updated_channel = update_channel(&mut channel, &mut releases, &options);
+    //     updated_channels.push(updated_channel);
+    // }
 
-    let new_manifest = Manifest::update_channels(manifest, updated_channels);
+    // let new_manifest = Manifest::update_channels(manifest, updated_channels);
 
     Ok(())
 }
