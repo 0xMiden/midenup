@@ -1,6 +1,5 @@
 use anyhow::bail;
 use anyhow::Context;
-use cargo_toml;
 use clap::Parser;
 use midenup::channel::semver;
 use midenup::channel::Channel;
@@ -8,6 +7,7 @@ use midenup::channel::Component;
 use midenup::manifest::Manifest;
 use midenup::version::Authority;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -189,73 +189,39 @@ impl GitWorktree {
         Ok(worktree)
     }
 
-    fn find_dependencies(&self, cargo_toml: PathBuf) -> anyhow::Result<Vec<Dependency>> {
-        let manifest = cargo_toml::Manifest::from_path(&cargo_toml)
-            .with_context(|| format!("Failed to parse {}", cargo_toml.display()))?;
+    fn find_compatibility(&self) -> anyhow::Result<Dependency> {
+        let lock_path = self.path.join("Cargo.lock");
+        let lockfile = cargo_lock::Lockfile::load(&lock_path)
+            .with_context(|| format!("Failed to load Cargo.lock at {}", lock_path.display()))?;
 
-        let root_manifest = cargo_toml::Manifest::from_path(self.path.join("Cargo.toml")).ok();
-        let workspace_deps = root_manifest
-            .as_ref()
-            .and_then(|m| m.workspace.as_ref())
-            .map(|ws| &ws.dependencies);
+        let compatibility_names: std::collections::HashSet<String> =
+            [CompatibilityCrates::MidenProtocol.to_string()].into();
 
-        let mut deps = Vec::new();
-        for (name, dep) in &manifest.dependencies {
-            let version_str = match dep {
-                cargo_toml::Dependency::Simple(v) => Some(v.as_str()),
-                cargo_toml::Dependency::Detailed(detail) => detail.version.as_deref(),
-                cargo_toml::Dependency::Inherited(_) => workspace_deps
-                    .and_then(|ws| ws.get(name.as_str()))
-                    .and_then(|ws_dep| match ws_dep {
-                        cargo_toml::Dependency::Simple(v) => Some(v.as_str()),
-                        cargo_toml::Dependency::Detailed(d) => d.version.as_deref(),
-                        // This should never happen since we are at the root manifest.
-                        _ => None,
-                    }),
-            };
+        let deps: Vec<_> = lockfile
+            .packages
+            .into_iter()
+            .filter(|p| compatibility_names.contains(p.name.as_str()))
+            .map(|p| {
+                let version = p
+                    .version
+                    .to_string()
+                    .parse::<semver::Version>()
+                    .expect("cargo-lock versions are always valid semver");
+                Dependency::new(p.name.to_string(), version)
+            })
+            .collect();
 
-            if let Some(v) = version_str {
-                if let Ok(version) = v.parse::<semver::Version>() {
-                    deps.push(Dependency::new(name.clone(), version));
-                }
-            }
+        if deps.len() > 1 {
+            eprintln!(
+                "Warning: found {} compatibility entries in {}; expected 1. Using the first.",
+                deps.len(),
+                lock_path.display()
+            );
         }
 
-        Ok(deps)
-    }
-
-    fn find_crate_root(&self, crate_name: &str) -> anyhow::Result<PathBuf> {
-        let mut dirs_to_visit = vec![self.path.clone()];
-
-        while let Some(dir) = dirs_to_visit.pop() {
-            let cargo_toml_path = dir.join("Cargo.toml");
-            if cargo_toml_path.exists() {
-                if let Ok(manifest) = cargo_toml::Manifest::from_path(&cargo_toml_path) {
-                    if let Some(ref pkg) = manifest.package {
-                        if pkg.name == crate_name {
-                            return Ok(dir);
-                        }
-                    }
-                }
-            }
-
-            let Ok(entries) = std::fs::read_dir(&dir) else {
-                continue;
-            };
-            for entry in entries {
-                let Ok(entry) = entry else {
-                    continue;
-                };
-                let Ok(file_type) = entry.file_type() else {
-                    continue;
-                };
-                if file_type.is_dir() {
-                    dirs_to_visit.push(entry.path());
-                }
-            }
-        }
-
-        bail!("Could not find crate '{crate_name}' in worktree at {}", self.path.display())
+        deps.into_iter().next().ok_or_else(|| {
+            anyhow::anyhow!("No compatibility crate found in {}", lock_path.display())
+        })
     }
 }
 
@@ -300,7 +266,6 @@ struct QueriedCrateInfo {
 
 type CrateName = String;
 type CrateVersion = semver::Version;
-type MidenVMVersion = semver::Version;
 type RepositoryURL = String;
 #[derive(Debug)]
 struct Crate {
@@ -322,6 +287,37 @@ impl Crate {
 }
 
 #[derive(Debug)]
+struct CratesWithSource {
+    crates: Vec<CrateWithSource>,
+}
+impl CratesWithSource {
+    fn new(crates: Crates) -> Self {
+        let crates: Vec<_> =
+            crates.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
+        CratesWithSource { crates }
+    }
+
+    fn find_dependencies(&self) -> CratesWithCompatibility {
+        for ccrate in &self.crates {
+            todo!()
+        }
+        todo!()
+    }
+}
+
+type MidenProtocolVersion = semver::Version;
+#[derive(Debug)]
+struct CrateWithCompatibility {
+    name: CrateName,
+    compatibility: HashMap<CrateVersion, MidenProtocolVersion>,
+}
+
+#[derive(Debug)]
+struct CratesWithCompatibility {
+    crates: Vec<CrateWithCompatibility>,
+}
+
+#[derive(Debug)]
 struct CrateWithSource {
     name: CrateName,
     repository: GitRepo,
@@ -338,6 +334,14 @@ impl CrateWithSource {
 // These are crates that are the corner
 enum CompatibilityCrates {
     //
+    MidenProtocol,
+}
+impl Display for CompatibilityCrates {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self {
+            CompatibilityCrates::MidenProtocol => f.write_str("miden-protocol"),
+        }
+    }
 }
 
 // Dependency graph used to determine compatibility between components.
@@ -458,9 +462,10 @@ fn main() -> anyhow::Result<()> {
 
     let releases = Crates::new(&manifest);
     std::dbg!(&releases);
-    let repos: Vec<_> =
-        releases.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
-    std::dbg!(&repos);
+    let crates = CratesWithSource::new(releases);
+    // let repos: Vec<_> =
+    //     releases.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
+    std::dbg!(&crates);
     // let mut updated_channels = Vec::new();
     // for mut channel in manifest.get_channels() {
     //     println!("  - Channel: {}", channel.name);
