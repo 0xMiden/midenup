@@ -40,6 +40,114 @@ fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
     }
 }
 
+// /// Structure that wraps a git repository that has the following structure:
+// ///
+// /// parent_directory
+// /// ├── original_<repo_name>/
+// /// ├── <worktree1>/
+// /// ├── <worktree2>/
+// /// ├── (...)
+// /// └── <worktreeN>/
+// #[derive(Debug)]
+// struct GitRepo {
+//     // Parent temporary directory where all the worktrees will live. This is
+//     // saved to simplify debugging.
+//     parent_directory: PathBuf,
+//     original_repo: PathBuf,
+//     worktrees: Vec<GitWorktree>,
+// }
+
+// impl GitRepo {
+//     fn original_repo_format(parent_directory: PathBuf) -> PathBuf {
+//         parent_directory.join("original")
+//     }
+//     fn format_git_tag(version: &semver::Version) -> String {
+//         let tag = version.to_string();
+//         format!("v{}", tag)
+//     }
+
+//     fn new(ccrate: Crate) -> Self {
+//         let temp_dir =
+//             tempdir::TempDir::new(format!("midenup-update-manifest-{}", ccrate.name).as_str())
+//                 .expect("Failed to create temp directory");
+
+//         let clone_path = temp_dir.into_path();
+//         let original_repo_path = GitRepo::original_repo_format(clone_path.clone());
+
+//         let repo_url = ccrate.repository_url;
+//         let output = std::process::Command::new("git")
+//             .args(["clone", &repo_url, &original_repo_path.display().to_string()])
+//             .output()
+//             .expect("Failed to execute git clone");
+
+//         if !output.status.success() {
+//             let stderr = String::from_utf8_lossy(&output.stderr);
+//             panic!("git clone failed: {stderr}");
+//         }
+
+//         // To prevent race conditions, we create GitWorktrees ahead of time.
+//         let mut worktrees = Vec::new();
+//         {
+//             for version in &ccrate.versions {
+//                 let tag = GitRepo::format_git_tag(version);
+//                 let worktree_path = clone_path.join(&tag);
+
+//                 let tagv_2 = version.to_string();
+
+//                 let worktree = {
+//                     if let Ok(worktree) = GitWorktree::new(
+//                         worktree_path.clone(),
+//                         original_repo_path.clone(),
+//                         &tag,
+//                         version.clone(),
+//                     ) {
+//                         worktree
+//                     } else if let Ok(worktree) = GitWorktree::new(
+//                         worktree_path,
+//                         original_repo_path.clone(),
+//                         &tagv_2,
+//                         version.clone(),
+//                     ) {
+//                         worktree
+//                     } else {
+//                         panic!("")
+//                     }
+//                 };
+
+//                 worktrees.push(worktree);
+//             }
+//         }
+
+//         GitRepo {
+//             parent_directory: clone_path,
+//             original_repo: original_repo_path,
+//             worktrees,
+//         }
+//     }
+
+//     // Maybe remove?
+//     fn git_command<I, S>(&self, args: I) -> anyhow::Result<()>
+//     where
+//         I: IntoIterator<Item = S>,
+//         S: AsRef<std::ffi::OsStr>,
+//     {
+//         let output = std::process::Command::new("git")
+//             .current_dir(&self.original_repo)
+//             .args(args)
+//             .output()
+//             .expect("Failed to execute git command");
+
+//         if !output.status.success() {
+//             let stderr = String::from_utf8_lossy(&output.stderr);
+//             anyhow::bail!("git command failed: {stderr}");
+//         }
+
+//         Ok(())
+//     }
+
+//     // fn get_dependencies(&self, string
+// }
+
 #[derive(Debug)]
 struct Dependency {
     name: CrateName,
@@ -51,6 +159,107 @@ impl Dependency {
         Dependency { name, version }
     }
 }
+
+// #[derive(Debug)]
+// struct GitWorktree {
+//     version: CrateVersion,
+//     path: PathBuf,
+// }
+
+// impl GitWorktree {
+//     pub fn new(
+//         path: PathBuf,
+//         original_repo_path: PathBuf,
+//         name: &str,
+//         version: CrateVersion,
+//     ) -> anyhow::Result<GitWorktree> {
+//         let output = std::process::Command::new("git")
+//             .current_dir(original_repo_path)
+//             .args(["worktree", "add", &path.display().to_string(), name])
+//             .output()
+//             .context("Failed to create worktree")?;
+
+//         if !output.status.success() {
+//             let stderr = String::from_utf8_lossy(&output.stderr);
+//             bail!("git worktree add failed for {name}: {stderr}");
+//         }
+
+//         let worktree = GitWorktree { version, path };
+
+//         Ok(worktree)
+//     }
+
+//     fn find_dependencies(&self, cargo_toml: PathBuf) -> anyhow::Result<Vec<Dependency>> {
+//         let manifest = cargo_toml::Manifest::from_path(&cargo_toml)
+//             .with_context(|| format!("Failed to parse {}", cargo_toml.display()))?;
+
+//         let root_manifest = cargo_toml::Manifest::from_path(self.path.join("Cargo.toml")).ok();
+//         let workspace_deps = root_manifest
+//             .as_ref()
+//             .and_then(|m| m.workspace.as_ref())
+//             .map(|ws| &ws.dependencies);
+
+//         let mut deps = Vec::new();
+//         for (name, dep) in &manifest.dependencies {
+//             let version_str = match dep {
+//                 cargo_toml::Dependency::Simple(v) => Some(v.as_str()),
+//                 cargo_toml::Dependency::Detailed(detail) => detail.version.as_deref(),
+//                 cargo_toml::Dependency::Inherited(_) => workspace_deps
+//                     .and_then(|ws| ws.get(name.as_str()))
+//                     .and_then(|ws_dep| match ws_dep {
+//                         cargo_toml::Dependency::Simple(v) => Some(v.as_str()),
+//                         cargo_toml::Dependency::Detailed(d) => d.version.as_deref(),
+//                         // This should never happen since we are at the root manifest.
+//                         _ => None,
+//                     }),
+//             };
+
+//             if let Some(v) = version_str {
+//                 if let Ok(version) = v.parse::<CrateRequirement>() {
+//                     deps.push(Dependency::new(name.clone(), version));
+//                 }
+//             }
+//         }
+
+//         Ok(deps)
+//     }
+
+//     fn find_crate_root(&self, crate_name: &str) -> anyhow::Result<PathBuf> {
+//         let mut dirs_to_visit = vec![self.path.clone()];
+
+//         while let Some(dir) = dirs_to_visit.pop() {
+//             let cargo_toml_path = dir.join("Cargo.toml");
+//             if cargo_toml_path.exists() {
+//                 if let Ok(manifest) = cargo_toml::Manifest::from_path(&cargo_toml_path) {
+//                     if let Some(ref pkg) = manifest.package {
+//                         if pkg.name == crate_name {
+//                             return Ok(dir);
+//                         }
+//                     }
+//                 }
+//             }
+
+//             let Ok(entries) = std::fs::read_dir(&dir) else {
+//                 continue;
+//             };
+//             for entry in entries {
+//                 let Ok(entry) = entry else {
+//                     continue;
+//                 };
+//                 let Ok(file_type) = entry.file_type() else {
+//                     continue;
+//                 };
+//                 if file_type.is_dir() {
+//                     dirs_to_visit.push(entry.path());
+//                 }
+//             }
+//         }
+
+//         bail!("Could not find crate '{crate_name}' in worktree at {}", self.path.display())
+//     }
+// }
+
+// fn get_dependencies(repo_url: &str) ->
 
 struct CratesIOApi {
     client: crates_io_api::SyncClient,
@@ -163,6 +372,20 @@ impl CratesWithDependencies {
     }
 }
 
+// #[derive(Debug)]
+// struct CrateWithSource {
+//     name: CrateName,
+//     repository: GitRepo,
+// }
+// impl CrateWithSource {
+//     fn new(ccrate: Crate) -> Self {
+//         let name = ccrate.name.clone();
+//         let repository = GitRepo::new(ccrate);
+
+//         CrateWithSource { name, repository }
+//     }
+// }
+
 // These are crates that are the corner
 enum CompatibilityCrates {
     //
@@ -231,6 +454,14 @@ impl Crates {
 
         Self { crates }
     }
+
+    // fn get(&mut self, crate_name: &str) -> anyhow::Result<&Vec<semver::Version>> {
+    //     if !self.releases.contains_key(crate_name) {
+    //         let versions = find_all_versions(crate_name)?;
+    //         self.releases.insert(crate_name.to_string(), versions);
+    //     }
+    //     Ok(self.releases.get(crate_name).unwrap())
+    // }
 }
 
 fn update_component(component: &Component, versions: &[semver::Version]) -> Component {
@@ -240,6 +471,19 @@ fn update_component(component: &Component, versions: &[semver::Version]) -> Comp
 fn update_channel(channel: &Channel, releases: &mut Crates, options: &Options) -> Channel {
     let vm_version = get_vm_version(channel).expect("Could not find VM version in channel");
     println!("    VM version: {vm_version}");
+
+    // for component in &channel.components {
+    //     let Authority::Cargo { package, .. } = &component.version else {
+    //         continue;
+    //     };
+    //     let crate_name = package.as_deref().unwrap_or(&component.name);
+    //     let versions = releases
+    //         .get(crate_name)
+    //         .unwrap_or_else(|e| panic!("Could not query crates.io for {crate_name}: {e}"));
+    //     for version in versions {
+    //         println!("    {crate_name} {version}");
+    //     }
+    // }
 
     channel.clone()
 }
@@ -255,7 +499,18 @@ fn main() -> anyhow::Result<()> {
 
     let client = CratesIOApi::new();
     let crates = Crates::new(&manifest, &client);
+    std::dbg!(&crates);
     let cratesDeps = CratesWithDependencies::new(crates, &client);
+    std::dbg!(&cratesDeps);
+
+    // let mut updated_channels = Vec::new();
+    // for mut channel in manifest.get_channels() {
+    //     println!("  - Channel: {}", channel.name);
+    //     let updated_channel = update_channel(&mut channel, &mut releases, &options);
+    //     updated_channels.push(updated_channel);
+    // }
+
+    // let new_manifest = Manifest::update_channels(manifest, updated_channels);
 
     Ok(())
 }
