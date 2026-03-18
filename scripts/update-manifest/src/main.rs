@@ -151,11 +151,11 @@ impl GitRepo {
 #[derive(Debug)]
 struct Dependency {
     name: CrateName,
-    version: CrateVersion,
+    version: CrateRequirement,
 }
 
 impl Dependency {
-    fn new(name: CrateName, version: CrateVersion) -> Dependency {
+    fn new(name: CrateName, version: CrateRequirement) -> Dependency {
         Dependency { name, version }
     }
 }
@@ -215,7 +215,7 @@ impl GitWorktree {
             };
 
             if let Some(v) = version_str {
-                if let Ok(version) = v.parse::<semver::Version>() {
+                if let Ok(version) = v.parse::<CrateRequirement>() {
                     deps.push(Dependency::new(name.clone(), version));
                 }
             }
@@ -287,19 +287,54 @@ impl CratesIOApi {
             .repository
             .unwrap_or_else(|| panic!("Crate {crate_name} has no repository URL"));
 
-        let crate_info = QueriedCrateInfo { versions, repository };
+        let mut dependencies: HashMap<CrateVersion, Vec<Dependency>> = HashMap::new();
+        for version in &versions {
+            let deps = self.fetch_dependencies(crate_name, version).unwrap_or_else(|e| {
+                panic!("Could not fetch dependencies for {crate_name}@{version}: {e}")
+            });
+            dependencies.insert(version.clone(), deps);
+        }
 
-        Ok(crate_info)
+        Ok(QueriedCrateInfo::new(versions, repository, dependencies))
+    }
+
+    fn fetch_dependencies(
+        &self,
+        crate_name: &str,
+        version: &CrateVersion,
+    ) -> anyhow::Result<Vec<Dependency>> {
+        let api_deps = self.client.crate_dependencies(crate_name, &version.to_string())?;
+        let deps = api_deps
+            .into_iter()
+            .filter(|d| d.kind == "normal")
+            .filter_map(|d| {
+                let req = d.req.parse::<CrateRequirement>().ok()?;
+                Some(Dependency::new(d.crate_id, req))
+            })
+            .collect();
+        Ok(deps)
     }
 }
 
 struct QueriedCrateInfo {
     versions: Vec<CrateVersion>,
     repository: RepositoryURL,
+    dependencies: HashMap<CrateVersion, Vec<Dependency>>,
+}
+
+impl QueriedCrateInfo {
+    fn new(
+        versions: Vec<CrateVersion>,
+        repository: RepositoryURL,
+        dependencies: HashMap<CrateVersion, Vec<Dependency>>,
+    ) -> Self {
+        Self { versions, repository, dependencies }
+    }
 }
 
 type CrateName = String;
 type CrateVersion = semver::Version;
+type CrateRequirement = semver::VersionReq;
 type MidenVMVersion = semver::Version;
 type RepositoryURL = String;
 #[derive(Debug)]
