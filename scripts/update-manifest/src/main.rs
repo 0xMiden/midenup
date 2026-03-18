@@ -275,16 +275,27 @@ impl CratesIOApi {
 
         CratesIOApi { client }
     }
-
-    fn fetch_versions(&self, crate_name: &str) -> anyhow::Result<Vec<CrateVersion>> {
+    fn fetch_info(&self, crate_name: &str) -> anyhow::Result<QueriedCrateInfo> {
         let crate_response = self.client.get_crate(crate_name)?;
         let versions: Vec<_> = crate_response
             .versions
             .into_iter()
             .filter_map(|v| v.num.parse::<semver::Version>().ok())
             .collect();
+        let repository = crate_response
+            .crate_data
+            .repository
+            .unwrap_or_else(|| panic!("Crate {crate_name} has no repository URL"));
 
-        Ok(versions)
+        let mut dependencies: HashMap<CrateVersion, Vec<Dependency>> = HashMap::new();
+        for version in &versions {
+            let deps = self.fetch_dependencies(crate_name, version).unwrap_or_else(|e| {
+                panic!("Could not fetch dependencies for {crate_name}@{version}: {e}")
+            });
+            dependencies.insert(version.clone(), deps);
+        }
+
+        Ok(QueriedCrateInfo::new(repository, dependencies))
     }
 
     fn fetch_dependencies(
@@ -327,48 +338,15 @@ type RepositoryURL = String;
 #[derive(Debug)]
 struct Crate {
     name: CrateName,
-    versions: Vec<CrateVersion>,
-}
-
-impl Crate {
-    fn new(name: CrateName, versions: Vec<CrateVersion>) -> Crate {
-        Crate { name, versions }
-    }
-}
-
-#[derive(Debug)]
-struct CrateWithDependencies {
-    name: CrateName,
     dependencies: HashMap<CrateVersion, Vec<Dependency>>,
 }
 
-#[derive(Debug)]
-struct CratesWithDependencies {
-    crates: Vec<CrateWithDependencies>,
-}
-
-impl CratesWithDependencies {
-    fn new(crates: Crates, client: &CratesIOApi) -> Self {
-        let crates_with_deps = crates
-            .crates
-            .into_iter()
-            .map(|ccrate| {
-                let mut dependencies: HashMap<CrateVersion, Vec<Dependency>> = HashMap::new();
-                for version in &ccrate.versions {
-                    let deps =
-                        client.fetch_dependencies(&ccrate.name, version).unwrap_or_else(|e| {
-                            panic!(
-                                "Could not fetch dependencies for {}@{version}: {e}",
-                                ccrate.name
-                            )
-                        });
-                    dependencies.insert(version.clone(), deps);
-                }
-                CrateWithDependencies { name: ccrate.name, dependencies }
-            })
-            .collect();
-
-        Self { crates: crates_with_deps }
+impl Crate {
+    fn new(name: CrateName, crates_io_info: QueriedCrateInfo) -> Crate {
+        Crate {
+            name,
+            dependencies: crates_io_info.dependencies,
+        }
     }
 }
 
@@ -409,8 +387,9 @@ struct Crates {
 impl Crates {
     // TODO: Save in disk already known releases with their corresponding VM versions.
     // Only fetch the new ones.
-    fn new(manifest: &Manifest, client: &CratesIOApi) -> Self {
-        let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
+    fn new(manifest: &Manifest) -> Self {
+        let client = CratesIOApi::new();
+
         let mut crates: Vec<Crate> = Vec::new();
 
         // The first iteration fetches the available known data for these
@@ -421,7 +400,7 @@ impl Crates {
         {
             for channel in manifest.get_channels() {
                 for component in &channel.components {
-                    let Authority::Cargo { package, version } = &component.version else {
+                    let Authority::Cargo { package, .. } = &component.version else {
                         continue;
                     };
                     let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
@@ -429,14 +408,11 @@ impl Crates {
                         continue;
                     }
 
-                    let crate_info = client.fetch_versions(&crate_name).unwrap_or_else(|e| {
+                    let crate_info = client.fetch_info(&crate_name).unwrap_or_else(|e| {
                         panic!("Could not query crates.io for {crate_name} for repository: {e}")
                     });
 
-                    let ccrate = Crate::new(crate_name.clone(), crate_info);
-
-                    used_version.entry(crate_name).or_default().push(version.clone());
-
+                    let ccrate = Crate::new(crate_name, crate_info);
                     crates.push(ccrate);
                 }
             }
@@ -445,9 +421,21 @@ impl Crates {
         // We now iterate again to remove un-needed version numbers. We're only
         // interested in versions present in the manifest.
         {
+            let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
+            for channel in manifest.get_channels() {
+                for component in &channel.components {
+                    let Authority::Cargo { package, version } = &component.version else {
+                        continue;
+                    };
+                    let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
+
+                    used_version.entry(crate_name).or_default().push(version.clone());
+                }
+            }
+
             for ccrate in &mut crates {
                 if let Some(used) = used_version.get(&ccrate.name) {
-                    ccrate.versions.retain(|v| used.contains(v));
+                    ccrate.dependencies.retain(|v, _| used.contains(v));
                 }
             }
         }
@@ -497,12 +485,8 @@ fn main() -> anyhow::Result<()> {
 
     let options = Options::from(cli);
 
-    let client = CratesIOApi::new();
-    let crates = Crates::new(&manifest, &client);
-    std::dbg!(&crates);
-    let cratesDeps = CratesWithDependencies::new(crates, &client);
-    std::dbg!(&cratesDeps);
-
+    let releases = Crates::new(&manifest);
+    std::dbg!(&releases);
     // let mut updated_channels = Vec::new();
     // for mut channel in manifest.get_channels() {
     //     println!("  - Channel: {}", channel.name);
