@@ -8,6 +8,7 @@ use midenup::channel::Component;
 use midenup::manifest::Manifest;
 use midenup::version::Authority;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -67,13 +68,15 @@ impl CratesIOApi {
         CratesIOApi { client }
     }
 
-    fn fetch_versions(&self, crate_name: &str) -> anyhow::Result<Vec<CrateVersion>> {
+    fn fetch_versions(
+        &self,
+        crate_name: &str,
+    ) -> anyhow::Result<impl Iterator<Item = CrateVersion>> {
         let crate_response = self.client.get_crate(crate_name)?;
-        let versions: Vec<_> = crate_response
+        let versions = crate_response
             .versions
             .into_iter()
-            .filter_map(|v| v.num.parse::<semver::Version>().ok())
-            .collect();
+            .filter_map(|v| v.num.parse::<semver::Version>().ok());
 
         Ok(versions)
     }
@@ -82,16 +85,12 @@ impl CratesIOApi {
         &self,
         crate_name: &str,
         version: &CrateVersion,
-    ) -> anyhow::Result<Vec<Dependency>> {
+    ) -> anyhow::Result<impl Iterator<Item = Dependency>> {
         let api_deps = self.client.crate_dependencies(crate_name, &version.to_string())?;
-        let deps = api_deps
-            .into_iter()
-            .filter(|d| d.kind == "normal")
-            .filter_map(|d| {
-                let req = d.req.parse::<CrateRequirement>().ok()?;
-                Some(Dependency::new(d.crate_id, req))
-            })
-            .collect();
+        let deps = api_deps.into_iter().filter(|d| d.kind == "normal").filter_map(|d| {
+            let req = d.req.parse::<CrateRequirement>().ok()?;
+            Some(Dependency::new(d.crate_id, req))
+        });
         Ok(deps)
     }
 }
@@ -140,19 +139,25 @@ struct CratesWithDependencies {
 
 impl CratesWithDependencies {
     fn new(crates: Crates, client: &CratesIOApi) -> Self {
+        let crate_names: HashSet<CrateName> =
+            crates.crates.iter().map(|c| c.name.clone()).collect();
+
         let crates_with_deps = crates
             .crates
             .into_iter()
             .map(|ccrate| {
                 let mut dependencies: HashMap<CrateVersion, Vec<Dependency>> = HashMap::new();
                 for version in &ccrate.versions {
-                    let deps =
-                        client.fetch_dependencies(&ccrate.name, version).unwrap_or_else(|e| {
+                    let deps = client
+                        .fetch_dependencies(&ccrate.name, version)
+                        .unwrap_or_else(|e| {
                             panic!(
                                 "Could not fetch dependencies for {}@{version}: {e}",
                                 ccrate.name
                             )
-                        });
+                        })
+                        // .filter(|dep| crate_names.contains(&dep.name))
+                        .collect();
                     dependencies.insert(version.clone(), deps);
                 }
                 CrateWithDependencies { name: ccrate.name, dependencies }
@@ -187,7 +192,7 @@ impl Crates {
     // TODO: Save in disk already known releases with their corresponding VM versions.
     // Only fetch the new ones.
     fn new(manifest: &Manifest, client: &CratesIOApi) -> Self {
-        let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
+        // let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
         let mut crates: Vec<Crate> = Vec::new();
 
         // The first iteration fetches the available known data for these
@@ -210,9 +215,9 @@ impl Crates {
                         panic!("Could not query crates.io for {crate_name} for repository: {e}")
                     });
 
-                    let ccrate = Crate::new(crate_name.clone(), crate_info);
+                    let ccrate = Crate::new(crate_name.clone(), crate_info.collect());
 
-                    used_version.entry(crate_name).or_default().push(version.clone());
+                    // used_version.entry(crate_name).or_default().push(version.clone());
 
                     crates.push(ccrate);
                 }
@@ -222,6 +227,18 @@ impl Crates {
         // We now iterate again to remove un-needed version numbers. We're only
         // interested in versions present in the manifest.
         {
+            let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
+            for channel in manifest.get_channels() {
+                for component in &channel.components {
+                    let Authority::Cargo { package, version } = &component.version else {
+                        continue;
+                    };
+                    let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
+
+                    used_version.entry(crate_name).or_default().push(version.clone());
+                }
+            }
+
             for ccrate in &mut crates {
                 if let Some(used) = used_version.get(&ccrate.name) {
                     ccrate.versions.retain(|v| used.contains(v));
@@ -255,7 +272,9 @@ fn main() -> anyhow::Result<()> {
 
     let client = CratesIOApi::new();
     let crates = Crates::new(&manifest, &client);
+    std::dbg!(&crates);
     let cratesDeps = CratesWithDependencies::new(crates, &client);
+    std::dbg!(&cratesDeps);
 
     Ok(())
 }
