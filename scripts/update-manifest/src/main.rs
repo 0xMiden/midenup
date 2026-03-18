@@ -296,13 +296,6 @@ impl CratesWithSource {
             crates.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
         CratesWithSource { crates }
     }
-
-    fn find_dependencies(&self) -> CratesWithCompatibility {
-        for ccrate in &self.crates {
-            todo!()
-        }
-        todo!()
-    }
 }
 
 type MidenProtocolVersion = semver::Version;
@@ -315,6 +308,35 @@ struct CrateWithCompatibility {
 #[derive(Debug)]
 struct CratesWithCompatibility {
     crates: Vec<CrateWithCompatibility>,
+}
+
+impl CratesWithCompatibility {
+    fn new(crates_with_source: CratesWithSource) -> Self {
+        let crates = crates_with_source
+            .crates
+            .into_iter()
+            .map(|ccrate| {
+                let compatibility = ccrate
+                    .repository
+                    .worktrees
+                    .iter()
+                    .filter_map(|worktree| {
+                        let dep = worktree.find_compatibility().unwrap_or_else(|e| {
+                            panic!(
+                                "Could not find compatibility for {}@{}: {e}",
+                                ccrate.name, worktree.version
+                            )
+                        });
+                        Some((worktree.version.clone(), dep.version))
+                    })
+                    .collect();
+
+                CrateWithCompatibility { name: ccrate.name.clone(), compatibility }
+            })
+            .collect();
+
+        CratesWithCompatibility { crates }
+    }
 }
 
 #[derive(Debug)]
@@ -466,6 +488,8 @@ fn main() -> anyhow::Result<()> {
     // let repos: Vec<_> =
     //     releases.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
     std::dbg!(&crates);
+    let compatibility = CratesWithCompatibility::new(crates);
+    std::dbg!(&compatibility);
     // let mut updated_channels = Vec::new();
     // for mut channel in manifest.get_channels() {
     //     println!("  - Channel: {}", channel.name);
