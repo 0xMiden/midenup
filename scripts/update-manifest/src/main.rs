@@ -1,3 +1,5 @@
+use anyhow::bail;
+use anyhow::Context;
 use cargo_toml;
 use clap::Parser;
 use midenup::channel::semver;
@@ -46,6 +48,7 @@ fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
 /// ├── <worktree2>/
 /// ├── (...)
 /// └── <worktreeN>/
+#[derive(Debug)]
 struct GitRepo {
     // Parent temporary directory where all the worktrees will live. This is
     // saved to simplify debugging.
@@ -54,17 +57,19 @@ struct GitRepo {
     worktrees: Vec<GitWorktree>,
 }
 
-struct GitWorktree {
-    path: PathBuf,
-}
-
 impl GitRepo {
     fn original_repo_format(parent_directory: PathBuf) -> PathBuf {
         parent_directory.join("original")
     }
+    fn format_git_tag(version: &semver::Version) -> String {
+        let tag = version.to_string();
+        format!("v{}", tag)
+    }
+
     fn new(ccrate: Crate) -> Self {
-        let temp_dir = tempdir::TempDir::new("midenup-update-manifest")
-            .expect("Failed to create temp directory");
+        let temp_dir =
+            tempdir::TempDir::new(format!("midenup-update-manifest-{}", ccrate.name).as_str())
+                .expect("Failed to create temp directory");
 
         let clone_path = temp_dir.into_path();
         let original_repo_path = GitRepo::original_repo_format(clone_path.clone());
@@ -84,21 +89,26 @@ impl GitRepo {
         let mut worktrees = Vec::new();
         {
             for version in &ccrate.versions {
-                let tag = version.to_string();
+                let tag = GitRepo::format_git_tag(version);
                 let worktree_path = clone_path.join(&tag);
 
-                let output = std::process::Command::new("git")
-                    .current_dir(&original_repo_path)
-                    .args(["worktree", "add", &worktree_path.display().to_string(), &tag])
-                    .output()
-                    .expect("Failed to execute git worktree add");
+                let tagv_2 = version.to_string();
 
-                if !output.status.success() {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    panic!("git worktree add failed for {tag}: {stderr}");
-                }
+                let worktree = {
+                    if let Ok(worktree) =
+                        GitWorktree::new(worktree_path.clone(), original_repo_path.clone(), &tag)
+                    {
+                        worktree
+                    } else if let Ok(worktree) =
+                        GitWorktree::new(worktree_path, original_repo_path.clone(), &tagv_2)
+                    {
+                        worktree
+                    } else {
+                        panic!("")
+                    }
+                };
 
-                worktrees.push(GitWorktree { path: worktree_path });
+                worktrees.push(worktree);
             }
         }
 
@@ -131,6 +141,31 @@ impl GitRepo {
 
     // fn get_dependencies(&self, string
 }
+
+#[derive(Debug)]
+struct GitWorktree {
+    path: PathBuf,
+}
+
+impl GitWorktree {
+    fn new(path: PathBuf, original_repo_path: PathBuf, name: &str) -> anyhow::Result<GitWorktree> {
+        let output = std::process::Command::new("git")
+            .current_dir(original_repo_path)
+            .args(["worktree", "add", &path.display().to_string(), name])
+            .output()
+            .context("Failed to create worktree")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("git worktree add failed for {name}: {stderr}");
+        }
+
+        let worktree = GitWorktree { path };
+
+        Ok(worktree)
+    }
+}
+
 // fn get_dependencies(repo_url: &str) ->
 
 struct CratesIOApi {
@@ -193,6 +228,7 @@ impl Crate {
     }
 }
 
+#[derive(Debug)]
 struct CrateWithSource {
     name: CrateName,
     repository: GitRepo,
@@ -327,8 +363,11 @@ fn main() -> anyhow::Result<()> {
 
     let options = Options::from(cli);
 
-    let mut releases = Crates::new(&manifest);
+    let releases = Crates::new(&manifest);
     std::dbg!(&releases);
+    let repos: Vec<_> =
+        releases.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
+    std::dbg!(&repos);
     // let mut updated_channels = Vec::new();
     // for mut channel in manifest.get_channels() {
     //     println!("  - Channel: {}", channel.name);
