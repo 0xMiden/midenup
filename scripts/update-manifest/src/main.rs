@@ -95,13 +95,19 @@ impl GitRepo {
                 let tagv_2 = version.to_string();
 
                 let worktree = {
-                    if let Ok(worktree) =
-                        GitWorktree::new(worktree_path.clone(), original_repo_path.clone(), &tag)
-                    {
+                    if let Ok(worktree) = GitWorktree::new(
+                        worktree_path.clone(),
+                        original_repo_path.clone(),
+                        &tag,
+                        version.clone(),
+                    ) {
                         worktree
-                    } else if let Ok(worktree) =
-                        GitWorktree::new(worktree_path, original_repo_path.clone(), &tagv_2)
-                    {
+                    } else if let Ok(worktree) = GitWorktree::new(
+                        worktree_path,
+                        original_repo_path.clone(),
+                        &tagv_2,
+                        version.clone(),
+                    ) {
                         worktree
                     } else {
                         panic!("")
@@ -143,12 +149,30 @@ impl GitRepo {
 }
 
 #[derive(Debug)]
+struct Dependency {
+    name: CrateName,
+    version: CrateVersion,
+}
+
+impl Dependency {
+    fn new(name: CrateName, version: CrateVersion) -> Dependency {
+        Dependency { name, version }
+    }
+}
+
+#[derive(Debug)]
 struct GitWorktree {
+    version: CrateVersion,
     path: PathBuf,
 }
 
 impl GitWorktree {
-    fn new(path: PathBuf, original_repo_path: PathBuf, name: &str) -> anyhow::Result<GitWorktree> {
+    pub fn new(
+        path: PathBuf,
+        original_repo_path: PathBuf,
+        name: &str,
+        version: CrateVersion,
+    ) -> anyhow::Result<GitWorktree> {
         let output = std::process::Command::new("git")
             .current_dir(original_repo_path)
             .args(["worktree", "add", &path.display().to_string(), name])
@@ -160,9 +184,78 @@ impl GitWorktree {
             bail!("git worktree add failed for {name}: {stderr}");
         }
 
-        let worktree = GitWorktree { path };
+        let worktree = GitWorktree { version, path };
 
         Ok(worktree)
+    }
+
+    fn find_dependencies(&self, cargo_toml: PathBuf) -> anyhow::Result<Vec<Dependency>> {
+        let manifest = cargo_toml::Manifest::from_path(&cargo_toml)
+            .with_context(|| format!("Failed to parse {}", cargo_toml.display()))?;
+
+        let root_manifest = cargo_toml::Manifest::from_path(self.path.join("Cargo.toml")).ok();
+        let workspace_deps = root_manifest
+            .as_ref()
+            .and_then(|m| m.workspace.as_ref())
+            .map(|ws| &ws.dependencies);
+
+        let mut deps = Vec::new();
+        for (name, dep) in &manifest.dependencies {
+            let version_str = match dep {
+                cargo_toml::Dependency::Simple(v) => Some(v.as_str()),
+                cargo_toml::Dependency::Detailed(detail) => detail.version.as_deref(),
+                cargo_toml::Dependency::Inherited(_) => workspace_deps
+                    .and_then(|ws| ws.get(name.as_str()))
+                    .and_then(|ws_dep| match ws_dep {
+                        cargo_toml::Dependency::Simple(v) => Some(v.as_str()),
+                        cargo_toml::Dependency::Detailed(d) => d.version.as_deref(),
+                        // This should never happen since we are at the root manifest.
+                        _ => None,
+                    }),
+            };
+
+            if let Some(v) = version_str {
+                if let Ok(version) = v.parse::<semver::Version>() {
+                    deps.push(Dependency::new(name.clone(), version));
+                }
+            }
+        }
+
+        Ok(deps)
+    }
+
+    fn find_crate_root(&self, crate_name: &str) -> anyhow::Result<PathBuf> {
+        let mut dirs_to_visit = vec![self.path.clone()];
+
+        while let Some(dir) = dirs_to_visit.pop() {
+            let cargo_toml_path = dir.join("Cargo.toml");
+            if cargo_toml_path.exists() {
+                if let Ok(manifest) = cargo_toml::Manifest::from_path(&cargo_toml_path) {
+                    if let Some(ref pkg) = manifest.package {
+                        if pkg.name == crate_name {
+                            return Ok(dir);
+                        }
+                    }
+                }
+            }
+
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries {
+                let Ok(entry) = entry else {
+                    continue;
+                };
+                let Ok(file_type) = entry.file_type() else {
+                    continue;
+                };
+                if file_type.is_dir() {
+                    dirs_to_visit.push(entry.path());
+                }
+            }
+        }
+
+        bail!("Could not find crate '{crate_name}' in worktree at {}", self.path.display())
     }
 }
 
