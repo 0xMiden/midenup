@@ -67,7 +67,6 @@ use anyhow::Context;
 use clap::Parser;
 use midenup::channel::semver;
 use midenup::channel::Channel;
-use midenup::channel::Component;
 use midenup::manifest::{AvailableUpdates, ComponentUpdate, Manifest};
 use midenup::version::Authority;
 use std::collections::HashMap;
@@ -76,24 +75,9 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "update-manifest", about = "Parse and update midenup's manifest.")]
-/// Options parsed by
 struct CliArguments {
     /// URI of the manifest to parse (supports file:// and https://)
     uri: String,
-}
-
-struct Options {
-    /// URI of the manifest to parse (supports file:// and https://)
-    uri: String,
-}
-
-impl Options {
-    fn from(cli: CliArguments) -> Options {
-        Options {
-            //
-            uri: cli.uri,
-        }
-    }
 }
 
 fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
@@ -253,28 +237,6 @@ impl GitRepo {
             worktrees,
         }
     }
-
-    // Maybe remove?
-    fn git_command<I, S>(&self, args: I) -> anyhow::Result<()>
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<std::ffi::OsStr>,
-    {
-        let output = std::process::Command::new("git")
-            .current_dir(&self.original_repo)
-            .args(args)
-            .output()
-            .expect("Failed to execute git command");
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            anyhow::bail!("git command failed: {stderr}");
-        }
-
-        Ok(())
-    }
-
-    // fn get_dependencies(&self, string
 }
 
 #[derive(Debug)]
@@ -327,7 +289,6 @@ impl GitWorktree {
             CompatibilityCrates::MidenProtocol.to_string(),
             CompatibilityCrates::MidenObjects.to_string(),
             CompatibilityCrates::MidenVM.to_string(),
-            // CompatibilityCrates::MidenCore.to_string(),
         ]
         .into();
 
@@ -358,8 +319,6 @@ impl GitWorktree {
         })
     }
 }
-
-// fn get_dependencies(repo_url: &str) ->
 
 struct CratesIOApi {
     client: crates_io_api::SyncClient,
@@ -487,14 +446,11 @@ impl CrateWithSource {
     }
 }
 
-// These are crates that are the corner
 enum CompatibilityCrates {
-    //
     MidenProtocol,
     // Legacy miden protocol name
     MidenObjects,
     MidenVM,
-    MidenCore,
 }
 impl Display for CompatibilityCrates {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -502,30 +458,16 @@ impl Display for CompatibilityCrates {
             CompatibilityCrates::MidenProtocol => f.write_str("miden-protocol"),
             CompatibilityCrates::MidenObjects => f.write_str("miden-objects"),
             CompatibilityCrates::MidenVM => f.write_str("miden-vm"),
-            CompatibilityCrates::MidenCore => f.write_str("miden-core"),
         }
     }
 }
 
-// Dependency graph used to determine compatibility between components.
-// By compatibility we mean that the underlying miden-protocol is the same.
-// This assumption is based on:
-// https://github.com/0xMiden/midenup/pull/142#discussion_r2749774499
-// TODO: Escape hatch
-struct DependencyGraph {
-    //
-}
-
-// I think I like vector a bit better since it makes it a bit easier to serialize.
 #[derive(Debug)]
 struct Crates {
     crates: Vec<Crate>,
 }
 
-// TODO: Check rust channel somehow.
 impl Crates {
-    // TODO: Save in disk already known releases with their corresponding VM versions.
-    // Only fetch the new ones.
     fn new(manifest: &Manifest) -> Self {
         let client = CratesIOApi::new();
 
@@ -583,38 +525,6 @@ impl Crates {
 
         Self { crates }
     }
-
-    // fn get(&mut self, crate_name: &str) -> anyhow::Result<&Vec<semver::Version>> {
-    //     if !self.releases.contains_key(crate_name) {
-    //         let versions = find_all_versions(crate_name)?;
-    //         self.releases.insert(crate_name.to_string(), versions);
-    //     }
-    //     Ok(self.releases.get(crate_name).unwrap())
-    // }
-}
-
-fn update_component(component: &Component, versions: &[semver::Version]) -> Component {
-    todo!()
-}
-
-fn update_channel(channel: &Channel, releases: &mut Crates, options: &Options) -> Channel {
-    let vm_version = get_vm_version(channel).expect("Could not find VM version in channel");
-    println!("    VM version: {vm_version}");
-
-    // for component in &channel.components {
-    //     let Authority::Cargo { package, .. } = &component.version else {
-    //         continue;
-    //     };
-    //     let crate_name = package.as_deref().unwrap_or(&component.name);
-    //     let versions = releases
-    //         .get(crate_name)
-    //         .unwrap_or_else(|e| panic!("Could not query crates.io for {crate_name}: {e}"));
-    //     for version in versions {
-    //         println!("    {crate_name} {version}");
-    //     }
-    // }
-
-    channel.clone()
 }
 
 fn main() -> anyhow::Result<()> {
@@ -623,32 +533,13 @@ fn main() -> anyhow::Result<()> {
     let mut manifest = Manifest::load_from(&cli.uri)
         .map_err(|e| anyhow::anyhow!("Failed to load manifest from `{}`: {e}", cli.uri))?;
 
-    manifest.save_to(std::path::Path::new("manifest/channel-manifest.json"))?;
-    println!("Manifest loaded successfully from `{}`", cli.uri);
-
-    let options = Options::from(cli);
-
     let releases = Crates::new(&manifest);
-    std::dbg!(&releases);
     let crates = CratesWithSource::new(releases);
-    // let repos: Vec<_> =
-    //     releases.crates.into_iter().map(|ccrate| CrateWithSource::new(ccrate)).collect();
-    std::dbg!(&crates);
     let compatibility = CratesWithCompatibility::new(crates);
-    std::dbg!(&compatibility);
     let available_updates = compute_available_updates(&compatibility, &manifest);
-    std::dbg!(&available_updates);
     manifest.apply_updates(&available_updates);
     manifest.save_to(std::path::Path::new("manifest/channel-manifest.json"))?;
     println!("Manifest saved to manifest/channel-manifest.json");
-    // let mut updated_channels = Vec::new();
-    // for mut channel in manifest.get_channels() {
-    //     println!("  - Channel: {}", channel.name);
-    //     let updated_channel = update_channel(&mut channel, &mut releases, &options);
-    //     updated_channels.push(updated_channel);
-    // }
-
-    // let new_manifest = Manifest::update_channels(manifest, updated_channels);
 
     Ok(())
 }
