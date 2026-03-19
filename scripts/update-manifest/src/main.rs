@@ -1,3 +1,67 @@
+//! Automated update script for `channel-manifest.json`.
+//!
+//! ## Purpose
+//!
+//! This script is intended to automatically update midenup's channel manifest
+//! file with newer releases of components, while maintaining compatibility.
+//!
+//! ## How it works
+//!
+//! 1. First, for each Cargo component in the manifest, we query crates.io
+//!    for all published versions larger than the version currently listed in the manifest.
+//! 2. To determine compatibilitt, we clone each crate's git repository and, for every
+//!    candidate version, create a git worktree. Then, we read its `Cargo.lock` to find which
+//!    version of the compatibility crate (`miden-protocol`, `miden-objects`, or `miden-vm`)
+//!    it uses.
+//! 3. To determine if a component is due for an update, we find the largest published
+//!    version that is both newer than the current version *and* resolves to the same
+//!    compatibility crate version as the channel it belongs to.
+//! 4. Finally, we update matching component versions in the manifest and write the
+//!    result to disk.
+//!
+//! ## Assumptions
+//!
+//! - **Compatibility is determined by a shared protocol version.** Two components are
+//!   considered compatible if their `Cargo.lock` resolves to the same version of
+//!   `miden-protocol` (or its legacy equivalents `miden-objects` / `miden-vm`).
+//!   This assumption is documented in:
+//!   <https://github.com/0xMiden/midenup/pull/142#discussion_r2749774499>
+//! - **All Cargo components have a public git repository** listed on crates.io.
+//! - **Version tags follow the `v{semver}` or `{semver}` convention** in the upstream repos.
+//! - **crates.io rate limit of 1 req/sec is respected** — requests are made serially.
+//!
+//! ## Remaining TODO items:
+//! - Automatically update `rustup_channel` field if available (mainly intended
+//!   for the miden compiler and cargo miden). This should be fairly simple to
+//!   achieve in the GitWorktree stage.
+//! - Automatically detecting uploaded artifacts on github. A bit more involved
+//!   since it involves mapping crates.io releases with their github equivalent.
+//!
+//! ## Known limitations / QoL improvements
+//!
+//! ### Speed up
+//!
+//! At the time of writing (19/03/2026), on my machine (Apple M3 Max, 36GB)
+//! it takes around ~30 seconds for the script to run. I'd say it's fair to
+//! assume that there will not be a lot of variance across machines since the
+//! script is mainly IO intensive.
+//! Looking forward however, with the manifest only ever growing, time and
+//! especially disk usage will inevitably go up. To mitigate this a few
+//! things could be tried:
+//!
+//! 1. Saving the state of CratesWithCompatibility on disk might reduce the
+//!    need re-process them.
+//!
+//! 2. Parallelizing operations. This shouldn't be too hard since almost all
+//!    the operations are independent from each other and are mainly IO
+//!    related.
+//!
+//! 3. Chaning how the pipeline is applied. Currently, the processing
+//!    pipeline is applied to all components grouped together, meaning that
+//!    every item is on the same stage of the pipeline. However, if instead,
+//!    we were to apply the pipeline to every component individually, we
+//!    could save up on a lot of disk space and memory, since these freed up
+//!    as soon as they are applied to the manifest.
 use anyhow::bail;
 use anyhow::Context;
 use clap::Parser;
