@@ -281,15 +281,6 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
           }
-        },
-        {
-          "name": "debug",
-          "package": "miden-debug",
-          "version": "0.4.4",
-          "installed_executable": "miden-debug",
-          "artifacts": [
-             "https://github.com/0xMiden/miden-debug/releases/download/v0.4.4/miden-debug-aarch64-apple-darwin"
-          ]
         }
       ]
     },
@@ -367,16 +358,6 @@
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
           }
-        },
-        {
-          "name": "debug",
-          "package": "miden-debug",
-          "version": "0.4.6",
-          "installed_executable": "miden-debug",
-          "artifacts": [
-             "https://github.com/0xMiden/miden-debug/releases/download/v0.4.6/miden-debug-aarch64-apple-darwin",
-             "https://github.com/0xMiden/miden-debug/releases/download/v0.4.6/miden-debug-x86_64-unknown-linux-gnu"
-          ]
         },
         {
           "name": "faucet-client",

@@ -110,7 +110,15 @@ impl GitRepo {
                     ) {
                         worktree
                     } else {
-                        panic!("")
+                        eprintln!(
+                            "{}",
+                            format!(
+                                "Failed to form GitWorktree: {} {}",
+                                original_repo_path.display(),
+                                version
+                            )
+                        );
+                        continue;
                     }
                 };
 
@@ -194,8 +202,13 @@ impl GitWorktree {
         let lockfile = cargo_lock::Lockfile::load(&lock_path)
             .with_context(|| format!("Failed to load Cargo.lock at {}", lock_path.display()))?;
 
-        let compatibility_names: std::collections::HashSet<String> =
-            [CompatibilityCrates::MidenProtocol.to_string()].into();
+        let compatibility_names: std::collections::HashSet<String> = [
+            CompatibilityCrates::MidenProtocol.to_string(),
+            CompatibilityCrates::MidenObjects.to_string(),
+            CompatibilityCrates::MidenVM.to_string(),
+            // CompatibilityCrates::MidenCore.to_string(),
+        ]
+        .into();
 
         let deps: Vec<_> = lockfile
             .packages
@@ -357,11 +370,18 @@ impl CrateWithSource {
 enum CompatibilityCrates {
     //
     MidenProtocol,
+    // Legacy miden protocol name
+    MidenObjects,
+    MidenVM,
+    MidenCore,
 }
 impl Display for CompatibilityCrates {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
             CompatibilityCrates::MidenProtocol => f.write_str("miden-protocol"),
+            CompatibilityCrates::MidenObjects => f.write_str("miden-objects"),
+            CompatibilityCrates::MidenVM => f.write_str("miden-vm"),
+            CompatibilityCrates::MidenCore => f.write_str("miden-core"),
         }
     }
 }
@@ -418,21 +438,23 @@ impl Crates {
         // We now iterate again to remove un-needed version numbers. We're only
         // interested in versions present in the manifest.
         {
-            let mut used_version: HashMap<CrateName, Vec<CrateVersion>> = HashMap::new();
+            let mut min_version: HashMap<CrateName, CrateVersion> = HashMap::new();
             for channel in manifest.get_channels() {
                 for component in &channel.components {
                     let Authority::Cargo { package, version } = &component.version else {
                         continue;
                     };
                     let crate_name = package.as_deref().unwrap_or(&component.name).to_string();
-
-                    used_version.entry(crate_name).or_default().push(version.clone());
+                    let entry = min_version.entry(crate_name).or_insert_with(|| version.clone());
+                    if version < entry {
+                        *entry = version.clone();
+                    }
                 }
             }
 
             for ccrate in &mut crates {
-                if let Some(used) = used_version.get(&ccrate.name) {
-                    ccrate.versions.retain(|v| used.contains(v));
+                if let Some(min) = min_version.get(&ccrate.name) {
+                    ccrate.versions.retain(|v| v >= min);
                 }
             }
         }
