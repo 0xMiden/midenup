@@ -1,9 +1,10 @@
-use std::{borrow::Cow, path::Path};
+use std::{borrow::Cow, collections::HashMap, path::Path, fs};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
+use crate::version::Authority;
 
 const MANIFEST_VERSION: &str = "1.0.0";
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
@@ -228,6 +229,47 @@ impl Manifest {
     pub fn get_channels(&self) -> impl Iterator<Item = &Channel> {
         self.channels.iter()
     }
+
+    pub fn save_to(&self, path: &Path) -> anyhow::Result<()> {
+        let json = serde_json::to_string_pretty(self)?;
+        fs::write(path, json)?;
+        Ok(())
+    }
+
+    pub fn apply_updates(&mut self, updates: &AvailableUpdates) {
+        let update_map: HashMap<(&semver::Version, &str), &semver::Version> = updates
+            .updates
+            .iter()
+            .map(|u| ((&u.channel_name, u.component_name.as_str()), &u.latest_version))
+            .collect();
+
+        for channel in &mut self.channels {
+            for component in &mut channel.components {
+                let key = (&channel.name, component.name.as_ref());
+                if let Some(&new_version) = update_map.get(&key) {
+                    if let Authority::Cargo { package, .. } = &component.version {
+                        component.version = Authority::Cargo {
+                            package: package.clone(),
+                            version: new_version.clone(),
+                        };
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct ComponentUpdate {
+    pub channel_name: semver::Version,
+    pub component_name: String,
+    pub current_version: semver::Version,
+    pub latest_version: semver::Version,
+}
+
+#[derive(Debug)]
+pub struct AvailableUpdates {
+    pub updates: Vec<ComponentUpdate>,
 }
 
 #[cfg(test)]

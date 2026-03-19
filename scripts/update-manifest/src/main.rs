@@ -4,7 +4,7 @@ use clap::Parser;
 use midenup::channel::semver;
 use midenup::channel::Channel;
 use midenup::channel::Component;
-use midenup::manifest::Manifest;
+use midenup::manifest::{AvailableUpdates, ComponentUpdate, Manifest};
 use midenup::version::Authority;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -51,66 +51,50 @@ fn get_protocol_version(channel: &Channel) -> Option<&semver::Version> {
     get_vm_version(channel)
 }
 
-#[derive(Debug)]
-struct ComponentUpdate {
-    channel_name: semver::Version,
-    component_name: String,
-    current_version: CrateVersion,
-    latest_version: CrateVersion,
-}
+fn compute_available_updates(
+    compatibility: &CratesWithCompatibility,
+    manifest: &Manifest,
+) -> AvailableUpdates {
+    let mut updates = Vec::new();
 
-#[derive(Debug)]
-struct AvailableUpdates {
-    updates: Vec<ComponentUpdate>,
-}
+    for channel in manifest.get_channels() {
+        let Some(channel_protocol_version) = get_protocol_version(channel) else {
+            eprintln!("Warning: channel {} has no protocol version, skipping", channel.name);
+            continue;
+        };
 
-impl AvailableUpdates {
-    fn new(compatibility: &CratesWithCompatibility, manifest: &Manifest) -> Self {
-        let mut updates = Vec::new();
+        for component in &channel.components {
+            let Authority::Cargo { package, version: current_version } = &component.version else {
+                continue;
+            };
+            let crate_name = package.as_deref().unwrap_or(&component.name);
 
-        for channel in manifest.get_channels() {
-            let Some(channel_protocol_version) = get_protocol_version(channel) else {
-                eprintln!(
-                    "Warning: channel {} has no protocol version, skipping",
-                    channel.name
-                );
+            let Some(ccrate) =
+                compatibility.compatibility_mappings.iter().find(|c| c.name == crate_name)
+            else {
                 continue;
             };
 
-            for component in &channel.components {
-                let Authority::Cargo { package, version: current_version } = &component.version
-                else {
-                    continue;
-                };
-                let crate_name = package.as_deref().unwrap_or(&component.name);
+            let latest = ccrate
+                .compatibility
+                .iter()
+                .filter(|(v, proto)| *v > current_version && *proto == channel_protocol_version)
+                .map(|(v, _)| v)
+                .max()
+                .cloned();
 
-                let Some(ccrate) =
-                    compatibility.compatibility_mappings.iter().find(|c| c.name == crate_name)
-                else {
-                    continue;
-                };
-
-                let latest = ccrate
-                    .compatibility
-                    .iter()
-                    .filter(|(v, proto)| *v > current_version && *proto == channel_protocol_version)
-                    .map(|(v, _)| v)
-                    .max()
-                    .cloned();
-
-                if let Some(latest_version) = latest {
-                    updates.push(ComponentUpdate {
-                        channel_name: channel.name.clone(),
-                        component_name: component.name.to_string(),
-                        current_version: current_version.clone(),
-                        latest_version,
-                    });
-                }
+            if let Some(latest_version) = latest {
+                updates.push(ComponentUpdate {
+                    channel_name: channel.name.clone(),
+                    component_name: component.name.to_string(),
+                    current_version: current_version.clone(),
+                    latest_version,
+                });
             }
         }
-
-        AvailableUpdates { updates }
     }
+
+    AvailableUpdates { updates }
 }
 
 /// Structure that wraps a git repository that has the following structure:
@@ -423,7 +407,6 @@ impl CratesWithCompatibility {
 
         CratesWithCompatibility { compatibility_mappings }
     }
-
 }
 
 #[derive(Debug)]
@@ -475,6 +458,7 @@ struct Crates {
     crates: Vec<Crate>,
 }
 
+// TODO: Check rust channel somehow.
 impl Crates {
     // TODO: Save in disk already known releases with their corresponding VM versions.
     // Only fetch the new ones.
@@ -572,8 +556,10 @@ fn update_channel(channel: &Channel, releases: &mut Crates, options: &Options) -
 fn main() -> anyhow::Result<()> {
     let cli = CliArguments::parse();
 
-    let manifest = Manifest::load_from(&cli.uri)
+    let mut manifest = Manifest::load_from(&cli.uri)
         .map_err(|e| anyhow::anyhow!("Failed to load manifest from `{}`: {e}", cli.uri))?;
+
+    manifest.save_to(std::path::Path::new("manifest/channel-manifest.json"))?;
     println!("Manifest loaded successfully from `{}`", cli.uri);
 
     let options = Options::from(cli);
@@ -586,8 +572,11 @@ fn main() -> anyhow::Result<()> {
     std::dbg!(&crates);
     let compatibility = CratesWithCompatibility::new(crates);
     std::dbg!(&compatibility);
-    let available_updates = AvailableUpdates::new(&compatibility, &manifest);
+    let available_updates = compute_available_updates(&compatibility, &manifest);
     std::dbg!(&available_updates);
+    manifest.apply_updates(&available_updates);
+    manifest.save_to(std::path::Path::new("manifest/channel-manifest.json"))?;
+    println!("Manifest saved to manifest/channel-manifest.json");
     // let mut updated_channels = Vec::new();
     // for mut channel in manifest.get_channels() {
     //     println!("  - Channel: {}", channel.name);
