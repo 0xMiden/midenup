@@ -40,6 +40,79 @@ fn get_vm_version(channel: &Channel) -> Option<&semver::Version> {
     }
 }
 
+fn get_protocol_version(channel: &Channel) -> Option<&semver::Version> {
+    // Try explicit protocol component first (0.13.3+)
+    if let Some(proto) = channel.get_component("protocol") {
+        if let Authority::Cargo { version, .. } = &proto.version {
+            return Some(version);
+        }
+    }
+    // Fallback: vm version as proxy for legacy channels
+    get_vm_version(channel)
+}
+
+#[derive(Debug)]
+struct ComponentUpdate {
+    channel_name: semver::Version,
+    component_name: String,
+    current_version: CrateVersion,
+    latest_version: CrateVersion,
+}
+
+#[derive(Debug)]
+struct AvailableUpdates {
+    updates: Vec<ComponentUpdate>,
+}
+
+impl AvailableUpdates {
+    fn new(compatibility: &CratesWithCompatibility, manifest: &Manifest) -> Self {
+        let mut updates = Vec::new();
+
+        for channel in manifest.get_channels() {
+            let Some(channel_protocol_version) = get_protocol_version(channel) else {
+                eprintln!(
+                    "Warning: channel {} has no protocol version, skipping",
+                    channel.name
+                );
+                continue;
+            };
+
+            for component in &channel.components {
+                let Authority::Cargo { package, version: current_version } = &component.version
+                else {
+                    continue;
+                };
+                let crate_name = package.as_deref().unwrap_or(&component.name);
+
+                let Some(ccrate) =
+                    compatibility.compatibility_mappings.iter().find(|c| c.name == crate_name)
+                else {
+                    continue;
+                };
+
+                let latest = ccrate
+                    .compatibility
+                    .iter()
+                    .filter(|(v, proto)| *v > current_version && *proto == channel_protocol_version)
+                    .map(|(v, _)| v)
+                    .max()
+                    .cloned();
+
+                if let Some(latest_version) = latest {
+                    updates.push(ComponentUpdate {
+                        channel_name: channel.name.clone(),
+                        component_name: component.name.to_string(),
+                        current_version: current_version.clone(),
+                        latest_version,
+                    });
+                }
+            }
+        }
+
+        AvailableUpdates { updates }
+    }
+}
+
 /// Structure that wraps a git repository that has the following structure:
 ///
 /// parent_directory
@@ -320,12 +393,12 @@ struct CrateWithCompatibility {
 
 #[derive(Debug)]
 struct CratesWithCompatibility {
-    crates: Vec<CrateWithCompatibility>,
+    compatibility_mappings: Vec<CrateWithCompatibility>,
 }
 
 impl CratesWithCompatibility {
     fn new(crates_with_source: CratesWithSource) -> Self {
-        let crates = crates_with_source
+        let compatibility_mappings = crates_with_source
             .crates
             .into_iter()
             .map(|ccrate| {
@@ -348,8 +421,9 @@ impl CratesWithCompatibility {
             })
             .collect();
 
-        CratesWithCompatibility { crates }
+        CratesWithCompatibility { compatibility_mappings }
     }
+
 }
 
 #[derive(Debug)]
@@ -512,6 +586,8 @@ fn main() -> anyhow::Result<()> {
     std::dbg!(&crates);
     let compatibility = CratesWithCompatibility::new(crates);
     std::dbg!(&compatibility);
+    let available_updates = AvailableUpdates::new(&compatibility, &manifest);
+    std::dbg!(&available_updates);
     // let mut updated_channels = Vec::new();
     // for mut channel in manifest.get_channels() {
     //     println!("  - Channel: {}", channel.name);
