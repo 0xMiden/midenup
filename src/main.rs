@@ -131,7 +131,10 @@ impl Commands {
         local_manifest: &mut manifest::Manifest,
     ) -> anyhow::Result<()> {
         match &self {
-            Self::Init => commands::init(config),
+            Self::Init => {
+                commands::init(config)?;
+                Ok(())
+            },
             Self::Install { channel, options } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
