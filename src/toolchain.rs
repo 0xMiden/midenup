@@ -46,6 +46,7 @@ impl Default for Toolchain {
 }
 
 /// Used to specify why Midenup believes the current toolchain is what it is.
+#[derive(Debug)]
 pub enum ToolchainJustification {
     /// There exists a miden toolchain file present at `path`
     MidenToolchainFile { path: PathBuf },
