@@ -106,61 +106,8 @@ impl<'a> ToolchainEnvironment<'a> {
     /// requested command.
     fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
         // Local function that tries to parse an argument given a channel's state.
-        fn resolve_channel(
-            channel: &Channel,
-            argument: &str,
-        ) -> Result<MidenArgument, EnvironmentError> {
-            let mut resolution = Err(EnvironmentError::UnkownArgument(format!(
-                "Failed to resolve '{}': Neither known alias or component.",
-                argument
-            )));
-
-            for comp in channel.components.iter() {
-                if let Some(associated_command) = comp.aliases.get(argument) {
-                    return Ok(MidenArgument::Alias(comp.clone(), associated_command.to_owned()));
-                } else if comp.name == argument {
-                    match comp.get_installed_file() {
-                        InstalledFile::Executable { alias_only: false, binary_name: _ } => {
-                            resolution = Ok(MidenArgument::Component(comp.clone()));
-                            break;
-                        },
-                        InstalledFile::Executable { alias_only: true, binary_name: _ } => {
-                            let aliases = comp
-                                .aliases
-                                .keys()
-                                .map(|alias| format!("'{}'", alias))
-                                .collect::<Vec<_>>()
-                                .join(", ");
-                            resolution = Err(EnvironmentError::AliasOnly(format!(
-                                "'{}' is not intended to be called via 'miden', but rather by its \
-                                 aliases: {aliases}",
-                                comp.name
-                            )));
-                            break;
-                        },
-                        InstalledFile::Library { library_name, library_struct: _ } => {
-                            return Err(EnvironmentError::LibraryAsExecutable(format!(
-                                "'{}' installs the {} library. It is not intended to be executed \
-                                 as a binary.",
-                                comp.name, library_name
-                            )));
-                        },
-                    }
-                }
-            }
-
-            resolution
-        }
-
-        /// Why the active channel falls back on the installed channel.
-        enum FallbackMotive {
-            /// There simply is no active channel.
-            NoActiveChannel,
-            /// There is an active channel, yet the argument wasn't found.
-            ArgumentNotInActiveChannel,
-        }
         let fallback_motive = if let Some(active_channel) = self.active_channel.as_ref() {
-            match resolve_channel(active_channel, &argument) {
+            match resolve_argument(active_channel, &argument) {
                 Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
                 Err(EnvironmentError::UnkownArgument(_)) => {
                     FallbackMotive::ArgumentNotInActiveChannel
@@ -173,7 +120,7 @@ impl<'a> ToolchainEnvironment<'a> {
 
         // We know try to resolve the argument with the installed channel.
         {
-            let miden_argument = resolve_channel(self.installed_channel, &argument)?;
+            let miden_argument = resolve_argument(self.installed_channel, &argument)?;
 
             let not_found_in_active =
                 matches!(fallback_motive, FallbackMotive::ArgumentNotInActiveChannel);
@@ -565,4 +512,56 @@ fn default_help() -> String {
 {asterisk}: These commands will install the currently present toolchain if not installed.
 ",
     )
+}
+
+/// Function that tries to resolve `argument` inside the `channel`.
+fn resolve_argument(channel: &Channel, argument: &str) -> Result<MidenArgument, EnvironmentError> {
+    let mut resolution = Err(EnvironmentError::UnkownArgument(format!(
+        "Failed to resolve '{}': Neither known alias or component.",
+        argument
+    )));
+
+    for comp in channel.components.iter() {
+        if let Some(associated_command) = comp.aliases.get(argument) {
+            return Ok(MidenArgument::Alias(comp.clone(), associated_command.to_owned()));
+        } else if comp.name == argument {
+            match comp.get_installed_file() {
+                InstalledFile::Executable { alias_only: false, binary_name: _ } => {
+                    resolution = Ok(MidenArgument::Component(comp.clone()));
+                    break;
+                },
+                InstalledFile::Executable { alias_only: true, binary_name: _ } => {
+                    let aliases = comp
+                        .aliases
+                        .keys()
+                        .map(|alias| format!("'{}'", alias))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    resolution = Err(EnvironmentError::AliasOnly(format!(
+                        "'{}' is not intended to be called via 'miden', but rather by its \
+                         aliases: {aliases}",
+                        comp.name
+                    )));
+                    break;
+                },
+                InstalledFile::Library { library_name, library_struct: _ } => {
+                    return Err(EnvironmentError::LibraryAsExecutable(format!(
+                        "'{}' installs the {} library. It is not intended to be executed as a \
+                         binary.",
+                        comp.name, library_name
+                    )));
+                },
+            }
+        }
+    }
+
+    resolution
+}
+
+/// Why the active channel falls back on the installed channel.
+enum FallbackMotive {
+    /// There simply is no active channel.
+    NoActiveChannel,
+    /// There is an active channel, yet the argument wasn't found.
+    ArgumentNotInActiveChannel,
 }
