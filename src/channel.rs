@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
+    ffi::OsString,
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -445,7 +446,7 @@ pub fn resolve_command(
     channel: &Channel,
     component: &Component,
     config: &Config,
-) -> anyhow::Result<Vec<String>> {
+) -> anyhow::Result<Vec<OsString>> {
     let mut resolution = Vec::with_capacity(commands.len());
     let mut commands = commands.iter();
 
@@ -460,14 +461,14 @@ pub fn resolve_command(
                     )
                 })?;
 
-                resolution.push(component.get_cli_display());
+                resolution.push(OsString::from(component.get_cli_display()));
             },
             CliCommand::LibPath => {
                 let channel_dir = channel.get_channel_dir(config);
 
                 let toolchain_path = channel_dir.join("lib");
 
-                resolution.push(toolchain_path.to_string_lossy().to_string())
+                resolution.push(toolchain_path.into_os_string())
             },
             // The VarPath must be followed by a file name.
             CliCommand::VarPath => {
@@ -484,9 +485,9 @@ pub fn resolve_command(
 
                 let full_path = toolchain_path.join(directory_name);
 
-                resolution.push(full_path.to_string_lossy().to_string())
+                resolution.push(full_path.into_os_string())
             },
-            CliCommand::Verbatim(name) => resolution.push(name.to_string()),
+            CliCommand::Verbatim(name) => resolution.push(OsString::from(name)),
         }
     }
 

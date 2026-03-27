@@ -47,10 +47,8 @@ impl Artifact {
     fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
         let path = if let Some(file_path) = self.0.strip_prefix("file://") {
             file_path
-        } else if let Some(url_path) = self.0.strip_prefix("https://") {
-            url_path
         } else {
-            return None;
+            self.0.strip_prefix("https://")?
         };
 
         // <component name>(-<triplet>|.masp)
