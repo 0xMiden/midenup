@@ -1,11 +1,13 @@
 use std::{io::Write, path::Path, time::SystemTime};
 
-use anyhow::{Context, bail};
+use anyhow::Context;
+use thiserror::Error;
 
 use crate::{
     artifact::TargetTriple,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
+    commands::init::InitializationError,
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
@@ -13,13 +15,61 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
+// NOTE: The `source` field is a special field in thiserror which adds a "Caused
+// by:" message.
+// Source: https://docs.rs/thiserror/latest/thiserror/#details
+#[derive(Error, Debug)]
+pub enum InstallationError {
+    #[error("the '{channel}' toolchain is already installed")]
+    AlreadyInstalled { channel: String },
+
+    #[error("failed to create directory: '{path}'")]
+    CreateDirectory { path: String, source: std::io::Error },
+
+    #[error("failed to create file at '{path}'")]
+    CreateFile { path: String, source: std::io::Error },
+
+    #[error("failed to write file at '{path}'")]
+    WriteFile { path: String, source: std::io::Error },
+
+    #[error("error occurred while running install script")]
+    SpawnInstallScript { source: std::io::Error },
+
+    #[error("error occurred while waiting to install {channel}")]
+    WaitInstallScript { channel: String, source: std::io::Error },
+
+    #[error("midenup failed to install toolchain from channel {channel} with status {status}")]
+    InstallFailed { channel: String, status: i32 },
+
+    #[error("failed to set up midenup")]
+    SetupFailed {
+        #[from]
+        source: InitializationError,
+    },
+
+    #[error("couldn't remove stable symlink")]
+    RemoveSymlink { source: std::io::Error },
+
+    #[error("couldn't create stable symlink")]
+    CreateSymlink {
+        #[source]
+        source: crate::utils::fs::FsError,
+    },
+
+    #[error("couldn't serialize local manifest")]
+    SerializeManifest {
+        #[source]
+        source: serde_json::Error,
+    },
+}
+
 /// Installs a specified toolchain by channel or version.
 pub fn install(
     config: &Config,
     channel: &Channel,
     local_manifest: &mut Manifest,
     options: &InstallationOptions,
-) -> anyhow::Result<()> {
+) -> Result<(), InstallationError> {
     commands::setup_midenup(config)?;
 
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
@@ -36,28 +86,33 @@ pub fn install(
     // installed. In that case, we can procede to install the remaining components.
     && !is_partial
     {
-        bail!("the '{}' toolchain is already installed", &channel.name);
+        return Err(InstallationError::AlreadyInstalled { channel: channel.name.to_string() });
     }
 
     if !toolchain_dir.exists() {
-        std::fs::create_dir_all(&toolchain_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
+        std::fs::create_dir_all(&toolchain_dir).map_err(|source| {
+            InstallationError::CreateDirectory {
+                path: toolchain_dir.display().to_string(),
+                source,
+            }
         })?;
     }
 
     // `bin/` directory which holds binaries.
     let bin_dir = toolchain_dir.join("bin");
     if !bin_dir.exists() {
-        std::fs::create_dir_all(&bin_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", bin_dir.display())
+        std::fs::create_dir_all(&bin_dir).map_err(|source| InstallationError::CreateDirectory {
+            path: bin_dir.display().to_string(),
+            source,
         })?;
     }
 
     // `lib/` directory which holds MASP libraries.
     let lib_dir = toolchain_dir.join("lib");
     if !lib_dir.exists() {
-        std::fs::create_dir_all(&lib_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", lib_dir.display())
+        std::fs::create_dir_all(&lib_dir).map_err(|source| InstallationError::CreateDirectory {
+            path: lib_dir.display().to_string(),
+            source,
         })?;
     }
 
@@ -72,8 +127,9 @@ pub fn install(
     // `binary_name` when displaying help messages.
     let opt_dir = toolchain_dir.join("opt");
     if !opt_dir.exists() {
-        std::fs::create_dir_all(&opt_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", opt_dir.display())
+        std::fs::create_dir_all(&opt_dir).map_err(|source| InstallationError::CreateDirectory {
+            path: opt_dir.display().to_string(),
+            source,
         })?;
     }
 
@@ -81,14 +137,20 @@ pub fn install(
     // NOTE: Even when performing an update, we still need to re-generate the install script.
     // This is because, the versions that will be installed are written directly into the file; so
     // the file can't be "re-used".
-    let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
-        format!("failed to create file for install script at '{}'", install_file_path.display())
+    let mut install_file = std::fs::File::create(&install_file_path).map_err(|source| {
+        InstallationError::CreateFile {
+            path: install_file_path.display().to_string(),
+            source,
+        }
     })?;
 
     let install_script_contents = generate_install_script(config, channel, options, &toolchain_dir);
-    install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
-        format!("failed to write install script at '{}'", install_file_path.display())
-    })?;
+    install_file
+        .write_all(&install_script_contents.into_bytes())
+        .map_err(|source| InstallationError::WriteFile {
+            path: install_file_path.display().to_string(),
+            source,
+        })?;
 
     let mut child = std::process::Command::new("cargo")
         .env("MIDEN_SYSROOT", &toolchain_dir)
@@ -100,18 +162,18 @@ pub fn install(
         .stderr(std::process::Stdio::inherit())
         .stdout(std::process::Stdio::inherit())
         .spawn()
-        .context("error occurred while running install script")?;
+        .map_err(|source| InstallationError::SpawnInstallScript { source })?;
 
-    let status = child
-        .wait()
-        .context(format!("Error occurred while waiting to install {}", channel.name))?;
+    let status = child.wait().map_err(|source| InstallationError::WaitInstallScript {
+        channel: channel.name.to_string(),
+        source,
+    })?;
 
     if !status.success() {
-        bail!(
-            "midenup failed to install toolchain from channel {} with status {}",
-            channel.name,
-            status.code().unwrap_or(1)
-        )
+        return Err(InstallationError::InstallFailed {
+            channel: channel.name.to_string(),
+            status: status.code().unwrap_or(1),
+        });
     }
 
     let is_latest_stable = config.manifest.is_latest_stable(channel);
@@ -121,9 +183,11 @@ pub fn install(
         // NOTE: This is an absolute file path, maybe a relative symlink would be more suitable
         let stable_dir = installed_toolchains_dir.join("stable");
         if stable_dir.exists() {
-            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
+            std::fs::remove_file(&stable_dir)
+                .map_err(|source| InstallationError::RemoveSymlink { source })?;
         }
-        utils::fs::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+        utils::fs::symlink(&stable_dir, &toolchain_dir)
+            .map_err(|source| InstallationError::CreateSymlink { source })?;
     }
 
     // Update local manifest
@@ -185,19 +249,20 @@ pub fn install(
     }
 
     let mut local_manifest_file =
-        std::fs::File::create(&local_manifest_path).with_context(|| {
-            format!(
-                "failed to create file for local manifest at '{}'",
-                local_manifest_path.display()
-            )
+        std::fs::File::create(&local_manifest_path).map_err(|source| {
+            InstallationError::CreateFile {
+                path: local_manifest_path.display().to_string(),
+                source,
+            }
         })?;
-    local_manifest_file
-        .write_all(
-            serde_json::to_string_pretty(&local_manifest)
-                .context("Couldn't serialize local manifest")?
-                .as_bytes(),
-        )
-        .context("Couldn't create local manifest file")?;
+    let serialized = serde_json::to_string_pretty(&local_manifest)
+        .map_err(|source| InstallationError::SerializeManifest { source })?;
+    local_manifest_file.write_all(serialized.as_bytes()).map_err(|source| {
+        InstallationError::WriteFile {
+            path: local_manifest_path.display().to_string(),
+            source,
+        }
+    })?;
 
     Ok(())
 }

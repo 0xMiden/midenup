@@ -139,7 +139,7 @@ impl Commands {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                commands::install(config, channel, local_manifest, options)
+                Ok(commands::install(config, channel, local_manifest, options)?)
             },
             Self::Uninstall { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
