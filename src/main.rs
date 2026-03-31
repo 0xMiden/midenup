@@ -1,6 +1,6 @@
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, io::Write, path::PathBuf};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail, Context};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 use midenup::{channel, commands, config, manifest, miden_wrapper, options};
 
@@ -139,7 +139,16 @@ impl Commands {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                Ok(commands::install(config, channel, local_manifest, options)?)
+
+                let channel_to_install = if options.interactive {
+                    &choose_interactive(channel)
+                } else {
+                    channel
+                };
+
+                commands::install(config, channel_to_install, local_manifest, options)?;
+
+                Ok(())
             },
             Self::Uninstall { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
@@ -255,6 +264,45 @@ fn main() -> anyhow::Result<()> {
     config.update_opt_symlinks(&config)?;
 
     result
+}
+
+/// Interactively prompts the user to confirm each component in the channel.
+///
+/// Returns a partial channel containing only the components the user confirmed.
+fn choose_interactive(channel: &channel::Channel) -> channel::Channel {
+    println!(
+        "The following components are available for installation in channel {}:\n",
+        channel.name
+    );
+
+    let mut selected_components = Vec::new();
+
+    for component in &channel.components {
+        print!("  Install '{}'? (Y/n): ", component.name);
+        std::io::stdout().flush().unwrap_or(());
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input).unwrap_or(0);
+        let input = input.trim().to_ascii_lowercase();
+
+        if input.is_empty() || input == "y" {
+            selected_components.push(component.clone());
+            println!("    '{}' added.", component.name);
+        } else {
+            println!("    Skipping '{}'", component.name);
+        }
+    }
+
+    if selected_components.len() == channel.components.len() {
+        return channel.clone();
+    }
+
+    channel::Channel {
+        name: channel.name.clone(),
+        alias: channel.alias.clone(),
+        tags: vec![channel::Tags::Partial],
+        components: selected_components,
+    }
 }
 
 #[cfg(test)]

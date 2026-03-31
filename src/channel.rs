@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{Context, bail};
+use anyhow::{bail, Context};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
