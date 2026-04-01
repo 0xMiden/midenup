@@ -1,4 +1,4 @@
-use std::{ffi::OsString, io::Write, path::PathBuf};
+use std::{ffi::OsString, io::{BufRead, Write}, path::PathBuf};
 
 use anyhow::{anyhow, bail, Context};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
@@ -141,7 +141,7 @@ impl Commands {
                 };
 
                 let channel_to_install = if options.interactive {
-                    &choose_interactive(channel)
+                    &choose_interactive(channel, &mut std::io::stdin().lock())
                 } else {
                     channel
                 };
@@ -269,7 +269,10 @@ fn main() -> anyhow::Result<()> {
 /// Interactively prompts the user to confirm each component in the channel.
 ///
 /// Returns a partial channel containing only the components the user confirmed.
-fn choose_interactive(channel: &channel::Channel) -> channel::Channel {
+fn choose_interactive<T>(channel: &channel::Channel, input: &mut T) -> channel::Channel
+where
+    T: BufRead,
+{
     println!(
         "The following components are available for installation in channel {}:\n",
         channel.name
@@ -281,11 +284,11 @@ fn choose_interactive(channel: &channel::Channel) -> channel::Channel {
         print!("  Install '{}'? (Y/n): ", component.name);
         std::io::stdout().flush().unwrap_or(());
 
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input).unwrap_or(0);
-        let input = input.trim().to_ascii_lowercase();
+        let mut line = String::new();
+        input.read_line(&mut line).unwrap_or(0);
+        let line = line.trim().to_ascii_lowercase();
 
-        if input.is_empty() || input == "y" {
+        if line.is_empty() || line == "y" {
             selected_components.push(component.clone());
             println!("    '{}' added.", component.name);
         } else {
