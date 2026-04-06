@@ -1,6 +1,10 @@
-use std::{ffi::OsString, io::{BufRead, Write}, path::PathBuf};
+use std::{
+    ffi::OsString,
+    io::{BufRead, Write},
+    path::PathBuf,
+};
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, FromArgMatches, Parser, Subcommand};
 use midenup::{channel, commands, config, manifest, miden_wrapper, options};
 
@@ -141,7 +145,8 @@ impl Commands {
                 };
 
                 let channel_to_install = if options.interactive {
-                    &choose_interactive(channel, &mut std::io::stdin().lock())
+                    let installed = local_manifest.get_channel_by_name(&channel.name);
+                    &choose_interactive(channel, installed, &mut std::io::stdin().lock())
                 } else {
                     channel
                 };
@@ -269,7 +274,11 @@ fn main() -> anyhow::Result<()> {
 /// Interactively prompts the user to confirm each component in the channel.
 ///
 /// Returns a partial channel containing only the components the user confirmed.
-fn choose_interactive<T>(channel: &channel::Channel, input: &mut T) -> channel::Channel
+fn choose_interactive<T>(
+    channel: &channel::Channel,
+    installed_channel: Option<&channel::Channel>,
+    input: &mut T,
+) -> channel::Channel
 where
     T: BufRead,
 {
@@ -281,6 +290,17 @@ where
     let mut selected_components = Vec::new();
 
     for component in &channel.components {
+        // If the component is already installed, include it automatically.
+        // This is done because the channels in the install.rs need to be
+        // idempotent.
+        if let Some(installed) = &installed_channel
+            && installed.get_component(&component.name).is_some()
+        {
+            selected_components.push(component.clone());
+            println!("  '{}' is already installed.", component.name);
+            continue;
+        }
+
         print!("  Install '{}'? (Y/n): ", component.name);
         std::io::stdout().flush().unwrap_or(());
 

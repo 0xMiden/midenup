@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashSet, path::PathBuf, str::FromStr};
 
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -217,6 +217,7 @@ impl Toolchain {
                 }
             },
             (Some(_installed_channel), None) => {
+                // There's no partial channel
                 return Ok((current_toolchain, justification, None));
             },
             (None, Some(partial_channel)) => {
