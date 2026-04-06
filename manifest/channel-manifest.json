@@ -386,6 +386,16 @@
           "aliases": {
             "mint": ["executable", "mint"]
           }
+        },
+        {
+          "name": "miden-verify",
+          "repository_url": "https://github.com/walnuthq/miden-verify.git",
+          "crate_name": "miden-verify",
+          "branch": "main",
+          "installed_executable": "miden-verify",
+          "aliases": {
+            "verify": ["executable"]
+          }
         }
       ]
     }
