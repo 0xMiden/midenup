@@ -1,0 +1,64 @@
+{
+  "manifest_version": "1.0",
+  "date": 1745931671,
+  "channels": [
+    {
+      "name": "0.10.0",
+      "components": [
+        {
+          "name": "std",
+          "package": "miden-stdlib",
+          "version": "0.16.0",
+          "installed_library": "std.masp",
+          "library_struct": "miden_stdlib::StdLibrary"
+        },
+        {
+          "name": "base",
+          "package": "miden-lib",
+          "version": "0.10.0",
+          "installed_library": "base.masp",
+          "library_struct": "miden_lib::MidenLib"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.16.2",
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden-vm"
+        },
+        {
+          "name": "client",
+          "package": "miden-client-cli",
+          "version": "0.10.2",
+          "installed_executable": "miden-client"
+        },
+        {
+          "name": "midenc",
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20",
+          "requires": ["base", "std"]
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.1.0",
+          "rustup_channel": "nightly-2025-03-20",
+          "installed_executable": "cargo-miden",
+          "alias_only": true,
+          "symlink_name": "cargo-miden"
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "version": "0.10.1",
+          "installed_executable": "miden-node"
+        },
+        {
+          "name": "faucet-client",
+          "package": "miden-faucet-client",
+          "version": "0.13.0",
+          "installed_executable": "miden-faucet-client"
+        }
+      ]
+    }
+  ]
+}
