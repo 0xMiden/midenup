@@ -388,6 +388,95 @@
           }
         }
       ]
+    },
+    {
+      "name": "0.14.3",
+      "components": [
+        {
+          "name": "core",
+          "package": "miden-core-lib",
+          "version": "0.22.1",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary"
+        },
+        {
+          "name": "protocol",
+          "package": "miden-protocol",
+          "version": "0.14.3",
+          "installed_library": "protocol.masp",
+          "library_struct": "miden_protocol::ProtocolLib"
+        },
+        {
+          "name": "vm",
+          "package": "miden-vm",
+          "version": "0.22.1",
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden-vm"
+        },
+        {
+          "name": "client",
+          "package": "miden-client-cli",
+          "version": "0.14.0",
+          "installed_executable": "miden-client",
+          "aliases": {
+              "account": ["executable", "new-account"],
+              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
+              "faucet": ["executable", "mint"],
+              "new-wallet": ["executable", "new-wallet", "--deploy"],
+              "call": ["executable", "call", "--show"],
+              "send": ["executable", "send"],
+              "simulate": ["executable", "exec"]
+          },
+          "artifacts": [
+             "https://github.com/0xMiden/miden-client/releases/download/v0.14.0/miden-client-aarch64-apple-darwin",
+             "https://github.com/0xMiden/miden-client/releases/download/v0.14.0/miden-client-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "midenc",
+          "version": "0.8.0",
+          "rustup_channel": "nightly-2025-12-10",
+          "requires": ["core", "protocol"],
+          "call_format": ["executable", "-L", "lib_path"]
+        },
+        {
+          "name": "cargo-miden",
+          "version": "0.8.0",
+          "rustup_channel": "nightly-2025-12-10",
+          "aliases": {
+              "new": ["cargo", "miden", "new"],
+              "build": ["cargo", "miden", "build"]
+          },
+          "installed_executable": "cargo-miden",
+          "alias_only": true,
+          "call_format": ["cargo", "miden"],
+          "symlink_name": "cargo-miden"
+        },
+        {
+          "name": "node",
+          "package": "miden-node",
+          "version": "0.14.3",
+          "installed_executable": "miden-node",
+          "aliases": {
+              "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
+          }
+        },
+        {
+          "name": "debug",
+          "package": "miden-debug",
+          "version": "0.6.1",
+          "installed_executable": "miden-debug"
+        },
+        {
+          "name": "faucet-client",
+          "package": "miden-faucet-client",
+          "version": "0.14.0",
+          "installed_executable": "miden-faucet-client",
+          "aliases": {
+            "mint": ["executable", "mint"]
+          }
+        }
+      ]
     }
   ]
 }
