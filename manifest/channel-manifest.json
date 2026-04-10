@@ -455,7 +455,7 @@
         {
           "name": "node",
           "package": "miden-node",
-          "version": "0.14.3",
+          "version": "0.14.5",
           "installed_executable": "miden-node",
           "aliases": {
               "start-node": ["executable", "bundled", "start",  "--data-directory", "var_path", "data", "--rpc.url", "http://0.0.0.0:57291"]
