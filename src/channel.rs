@@ -301,6 +301,7 @@ impl Display for Channel {
 }
 
 /// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
+/// These are only used for locally installed [`Channel`]s.
 #[derive(Serialize, Debug, PartialEq, Eq, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
