@@ -774,7 +774,7 @@ Error: {}",
         // This update should perform the following changes:
         //
         // - Update 0.15.0's miden-vm to version 0.16.2.
-        // - Remove base.masp from 0.15.0's toolchain dir.
+        // - Remove base.masl from 0.15.0's toolchain dir.
         // - Downgrade 0.14.0's miden-vm.
         // - Add the miden-client to 0.14.0's toolchain dir
         // - Change 0.14.0's std's authority from Cargo to Git.
@@ -805,7 +805,7 @@ Error: {}",
         let vm_exe_v15 = toolchain_0_15_0.join("bin").join("miden-vm");
         let command = std::process::Command::new(vm_exe_v15).arg("--version").output().unwrap();
         assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.16.2\n");
-        assert!(!toolchain_0_15_0.join("lib").join("base.masp").exists());
+        assert!(!toolchain_0_15_0.join("lib").join("base.masl").exists());
 
         let std_version = &local_manifest
             .get_channel(&channel::UserChannel::Version(semver::Version::new(0, 14, 0)))
@@ -1122,7 +1122,7 @@ Error: {}",
         assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-vm").exists());
         assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-client").exists());
         // Check that libraries are installed in the lib directory
-        assert!(toolchain_dir.join("0.20.3").join("lib").join("core.masp").exists());
+        assert!(toolchain_dir.join("0.20.3").join("lib").join("core.masl").exists());
 
         // Swap to manifest 2 (channel "0.13.0" with migration from "0.20.3")
         let manifest: &str =

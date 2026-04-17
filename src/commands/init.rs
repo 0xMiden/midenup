@@ -40,7 +40,7 @@ fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
 /// | |- <channel>/
 /// | | |- bin/
 /// | | |- lib/
-/// | | | |- std.masp
+/// | | | |- std.masl
 /// |- config.toml
 /// |- manifest.json
 /// ```

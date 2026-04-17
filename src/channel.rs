@@ -366,13 +366,13 @@ pub enum InstalledFile {
         #[serde(default)]
         alias_only: bool,
     },
-    /// The component installs a MaspLibrary.
+    /// The component installs a MaslLibrary.
     #[serde(untagged)]
     Library {
         #[serde(rename = "installed_library")]
         library_name: String,
         /// This is the name of the struct which exposes the `Library::write_to_file()` function,
-        /// that is used to generate the associated `.masp` file.
+        /// that is used to generate the associated `.masl` file.
         library_struct: String,
     },
 }

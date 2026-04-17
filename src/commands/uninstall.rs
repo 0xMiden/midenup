@@ -158,7 +158,7 @@ fn uninstall_channel(toolchain_dir: &PathBuf) -> Result<(), UninstallError> {
             .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
     for lib in installed_libraries {
-        let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
+        let lib_path = toolchain_dir.join("lib").join(lib.name.as_ref()).with_extension("masl");
         std::fs::remove_file(&lib_path)
             .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
     }

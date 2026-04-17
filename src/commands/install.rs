@@ -53,7 +53,7 @@ pub fn install(
         })?;
     }
 
-    // `lib/` directory which holds MASP libraries.
+    // `lib/` directory which holds MASL libraries.
     let lib_dir = toolchain_dir.join("lib");
     if !lib_dir.exists() {
         std::fs::create_dir_all(&lib_dir).with_context(|| {
@@ -284,11 +284,11 @@ fn main() {
     let lib_dir = miden_sysroot_dir.join("lib");
     {
         {% for dep in dependencies %}
-        println!("Installing: {{ dep.name }}.masp");
+        println!("Installing: {{ dep.name }}.masl");
 
-        // Write library to $MIDEN_SYSROOT/lib/dep.masp
+        // Write library to $MIDEN_SYSROOT/lib/dep.masl
         let lib = {{ dep.exposing_function }};
-        let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masp");
+        let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masl");
         // NOTE: If the file already exists, then we are running an update and we
         // don't need to update this element
         if !std::fs::exists(&lib_path).expect("Can't check existence of file") {
@@ -510,7 +510,7 @@ fn main() {
                 .with_context(|| {
                     format!(
                         "Component {} is marked as library, however the manifest does not contain \
-                         the associated Library struct from where it will obtain the `.masp` \
+                         the associated Library struct from where it will obtain the `.masl` \
                          file. \nThe manifest should contain a line like the following: \
                          \nlibrary_struct: \"miden_stdlib::MidenStdLib::default()\"",
                         component.name

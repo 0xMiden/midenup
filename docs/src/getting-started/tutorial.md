@@ -34,5 +34,5 @@ A typical usage of midenup and miden might look like the following:
 
 7. With the generated Miden Package, an account can be created and deployed with the following command:
    ```shell title=">_ Terminal"
-   miden client new-account --account-type regular-account-updatable-code -p /path/to/package.masp
+   miden client new-account --account-type regular-account-updatable-code -p /path/to/package.masl
    ```

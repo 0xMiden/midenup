@@ -9,14 +9,14 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.15.0",
-          "installed_library": "std.masp",
+          "installed_library": "std.masl",
           "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.9.0",
-          "installed_library": "base.masp",
+          "installed_library": "base.masl",
           "library_struct": "miden_lib::MidenLib"
         },
         {
@@ -80,14 +80,14 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.16.0",
-          "installed_library": "std.masp",
+          "installed_library": "std.masl",
           "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.10.0",
-          "installed_library": "base.masp",
+          "installed_library": "base.masl",
           "library_struct": "miden_lib::MidenLib"
         },
         {
@@ -150,14 +150,14 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.17.2",
-          "installed_library": "std.masp",
+          "installed_library": "std.masl",
           "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.11.5",
-          "installed_library": "base.masp",
+          "installed_library": "base.masl",
           "library_struct": "miden_lib::MidenLib"
         },
         {
@@ -221,14 +221,14 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.19.1",
-          "installed_library": "std.masp",
+          "installed_library": "std.masl",
           "library_struct": "miden_stdlib::StdLibrary"
         },
         {
           "name": "base",
           "package": "miden-lib",
           "version": "0.12.4",
-          "installed_library": "base.masp",
+          "installed_library": "base.masl",
           "library_struct": "miden_lib::MidenLib"
         },
         {
@@ -307,14 +307,14 @@
           "name": "core",
           "package": "miden-core-lib",
           "version": "0.20.3",
-          "installed_library": "core.masp",
+          "installed_library": "core.masl",
           "library_struct": "miden_core_lib::CoreLibrary"
         },
         {
           "name": "protocol",
           "package": "miden-protocol",
           "version": "0.13.3",
-          "installed_library": "protocol.masp",
+          "installed_library": "protocol.masl",
           "library_struct": "miden_protocol::ProtocolLib"
         },
         {

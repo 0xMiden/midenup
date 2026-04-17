@@ -9,7 +9,7 @@
           "name": "core",
           "package": "miden-core-lib",
           "version": "0.20.3",
-          "installed_library": "core.masp",
+          "installed_library": "core.masl",
           "library_struct": "miden_core_lib::CoreLibrary"
         },
         {

@@ -15,7 +15,7 @@ impl Artifacts {
 
 /// Holds a URI used to fetch an artifact.
 ///
-/// These URIs have the following format: `(https://|file://)<path>/<component name>(-<triplet>|.masp)`
+/// These URIs have the following format: `(https://|file://)<path>/<component name>(-<triplet>|.masl)`
 #[derive(Serialize, Deserialize, Debug, Clone)]
 struct Artifact(String);
 
@@ -24,7 +24,7 @@ pub enum TargetTriple {
     /// Custom triplet used by cargo. Since we use the same triplets as cargo, we simply copy them
     /// as-is, without any type of parsing.
     Custom(String),
-    /// Used for .masp libraries that are used in Miden VM.
+    /// Used for .masl libraries that are used in Miden VM.
     ///
     /// Components that have these libraries as artifacts only have one entry in
     /// [`Artifacts::artifacts`].
@@ -34,7 +34,7 @@ pub enum TargetTriple {
 impl TargetTriple {
     fn get_uri_extension(&self) -> String {
         match &self {
-            Self::MidenVM => String::from(".masp"),
+            Self::MidenVM => String::from(".masl"),
             Self::Custom(triplet) => triplet.to_string(),
         }
     }
@@ -53,7 +53,7 @@ impl Artifact {
             return None;
         };
 
-        // <component name>(-<triplet>|.masp)
+        // <component name>(-<triplet>|.masl)
         let uri_extension = path.split("/").last()?;
 
         let wanted_uri_extension = target.get_uri_extension();
