@@ -264,15 +264,21 @@ impl Channel {
                 break;
             };
 
-            // &self was migrated to other
-            let was_migrated = upstream_channel.tags
-                .iter()
-                .find_map(|tag| {
-                    match tag {
-                        Tags::Migration { migration } => Some(migration.clone()),
-                        _ => None,
-                    }
-                });
+            let was_migrated = upstream_channel.tags.iter().find_map(|tag| match tag {
+                Tags::Migration { migration } => match migration {
+                    // A channel is only considered as "migrated" if it's
+                    // current name matches the "old_channel" field of an
+                    // upstream channel.
+                    MigrationStrategy::NameChange { old_channel } => {
+                        if old_channel == &self.name {
+                            Some(migration)
+                        } else {
+                            None
+                        }
+                    },
+                },
+                _ => None,
+            });
 
             if let Some(migration) = was_migrated {
                 let upstream_match = UpstreamMatch::Migrated(migration.clone());
