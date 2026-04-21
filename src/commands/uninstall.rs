@@ -31,11 +31,11 @@ pub enum UninstallError {
     InternalCargoError(String),
 }
 
-
-pub fn uninstall_executable(
-    name: impl AsRef<OsStr> + Display,
-    root_dir: impl AsRef<OsStr>,
-) -> Result<(), UninstallError> {
+pub fn uninstall(
+    config: &Config,
+    channel: &Channel,
+    local_manifest: &mut Manifest,
+) -> anyhow::Result<()> {
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
 
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
