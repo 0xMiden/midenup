@@ -50,7 +50,7 @@ struct ExecutionEnvironment<'a> {
 }
 
 enum EnvironmentError {
-    UnkownArgument(String),
+    UnknownArgument(String),
     LibraryAsExecutable(String),
     AliasOnly(String),
 }
@@ -58,7 +58,7 @@ enum EnvironmentError {
 impl Display for EnvironmentError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self {
-            EnvironmentError::UnkownArgument(err) => write!(f, "{err}"),
+            EnvironmentError::UnknownArgument(err) => write!(f, "{err}"),
             EnvironmentError::LibraryAsExecutable(err) => write!(f, "{err}"),
             EnvironmentError::AliasOnly(err) => write!(f, "{err}"),
         }
@@ -109,7 +109,7 @@ impl<'a> ToolchainEnvironment<'a> {
         let fallback_motive = if let Some(active_channel) = self.active_channel.as_ref() {
             match resolve_argument(active_channel, &argument) {
                 Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
-                Err(EnvironmentError::UnkownArgument(_)) => {
+                Err(EnvironmentError::UnknownArgument(_)) => {
                     FallbackMotive::ArgumentNotInActiveChannel
                 },
                 Err(e) => return Err(e),
@@ -214,15 +214,61 @@ enum MidenSubcommand {
     Resolve(String),
 }
 
-fn parse_subcommand(subcommand: &str, argv: &[OsString]) -> MidenSubcommand {
-    match subcommand {
-        "help" | "--help" | "-h" => match argv.get(2).and_then(|c| c.to_str()) {
-            None => MidenSubcommand::Help(HelpMessage::Default),
-            Some("toolchain") => MidenSubcommand::Help(HelpMessage::Toolchain),
-            Some(other) => MidenSubcommand::Help(HelpMessage::Resolve(other.to_string())),
+/// Identifies the `--help` flag argument in clap
+const CLAP_HELP_FLAG: &str = "help_flag";
+/// Identifies the `help` subcommand in clap
+const CLAP_HELP_SUBCMD: &str = "help";
+/// Identifies the name of the component/alias argument of the `miden help` subcommand
+const CLAP_HELP_COMPONENT_ARG: &str = "alias_component";
+/// Identifies the `--version` flag argument in clap
+const CLAP_VERSION_FLAG: &str = "version";
+
+/// Builds the clap [Command] definition for the `miden` binary.
+fn build_miden_command() -> clap::Command {
+    clap::Command::new("miden")
+        .about("The Miden toolchain porcelain")
+        // We disable clap's built-in help flag and version flag because
+        // `miden` provides its own custom help and version commands.
+        .disable_help_flag(true)
+        .disable_help_subcommand(true)
+        .disable_version_flag(true)
+        // This is what allows `miden` to be dynamic.
+        .allow_external_subcommands(true)
+        // This adds support for the -h and --help flags.
+        .arg(clap::Arg::new(CLAP_HELP_FLAG).short('h').long("help").action(clap::ArgAction::SetTrue))
+        // This adds support for `miden help <alias/component>`.
+        .subcommand(
+            clap::Command::new(CLAP_HELP_SUBCMD)
+                .about("Print help information")
+                .arg(clap::Arg::new(CLAP_HELP_COMPONENT_ARG).num_args(0..=1)),
+        )
+        // This adds support for --version.
+        .arg(clap::Arg::new(CLAP_VERSION_FLAG).long("version").action(clap::ArgAction::SetTrue))
+}
+
+/// Converts clap [ArgMatches] into a [MidenSubcommand].
+fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand {
+    if matches.get_flag(CLAP_HELP_FLAG) {
+        return MidenSubcommand::Help(HelpMessage::Default);
+    }
+    if matches.get_flag(CLAP_VERSION_FLAG) {
+        return MidenSubcommand::Version;
+    }
+    match matches.subcommand() {
+        Some((CLAP_HELP_SUBCMD, sub_matches)) => {
+            match sub_matches.get_one::<String>(CLAP_HELP_COMPONENT_ARG).map(String::as_str) {
+                // `miden help` is the same as `--help`.
+                None => MidenSubcommand::Help(HelpMessage::Default),
+                // `miden help toolchain`.
+                Some("toolchain") => MidenSubcommand::Help(HelpMessage::Toolchain),
+                // `miden help <alias/component>`.
+                Some(other) => MidenSubcommand::Help(HelpMessage::Resolve(other.to_string())),
+            }
         },
-        "--version" => MidenSubcommand::Version,
-        _ => MidenSubcommand::Resolve(subcommand.to_string()),
+        // `miden <alias/compoent>`.
+        Some((comp_or_alias, _)) => MidenSubcommand::Resolve(comp_or_alias.to_string()),
+        // `miden` alone.
+        None => MidenSubcommand::Help(HelpMessage::Default),
     }
 }
 
@@ -231,27 +277,12 @@ pub fn miden_wrapper(
     config: &Config,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    // Extract the target binary to execute from argv[1]
-    let subcommand = {
-        let subcommand = argv.get(1).with_context(|| {
-            format!(
-                "
-{}: '{}' requires a subcommand but one was not provided
+    let matches = build_miden_command().get_matches_from(&argv);
 
-{} {} <ALIAS|COMMAND>
+    let parsed_subcommand = parse_matches(&matches);
 
-For more information, try 'miden help'.
-",
-                "error:".red().bold(),
-                "miden".yellow().bold(),
-                "Usage".bold().underline(),
-                "miden".bold(),
-            )
-        })?;
-        subcommand.to_str().expect("Invalid command name: {subcommand}")
-    };
-
-    let parsed_subcommand = parse_subcommand(subcommand, &argv);
+    // Used in error messages further down.
+    let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
 
     // NOTE: We handle these case first to avoid triggering an install when help related commands
     // are run.
@@ -279,7 +310,9 @@ For more information, try 'miden help'.
         ToolchainEnvironment::new(installed_channel, partial_channel)
     };
 
-    let help_flag = match parsed_subcommand {
+    // Whether the user requested help for a specific alias or component (e.g. `miden help
+    // compile`). If true, we append "--help" to the resolved command's arguments further down.
+    let requested_help = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => {
             let help = toolchain_help(&toolchain_environment);
@@ -288,20 +321,15 @@ For more information, try 'miden help'.
 
             return Ok(());
         },
-        MidenSubcommand::Help(HelpMessage::Resolve(_)) => {
-            // NOTE: We rely on the different component's CLI interfaces to recognize the "--help"
-            // flag. Currently, this relies on the fact that clap recognizes said flag by default.
-            // Source: https://github.com/clap-rs/clap/blob/583ba4ad9a4aea71e5b852b142715acaeaaaa050/src/_features.rs#L10
-            Some(String::from("--help"))
-        },
-        _ => None,
+        MidenSubcommand::Help(HelpMessage::Resolve(_)) => true,
+        _ => false,
     };
 
     // We obtain the target executable and prefixes that are associated with the passed subcommand.
-    let (target_exe, mut prefix_args, active_channel) = match parsed_subcommand {
-        MidenSubcommand::Version => unreachable!(),
-        MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
-        MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
+    let (target_exe, prefix_args, active_channel) = match parsed_subcommand {
+        MidenSubcommand::Version
+        | MidenSubcommand::Help(HelpMessage::Default)
+        | MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
         // Resolution, either for help or for actual execution is the same. The only difference is
         // wheter we append "--help" at the end and if we process additional arguments.
         MidenSubcommand::Help(HelpMessage::Resolve(resolve))
@@ -315,8 +343,9 @@ For more information, try 'miden help'.
                         resolve_command(&alias_resolutions, active_channel, &component, config)?;
 
                     // SAFETY: Safe under the assumption that every alias has an associated command.
-                    let command = commands.first().unwrap().clone();
-                    let aliased_arguments: Vec<String> = commands.into_iter().skip(1).collect();
+                    let mut commands = std::collections::VecDeque::from(commands);
+                    let command = commands.pop_front().unwrap();
+                    let aliased_arguments = commands;
 
                     (command, aliased_arguments, active_channel)
                 },
@@ -324,17 +353,17 @@ For more information, try 'miden help'.
                     argument: MidenArgument::Component(component),
                     active_channel,
                 }) => {
-                    let call_convention = resolve_command(
+                    let mut call_convention = std::collections::VecDeque::from(resolve_command(
                         &component.get_call_format(),
                         active_channel,
                         &component,
                         config,
-                    )?;
+                    )?);
 
                     // SAFETY: Safe under the assumption that every call_format has at least one
                     // argument
-                    let command = call_convention.first().unwrap().clone();
-                    let args: Vec<String> = call_convention.into_iter().skip(1).collect();
+                    let command = call_convention.pop_front().unwrap();
+                    let args = call_convention;
 
                     (command, args, active_channel)
                 },
@@ -352,34 +381,35 @@ For more information, try 'miden help'.
         },
     };
 
-    let rest_of_args = if let Some(help_flag) = help_flag {
-        prefix_args.extend([help_flag]);
-        // If the user requested for help for a specific component, we skip any additional passed in
-        // arguments.
-        argv.iter().skip(argv.len())
+    // This is either --help in case the user requested for help or the
+    // remaining arguments passed by the user.
+    let remaining_args = if requested_help {
+        vec![std::ffi::OsStr::new("--help").to_os_string()]
     } else {
-        // argv is of the form:
-        //
-        // miden <alias|component> ...
-        //
-        // So we skip the first two and pass the rest to the underlying executable.
-        argv.iter().skip(2)
+        matches
+        .subcommand()
+        // Since we're using "allow_external_subcommands" all the remaining
+        // arguments are stored in the empty string "".
+        // Source: https://docs.rs/clap/latest/clap/struct.Command.html#method.allow_external_subcommands
+        .and_then(|(_, sub_matches)| sub_matches.get_many::<OsString>(""))
+        .map(|vals| vals.map(OsString::clone).collect())
+        .unwrap_or_default()
     };
 
-    let prefix_args = prefix_args.iter().map(OsString::from).chain(rest_of_args.cloned()).collect();
+    let args = prefix_args.into_iter().chain(remaining_args).collect::<Vec<_>>();
 
     let mut command = config
-        .execute_command(active_channel, &target_exe, &prefix_args)
-        .with_context(|| format!("failed to run 'miden {subcommand}'"))?;
+        .execute_command(active_channel, &target_exe, &args)
+        .with_context(|| format!("failed to run '{user_input}'"))?;
 
     let status = command.wait().with_context(|| {
-        format!("error occurred while waiting for 'miden {subcommand}' to finish executing")
+        format!("error occurred while waiting for '{user_input}' to finish executing")
     })?;
 
     if status.success() {
         Ok(())
     } else {
-        bail!("'miden {}' failed with status {}", subcommand, status.code().unwrap_or(1))
+        bail!("'{}' failed with status {}", user_input, status.code().unwrap_or(1))
     }
 }
 
@@ -516,7 +546,7 @@ fn default_help() -> String {
 
 /// Function that tries to resolve `argument` inside the `channel`.
 fn resolve_argument(channel: &Channel, argument: &str) -> Result<MidenArgument, EnvironmentError> {
-    let mut resolution = Err(EnvironmentError::UnkownArgument(format!(
+    let mut resolution = Err(EnvironmentError::UnknownArgument(format!(
         "Failed to resolve '{}': Neither known alias or component.",
         argument
     )));

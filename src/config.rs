@@ -1,4 +1,7 @@
-use std::{ffi::OsString, path::PathBuf};
+use std::{
+    ffi::{OsStr, OsString},
+    path::PathBuf,
+};
 
 use anyhow::{Context, bail};
 
@@ -124,8 +127,8 @@ impl Config {
     pub fn execute_command(
         &self,
         active_toolchain: &Channel,
-        target_exe: &str,
-        args: &Vec<OsString>,
+        target_exe: &OsStr,
+        args: &[OsString],
     ) -> Result<std::process::Child, std::io::Error> {
         let toolchain_name = active_toolchain.name.to_string();
         let sysroot = self.midenup_home.join("toolchains").join(&toolchain_name);
