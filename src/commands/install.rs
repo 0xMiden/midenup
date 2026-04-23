@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::Write,
     path::{Path, PathBuf},
     time::SystemTime,
@@ -175,6 +176,12 @@ pub fn install(
             channel.clone()
         };
 
+        // We determine how the component got installed.
+        // A component could have been installed either by cargo install (i.e. "from
+        // source") or via a pre-compiled miden-provided binary artifact.
+        // We can only *truly* determine how it got installed after the fact.
+        let cargo_installed_binaries = get_installed_cargo_binaries(toolchain_dir)?;
+
         for component in channel_to_save.components.iter_mut() {
             match &component.version {
                 #[allow(clippy::collapsible_match)]
@@ -219,7 +226,35 @@ pub fn install(
                         last_modification: Some(latest_time),
                     }
                 },
-                _ => (),
+                Authority::Cargo { package, .. } => {
+                    // If a component is marked with Cargo as an authority and
+                    // also has artifacts listed as available, determine which
+                    // got used for the installation.
+                    //
+                    // Currently, by convention, if a component has an artifacts
+                    // field listed on the *LOCAL* manifest, then that means
+                    // that artifacts were used.
+                    if component.get_artifact_uri(&config.target).is_none() {
+                        continue;
+                    }
+
+                    let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
+
+                    let installed_via_cargo = cargo_installed_binaries.contains(package.as_str());
+
+                    // TODO (fabrio): Unify this in the local manifest, I don't
+                    // believe there really is a need to store both the artifact
+                    // and authority fields.  We could only store the field that
+                    // was actually used.
+                    if installed_via_cargo {
+                        // This means that the component had an artifacts entry,
+                        // yet it was not utilized. While rare, this can happen
+                        // due to a number of factors, such as: no artifact for
+                        // this system's triple or Github being offline (with
+                        // the latter becoming more likely).
+                        component.artifacts = None;
+                    }
+                },
             }
         }
 
@@ -717,4 +752,43 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+type InstalledBinary = String;
+/// Returns the names of all packages installed via cargo at the given root.
+///
+/// Runs `cargo install --list --root <root>` and parses each package header line.
+pub fn get_installed_cargo_binaries(root_dir: PathBuf) -> anyhow::Result<HashSet<InstalledBinary>> {
+    let output = std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--root")
+        .arg(&root_dir)
+        .arg("--list")
+        .output()
+        .with_context(|| "Failed to obtain binaries intalled via cargo")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        bail!("Failed to obtain binaries installed via cargo {stderr}");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let programs = stdout
+        .lines()
+        // The format of cargo install --list is as follows:
+        // <crate> <version>
+        //     <binary>
+        //
+        // e.g.:
+        // ripgrep v15.1.0:
+        //     rg
+        // sccache v0.10.0:
+        //     sccache
+        .filter(|line| !line.is_empty() && !line.starts_with(char::is_whitespace))
+        // The first item is the name of the crate that we have installed.
+        .filter_map(|line| line.split_whitespace().next())
+        .map(String::from)
+        .collect();
+
+    Ok(programs)
 }

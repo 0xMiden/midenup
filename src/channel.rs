@@ -613,7 +613,7 @@ pub struct Component {
     pub initialization: Vec<String>,
     /// Pre-built artifact.
     #[serde(flatten)]
-    artifacts: Option<Artifacts>,
+    pub artifacts: Option<Artifacts>,
 }
 
 impl Component {
