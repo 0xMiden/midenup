@@ -46,13 +46,15 @@ enum Commands {
         #[clap(flatten)]
         options: options::InstallationOptions,
     },
+    /// List all available toolchains
+    List,
     /// Uninstall a Miden toolchain
     Uninstall {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
     },
-    /// Show information about the midenup environment
+    /// Show information about the local midenup environment.
     #[command(subcommand)]
     Show(commands::ShowCommand),
     /// Sets the current active miden toolchain for the current project.
@@ -133,6 +135,10 @@ impl Commands {
         match &self {
             Self::Init => {
                 commands::init(config)?;
+                Ok(())
+            },
+            Self::List => {
+                commands::list(config, local_manifest);
                 Ok(())
             },
             Self::Install { channel, options } => {

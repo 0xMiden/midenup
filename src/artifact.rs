@@ -45,6 +45,7 @@ impl Artifact {
     ///
     /// NOTE: The component name is required to separate the triplet from the filename in the URI.
     fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
+        #[allow(clippy::question_mark)]
         let path = if let Some(file_path) = self.0.strip_prefix("file://") {
             file_path
         } else {
