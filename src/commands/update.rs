@@ -7,7 +7,7 @@ use crate::{
     channel::{
         Channel, Component, InstalledFile, MigrationStrategy, UserChannel, is_toolchain_deleted,
     },
-    commands::{self, uninstall::uninstall_executable},
+    commands::{self, uninstall::{CargoError, uninstall_executable}},
     config::Config,
     manifest::Manifest,
     options::{PathUpdate, UpdateOptions},
@@ -242,7 +242,7 @@ fn update_channel(
                 // `toolchain_dir`.  If the package is not found, then the new, updated, version can
                 // simply be placed in the directory without any issues. This discrepancy can be
                 // caused when an update is cut mid-way through.
-                Err(commands::uninstall::UninstallError::FailedToUninstallPackage(name, ..)) => {
+                Err(CargoError::FailedToUninstallPackage(name, ..)) => {
                     println!(
                         "INFO: Failed to uninstall old version of {name}. Proceeding regardless."
                     );
