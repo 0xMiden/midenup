@@ -39,14 +39,40 @@ pub fn install(
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
-    if !toolchain_dir.exists() {
-        std::fs::create_dir_all(&toolchain_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
+    let staging_root = config.midenup_home.join("tmp");
+    if !staging_root.exists() {
+        std::fs::create_dir_all(&staging_root).with_context(|| {
+            format!("failed to create staging root directory: '{}'", staging_root.display())
+        })?;
+    }
+    // Install everything into a staging directory first. Only once the install script
+    // finishes successfully do we atomically move the staging directory into its final
+    // location under `toolchains/`. This prevents leaving a half-installed toolchain in
+    // the live directory if anything goes wrong mid-install.
+    let staging_dir = staging_root.join(format!("{}", &channel.name));
+
+    // If there exists a leftover staging directory from a previous install, we
+    // re-use it in order to save time.
+    if !staging_dir.exists() {
+        std::fs::create_dir_all(&staging_dir).with_context(|| {
+            format!("failed to create staging directory: '{}'", staging_dir.display())
+        })?;
+    }
+
+    // If the toolchain directory is already installed, we copy the files in order
+    // to save time.
+    if toolchain_dir.exists() {
+        copy_dir_recursive(&toolchain_dir, &staging_dir).with_context(|| {
+            format!(
+                "failed to seed staging directory '{}' from partial install at '{}'",
+                staging_dir.display(),
+                toolchain_dir.display()
+            )
         })?;
     }
 
     // `bin/` directory which holds binaries.
-    let bin_dir = toolchain_dir.join("bin");
+    let bin_dir = staging_dir.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", bin_dir.display())
@@ -54,7 +80,7 @@ pub fn install(
     }
 
     // `lib/` directory which holds MASP libraries.
-    let lib_dir = toolchain_dir.join("lib");
+    let lib_dir = staging_dir.join("lib");
     if !lib_dir.exists() {
         std::fs::create_dir_all(&lib_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", lib_dir.display())
@@ -70,14 +96,14 @@ pub fn install(
     // Then, when `miden` is invoked, it uses these symlinks to execute the underlying binary. With
     // this setup, `clap` displays the name as: `miden <component name>` instead of just
     // `binary_name` when displaying help messages.
-    let opt_dir = toolchain_dir.join("opt");
+    let opt_dir = staging_dir.join("opt");
     if !opt_dir.exists() {
         std::fs::create_dir_all(&opt_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", opt_dir.display())
         })?;
     }
 
-    let install_file_path = toolchain_dir.join("install").with_extension("rs");
+    let install_file_path = staging_dir.join("install").with_extension("rs");
     // NOTE: Even when performing an update, we still need to re-generate the install script.
     // This is because, the versions that will be installed are written directly into the file; so
     // the file can't be "re-used".
@@ -85,16 +111,16 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel, options, &toolchain_dir);
+    let install_script_contents = generate_install_script(config, channel, options, &staging_dir);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
 
     let mut child = std::process::Command::new("cargo")
-        .env("MIDEN_SYSROOT", &toolchain_dir)
+        .env("MIDEN_SYSROOT", &staging_dir)
         // HACK(pauls): This is for the benefit of the compiler, until it moves to using
         // MIDEN_SYSROOT instead.
-        .env("MIDENC_SYSROOT", &toolchain_dir)
+        .env("MIDENC_SYSROOT", &staging_dir)
         .args(["+nightly", "-Zscript"])
         .arg(&install_file_path)
         .stderr(std::process::Stdio::inherit())
@@ -232,6 +258,36 @@ pub fn install(
         )
         .context("Couldn't create local manifest file")?;
 
+    Ok(())
+}
+
+/// Recursively copy every entry from `src` into `dst`, preserving the directory layout and
+/// following symlinks. `dst` is expected to already exist.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    for entry in std::fs::read_dir(src)
+        .with_context(|| format!("failed to read directory '{}'", src.display()))?
+    {
+        let entry = entry
+            .with_context(|| format!("failed to read entry in '{}'", src.display()))?;
+        let file_type = entry.file_type().with_context(|| {
+            format!("failed to stat entry '{}'", entry.path().display())
+        })?;
+        let target = dst.join(entry.file_name());
+        if file_type.is_dir() {
+            std::fs::create_dir_all(&target).with_context(|| {
+                format!("failed to create directory '{}'", target.display())
+            })?;
+            copy_dir_recursive(&entry.path(), &target)?;
+        } else {
+            std::fs::copy(entry.path(), &target).with_context(|| {
+                format!(
+                    "failed to copy '{}' to '{}'",
+                    entry.path().display(),
+                    target.display()
+                )
+            })?;
+        }
+    }
     Ok(())
 }
 
