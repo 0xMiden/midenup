@@ -140,6 +140,29 @@ pub fn install(
         )
     }
 
+    let had_existing = toolchain_dir.exists();
+    if had_existing {
+        std::fs::rename(&toolchain_dir, &backup_dir).with_context(|| {
+            format!(
+                "failed to move existing toolchain '{}' aside to '{}'",
+                toolchain_dir.display(),
+                backup_dir.display()
+            )
+        })?;
+    }
+    std::fs::rename(&staging_dir, &toolchain_dir).with_context(|| {
+        format!(
+            "failed to move staged toolchain from '{}' to '{}'",
+            staging_dir.display(),
+            toolchain_dir.display()
+        )
+    })?;
+    if had_existing {
+        std::fs::remove_dir_all(&backup_dir).with_context(|| {
+            format!("failed to remove backup toolchain '{}'", backup_dir.display())
+        })?;
+    }
+
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
     // If this channel is the new stable, we update the symlink
