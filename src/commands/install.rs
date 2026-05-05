@@ -273,7 +273,18 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
             format!("failed to stat entry '{}'", entry.path().display())
         })?;
         let target = dst.join(entry.file_name());
-        if file_type.is_dir() {
+        if file_type.is_symlink() {
+            let link_target = std::fs::read_link(entry.path()).with_context(|| {
+                format!("failed to read symlink '{}'", entry.path().display())
+            })?;
+            utils::fs::symlink(&target, &link_target).with_context(|| {
+                format!(
+                    "failed to recreate symlink '{}' -> '{}'",
+                    target.display(),
+                    link_target.display()
+                )
+            })?;
+        } else if file_type.is_dir() {
             std::fs::create_dir_all(&target).with_context(|| {
                 format!("failed to create directory '{}'", target.display())
             })?;
