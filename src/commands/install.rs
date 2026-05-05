@@ -519,7 +519,7 @@ fn main() {
     {%- for link in symlinks %}
 
     let new_link = opt_dir.join("{{ link.alias }}");
-    let executable = bin_dir.join("{{ link.binary }}");
+    let executable = std::path::Path::new("../bin").join("{{ link.binary }}");
     if std::fs::read_link(&new_link).is_err() {
          utility::symlink(&new_link, &executable);
     }
