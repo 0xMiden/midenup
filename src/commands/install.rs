@@ -50,6 +50,16 @@ pub fn install(
         std::fs::create_dir_all(&install_dir).with_context(|| {
             format!("failed to create install directory: '{}'", install_dir.display())
         })?;
+        // If a previous install of this channel exists, reuse the components.
+        if toolchain_dir.exists() {
+            copy_dir_recursive(&toolchain_dir, &install_dir).with_context(|| {
+                format!(
+                    "failed to seed install directory '{}' from previous install at '{}'",
+                    install_dir.display(),
+                    toolchain_dir.display()
+                )
+            })?;
+        }
     }
 
     let bin_dir = install_dir.join("bin");
