@@ -50,14 +50,16 @@ fn cargo_bin_dir() -> Result<PathBuf, InitializationError> {
 ///
 /// ```text,ignore
 /// $MIDENUP_HOME
-/// |- opt/
-/// | |- symlinks
-/// |- toolchains
-/// | |- stable/ --> <channel>/
-/// | |- <channel>/
+/// |- toolchains/
+/// | |- stable     --> <channel>
+/// | |- <channel>  --> ../installed_toolchains/<channel>-<hash>
+/// |- installed_toolchains/
+/// | |- <channel>-<hash>/
 /// | | |- bin/
 /// | | |- lib/
 /// | | | |- std.masp
+/// | | |- opt/
+/// | | |- var/
 /// |- config.toml
 /// |- manifest.json
 /// ```
@@ -86,6 +88,17 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
     if !toolchains_dir.exists() {
         std::fs::create_dir_all(&toolchains_dir).map_err(|e| {
             InitializationError::DirectoryCreationFailed(toolchains_dir.clone(), e.to_string())
+        })?;
+        state = InitializationState::Initialized;
+    }
+
+    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
+    if !installed_toolchains_dir.exists() {
+        std::fs::create_dir_all(&installed_toolchains_dir).map_err(|e| {
+            InitializationError::DirectoryCreationFailed(
+                installed_toolchains_dir.clone(),
+                e.to_string(),
+            )
         })?;
         state = InitializationState::Initialized;
     }

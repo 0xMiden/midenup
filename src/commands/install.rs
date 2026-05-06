@@ -1,4 +1,8 @@
-use std::{io::Write, path::Path, time::SystemTime};
+use std::{
+    io::Write,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 
 use anyhow::{Context, bail};
 
@@ -22,10 +26,14 @@ pub fn install(
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
+    let toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchain_dir = toolchains_dir.join(format!("{}", &channel.name));
 
-    let installation_indicator = toolchain_dir.join("installation-successful");
+    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
+    let install_dir_name = format!("{}-{}", &channel.name, channel.content_hash());
+    let install_dir = installed_toolchains_dir.join(&install_dir_name);
+
+    let installation_indicator = install_dir.join("installation-successful");
     let is_partial = local_manifest
         .get_channel_by_name(&channel.name)
         .map(|ch| ch.is_partially_installed())
@@ -39,14 +47,16 @@ pub fn install(
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
-    if !toolchain_dir.exists() {
-        std::fs::create_dir_all(&toolchain_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
+    // If the install directory already exists; then that means we are re-issuing
+    // an install. That's probably because the installation got interrumpted
+    // mid way through.
+    if !install_dir.exists() {
+        std::fs::create_dir_all(&install_dir).with_context(|| {
+            format!("failed to create install directory: '{}'", install_dir.display())
         })?;
     }
 
-    // `bin/` directory which holds binaries.
-    let bin_dir = toolchain_dir.join("bin");
+    let bin_dir = install_dir.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", bin_dir.display())
@@ -54,7 +64,7 @@ pub fn install(
     }
 
     // `lib/` directory which holds MASP libraries.
-    let lib_dir = toolchain_dir.join("lib");
+    let lib_dir = install_dir.join("lib");
     if !lib_dir.exists() {
         std::fs::create_dir_all(&lib_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", lib_dir.display())
@@ -70,31 +80,31 @@ pub fn install(
     // Then, when `miden` is invoked, it uses these symlinks to execute the underlying binary. With
     // this setup, `clap` displays the name as: `miden <component name>` instead of just
     // `binary_name` when displaying help messages.
-    let opt_dir = toolchain_dir.join("opt");
+    let opt_dir = install_dir.join("opt");
     if !opt_dir.exists() {
         std::fs::create_dir_all(&opt_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", opt_dir.display())
         })?;
     }
 
-    let install_file_path = toolchain_dir.join("install").with_extension("rs");
     // NOTE: Even when performing an update, we still need to re-generate the install script.
     // This is because, the versions that will be installed are written directly into the file; so
     // the file can't be "re-used".
+    let install_file_path = install_dir.join("install").with_extension("rs");
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel, options, &toolchain_dir);
+    let install_script_contents = generate_install_script(config, channel, options, &install_dir);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
 
     let mut child = std::process::Command::new("cargo")
-        .env("MIDEN_SYSROOT", &toolchain_dir)
+        .env("MIDEN_SYSROOT", &install_dir)
         // HACK(pauls): This is for the benefit of the compiler, until it moves to using
         // MIDEN_SYSROOT instead.
-        .env("MIDENC_SYSROOT", &toolchain_dir)
+        .env("MIDENC_SYSROOT", &install_dir)
         .args(["+nightly", "-Zscript"])
         .arg(&install_file_path)
         .stderr(std::process::Stdio::inherit())
@@ -114,16 +124,47 @@ pub fn install(
         )
     }
 
+    // Relative Path to the newly installed channel directory.
+    let relative_install_target =
+        PathBuf::from("..").join("installed_toolchains").join(&install_dir_name);
+
+    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", &channel.name));
+    if std::fs::symlink_metadata(&temp_symlink).is_ok() {
+        std::fs::remove_file(&temp_symlink).with_context(|| {
+            format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
+        })?;
+    }
+
+    // tmp_link is a symlink file that points to relative_install_target. Even
+    // if tmp_link file is moved, it will still point to relative_install_target.
+    // For further reference on atomic directory updates, see:
+    // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
+    utils::fs::symlink(&temp_symlink, &relative_install_target)?;
+
+    // We now rename tmp_link to toolchain_dir. When renamed, it will still be
+    // pointing to relative_install_target. If the channel direcotry existed, it
+    // will overwrite the file. This is what marks the install as completed.
+    std::fs::rename(&temp_symlink, &toolchain_dir).with_context(|| {
+        format!(
+            "failed to publish toolchain symlink '{}' -> '{}'",
+            toolchain_dir.display(),
+            relative_install_target.display()
+        )
+    })?;
+
+    // ======================== Installation finalized  ===========================
+
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
     // If this channel is the new stable, we update the symlink
     if is_latest_stable {
-        // NOTE: This is an absolute file path, maybe a relative symlink would be more suitable
-        let stable_dir = installed_toolchains_dir.join("stable");
+        let stable_dir = toolchains_dir.join("stable");
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
-        utils::fs::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
+        utils::fs::symlink(&stable_dir, &relative_channel_target)
+            .expect("Couldn't create stable dir");
     }
 
     // Update local manifest
@@ -140,27 +181,33 @@ pub fn install(
 
         for component in channel_to_save.components.iter_mut() {
             match &component.version {
-                // If a component was installed with --branch, then write down the current commit.
-                // This is used on updates to check if any new commits were pushed since
-                // installation.
-                Authority::Git {
-                    repository_url,
-                    crate_name,
-                    target: GitTarget::Branch { name, latest_revision: _ },
-                } => {
-                    // If, for whatever reason, we fail to find the latest hash, we simply leave it
-                    // empty. That does mean that an update will be triggered even if the component
-                    // does not need it.
-                    let revision_hash = utils::git::find_latest_hash(repository_url, name).ok();
+                #[allow(clippy::collapsible_match)]
+                Authority::Git { repository_url, crate_name, target } => {
+                    #[allow(clippy::single_match)]
+                    match target {
+                        // If a component was installed with --branch, then
+                        // write down the current commit.  This is used on
+                        // updates to check if any new commits were pushed since
+                        // installation.
+                        GitTarget::Branch { name, latest_revision: _ } => {
+                            // If, for whatever reason, we fail to find the latest hash, we simply
+                            // leave it empty. That does mean that an
+                            // update will be triggered even if the component
+                            // does not need it.
+                            let revision_hash =
+                                utils::git::find_latest_hash(repository_url, name).ok();
 
-                    component.version = Authority::Git {
-                        repository_url: repository_url.clone(),
-                        crate_name: crate_name.clone(),
-                        target: GitTarget::Branch {
-                            name: name.clone(),
-                            latest_revision: revision_hash,
+                            component.version = Authority::Git {
+                                repository_url: repository_url.clone(),
+                                crate_name: crate_name.clone(),
+                                target: GitTarget::Branch {
+                                    name: name.clone(),
+                                    latest_revision: revision_hash,
+                                },
+                            }
                         },
-                    };
+                        _ => {},
+                    }
                 },
                 Authority::Path { path, crate_name, last_modification: _ } => {
                     // If a component was installed with --path, then write down the latest
@@ -419,7 +466,7 @@ fn main() {
     {%- for link in symlinks %}
 
     let new_link = opt_dir.join("{{ link.alias }}");
-    let executable = bin_dir.join("{{ link.binary }}");
+    let executable = std::path::Path::new("../bin").join("{{ link.binary }}");
     if std::fs::read_link(&new_link).is_err() {
          utility::symlink(&new_link, &executable);
     }
