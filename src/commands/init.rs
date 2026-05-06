@@ -19,48 +19,6 @@ fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
     anyhow::bail!("Could not determine cargo bin directory. Set CARGO_HOME or HOME.")
 }
 
-/// Check if there are any `<channel.bak>` directories in `toolchain/` that could've been left out by an interrumpted install.
-///
-/// If the `<channel>` (old_channel) has a `<channel>.bak` copy, two possible scenarios exist:
-/// - If the real `<channel>` directory exists, then the only step that was missing was to remove the `.bak` file.
-/// - If `<channel>/` is missing, then the rename wasn't executed.
-fn recover_toolchains(toolchains_dir: &std::path::Path) -> anyhow::Result<()> {
-    for entry in std::fs::read_dir(toolchains_dir).with_context(|| {
-        format!("failed to read toolchains directory '{}'", toolchains_dir.display())
-    })? {
-        let entry = entry.with_context(|| {
-            format!("failed to read entry in '{}'", toolchains_dir.display())
-        })?;
-        let file_name = entry.file_name();
-        let Some(file_name) = file_name.to_str() else {
-            continue;
-        };
-
-        let Some(old_channel) = file_name.strip_suffix(".bak") else {
-            continue;
-        };
-
-        let backup_dir = entry.path();
-        let old_channel_dir = toolchains_dir.join(old_channel);
-
-        if old_channel_dir.exists() {
-            std::fs::remove_dir_all(&backup_dir).with_context(|| {
-                format!("failed to remove leftover backup directory '{}'", backup_dir.display())
-            })?;
-        } else {
-            std::fs::rename(&backup_dir, &old_channel_dir).with_context(|| {
-                format!(
-                    "failed to restore toolchain from backup '{}' to '{}'",
-                    backup_dir.display(),
-                    old_channel_dir.display()
-                )
-            })?;
-        }
-    }
-    Ok(())
-}
-
-
 /// This functions bootstrap the `midenup` environment, if not already initialized.
 ///
 /// Initialization is comprised of:
@@ -136,8 +94,6 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
         })?;
         already_initialized = false;
     }
-
-    recover_toolchains(&toolchains_dir)?;
 
     // We check if the `miden` executable is accessible via the $PATH. This is most certainly not
     // going to be the case the first time `midenup` is initialized.
