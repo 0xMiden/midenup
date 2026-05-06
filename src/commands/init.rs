@@ -33,14 +33,16 @@ fn cargo_bin_dir() -> anyhow::Result<PathBuf> {
 ///
 /// ```text,ignore
 /// $MIDENUP_HOME
-/// |- opt/
-/// | |- symlinks
-/// |- toolchains
-/// | |- stable/ --> <channel>/
-/// | |- <channel>/
+/// |- toolchains/
+/// | |- stable     --> <channel>
+/// | |- <channel>  --> ../installed_toolchains/<channel>-<hash>
+/// |- installed_toolchains/
+/// | |- <channel>-<hash>/
 /// | | |- bin/
 /// | | |- lib/
 /// | | | |- std.masp
+/// | | |- opt/
+/// | | |- var/
 /// |- config.toml
 /// |- manifest.json
 /// ```
@@ -90,6 +92,17 @@ pub fn setup_midenup(config: &Config) -> anyhow::Result<bool> {
             format!(
                 "failed to initialize MIDENUP_HOME subdirectory: '{}'",
                 toolchains_dir.display()
+            )
+        })?;
+        already_initialized = false;
+    }
+
+    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
+    if !installed_toolchains_dir.exists() {
+        std::fs::create_dir_all(&installed_toolchains_dir).with_context(|| {
+            format!(
+                "failed to initialize MIDENUP_HOME subdirectory: '{}'",
+                installed_toolchains_dir.display()
             )
         })?;
         already_initialized = false;

@@ -22,8 +22,12 @@ pub fn install(
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
+    let toolchains_dir = config.midenup_home.join("toolchains");
+    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
+    let toolchain_dir = toolchains_dir.join(format!("{}", &channel.name));
+
+    let install_dir_name = format!("{}-{}", &channel.name, channel.content_hash());
+    let install_dir = installed_toolchains_dir.join(&install_dir_name);
 
     let installation_indicator = toolchain_dir.join("installation-successful");
     let is_partial = local_manifest
@@ -39,48 +43,23 @@ pub fn install(
         bail!("the '{}' toolchain is already installed", &channel.name);
     }
 
-    let staging_root = config.midenup_home.join("tmp");
-    if !staging_root.exists() {
-        std::fs::create_dir_all(&staging_root).with_context(|| {
-            format!("failed to create staging root directory: '{}'", staging_root.display())
-        })?;
-    }
-    // Install everything into a staging directory first. Only once the install script
-    // finishes successfully do we atomically move the staging directory into its final
-    // location under `toolchains/`. This prevents leaving a half-installed toolchain in
-    // the live directory if anything goes wrong mid-install.
-    let staging_dir = staging_root.join(format!("{}", &channel.name));
-
-    // If there exists a leftover staging directory from a previous install, we
-    // re-use it in order to save time.
-    if !staging_dir.exists() {
-        std::fs::create_dir_all(&staging_dir).with_context(|| {
-            format!("failed to create staging directory: '{}'", staging_dir.display())
+    // If the install directory already exists; then that means we are re-issuing
+    // an install. That's probably because the installation got interrumpted
+    // mid way through.
+    if !install_dir.exists() {
+        std::fs::create_dir_all(&install_dir).with_context(|| {
+            format!("failed to create install directory: '{}'", install_dir.display())
         })?;
     }
 
-    // If the toolchain directory is already installed, we copy the files in order
-    // to save time.
-    if toolchain_dir.exists() {
-        copy_dir_recursive(&toolchain_dir, &staging_dir).with_context(|| {
-            format!(
-                "failed to seed staging directory '{}' from partial install at '{}'",
-                staging_dir.display(),
-                toolchain_dir.display()
-            )
-        })?;
-    }
-
-    // `bin/` directory which holds binaries.
-    let bin_dir = staging_dir.join("bin");
+    let bin_dir = install_dir.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", bin_dir.display())
         })?;
     }
 
-    // `lib/` directory which holds MASP libraries.
-    let lib_dir = staging_dir.join("lib");
+    let lib_dir = install_dir.join("lib");
     if !lib_dir.exists() {
         std::fs::create_dir_all(&lib_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", lib_dir.display())
@@ -96,31 +75,28 @@ pub fn install(
     // Then, when `miden` is invoked, it uses these symlinks to execute the underlying binary. With
     // this setup, `clap` displays the name as: `miden <component name>` instead of just
     // `binary_name` when displaying help messages.
-    let opt_dir = staging_dir.join("opt");
+    let opt_dir = install_dir.join("opt");
     if !opt_dir.exists() {
         std::fs::create_dir_all(&opt_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", opt_dir.display())
         })?;
     }
 
-    let install_file_path = staging_dir.join("install").with_extension("rs");
-    // NOTE: Even when performing an update, we still need to re-generate the install script.
-    // This is because, the versions that will be installed are written directly into the file; so
-    // the file can't be "re-used".
+    let install_file_path = install_dir.join("install").with_extension("rs");
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel, options, &staging_dir);
+    let install_script_contents = generate_install_script(config, channel, options, &install_dir);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
 
     let mut child = std::process::Command::new("cargo")
-        .env("MIDEN_SYSROOT", &staging_dir)
+        .env("MIDEN_SYSROOT", &install_dir)
         // HACK(pauls): This is for the benefit of the compiler, until it moves to using
         // MIDEN_SYSROOT instead.
-        .env("MIDENC_SYSROOT", &staging_dir)
+        .env("MIDENC_SYSROOT", &install_dir)
         .args(["+nightly", "-Zscript"])
         .arg(&install_file_path)
         .stderr(std::process::Stdio::inherit())
@@ -140,39 +116,43 @@ pub fn install(
         )
     }
 
-    let had_existing = toolchain_dir.exists();
-    if had_existing {
-        std::fs::rename(&toolchain_dir, &backup_dir).with_context(|| {
-            format!(
-                "failed to move existing toolchain '{}' aside to '{}'",
-                toolchain_dir.display(),
-                backup_dir.display()
-            )
+    // Atomically publish the install via a symlink rename. The temp symlink + rename is the
+    // standard trick: rename(2) on Unix replaces an existing destination atomically when
+    // both source and destination are non-directories (symlinks count).
+    let relative_install_target = PathBuf::from("..").join("installed_toolchains").join(&install_dir_name);
+    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", &channel.name));
+    if std::fs::symlink_metadata(&temp_symlink).is_ok() {
+        std::fs::remove_file(&temp_symlink).with_context(|| {
+            format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
         })?;
     }
-    std::fs::rename(&staging_dir, &toolchain_dir).with_context(|| {
+    // For further reference on atomic directory updates, see:
+    // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
+    // tmp_link is a symlink file that points to relative_install_target. Even
+    // if tmp_link file is moved, it will still point to relative_install_target.
+    utils::fs::symlink(&temp_symlink, &relative_install_target)?;
+
+    // we now rename tmp_link to toolchain_dir. When renamed, it will still be
+    // pointing to relative_install_target. And if it existed, it will overwrite
+    // the file. This is what makes the install as completed.
+    std::fs::rename(&temp_symlink, &toolchain_dir).with_context(|| {
         format!(
-            "failed to move staged toolchain from '{}' to '{}'",
-            staging_dir.display(),
-            toolchain_dir.display()
+            "failed to publish toolchain symlink '{}' -> '{}'",
+            toolchain_dir.display(),
+            relative_install_target.display()
         )
     })?;
-    if had_existing {
-        std::fs::remove_dir_all(&backup_dir).with_context(|| {
-            format!("failed to remove backup toolchain '{}'", backup_dir.display())
-        })?;
-    }
 
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
     // If this channel is the new stable, we update the symlink
     if is_latest_stable {
-        // NOTE: This is an absolute file path, maybe a relative symlink would be more suitable
-        let stable_dir = installed_toolchains_dir.join("stable");
+        let stable_dir = toolchains_dir.join("stable");
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
-        utils::fs::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
+        utils::fs::symlink(&stable_dir, &relative_channel_target).expect("Couldn't create stable dir");
     }
 
     // Update local manifest
