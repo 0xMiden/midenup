@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, hash_map::DefaultHasher},
     fmt::{self, Display},
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
@@ -18,14 +18,23 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Hash created to distinguish one installed channel from the another.
+pub struct ChannelHash(String);
+
+impl Display for ChannelHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(untagged)]
 pub enum MigrationStrategy {
     NameChange { old_channel: semver::Version },
 }
 
 /// Tags used to identify special qualities of a specific channel.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Tags {
     /// The channel is partially installed, i.e. only a subset of components
@@ -42,7 +51,7 @@ pub enum Tags {
 ///
 /// Different channels have different stability guarantees. See the specific details for the
 /// channel you are interested in to learn more.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct Channel {
     /// Channels are identified by their name. The name corresponds to the channel's version.
     /// The version can contain suffixes such as "-custom", "-beta".
@@ -135,6 +144,12 @@ impl Channel {
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
         let installed_toolchains_dir = config.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", self.name))
+    }
+
+    pub fn content_hash(&self) -> ChannelHash {
+        let mut h = DefaultHasher::new();
+        self.hash(&mut h);
+        ChannelHash(format!("{:016x}", h.finish()))
     }
 
     /// Get all the aliases that the Channel is aware of
@@ -302,7 +317,7 @@ impl Display for Channel {
 }
 
 /// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
-#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
     /// Represents `stable`. Only one [Channel] can be marked as `stable` at a time.
@@ -349,7 +364,7 @@ impl core::str::FromStr for ChannelAlias {
 }
 
 /// Represents the file that the [Component] will install in the system.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
     /// The component installs an executable.
@@ -412,7 +427,7 @@ impl Display for InstalledFile {
 /// Represents each possible "word" variant that is passed to the command line.
 ///
 /// These are used to resolve an [Alias] to its associated command.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum CliCommand {
     /// Resolve the command to a [Component]'s corresponding executable.
@@ -519,7 +534,7 @@ pub type Alias = String;
 pub type CliCommands = Vec<CliCommand>;
 
 /// An installable component of a toolchain
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct Component {
     /// The canonical name of this toolchain component.
     pub name: Cow<'static, str>,
@@ -578,8 +593,8 @@ pub struct Component {
     /// },
     /// ```
     #[serde(default)]
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CliCommands>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub aliases: BTreeMap<Alias, CliCommands>,
     /// The file used by midenup's 'miden' to call the components executable.
     ///
     /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
@@ -605,7 +620,7 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
-            aliases: HashMap::new(),
+            aliases: BTreeMap::new(),
             symlink_name: None,
             initialization: Vec::new(),
             artifacts: None,
@@ -843,3 +858,4 @@ impl core::str::FromStr for UserChannel {
         }
     }
 }
+
