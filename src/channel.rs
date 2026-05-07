@@ -243,14 +243,14 @@ impl PartialEq for Component {
     }
 }
 
-impl Hash for Component {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        self.name.hash(state)
-    }
-}
+// impl Hash for Component {
+//     fn hash<H>(&self, state: &mut H)
+//     where
+//         H: Hasher,
+//     {
+//         self.name.hash(state)
+//     }
+// }
 
 impl PartialEq for Channel {
     fn eq(&self, other: &Self) -> bool {
@@ -268,17 +268,19 @@ impl PartialEq for Channel {
             return false;
         }
 
-        let my_components: std::collections::HashSet<Component> =
-            self.components.clone().into_iter().collect();
+        // TODO: CHANGE
+        panic!();
+        // let my_components: std::collections::HashSet<Component> =
+        //     self.components.clone().into_iter().collect();
 
-        let other_components: std::collections::HashSet<Component> =
-            self.components.clone().into_iter().collect();
+        // let other_components: std::collections::HashSet<Component> =
+        //     self.components.clone().into_iter().collect();
 
-        let equal_components = other_components == my_components;
+        // let equal_components = other_components == my_components;
 
-        if !equal_components {
-            return false;
-        }
+        // if !equal_components {
+        //     return false;
+        // }
 
         true
     }

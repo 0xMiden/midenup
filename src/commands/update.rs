@@ -326,52 +326,53 @@ pub enum UpdateMotive {
 /// There is one notable exception to this rule which is when a channel is migrated into a different
 /// channel. In that case, every component is marked for update.
 pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component, UpdateMotive)> {
-    let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
-    let current = HashSet::from_iter(older.components.iter());
+    todo!();
+    // let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
+    // let current = HashSet::from_iter(older.components.iter());
 
-    // This is the subset of new components present in the channel since last sync.
-    //
-    // NOTE: Equality between components is done via their name, see [Component::eq].
-    let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
+    // // This is the subset of new components present in the channel since last sync.
+    // //
+    // // NOTE: Equality between components is done via their name, see [Component::eq].
+    // let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
 
-    // This is the subset of old components that need to be removed.
-    let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
+    // // This is the subset of old components that need to be removed.
+    // let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
 
-    // These are the elements that are present in boths sets. We are only interested in those which
-    // need updating.
-    let components_to_update = current
-        .iter()
-        .filter(|comp| new_channel.contains(**comp))
-        .filter_map(|current_component| {
-            let new_component = new_channel.get(*current_component);
-            match new_component {
-                // This should't be possible, but if somehow the component is missing, then we
-                // trigger an update for said component regardless.
-                None => Some((current_component, UpdateMotive::Added)),
-                // If the new channel was migrated, then every component should be deleted; unless
-                // explicitely told otherwise by the users (for example in components which were
-                // compile from a path at a given time).
-                Some(new_component) => {
-                    if let Some(strategy) = newer.migrated_into() {
-                        Some((
-                            current_component,
-                            UpdateMotive::Migrated { strategy: strategy.clone() },
-                        ))
-                    } else if !current_component.is_up_to_date(new_component) {
-                        Some((current_component, UpdateMotive::NewerVersion))
-                    } else {
-                        None
-                    }
-                },
-            }
-        });
+    // // These are the elements that are present in boths sets. We are only interested in those which
+    // // need updating.
+    // let components_to_update = current
+    //     .iter()
+    //     .filter(|comp| new_channel.contains(**comp))
+    //     .filter_map(|current_component| {
+    //         let new_component = new_channel.get(*current_component);
+    //         match new_component {
+    //             // This should't be possible, but if somehow the component is missing, then we
+    //             // trigger an update for said component regardless.
+    //             None => Some((current_component, UpdateMotive::Added)),
+    //             // If the new channel was migrated, then every component should be deleted; unless
+    //             // explicitely told otherwise by the users (for example in components which were
+    //             // compile from a path at a given time).
+    //             Some(new_component) => {
+    //                 if let Some(strategy) = newer.migrated_into() {
+    //                     Some((
+    //                         current_component,
+    //                         UpdateMotive::Migrated { strategy: strategy.clone() },
+    //                     ))
+    //                 } else if !current_component.is_up_to_date(new_component) {
+    //                     Some((current_component, UpdateMotive::NewerVersion))
+    //                 } else {
+    //                     None
+    //                 }
+    //             },
+    //         }
+    //     });
 
-    let components = new_components
-        .chain(old_components)
-        .chain(components_to_update)
-        .map(|(comp, motive)| ((*comp).clone(), motive));
+    // let components = new_components
+    //     .chain(old_components)
+    //     .chain(components_to_update)
+    //     .map(|(comp, motive)| ((*comp).clone(), motive));
 
-    Vec::from_iter(components)
+    // Vec::from_iter(components)
 }
 
 fn display_warnings(
