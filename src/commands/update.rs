@@ -1,4 +1,7 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    hash::{Hash, Hasher},
+};
 
 use anyhow::{Context, bail};
 use colored::Colorize;
@@ -39,11 +42,12 @@ midenup install stable
                 .context("ERROR: No stable channel found in upstream")?;
 
             if upstream_stable.name > local_stable.name {
-                let component_subset = if local_stable.is_partially_installed() {
-                    Some(local_stable.components.clone())
-                } else {
-                    None
-                };
+                let component_subset: Option<HashSet<ComponentByName>> =
+                    if local_stable.is_partially_installed() {
+                        Some(local_stable.components.iter().map(ComponentByName).collect())
+                    } else {
+                        None
+                    };
 
                 let channel_to_install = {
                     let components = upstream_stable
@@ -51,7 +55,7 @@ midenup install stable
                         .iter()
                         .filter(|comp| {
                             if let Some(component_subset) = &component_subset {
-                                component_subset.contains(comp)
+                                component_subset.contains(&ComponentByName(comp))
                             } else {
                                 true
                             }
@@ -309,6 +313,26 @@ pub enum UpdateMotive {
     Migrated { strategy: MigrationStrategy },
 }
 
+/// Wrapper around `&Component` that defines `Hash`/`Eq` by name only, so we can
+/// use `HashSet` set operations (difference, intersection, contains) keyed on
+/// names. This is not a property of component themselves, hence the wrapper
+/// type.
+///
+/// See https://stackoverflow.com/a/65671830 as a reference.
+struct ComponentByName<'a>(&'a Component);
+
+impl PartialEq for ComponentByName<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.name == other.0.name
+    }
+}
+impl Eq for ComponentByName<'_> {}
+impl Hash for ComponentByName<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.name.hash(state);
+    }
+}
+
 /// This functions compares the Channel &older, with a newer channel [newer] and returns the list
 /// of [Components] that need to be updated.
 ///
@@ -328,31 +352,34 @@ pub fn components_to_update(
     older: &Channel,
     newer: &UpstreamChannel,
 ) -> Vec<(Component, UpdateMotive)> {
-    let new_channel: HashSet<&Component> = HashSet::from_iter(newer.channel.components.iter());
-    let current = HashSet::from_iter(older.components.iter());
+    let new_channel: HashSet<ComponentByName> =
+        newer.channel.components.iter().map(ComponentByName).collect();
+    let current: HashSet<ComponentByName> = older.components.iter().map(ComponentByName).collect();
 
     // This is the subset of new components present in the channel since last sync.
-    //
-    // NOTE: Equality between components is done via their name, see [Component::eq].
-    let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
+    let new_components = new_channel
+        .difference(&current)
+        .map(|&ComponentByName(comp)| (comp, UpdateMotive::Added));
 
     // This is the subset of old components that need to be removed.
-    let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
+    let old_components = current
+        .difference(&new_channel)
+        .map(|&ComponentByName(comp)| (comp, UpdateMotive::Removed));
 
     // These are the elements that are present in boths sets. We are only interested in those which
     // need updating.
     let components_to_update = current
         .iter()
-        .filter(|comp| new_channel.contains(**comp))
-        .filter_map(|current_component| {
-            let new_component = new_channel.get(*current_component);
+        .filter(|comp| new_channel.contains(*comp))
+        .filter_map(|&ComponentByName(current_component)| {
+            let new_component = new_channel.get(&ComponentByName(current_component));
             match new_component {
                 // This should't be possible, but if somehow the component is missing, then we
                 // trigger an update for said component regardless.
                 None => Some((current_component, UpdateMotive::Added)),
                 // Note that some components might ignore this update, such as
                 // components that were installed via the filesystem.
-                Some(new_component) => {
+                Some(&ComponentByName(new_component)) => {
                     // If the channel got marked as migrated, then every single
                     // installed component is due for an update.
                     if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
@@ -372,7 +399,7 @@ pub fn components_to_update(
     let components = new_components
         .chain(old_components)
         .chain(components_to_update)
-        .map(|(comp, motive)| ((*comp).clone(), motive));
+        .map(|(comp, motive)| (comp.clone(), motive));
 
     Vec::from_iter(components)
 }

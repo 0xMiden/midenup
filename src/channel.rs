@@ -3,7 +3,6 @@ use std::{
     collections::HashMap,
     ffi::OsString,
     fmt::{self, Display},
-    hash::{Hash, Hasher},
     path::{Path, PathBuf},
 };
 
@@ -288,27 +287,6 @@ impl Channel {
             };
         }
         upstream_counterpart
-    }
-}
-
-impl Eq for Component {}
-
-/// NOTE: Two component are "partially equal" if their names are the same.
-///
-/// This does not mean that they're equal, since they could differ in fields like versions. This is
-/// implmented manually, in order to make use of HashSets with components.
-impl PartialEq for Component {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-
-impl Hash for Component {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        self.name.hash(state)
     }
 }
 
