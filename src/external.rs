@@ -62,7 +62,7 @@ pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
             format!("Failed to write download file to {} because of {}", to.display(), error)
         })?;
         std::fs::rename(&tmp, to)
-            .expect("Couldn't rename .installation-in-progress to installation-successful");
+            .unwrap_or_else(|e| panic!("Couldn't tmp binary to {} because {}", to.display(), e));
     } else {
         return Err(format!(
             "Unrecognized URI type: {}. Supported URI's are 'https://' and 'file//'",

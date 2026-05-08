@@ -157,7 +157,7 @@ impl Commands {
                 commands::update(config, channel.as_ref(), local_manifest, options)
             },
             Self::Show(cmd) => cmd.execute(config, local_manifest),
-            Self::Set { channel } => commands::set(config, channel),
+            Self::Set { channel } => commands::set(config, local_manifest, channel),
             Self::Override { channel } => commands::r#override(config, channel),
         }
     }
