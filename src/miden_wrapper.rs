@@ -292,7 +292,7 @@ pub fn miden_wrapper(
             return Ok(());
         },
         MidenSubcommand::Version => {
-            println!("{}", display_version(config));
+            println!("{}", display_version(config, local_manifest));
             return Ok(());
         },
         _ => (),
@@ -413,7 +413,7 @@ pub fn miden_wrapper(
     }
 }
 
-pub fn display_version(config: &Config) -> String {
+pub fn display_version(config: &Config, local_manifest: &Manifest) -> String {
     // NOTE: These files are generated in the project's build.rs.
 
     let compiled_cargo_version = include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
@@ -444,7 +444,7 @@ pub fn display_version(config: &Config) -> String {
     };
     let cargo_version = cargo_version.trim();
 
-    let toolchain_version = Toolchain::current(config)
+    let toolchain_version = Toolchain::current(config, local_manifest)
         .and_then(|(toolchain, _)| {
             config
                 .manifest

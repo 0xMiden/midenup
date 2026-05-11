@@ -158,7 +158,7 @@ impl Commands {
             },
             Self::Show(cmd) => cmd.execute(config, local_manifest),
             Self::Set { channel } => commands::set(config, local_manifest, channel),
-            Self::Override { channel } => commands::r#override(config, channel),
+            Self::Override { channel } => commands::r#override(config, local_manifest, channel),
         }
     }
 }
@@ -244,7 +244,7 @@ fn main() -> anyhow::Result<()> {
             command: subcommand,
         } => {
             if global_args.version {
-                println!("{}", miden_wrapper::display_version(&config));
+                println!("{}", miden_wrapper::display_version(&config, &local_manifest));
                 Ok(())
             } else if let Some(subcommand) = subcommand {
                 subcommand.execute(&config, &mut local_manifest)
@@ -258,7 +258,7 @@ fn main() -> anyhow::Result<()> {
     // This is done *after* execution because some commands change what the
     // active toolchain (update, set) and some remove the directory entirely
     // (uninstall)
-    config.update_opt_symlinks(&config)?;
+    config.update_opt_symlinks(&config, &local_manifest)?;
 
     result
 }
