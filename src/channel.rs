@@ -711,10 +711,7 @@ impl Component {
                 let local_latest = last_modification_a;
 
                 let latest_registered_modification =
-                    utils::fs::latest_modification(path_b).ok().map(|modification| {
-                        // std::dbg!(&modification.1);
-                        modification.0
-                    });
+                    utils::fs::latest_modification(path_b).ok().map(|modification| modification.0);
 
                 // last_modification_b should almost always be None, since the latest modification
                 // time is checked on demand. However, if for whatever reason, the manifest contains
