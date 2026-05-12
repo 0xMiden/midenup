@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-use crate::channel::Component;
+use crate::commands::Update;
 
 pub const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 
@@ -14,7 +14,7 @@ pub struct InstallationOptions {
     #[clap(skip)]
     /// These are components that are already installed but need to be updated
     /// via a re-install.
-    pub components_to_update: Vec<Component>,
+    pub components_to_update: Vec<Update>,
 }
 
 #[allow(clippy::derivable_impls)]

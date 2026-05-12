@@ -103,16 +103,26 @@ pub fn uninstall(
     // We will handle the cleanup afterwards. If cleanup is interrumpted, then
     // `midenup clean` can be used to clean stale files.
     if let Ok(installed_channel_dir) = installed_channel_dir {
-        uninstall_channel(&installed_channel_dir, &local_channel)?;
+        uninstall_components(&installed_channel_dir, &local_channel.components)?;
+
+        // We now remove the install directory with all the remaining files.
+        std::fs::remove_dir_all(&installed_channel_dir).map_err(|e| {
+            UninstallError::FailedToRemoveToolchainDirectory(
+                e.to_string(),
+                installed_channel_dir.to_path_buf(),
+            )
+        })?;
     }
 
     Ok(())
 }
 
-fn uninstall_channel(install_dir: &Path, local_channel: &Channel) -> Result<(), UninstallError> {
+pub fn uninstall_components(
+    install_dir: &Path,
+    components: &[Component],
+) -> Result<(), UninstallError> {
     let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =
-        local_channel
-            .components
+        components
             .iter()
             .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
@@ -123,6 +133,9 @@ fn uninstall_channel(install_dir: &Path, local_channel: &Channel) -> Result<(), 
     }
 
     for exe in installed_executables {
+        let opt_path = install_dir.join("opt").join(exe.get_symlink_name());
+        let _ = std::fs::remove_file(&opt_path);
+
         // Artifacts are only stored in the local manifest if the component was
         // *actually* installed via it.
         if exe.artifacts.is_some() {
@@ -144,11 +157,6 @@ fn uninstall_channel(install_dir: &Path, local_channel: &Channel) -> Result<(), 
             }
         }
     }
-
-    // We now remove the install directory with all the remaining files.
-    std::fs::remove_dir_all(install_dir).map_err(|e| {
-        UninstallError::FailedToRemoveToolchainDirectory(e.to_string(), install_dir.to_path_buf())
-    })?;
 
     Ok(())
 }

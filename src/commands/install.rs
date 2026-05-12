@@ -9,8 +9,8 @@ use anyhow::{Context, bail};
 
 use crate::{
     artifact::TargetTriple,
-    channel::{Channel, ChannelAlias, InstalledFile},
-    commands,
+    channel::{Channel, ChannelAlias, Component, InstalledFile},
+    commands::{self, update::UpdateMotive},
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
@@ -54,6 +54,14 @@ pub fn install(
                     toolchain_dir.display()
                 )
             })?;
+
+            let components_to_uninstall: Vec<Component> = options
+                .components_to_update
+                .iter()
+                .filter(|update| !matches!(update.motive, UpdateMotive::Added))
+                .map(|update| update.component.clone())
+                .collect();
+            commands::uninstall::uninstall_components(&install_dir, &components_to_uninstall)?;
         }
     }
 
@@ -331,12 +339,6 @@ fn main() {
 
     let padding = "    ";
 
-    let components_to_update: [&str; _] = [
-    {% for component in components_to_update %}
-        "{{ component }}",
-    {% endfor %}
-    ];
-
     // Install libraries
     let lib_dir = miden_sysroot_dir.join("lib");
     {
@@ -404,7 +406,7 @@ fn main() {
     // Install {{ component.name }}
     println!("Installing: {{ component.name }}");
     let bin_path = bin_dir.join("{{ component.installed_file }}");
-    if components_to_update.contains(&"{{ component.name }}") || !std::fs::exists(&bin_path).unwrap_or(false) {
+    if !std::fs::exists(&bin_path).unwrap_or(false) {
         let do_fetch_artifact: bool;
         let mut do_install_from_source: bool;
         let mut successfully_installed = false;
@@ -693,11 +695,6 @@ fn main() {
         }
     };
 
-    let components_to_update: Vec<String> = options
-        .components_to_update
-        .iter()
-        .map(|component| component.name.to_string())
-        .collect();
     // Render the install script
     template
         .render(
@@ -712,7 +709,6 @@ fn main() {
                 install_artifact: install_artifact_function,
                 curl_version: curl_version,
                 keep_going: install_keep_going,
-                components_to_update: components_to_update,
             },
         )
         .to_string()

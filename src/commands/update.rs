@@ -160,7 +160,10 @@ fn update_channel(
 
     // let mut libs_to_uninstall = Vec::new();
     let mut skip_update_for = HashSet::new();
-    for (component, motive) in comp_to_delete_with_motive.iter() {
+    for (component, motive) in comp_to_delete_with_motive
+        .iter()
+        .map(|update| (&update.component, &update.motive))
+    {
         // If the component got added to the toolchain, then there's nothing to delete.
         if matches!(motive, UpdateMotive::Added) {
             continue;
@@ -192,11 +195,10 @@ fn update_channel(
         }
     }
 
-    let components_to_update: Vec<Component> = comp_to_delete_with_motive
+    let components_to_update: Vec<Update> = comp_to_delete_with_motive
         .iter()
+        .filter(|&update| !skip_update_for.contains(update.component.name.as_ref()))
         .cloned()
-        .map(|(comp, _)| comp)
-        .filter(|comp| !skip_update_for.contains(comp.name.as_ref()))
         .collect();
 
     let install_options = InstallationOptions {
@@ -282,6 +284,17 @@ impl Hash for ComponentByName<'_> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Update {
+    pub component: Component,
+    pub motive: UpdateMotive,
+}
+
+impl Update {
+    fn new(component: Component, motive: UpdateMotive) -> Update {
+        Update { component, motive }
+    }
+}
 /// This functions compares the Channel &older, with a newer channel [newer] and returns the list
 /// of [Components] that need to be updated.
 ///
@@ -297,10 +310,7 @@ impl Hash for ComponentByName<'_> {
 ///
 /// There is one notable exception to this rule which is when a channel is migrated into a different
 /// channel. In that case, every component is marked for update.
-pub fn components_to_update(
-    older: &Channel,
-    newer: &UpstreamChannel,
-) -> Vec<(Component, UpdateMotive)> {
+pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Update> {
     let new_channel: HashSet<ComponentByName> =
         newer.channel.components.iter().map(ComponentByName).collect();
     let current: HashSet<ComponentByName> = older.components.iter().map(ComponentByName).collect();
@@ -348,23 +358,19 @@ pub fn components_to_update(
     let components = new_components
         .chain(old_components)
         .chain(components_to_update)
-        .map(|(comp, motive)| (comp.clone(), motive));
+        .map(|(comp, motive)| Update::new(comp.clone(), motive));
 
     Vec::from_iter(components)
 }
 
-fn display_warnings(
-    components_with_motive: &[(Component, UpdateMotive)],
-    newer: &Channel,
-    options: &UpdateOptions,
-) {
+fn display_warnings(components_with_motive: &[Update], newer: &Channel, options: &UpdateOptions) {
     let components_with_motive = components_with_motive.iter();
 
     // Warning for components installed from a PATH.
     {
         let components_from_path: Vec<String> = components_with_motive
             .clone()
-            .filter_map(|(comp, _)| match &comp.version {
+            .filter_map(|update| match &update.component.version {
                 Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
                 _ => None,
             })
@@ -395,8 +401,8 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
     // Warning for migrated components
     {
         let migrated_components: Vec<String> = components_with_motive
-            .filter_map(|(component, motive)| match &motive {
-                UpdateMotive::Migrated { strategy } => Some((component, strategy)),
+            .filter_map(|update| match &update.motive {
+                UpdateMotive::Migrated { strategy } => Some((&update.component, strategy)),
                 _ => None,
             })
             .map(|(component, strategy)| match strategy {
