@@ -18,27 +18,32 @@ Until this crate has been published to crates.io, it is only possible to install
 midenup init
 ```
 
-The `midenup init` command initializes the `$MIDENUP_HOME` directory and creates a symlink so that all executable Miden components can be accessed using the `miden` command.
+The `midenup init` command initializes the `$MIDENUP_HOME` directory and creates a `miden`
+symlink in `$CARGO_HOME/bin` (default `~/.cargo/bin`). The `miden` command then routes to the
+active toolchain components for you.
 
 ## Configure PATH Environment Variable
 
-**This is a critical step!** You must ensure `$MIDENUP_HOME/bin` is added to your shell `$PATH`. `midenup` will automatically display the required commands for your operating system if it detects that its binaries are not accessible from the `$PATH`.
+**This is a critical step!** You must ensure the directory containing the `miden` symlink is in
+your shell `$PATH`. In a standard Rust install that is `$CARGO_HOME/bin`, which defaults to
+`~/.cargo/bin`. `midenup` will automatically display the required commands if it detects that
+`miden` is not accessible from the `$PATH`.
 
-In any case, you can always obtain the current value of `$MIDENUP_HOME` using `midenup show home`. Here's a list of manual commands
+If you use a custom `CARGO_HOME`, replace the paths below accordingly.
 
 ### For Zsh (macOS default)
 
-Add the following to your `~/.zprofile` file:
+Add the following to your `~/.zprofile` file. If the file does not exist yet, create it first:
 
 ```bash title=">_ Terminal"
-export MIDENUP_HOME="/Users/$(whoami)/Library/Application Support/midenup"
-export PATH=${MIDENUP_HOME}/bin:$PATH
+touch ~/.zprofile
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zprofile
 ```
 
-Or if you want to use the default location:
+If you prefer to edit the file manually, add:
 
 ```bash title=">_ Terminal"
-export PATH="/Users/$(whoami)/Library/Application Support/midenup/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
 Then reload your shell configuration:
@@ -52,8 +57,7 @@ source ~/.zprofile
 Add the following to your `~/.bash_profile` file:
 
 ```bash title=">_ Terminal"
-export MIDENUP_HOME=$XDG_DATA_DIR/midenup
-export PATH=${MIDENUP_HOME}/bin:$PATH
+export PATH="$HOME/.cargo/bin:$PATH"
 ```
 
 Then reload your shell configuration:

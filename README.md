@@ -42,7 +42,8 @@ The `midenup init` command initializes the `$MIDENUP_HOME` directory, and create
 
 > [!WARNING]
 > If `miden` is not found after running `midenup init`, ensure `$CARGO_HOME/bin`
-> is in your PATH.
+> is in your PATH. On macOS with zsh, add `export PATH="$HOME/.cargo/bin:$PATH"`
+> to `~/.zprofile` and create that file first if it does not exist.
 
 You are now ready to install your first toolchain!
 

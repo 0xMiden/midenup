@@ -121,17 +121,12 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
             .is_ok();
 
         if !miden_is_accessible {
-            let midenup_home_dir = if std::env::var(DEFAULT_USER_DATA_DIR).is_ok() {
-                String::from("${{XDG_DATA_HOME}}")
-            } else {
+            if std::env::var(DEFAULT_USER_DATA_DIR).is_err() {
                 // Some OSs, like MacOs, don't define the XDG_* family of environment variables. In
-                // those cases, we fall back on data_dir
+                // those cases, we mark the environment as initialized so the updated guidance
+                // below is surfaced on first-run.
                 state = InitializationState::Initialized;
-
-                dirs::data_dir()
-                    .and_then(|dir| dir.into_os_string().into_string().ok())
-                    .unwrap_or(String::from("${{HOME}}/.local/share"))
-            };
+            }
 
             println!(
                 "
@@ -141,12 +136,15 @@ The `miden` symlink was placed in $CARGO_HOME/bin ({cargo_bin_display}), which s
                  in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in \
                  your PATH.
 
-You may also need to add midenup's opt directory for toolchain components:
+Add the directory containing the `miden` symlink to your shell's profile file. For the default
+Rust installation this is usually:
 
-export MIDENUP_HOME='{midenup_home_dir}/midenup'
-export PATH=${{MIDENUP_HOME}}/opt:$PATH
+export PATH=\"{cargo_bin_display}:$PATH\"
 
-To your shell's profile file.
+On macOS with zsh, add that line to ~/.zprofile (create the file first if it does not exist),
+then start a new shell or run:
+
+source ~/.zprofile
 ",
                 cargo_bin_display = cargo_bin.display(),
             );
