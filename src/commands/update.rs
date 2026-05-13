@@ -158,48 +158,42 @@ fn update_channel(
 
     display_warnings(&comp_to_delete_with_motive, &upstream_channel.channel, options);
 
-    // let mut libs_to_uninstall = Vec::new();
-    let mut skip_update_for = HashSet::new();
-    for (component, motive) in comp_to_delete_with_motive
-        .iter()
-        .map(|update| (&update.component, &update.motive))
-    {
-        // If the component got added to the toolchain, then there's nothing to delete.
+    let mut components_to_update: Vec<Update> = Vec::new();
+    for update in &comp_to_delete_with_motive {
+        let component = &update.component;
+        let motive = &update.motive;
+
+        // Added components have nothing to uninstall but must still be installed,
+        // so they pass straight through.
         if matches!(motive, UpdateMotive::Added) {
+            components_to_update.push(update.clone());
             continue;
         }
+
         let do_update = match component.get_installed_file() {
             InstalledFile::Library { .. } => true,
-            InstalledFile::Executable { .. } => {
-                match component.version {
-                    Authority::Cargo { .. } => true,
-                    Authority::Git { .. } => true,
-                    // Since uninstalling a component from the filesystem is potentially
-                    // irreversible, we take special precautions before uninstalling them.
-                    Authority::Path { .. } => match options.path_update {
-                        PathUpdate::Interactive => {
-                            match handle_path_uninstall_interactive(component)? {
-                                InteractiveResult::Cancel => return Ok(()),
-                                InteractiveResult::UpdateComponent => true,
-                                InteractiveResult::DontUpdateComponent => false,
-                            }
-                        },
-                        PathUpdate::All => true,
-                        PathUpdate::Off => false,
+            InstalledFile::Executable { .. } => match component.version {
+                Authority::Cargo { .. } | Authority::Git { .. } => true,
+                // Since uninstalling a component from the filesystem is potentially
+                // irreversible, we take special precautions before uninstalling them.
+                Authority::Path { .. } => match options.path_update {
+                    PathUpdate::Interactive => {
+                        match handle_path_uninstall_interactive(component)? {
+                            InteractiveResult::Cancel => return Ok(()),
+                            InteractiveResult::UpdateComponent => true,
+                            InteractiveResult::DontUpdateComponent => false,
+                        }
                     },
-                }
+                    PathUpdate::All => true,
+                    PathUpdate::Off => false,
+                },
             },
         };
-        if !do_update {
-            skip_update_for.insert(component.name.clone());
+
+        if do_update {
+            components_to_update.push(update.clone());
         }
     }
-
-    let components_to_update: Vec<Update> = comp_to_delete_with_motive
-        .iter()
-        .filter(|&update| !skip_update_for.contains(update.component.name.as_ref()))
-        .cloned()
-        .collect();
 
     let install_options = InstallationOptions {
         verbose: options.verbose,
