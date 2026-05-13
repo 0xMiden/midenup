@@ -100,8 +100,8 @@ pub fn uninstall(
             .context("Couldn't create local manifest file")?;
     }
 
-    // We will handle the cleanup afterwards. If cleanup is interrumpted, then
-    // `midenup clean` can be used to clean stale files.
+    // If cleanup is interrumpted, then `midenup clean` can be used to clean
+    // stale files.
     if let Ok(installed_channel_dir) = installed_channel_dir {
         uninstall_components(&installed_channel_dir, &local_channel.components)?;
 

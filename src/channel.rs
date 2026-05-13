@@ -516,26 +516,7 @@ pub fn resolve_command(
     Ok(resolution)
 }
 
-/// Checks if both the `bin` and `lib` directories within the given toolchain directory are empty,
-/// indicating the toolchain has been deleted.
-pub fn is_toolchain_deleted(toolchain_dir: &Path) -> bool {
-    let bin_empty = toolchain_dir
-        .join("bin")
-        .read_dir()
-        .map(|mut entries| entries.next().is_none())
-        .unwrap_or(true);
-
-    let lib_empty = toolchain_dir
-        .join("lib")
-        .read_dir()
-        .map(|mut entries| entries.next().is_none())
-        .unwrap_or(true);
-
-    bin_empty && lib_empty
-}
-
 pub type Alias = String;
-
 /// List of the commands that need to be run when [Alias] is called.
 pub type CliCommands = Vec<CliCommand>;
 

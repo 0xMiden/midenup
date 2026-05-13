@@ -9,7 +9,7 @@ use colored::Colorize;
 use crate::{
     channel::{
         Channel, Component, InstalledFile, MigrationStrategy, UpstreamChannel, UpstreamMatch,
-        UserChannel, is_toolchain_deleted,
+        UserChannel,
     },
     commands::{self},
     config::Config,
@@ -143,9 +143,6 @@ fn update_channel(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
-
     // These are the components that require updating
     let comp_to_delete_with_motive = components_to_update(local_channel, upstream_channel);
 
@@ -203,8 +200,10 @@ fn update_channel(
     commands::install(config, &channel_to_install, local_manifest, &install_options)?;
 
     let was_migrated = matches!(upstream_channel.upstream_match, UpstreamMatch::Migrated(_));
-    let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
-    if is_entirely_removed || was_migrated {
+    if was_migrated {
+        // If the update were to be interrumpted before the uninstall finishes,
+        // re-running `midenup update` would finish the process.
+        // This does mean that channel migration is a non-atomic operation.
         commands::uninstall(config, local_channel, local_manifest)?;
     };
 
