@@ -208,8 +208,9 @@ fn update_channel(
 
     commands::install(config, &channel_to_install, local_manifest, &install_options)?;
 
+    let was_migrated = matches!(upstream_channel.upstream_match, UpstreamMatch::Migrated(_));
     let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
-    if is_entirely_removed {
+    if is_entirely_removed || was_migrated {
         commands::uninstall(config, local_channel, local_manifest)?;
     };
 

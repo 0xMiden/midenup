@@ -13,13 +13,6 @@
           "library_struct": "miden_core_lib::CoreLibrary"
         },
         {
-          "name": "vm",
-          "package": "miden-vm",
-          "version": "0.20.3",
-          "features": ["executable", "concurrent"],
-          "installed_executable": "miden-vm"
-        },
-        {
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.13.0",

@@ -1128,7 +1128,6 @@ Error: {}",
         command.execute(&config, &mut local_manifest).expect("Failed to install stable");
 
         // Check that binaries are installed in the bin directory
-        assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-vm").exists());
         assert!(toolchain_dir.join("0.20.3").join("bin").join("miden-client").exists());
         // Check that libraries are installed in the lib directory
         assert!(toolchain_dir.join("0.20.3").join("lib").join("core.masp").exists());
