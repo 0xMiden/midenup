@@ -1,4 +1,9 @@
-use std::{borrow::Cow, collections::HashSet, path::PathBuf, str::FromStr};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    str::FromStr,
+};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -9,6 +14,7 @@ use crate::{
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
+    version::Authority,
 };
 
 /// Represents a `miden-toolchain.toml` file.
@@ -17,6 +23,9 @@ use crate::{
 #[derive(Serialize, Deserialize, Debug)]
 pub(crate) struct ToolchainFile {
     toolchain: Toolchain,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "HashMap::is_empty")]
+    patches: HashMap<String, Authority>,
 }
 
 /// The actual contents of the toolchain.
@@ -24,15 +33,20 @@ pub(crate) struct ToolchainFile {
 pub struct Toolchain {
     pub channel: UserChannel,
     pub components: Vec<String>,
+    #[serde(skip)]
+    pub patches: HashMap<String, Authority>,
 }
 
 impl ToolchainFile {
     pub fn new(toolchain: Toolchain) -> Self {
-        ToolchainFile { toolchain }
+        let patches = toolchain.patches.clone();
+        ToolchainFile { toolchain, patches }
     }
 
     fn inner_toolchain(self) -> Toolchain {
-        self.toolchain
+        let ToolchainFile { mut toolchain, patches } = self;
+        toolchain.patches = patches;
+        toolchain
     }
 }
 
@@ -41,6 +55,7 @@ impl Default for Toolchain {
         Self {
             channel: UserChannel::Stable,
             components: vec![],
+            patches: HashMap::new(),
         }
     }
 }
@@ -58,7 +73,11 @@ pub enum ToolchainJustification {
 
 impl Toolchain {
     pub fn new(channel: UserChannel, components: Vec<String>) -> Self {
-        Toolchain { channel, components }
+        Toolchain {
+            channel,
+            components,
+            patches: HashMap::new(),
+        }
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.
@@ -136,7 +155,11 @@ impl Toolchain {
                     Vec::new()
                 }
             };
-            let toolchain = Toolchain { channel: user_channel, components };
+            let toolchain = Toolchain {
+                channel: user_channel,
+                components,
+                patches: HashMap::new(),
+            };
 
             Ok((toolchain, ToolchainJustification::Override))
         } else {
