@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     artifact::{Artifacts, TargetTriple},
     config::Config,
+    manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -80,15 +81,27 @@ impl Display for InstallationMotive {
     }
 }
 
-impl Channel {
-    /// If this channel has a migration tag, returns the migration strategy.
-    pub fn migrated_into(&self) -> Option<&MigrationStrategy> {
-        self.tags.iter().find_map(|tag| match tag {
-            Tags::Migration { migration } => Some(migration),
-            _ => None,
-        })
-    }
+#[derive(Debug, Clone)]
+pub enum UpstreamMatch {
+    /// The remote Channel is this Channel's upstream equivalent.
+    UpstreamCounterpart,
+    /// The remote Channel is this Channel's equivalent and got migrated.
+    Migrated(MigrationStrategy),
+}
 
+#[derive(Debug, Clone)]
+pub struct UpstreamChannel {
+    pub channel: Channel,
+    pub upstream_match: UpstreamMatch,
+}
+
+impl UpstreamChannel {
+    fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
+        UpstreamChannel { channel, upstream_match }
+    }
+}
+
+impl Channel {
     pub fn new(
         name: semver::Version,
         alias: Option<ChannelAlias>,
@@ -230,6 +243,52 @@ impl Channel {
 
         Some(partial_channel)
     }
+
+    /// Checks wheter the channel [other] is Self's upstream counterpart.
+    /// Currently this can happen in two scenarios:
+    /// - They share the same name (i.e. version).
+    /// - The upstream version is tagged as having being migrated from self's .
+    pub fn find_upstream_counterpart(
+        &self,
+        upstream_manifest: &Manifest,
+    ) -> Option<UpstreamChannel> {
+        let mut upstream_counterpart = None;
+
+        for upstream_channel in upstream_manifest.get_channels() {
+            // They share version
+            let equal_name = self.name == upstream_channel.name;
+            if equal_name {
+                let upstream_match = UpstreamMatch::UpstreamCounterpart;
+                upstream_counterpart =
+                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match));
+                break;
+            };
+
+            let was_migrated = upstream_channel.tags.iter().find_map(|tag| match tag {
+                Tags::Migration { migration } => match migration {
+                    // A channel is only considered as "migrated" if it's
+                    // current name matches the "old_channel" field of an
+                    // upstream channel.
+                    MigrationStrategy::NameChange { old_channel } => {
+                        if old_channel == &self.name {
+                            Some(migration)
+                        } else {
+                            None
+                        }
+                    },
+                },
+                _ => None,
+            });
+
+            if let Some(migration) = was_migrated {
+                let upstream_match = UpstreamMatch::Migrated(migration.clone());
+                upstream_counterpart =
+                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match));
+                break;
+            };
+        }
+        upstream_counterpart
+    }
 }
 
 impl Eq for Component {}
@@ -250,38 +309,6 @@ impl Hash for Component {
         H: Hasher,
     {
         self.name.hash(state)
-    }
-}
-
-impl PartialEq for Channel {
-    fn eq(&self, other: &Self) -> bool {
-        // NOTE: To channels are equal regardless of their aliases
-        let equal_name = self.name == other.name;
-
-        let migrated_into = |a: &Channel, b: &Channel| {
-            a.tags.iter().any(|tag| {
-                matches!(tag, Tags::Migration {migration: MigrationStrategy::NameChange { old_channel }
-            } if old_channel == &b.name)
-            })
-        };
-
-        if !equal_name && !migrated_into(self, other) && !migrated_into(other, self) {
-            return false;
-        }
-
-        let my_components: std::collections::HashSet<Component> =
-            self.components.clone().into_iter().collect();
-
-        let other_components: std::collections::HashSet<Component> =
-            self.components.clone().into_iter().collect();
-
-        let equal_components = other_components == my_components;
-
-        if !equal_components {
-            return false;
-        }
-
-        true
     }
 }
 

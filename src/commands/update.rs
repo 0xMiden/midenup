@@ -5,7 +5,8 @@ use colored::Colorize;
 
 use crate::{
     channel::{
-        Channel, Component, InstalledFile, MigrationStrategy, UserChannel, is_toolchain_deleted,
+        Channel, Component, InstalledFile, MigrationStrategy, UpstreamChannel, UpstreamMatch,
+        UserChannel, is_toolchain_deleted,
     },
     commands::{self, uninstall::uninstall_executable},
     config::Config,
@@ -83,23 +84,21 @@ midenup install stable
                 .context(format!("ERROR: No installed channel found with version {version}"))?
                 .clone();
 
-            let upstream_channel = config
-                .manifest
-                .get_channel(&UserChannel::Version(version.clone()))
-                .context(format!(
+            let upstream_counterpart =
+                local_channel.find_upstream_counterpart(&config.manifest).context(format!(
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got \
                      removed."
                 ))?;
 
-            update_channel(config, &local_channel, upstream_channel, local_manifest, options)?
+            update_channel(config, &local_channel, &upstream_counterpart, local_manifest, options)?
         },
         None => {
             // Update all toolchains
             let mut channels_to_update = Vec::new();
             for local_channel in local_manifest.get_channels() {
-                let upstream_channel =
-                    config.manifest.get_channels().find(|up_c| *up_c == local_channel);
-                let Some(upstream_channel) = upstream_channel else {
+                let upstream_counterpart =
+                    local_channel.find_upstream_counterpart(&config.manifest);
+                let Some(upstream_channel) = upstream_counterpart else {
                     // NOTE: A bit of an edge case. If the channel is present in the local manifest
                     // but not in upstream, then it probably either:
                     //
@@ -135,23 +134,23 @@ midenup install stable
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
-    upstream_channel: &Channel,
+    upstream_channel: &UpstreamChannel,
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     let installed_toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
 
-    let mut channel_to_install = upstream_channel.clone();
+    let comp_to_delete_with_motive = components_to_update(local_channel, upstream_channel);
 
-    let comp_to_delete_with_motive = components_to_update(local_channel, &channel_to_install);
+    let mut channel_to_install = upstream_channel.channel.clone();
 
     if comp_to_delete_with_motive.is_empty() {
         println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     }
 
-    display_warnings(&comp_to_delete_with_motive, upstream_channel, options);
+    display_warnings(&comp_to_delete_with_motive, &upstream_channel.channel, options);
 
     let mut exes_to_uninstall = Vec::new();
     let mut libs_to_uninstall = Vec::new();
@@ -325,8 +324,11 @@ pub enum UpdateMotive {
 ///
 /// There is one notable exception to this rule which is when a channel is migrated into a different
 /// channel. In that case, every component is marked for update.
-pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component, UpdateMotive)> {
-    let new_channel: HashSet<&Component> = HashSet::from_iter(newer.components.iter());
+pub fn components_to_update(
+    older: &Channel,
+    newer: &UpstreamChannel,
+) -> Vec<(Component, UpdateMotive)> {
+    let new_channel: HashSet<&Component> = HashSet::from_iter(newer.channel.components.iter());
     let current = HashSet::from_iter(older.components.iter());
 
     // This is the subset of new components present in the channel since last sync.
@@ -348,11 +350,12 @@ pub fn components_to_update(older: &Channel, newer: &Channel) -> Vec<(Component,
                 // This should't be possible, but if somehow the component is missing, then we
                 // trigger an update for said component regardless.
                 None => Some((current_component, UpdateMotive::Added)),
-                // If the new channel was migrated, then every component should be deleted; unless
-                // explicitely told otherwise by the users (for example in components which were
-                // compile from a path at a given time).
+                // Note that some components might ignore this update, such as
+                // components that were installed via the filesystem.
                 Some(new_component) => {
-                    if let Some(strategy) = newer.migrated_into() {
+                    // If the channel got marked as migrated, then every single
+                    // installed component is due for an update.
+                    if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
                         Some((
                             current_component,
                             UpdateMotive::Migrated { strategy: strategy.clone() },
