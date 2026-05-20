@@ -54,7 +54,15 @@ source ~/.zprofile
 
 ### For Bash
 
-Add the following to your `~/.bash_profile` file:
+Add the following to your `~/.bash_profile` file (use `~/.bashrc` on Linux). If the file does
+not exist yet, create it first:
+
+```bash title=">_ Terminal"
+touch ~/.bash_profile
+echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bash_profile
+```
+
+If you prefer to edit the file manually, add:
 
 ```bash title=">_ Terminal"
 export PATH="$HOME/.cargo/bin:$PATH"
