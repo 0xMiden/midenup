@@ -571,6 +571,16 @@
           "aliases": {
             "mint": ["executable", "mint"]
           }
+        },
+        {
+          "name": "verify",
+          "package": "miden-verify",
+          "version": "0.3.0",
+          "installed_executable": "miden-verify",
+          "artifacts": [
+            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-aarch64-apple-darwin",
+            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-x86_64-unknown-linux-gnu"
+          ]
         }
       ]
     }
