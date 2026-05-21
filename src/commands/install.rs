@@ -650,8 +650,23 @@ fn main() {
 
             let cargo_flags = [authority, feature_flag].concat();
 
+            let name = match &component.version {
+                Authority::Cargo { .. } => component.name.to_string(),
+                Authority::Git { target, .. } => {
+                    let target_label = match target {
+                        GitTarget::Branch { name, .. } => format!("branch {name}"),
+                        GitTarget::Revision { hash } => format!("rev {hash}"),
+                        GitTarget::Tag { name } => format!("tag {name}"),
+                    };
+                    format!("{} (git {target_label})", component.name)
+                },
+                Authority::Path { path, .. } => {
+                    format!("{} (path {})", component.name, path.display())
+                },
+            };
+
             upon::value! {
-                name: component.name.to_string(),
+                name: name,
                 installed_file: installed_file,
                 required_toolchain_flag: required_toolchain_flag,
                 args: cargo_flags,
