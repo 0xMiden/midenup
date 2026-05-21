@@ -190,8 +190,7 @@ impl Toolchain {
             );
         };
 
-        let partial_channel = channel.create_subset(&current_toolchain, &justification);
-        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
+        let channel_to_install = channel.resolve_for_toolchain(&current_toolchain, &justification);
 
         if let Some(installed_channel) =
             local_manifest.get_channel_by_name(&channel_to_install.name)
@@ -208,7 +207,7 @@ impl Toolchain {
                 required_components.difference(&installed_components).collect();
 
             if missing_components.is_empty() {
-                return Ok((current_toolchain, justification, partial_channel));
+                return Ok((current_toolchain, justification, Some(channel_to_install)));
             }
 
             println!("Found that the current active toolchain is missing some components:");
@@ -222,12 +221,12 @@ impl Toolchain {
 
         commands::install(
             config,
-            channel_to_install,
+            &channel_to_install,
             local_manifest,
             &InstallationOptions::default(),
         )?;
 
         // Now installed
-        Ok((current_toolchain, justification, partial_channel))
+        Ok((current_toolchain, justification, Some(channel_to_install)))
     }
 }
