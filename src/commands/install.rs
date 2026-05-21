@@ -612,26 +612,24 @@ fn main() {
     let installable_components = installable_components
         .into_iter()
         .map(|(component, artifact)| {
-            let mut args = vec![];
-            match &component.version {
+            let authority = match &component.version {
                 Authority::Cargo { package, version } => {
                     let package = package.as_deref().unwrap_or(component.name.as_ref());
-                    args.push(package.to_string());
-                    args.push("--version".to_string());
-                    args.push(version.to_string());
+                    vec![package.to_string(), "--version".to_string(), version.to_string()]
                 },
                 Authority::Git { repository_url, target, crate_name } => {
-                    args.push("--git".to_string());
-                    args.push(repository_url.clone());
-                    args.push(target.to_cargo_flag()[0].clone());
-                    args.push(target.to_cargo_flag()[1].clone());
-                    args.push(crate_name.clone());
+                    vec![
+                        "--git".to_string(),
+                        repository_url.clone(),
+                        target.to_cargo_flag()[0].clone(),
+                        target.to_cargo_flag()[1].clone(),
+                        crate_name.clone(),
+                    ]
                 },
                 Authority::Path { path, .. } => {
-                    args.push("--path".to_string());
-                    args.push(path.display().to_string());
+                    vec!["--path".to_string(), path.display().to_string()]
                 },
-            }
+            };
 
             let required_toolchain =
                 component.rustup_channel.clone().unwrap_or(String::from("stable"));
@@ -639,19 +637,22 @@ fn main() {
             let required_toolchain_flag = format!("+{required_toolchain}");
 
             // Enable optional features, if present
-            if !component.features.is_empty() {
+            let feature_flag = if !component.features.is_empty() {
                 let features = component.features.join(",");
-                args.push("--features".to_string());
-                args.push(features);
+                vec!["--features".to_string(), features]
+            } else {
+                Vec::new()
             };
 
             let installed_file = component.get_installed_file().to_string();
+
+            let cargo_flags = [authority, feature_flag].concat();
 
             upon::value! {
                 name: component.name.to_string(),
                 installed_file: installed_file,
                 required_toolchain_flag: required_toolchain_flag,
-                args: args,
+                args: cargo_flags,
                 artifact: artifact.unwrap_or_default(),
             }
         })
