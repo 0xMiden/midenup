@@ -134,7 +134,7 @@ impl Commands {
     ) -> anyhow::Result<()> {
         match &self {
             Self::Init => {
-                commands::init(config)?;
+                commands::init(config, local_manifest)?;
                 Ok(())
             },
             Self::List => {

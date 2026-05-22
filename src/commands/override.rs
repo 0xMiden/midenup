@@ -20,7 +20,7 @@ pub fn r#override(
     local_manifest: &Manifest,
     channel: &UserChannel,
 ) -> anyhow::Result<()> {
-    commands::setup_midenup(config)?;
+    commands::setup_midenup(config, local_manifest)?;
 
     // We check which toolchain is active in order to inform the user in case the `override` command
     // won't take effect.

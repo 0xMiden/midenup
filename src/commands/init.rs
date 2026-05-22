@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, manifest::Manifest, options::DEFAULT_USER_DATA_DIR, utils};
 
 #[derive(Error, Debug)]
 pub enum InitializationError {
@@ -66,7 +66,10 @@ fn cargo_bin_dir() -> Result<PathBuf, InitializationError> {
 ///
 /// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
 /// executable.
-pub fn setup_midenup(config: &Config) -> Result<InitializationState, InitializationError> {
+pub fn setup_midenup(
+    config: &Config,
+    _local_manifest: &Manifest,
+) -> Result<InitializationState, InitializationError> {
     let mut state = InitializationState::AlreadyInitialized;
 
     let midenhome_dir = &config.midenup_home;
@@ -169,8 +172,8 @@ To your shell's profile file.
     Ok(state)
 }
 
-pub fn init(config: &Config) -> Result<(), InitializationError> {
-    let state = setup_midenup(config)?;
+pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), InitializationError> {
+    let state = setup_midenup(config, local_manifest)?;
 
     match state {
         InitializationState::Initialized => println!(
