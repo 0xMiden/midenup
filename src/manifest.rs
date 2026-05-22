@@ -1,18 +1,18 @@
-use std::{borrow::Cow, path::Path};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
 
-const MANIFEST_VERSION: &str = "1.0.0";
+const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 0);
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 /// The global manifest of all known channels and their toolchains
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Manifest {
     /// This version is used to handle breaking changes in the manifest format itself
-    manifest_version: Cow<'static, str>,
+    pub manifest_version: semver::Version,
     /// The UTC timestamp at which this manifest was generated
     date: i64,
     /// The channels described in this manifest
@@ -23,7 +23,7 @@ impl Default for Manifest {
     fn default() -> Self {
         let date = chrono::Utc::now().timestamp();
         Self {
-            manifest_version: Cow::Borrowed(MANIFEST_VERSION),
+            manifest_version: MANIFEST_VERSION,
             date,
             channels: vec![],
         }
