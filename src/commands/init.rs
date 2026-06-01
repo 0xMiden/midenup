@@ -262,6 +262,34 @@ fn execute_migrations(config: &Config, local_manifest: &Manifest) -> anyhow::Res
                 },
             )?;
         }
+
+        let stable_symlink = toolchains_dir.join("stable");
+        let stable_is_symlink = stable_symlink
+            .symlink_metadata()
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false);
+        if stable_is_symlink {
+            let old_target = std::fs::read_link(&stable_symlink).with_context(|| {
+                format!("failed to read symlink '{}'", stable_symlink.display())
+            })?;
+            if old_target.is_absolute() {
+                let channel_name = old_target.file_name().with_context(|| {
+                    format!("symlink target has no file name: '{}'", old_target.display())
+                })?;
+                let relative_target = std::path::Path::new(channel_name);
+
+                std::fs::remove_file(&stable_symlink).with_context(|| {
+                    format!("failed to remove symlink '{}'", stable_symlink.display())
+                })?;
+                utils::fs::symlink(&stable_symlink, relative_target).with_context(|| {
+                    format!(
+                        "failed to recreate symlink '{}' -> '{}'",
+                        stable_symlink.display(),
+                        relative_target.display()
+                    )
+                })?;
+            }
+        }
     }
 
     Ok(())
