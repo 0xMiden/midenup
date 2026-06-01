@@ -47,7 +47,7 @@ pub fn install(
         })?;
         // If a previous install of this channel exists, reuse the components.
         if toolchain_dir.exists() {
-            copy_dir_recursive(&toolchain_dir, &install_dir).with_context(|| {
+            utils::fs::copy_dir_recursive(&toolchain_dir, &install_dir).with_context(|| {
                 format!(
                     "failed to seed install directory '{}' from previous install at '{}'",
                     install_dir.display(),
@@ -713,41 +713,6 @@ fn main() {
         )
         .to_string()
         .unwrap_or_else(|err| panic!("install script rendering failed: {err}"))
-}
-
-/// Recursively copy every entry from `src` into `dst`, preserving the directory layout and
-/// following symlinks. `dst` is expected to already exist.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
-    for entry in std::fs::read_dir(src)
-        .with_context(|| format!("failed to read directory '{}'", src.display()))?
-    {
-        let entry =
-            entry.with_context(|| format!("failed to read entry in '{}'", src.display()))?;
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("failed to stat entry '{}'", entry.path().display()))?;
-        let target = dst.join(entry.file_name());
-        if file_type.is_symlink() {
-            let link_target = std::fs::read_link(entry.path())
-                .with_context(|| format!("failed to read symlink '{}'", entry.path().display()))?;
-            utils::fs::symlink(&target, &link_target).with_context(|| {
-                format!(
-                    "failed to recreate symlink '{}' -> '{}'",
-                    target.display(),
-                    link_target.display()
-                )
-            })?;
-        } else if file_type.is_dir() {
-            std::fs::create_dir_all(&target)
-                .with_context(|| format!("failed to create directory '{}'", target.display()))?;
-            copy_dir_recursive(&entry.path(), &target)?;
-        } else {
-            std::fs::copy(entry.path(), &target).with_context(|| {
-                format!("failed to copy '{}' to '{}'", entry.path().display(), target.display())
-            })?;
-        }
-    }
-    Ok(())
 }
 
 type InstalledBinary = String;
