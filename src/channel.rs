@@ -597,6 +597,15 @@ pub struct Component {
     pub artifacts: Option<Artifacts>,
 }
 
+/// The result of comparing an installed [Component] against its upstream counterpart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpdateStatus {
+    /// The component is current; no update is needed.
+    UpToDate,
+    /// The component differs from upstream and needs to be updated.
+    NeedsUpdate,
+}
+
 impl Component {
     pub fn new(name: impl Into<Cow<'static, str>>, version: Authority) -> Self {
         Self {
@@ -625,7 +634,7 @@ impl Component {
     /// difference is found, and fallback to "UpToDate" if none are
     /// found. Therefore, there should be *no* early returns that return
     /// `UpToDate`, since they might skip a field that differes later on.
-    pub fn is_up_to_date(&mut self, upstream: &Self) -> bool {
+    pub fn is_up_to_date(&mut self, upstream: &Self) -> UpdateStatus {
         match (&mut self.version, &upstream.version) {
             // NOTE: Components that are installed via git BRANCHES are a special case because we
             // need to check if new commits have been pushed since the component was installed.
@@ -653,19 +662,19 @@ impl Component {
                 },
             ) => {
                 if repository_url_a != repository_url_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
 
                 if crate_a != crate_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
 
                 if repository_url_a != repository_url_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
 
                 if name_a != name_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
 
                 // If, for whatever reason, we fail to find the latest hash, we simply leave it
@@ -677,12 +686,12 @@ impl Component {
                 match (local_revision, latest_upstream_revision) {
                     (Some(local_revision), Some(upstream_revision)) => {
                         if *local_revision != upstream_revision {
-                            return false;
+                            return UpdateStatus::NeedsUpdate;
                         }
                     },
                     // If either is missing, trigger an update regardless.
                     _ => {
-                        return false;
+                        return UpdateStatus::NeedsUpdate;
                     },
                 };
             },
@@ -699,10 +708,10 @@ impl Component {
                 },
             ) => {
                 if *path_a != *path_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
                 if *crate_name_a != *crate_name_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
 
                 let local_latest = last_modification_a;
@@ -719,14 +728,14 @@ impl Component {
                     (Some(local_latest), Some(new_latest)) => {
                         if new_latest > *local_latest {
                             *local_latest = new_latest;
-                            return false;
+                            return UpdateStatus::NeedsUpdate;
                         }
                     },
                     // If anything failed, we simply mark the component as needing an update.
                     // The idea being that components installed from a path are skipped during
                     // updates by default and are only updated if the user explicitly passes the
                     // necessary flags.
-                    _ => return false,
+                    _ => return UpdateStatus::NeedsUpdate,
                 }
             },
             (
@@ -734,37 +743,37 @@ impl Component {
                 Authority::Cargo { package: package_b, version: version_b },
             ) => {
                 if package_a != package_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
 
                 if version_a != version_b {
-                    return false;
+                    return UpdateStatus::NeedsUpdate;
                 }
             },
             _ => {
                 // This case includes all the cases where the Authorities differ,
                 // which are never considered "up to date".
-                return false;
+                return UpdateStatus::NeedsUpdate;
             },
         };
 
         if self.features != upstream.features {
-            return false;
+            return UpdateStatus::NeedsUpdate;
         }
 
         if self.requires != upstream.requires {
-            return false;
+            return UpdateStatus::NeedsUpdate;
         }
 
         if self.rustup_channel != upstream.rustup_channel {
-            return false;
+            return UpdateStatus::NeedsUpdate;
         }
 
         if self.installed_file != upstream.installed_file {
-            return false;
+            return UpdateStatus::NeedsUpdate;
         }
 
-        true
+        UpdateStatus::UpToDate
     }
 
     /// Returns the name of the executable corresponding to this component.
