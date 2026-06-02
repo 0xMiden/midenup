@@ -156,7 +156,7 @@ fn update_channel(
     display_warnings(&comp_to_delete_with_motive, &upstream_channel.channel, options);
 
     let mut components_to_update: Vec<Update> = Vec::new();
-    for update in &comp_to_delete_with_motive {
+    for update in comp_to_delete_with_motive.iter() {
         let component = &update.component;
         let motive = &update.motive;
 
@@ -312,12 +312,12 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
     // This is the subset of new components present in the channel since last sync.
     let new_components = new_channel
         .difference(&current)
-        .map(|&ComponentByName(comp)| (comp, UpdateMotive::Added));
+        .map(|&ComponentByName(comp)| (comp.clone(), UpdateMotive::Added));
 
     // This is the subset of old components that need to be removed.
     let old_components = current
         .difference(&new_channel)
-        .map(|&ComponentByName(comp)| (comp, UpdateMotive::Removed));
+        .map(|&ComponentByName(comp)| (comp.clone(), UpdateMotive::Removed));
 
     // These are the elements that are present in boths sets. We are only interested in those which
     // need updating.
@@ -329,7 +329,7 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
             match new_component {
                 // This should't be possible, but if somehow the component is missing, then we
                 // trigger an update for said component regardless.
-                None => Some((current_component, UpdateMotive::Added)),
+                None => Some((current_component.clone(), UpdateMotive::Added)),
                 // Note that some components might ignore this update, such as
                 // components that were installed via the filesystem.
                 Some(&ComponentByName(new_component)) => {
@@ -337,13 +337,16 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
                     // installed component is due for an update.
                     if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
                         Some((
-                            current_component,
+                            current_component.clone(),
                             UpdateMotive::Migrated { strategy: strategy.clone() },
                         ))
-                    } else if !current_component.is_up_to_date(new_component) {
-                        Some((current_component, UpdateMotive::NewerVersion))
                     } else {
-                        None
+                        let mut current_component = current_component.clone();
+                        if !current_component.is_up_to_date(new_component) {
+                            Some((current_component, UpdateMotive::NewerVersion))
+                        } else {
+                            None
+                        }
                     }
                 },
             }
@@ -352,7 +355,7 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
     let components = new_components
         .chain(old_components)
         .chain(components_to_update)
-        .map(|(comp, motive)| Update::new(comp.clone(), motive));
+        .map(|(comp, motive)| Update::new(comp, motive));
 
     Vec::from_iter(components)
 }
