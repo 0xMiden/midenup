@@ -65,7 +65,7 @@ impl GitTarget {
 }
 
 /// Represents the canonical versioning authority for a tool or toolchain
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Authority {
     /// The authority for this tool/toolchain is a local filesystem path

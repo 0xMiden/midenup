@@ -630,23 +630,36 @@ impl Component {
             (
                 Authority::Git {
                     repository_url: repository_url_a,
+                    crate_name: crate_a,
                     target:
                         GitTarget::Branch {
                             name: name_a,
                             latest_revision: local_revision,
                         },
-                    ..
                 },
                 Authority::Git {
                     repository_url: repository_url_b,
-                    target: GitTarget::Branch { name: name_b, .. },
-                    ..
+                    crate_name: crate_b,
+                    target:
+                        GitTarget::Branch {
+                            name: name_b,
+                            latest_revision: _upstream_revision,
+                        },
                 },
             ) => {
-                if name_a != name_b {
+                if repository_url_a != repository_url_b {
                     return false;
                 }
+
+                if crate_a != crate_b {
+                    return false;
+                }
+
                 if repository_url_a != repository_url_b {
+                    return false;
+                }
+
+                if name_a != name_b {
                     return false;
                 }
 
@@ -667,8 +680,6 @@ impl Component {
                         return false;
                     },
                 };
-
-                return true;
             },
             (
                 Authority::Path {
@@ -710,10 +721,22 @@ impl Component {
                     _ => return false,
                 }
             },
-            (version_a, version_b) => {
+            (
+                Authority::Cargo { package: package_a, version: version_a },
+                Authority::Cargo { package: package_b, version: version_b },
+            ) => {
+                if package_a != package_b {
+                    return false;
+                }
+
                 if version_a != version_b {
                     return false;
                 }
+            },
+            _ => {
+                // This case includes all the cases where the Authorities differ,
+                // which are never considered "up to date".
+                return false;
             },
         };
 
