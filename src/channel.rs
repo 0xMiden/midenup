@@ -620,8 +620,13 @@ impl Component {
     /// This is used to check if they different in fields _besides_ the name. The [`Component::eq`]
     /// implementation only tests name equality and is only used to check for components that got
     /// added/removed.
-    pub fn is_up_to_date(&self, upstream: &Self) -> bool {
-        match (&self.version, &upstream.version) {
+    ///
+    /// WARNING: The idea behind this function is to early return when a
+    /// difference is found, and fallback to "UpToDate" if none are
+    /// found. Therefore, there should be *no* early returns that return
+    /// `UpToDate`, since they might skip a field that differes later on.
+    pub fn is_up_to_date(&mut self, upstream: &Self) -> bool {
+        match (&mut self.version, &upstream.version) {
             // NOTE: Components that are installed via git BRANCHES are a special case because we
             // need to check if new commits have been pushed since the component was installed.
             // When these components are installed, the lastest available commit hash is saved with
@@ -693,10 +698,10 @@ impl Component {
                     last_modification: last_modification_b,
                 },
             ) => {
-                if path_a != path_b {
+                if *path_a != *path_b {
                     return false;
                 }
-                if crate_name_a != crate_name_b {
+                if *crate_name_a != *crate_name_b {
                     return false;
                 }
 
@@ -712,7 +717,10 @@ impl Component {
 
                 match (local_latest, new_latest) {
                     (Some(local_latest), Some(new_latest)) => {
-                        return new_latest <= *local_latest;
+                        if new_latest > *local_latest {
+                            *local_latest = new_latest;
+                            return false;
+                        }
                     },
                     // If anything failed, we simply mark the component as needing an update.
                     // The idea being that components installed from a path are skipped during
