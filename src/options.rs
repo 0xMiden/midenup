@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-use crate::commands::Update;
+use crate::channel::Component;
 
 pub const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 
@@ -12,9 +12,8 @@ pub struct InstallationOptions {
     /// Displays the entirety of cargo's output when performing installations.
     pub verbose: bool,
     #[clap(skip)]
-    /// These are components that are already installed but need to be updated
-    /// via a re-install.
-    pub components_to_update: Vec<Update>,
+    /// These are the components that will be uninstalled before re-installation.
+    pub components_to_uninstall: Vec<Component>,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -22,7 +21,7 @@ impl Default for InstallationOptions {
     fn default() -> Self {
         Self {
             verbose: false,
-            components_to_update: Vec::new(),
+            components_to_uninstall: Vec::new(),
         }
     }
 }
@@ -70,7 +69,7 @@ impl From<UpdateOptions> for InstallationOptions {
     fn from(value: UpdateOptions) -> Self {
         InstallationOptions {
             verbose: value.verbose,
-            components_to_update: Vec::new(),
+            components_to_uninstall: Vec::new(),
         }
     }
 }

@@ -146,8 +146,6 @@ fn update_channel(
     // These are the components that require updating
     let comp_to_delete_with_motive = components_to_update(local_channel, upstream_channel);
 
-    let channel_to_install = upstream_channel.channel.clone();
-
     if comp_to_delete_with_motive.is_empty() {
         println!("Toolchain {} is up to date", local_channel);
         return Ok(());
@@ -155,46 +153,64 @@ fn update_channel(
 
     display_warnings(&comp_to_delete_with_motive, &upstream_channel.channel, options);
 
-    let mut components_to_update: Vec<Update> = Vec::new();
+    let mut components_to_install: Vec<Component> = Vec::new();
+    let mut components_to_uninstall: Vec<Component> = Vec::new();
     for update in comp_to_delete_with_motive.iter() {
         let component = &update.component;
         let motive = &update.motive;
 
-        // Added components have nothing to uninstall but must still be installed,
-        // so they pass straight through.
+        let mut do_install = false;
+        let mut do_uninstall = false;
         if matches!(motive, UpdateMotive::Added) {
-            components_to_update.push(update.clone());
-            continue;
+            // Added components have nothing to uninstall.
+            do_install = true;
+        } else if matches!(motive, UpdateMotive::Removed) {
+            // Removed components have nothing to install.
+            do_uninstall = true;
+        } else if matches!(motive, UpdateMotive::NewerVersion) {
+            // Components with newer versions need to perform both installs and
+            // uninstalls.
+            do_install = true;
+            do_uninstall = true;
         }
 
-        let do_update = match component.get_installed_file() {
-            InstalledFile::Library { .. } => true,
+        let skip_install = match component.get_installed_file() {
+            InstalledFile::Library { .. } => false,
             InstalledFile::Executable { .. } => match component.version {
-                Authority::Cargo { .. } | Authority::Git { .. } => true,
+                Authority::Cargo { .. } | Authority::Git { .. } => false,
                 // Since uninstalling a component from the filesystem is potentially
                 // irreversible, we take special precautions before uninstalling them.
                 Authority::Path { .. } => match options.path_update {
                     PathUpdate::Interactive => {
                         match handle_path_uninstall_interactive(component)? {
                             InteractiveResult::Cancel => return Ok(()),
-                            InteractiveResult::UpdateComponent => true,
-                            InteractiveResult::DontUpdateComponent => false,
+                            InteractiveResult::UpdateComponent => false,
+                            InteractiveResult::DontUpdateComponent => true,
                         }
                     },
-                    PathUpdate::All => true,
-                    PathUpdate::Off => false,
+                    PathUpdate::All => false,
+                    PathUpdate::Off => true,
                 },
             },
         };
 
-        if do_update {
-            components_to_update.push(update.clone());
+        if do_install && !skip_install {
+            components_to_install.push(component.clone());
+        }
+        if do_uninstall && !skip_install {
+            components_to_uninstall.push(component.clone());
         }
     }
 
+    let channel_to_install = {
+        let mut channel_to_install = upstream_channel.channel.clone();
+        channel_to_install.components = components_to_install;
+        channel_to_install
+    };
+
     let install_options = InstallationOptions {
         verbose: options.verbose,
-        components_to_update,
+        components_to_uninstall,
     };
 
     commands::install(config, &channel_to_install, local_manifest, &install_options)?;
@@ -312,6 +328,9 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
     // This is the subset of new components present in the channel since last sync.
     let new_components = new_channel
         .difference(&current)
+        // If the channel is partially installed, then we explicitely don't
+        // want new components.
+        .filter(|_| !older.is_partially_installed())
         .map(|&ComponentByName(comp)| (comp.clone(), UpdateMotive::Added));
 
     // This is the subset of old components that need to be removed.
@@ -323,6 +342,8 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
     // need updating.
     let components_to_update = current
         .iter()
+        // We filter these components since they were already taken into account
+        // on the new_components set
         .filter(|comp| new_channel.contains(*comp))
         .filter_map(|&ComponentByName(current_component)| {
             let new_component = new_channel.get(&ComponentByName(current_component));

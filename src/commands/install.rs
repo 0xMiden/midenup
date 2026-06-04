@@ -9,8 +9,8 @@ use anyhow::{Context, bail};
 
 use crate::{
     artifact::TargetTriple,
-    channel::{Channel, ChannelAlias, Component, InstalledFile},
-    commands::{self, update::UpdateMotive},
+    channel::{Channel, ChannelAlias, InstalledFile},
+    commands,
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
@@ -57,13 +57,10 @@ pub fn install(
                 },
             )?;
 
-            let components_to_uninstall: Vec<Component> = options
-                .components_to_update
-                .iter()
-                .filter(|update| !matches!(update.motive, UpdateMotive::Added))
-                .map(|update| update.component.clone())
-                .collect();
-            commands::uninstall::uninstall_components(&install_dir, &components_to_uninstall)?;
+            commands::uninstall::uninstall_components(
+                &install_dir,
+                &options.components_to_uninstall,
+            )?;
         }
     }
 
