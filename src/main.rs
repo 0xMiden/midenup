@@ -291,8 +291,14 @@ mod tests {
 
     type LocalManifest = manifest::Manifest;
 
-    /// Simple auxiliary function to setup a midneup directory environment in tests.
-    ///
+    type LocalManifest = manifest::Manifest;
+    use midenup_lib::{channel, config, manifest, miden_wrapper, utils, version};
+    use tempdir::TempDir;
+
+    use crate::*;
+
+    /// Simple auxiliary function to setup a midenup directory environment in
+    /// tests.
     /// Additionally, it changes the PWD to a new temp dir to isolate test execution.
     fn test_setup(midenup_home: &Path, manifest_uri: &str) -> (LocalManifest, config::Config) {
         let local_manifest = {
@@ -383,6 +389,9 @@ Error: {}",
     /// Tries to install a toolchain under a [`channel::UserChannel`] (via the `stable` alias) and
     /// also specific versions explicitly.
     #[test]
+    /// Integration test to check that installing and uninstalling works. Tries
+    /// to install a toolchain under a [[channel::UserChannel]] (via the `stable` alias)
+    /// and also specific versions explicitly.
     fn integration_install_uninstall_test() {
         let test_name = "integration_install_uninstall_test";
         let test_env = environment_setup(test_name);
@@ -885,7 +894,8 @@ Error: {}",
             .get_latest_stable()
             .expect("No stable channel found; despite having installed stable");
 
-        // We test if the in-memory representation of the local manifest contains the stable alias
+        // We test if the in-memory representation of the local manifest
+        // contains the stable alias
         assert_eq!(stable_channel.alias, Some(channel::ChannelAlias::Stable));
 
         // We read the filesystem again, to check that the "stable" alias was correclty saved
@@ -897,12 +907,8 @@ Error: {}",
                     "ERROR: The local_manifest in the filesystem has no alias, when it should \
                      have stable alias"
                 )
-                .alias
-                .as_ref()
-                .expect(
-                    "ERROR: The installed stable toolchain should be marked as stable in the \
-                     local manifest"
-                ),
+                .alias.as_ref()
+                .expect("ERROR: The installed stable toolchain should be marked as stable in the local manifest"),
             &channel::ChannelAlias::Stable
         );
     }
@@ -911,6 +917,9 @@ Error: {}",
     /// [`version::Authority::Cargo`]. Besides installing these components, we verify that midenup
     /// manages to update them when needed.
     #[test]
+    /// Validates that midenup manages to install components with [[Authority]]s
+    /// different than [[version::Authority::Cargo]]. Besides installing these components,
+    /// we verify that midenup manages to update them when needed.
     fn integration_install_from_non_cargo() {
         let test_name = "integration_install_from_non_cargo";
         let test_env = environment_setup(test_name);
