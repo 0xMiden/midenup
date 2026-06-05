@@ -23,7 +23,7 @@
           "path": "miden_vm/miden-vm",
           "crate_name": "miden-vm",
           "features": ["executable", "concurrent"],
-          "installed_file": "miden-vm"
+          "installed_executable": "miden-vm"
         },
         {
           "name": "client",
