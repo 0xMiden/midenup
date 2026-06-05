@@ -516,7 +516,11 @@
           "version": "0.8.1",
           "rustup_channel": "nightly-2025-12-10",
           "requires": ["core", "protocol"],
-          "call_format": ["executable", "-L", "lib_path"]
+          "call_format": ["executable", "-L", "lib_path"],
+          "artifacts": [
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
+          ]
         },
         {
           "name": "cargo-miden",
@@ -529,7 +533,11 @@
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "call_format": ["cargo", "miden"],
-          "symlink_name": "cargo-miden"
+          "symlink_name": "cargo-miden",
+          "artifacts": [
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/cargo-miden-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/cargo-miden-x86_64-unknown-linux-gnu"
+          ]
         },
         {
           "name": "node",
@@ -563,6 +571,16 @@
           "aliases": {
             "mint": ["executable", "mint"]
           }
+        },
+        {
+          "name": "verify",
+          "package": "miden-verify",
+          "version": "0.3.0",
+          "installed_executable": "miden-verify",
+          "artifacts": [
+            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-aarch64-apple-darwin",
+            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-x86_64-unknown-linux-gnu"
+          ]
         }
       ]
     }
