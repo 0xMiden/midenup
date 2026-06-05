@@ -78,6 +78,20 @@ pub fn uninstall(
         std::fs::remove_file(&toolchain_symlink)?;
     }
 
+    // If cleanup is interrumpted, then `midenup clean` can be used to clean
+    // stale files.
+    if let Ok(installed_channel_dir) = installed_channel_dir {
+        uninstall_components(&installed_channel_dir, &local_channel.components)?;
+
+        // We now remove the install directory with all the remaining files.
+        std::fs::remove_dir_all(&installed_channel_dir).map_err(|e| {
+            UninstallError::FailedToRemoveToolchainDirectory(
+                e.to_string(),
+                installed_channel_dir.to_path_buf(),
+            )
+        })?;
+    }
+
     // We remove the channel from the local manifest.
     // This is what *REALLY* marks the channel as uninstalled.
     {
@@ -98,20 +112,6 @@ pub fn uninstall(
                     .as_bytes(),
             )
             .context("Couldn't create local manifest file")?;
-    }
-
-    // If cleanup is interrumpted, then `midenup clean` can be used to clean
-    // stale files.
-    if let Ok(installed_channel_dir) = installed_channel_dir {
-        uninstall_components(&installed_channel_dir, &local_channel.components)?;
-
-        // We now remove the install directory with all the remaining files.
-        std::fs::remove_dir_all(&installed_channel_dir).map_err(|e| {
-            UninstallError::FailedToRemoveToolchainDirectory(
-                e.to_string(),
-                installed_channel_dir.to_path_buf(),
-            )
-        })?;
     }
 
     Ok(())
