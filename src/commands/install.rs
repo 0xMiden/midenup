@@ -47,13 +47,15 @@ pub fn install(
         })?;
         // If a previous install of this channel exists, reuse the components.
         if toolchain_dir.exists() {
-            utils::fs::copy_dir_recursive(&toolchain_dir, &install_dir).with_context(|| {
-                format!(
-                    "failed to seed install directory '{}' from previous install at '{}'",
-                    install_dir.display(),
-                    toolchain_dir.display()
-                )
-            })?;
+            utils::fs::copy_dir_recursive(&toolchain_dir, &install_dir, &[]).with_context(
+                || {
+                    format!(
+                        "failed to seed install directory '{}' from previous install at '{}'",
+                        install_dir.display(),
+                        toolchain_dir.display()
+                    )
+                },
+            )?;
 
             let components_to_uninstall: Vec<Component> = options
                 .components_to_update

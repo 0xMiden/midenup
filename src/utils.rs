@@ -179,16 +179,20 @@ pub mod fs {
     /// Recursively copy every entry from `src` into `dst`, preserving the directory layout and
     /// recreating symlinks. Entries whose file name appears in `skip` are not copied. `dst` is
     /// expected to already exist.
-    pub fn copy_dir_recursive(src: &Path, dst: &Path) -> anyhow::Result<()> {
+    pub fn copy_dir_recursive(src: &Path, dst: &Path, skip: &[&str]) -> anyhow::Result<()> {
         for entry in fs::read_dir(src)
             .with_context(|| format!("failed to read directory '{}'", src.display()))?
         {
             let entry =
                 entry.with_context(|| format!("failed to read entry in '{}'", src.display()))?;
+            let file_name = entry.file_name();
+            if file_name.to_str().is_some_and(|name| skip.contains(&name)) {
+                continue;
+            }
             let file_type = entry
                 .file_type()
                 .with_context(|| format!("failed to stat entry '{}'", entry.path().display()))?;
-            let target = dst.join(&entry.file_name());
+            let target = dst.join(&file_name);
             if file_type.is_symlink() {
                 let link_target = fs::read_link(entry.path()).with_context(|| {
                     format!("failed to read symlink '{}'", entry.path().display())
@@ -204,7 +208,7 @@ pub mod fs {
                 fs::create_dir_all(&target).with_context(|| {
                     format!("failed to create directory '{}'", target.display())
                 })?;
-                copy_dir_recursive(&entry.path(), &target)?;
+                copy_dir_recursive(&entry.path(), &target, skip)?;
             } else {
                 fs::copy(entry.path(), &target).with_context(|| {
                     format!("failed to copy '{}' to '{}'", entry.path().display(), target.display())
