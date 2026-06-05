@@ -366,7 +366,7 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
                         if current_component.is_up_to_date(new_component)
                             == UpdateStatus::NeedsUpdate
                         {
-                            Some((current_component, UpdateMotive::NewerVersion))
+                            Some((new_component.clone(), UpdateMotive::NewerVersion))
                         } else {
                             None
                         }
