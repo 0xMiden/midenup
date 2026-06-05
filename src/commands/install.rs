@@ -139,6 +139,21 @@ pub fn install(
         })?;
     }
 
+    // ======================== Installation finalized  ===========================
+
+    let is_latest_stable = config.manifest.is_latest_stable(channel);
+
+    // If this channel is the new stable, we update the symlink
+    if is_latest_stable {
+        let stable_dir = toolchains_dir.join("stable");
+        if stable_dir.exists() {
+            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
+        }
+        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
+        utils::fs::symlink(&stable_dir, &relative_channel_target)
+            .expect("Couldn't create stable dir");
+    }
+
     // tmp_link is a symlink file that points to relative_install_target. Even
     // if tmp_link file is moved, it will still point to relative_install_target.
     // For further reference on atomic directory updates, see:
@@ -155,21 +170,6 @@ pub fn install(
             relative_install_target.display()
         )
     })?;
-
-    // ======================== Installation finalized  ===========================
-
-    let is_latest_stable = config.manifest.is_latest_stable(channel);
-
-    // If this channel is the new stable, we update the symlink
-    if is_latest_stable {
-        let stable_dir = toolchains_dir.join("stable");
-        if stable_dir.exists() {
-            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
-        }
-        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
-        utils::fs::symlink(&stable_dir, &relative_channel_target)
-            .expect("Couldn't create stable dir");
-    }
 
     // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
