@@ -4,7 +4,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::{Channel, UserChannel},
+    channel::{Channel, Component, UserChannel},
     commands,
     config::Config,
     manifest::Manifest,
@@ -155,7 +155,7 @@ impl Toolchain {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
-        let Some(channel) = config.manifest.get_channel(desired_channel) else {
+        let Some(upstream_channel) = config.manifest.get_channel(desired_channel) else {
             bail!(
                 "Channel '{}' is set because {}, however the channel doesn't exist or is \
                  unavailable",
@@ -171,39 +171,68 @@ impl Toolchain {
             );
         };
 
-        let partial_channel = channel.create_subset(&current_toolchain, &justification);
-        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
+        let installed_channel = local_manifest.get_channel_by_name(&upstream_channel.name);
 
-        if let Some(installed_channel) =
-            local_manifest.get_channel_by_name(&channel_to_install.name)
-        {
-            let required_components: HashSet<&str> = HashSet::from_iter(
-                channel_to_install.components.iter().map(|comp| comp.name.as_ref()),
-            );
+        // We calculate if there's a partial channel
+        let partial_channel = upstream_channel.create_subset(&current_toolchain, &justification);
 
-            let installed_components: HashSet<&str> = HashSet::from_iter(
-                installed_channel.components.iter().map(|comp| comp.name.as_ref()),
-            );
+        let channel_to_install = match (installed_channel, partial_channel.as_ref()) {
+            (Some(installed_channel), Some(partial_channel)) => {
+                // If both channels are partially installed, then we're only
+                // interested in installing the missing components.
+                // If the installed channel is fully installed, then we there's
+                // nothing missing to install.
+                if installed_channel.is_partially_installed() {
+                    let required_components: HashSet<&Component> =
+                        HashSet::from_iter(partial_channel.components.iter());
 
-            let missing_components: Vec<_> =
-                required_components.difference(&installed_components).collect();
+                    let installed_components: HashSet<&Component> =
+                        HashSet::from_iter(installed_channel.components.iter());
 
-            if missing_components.is_empty() {
-                return Ok((current_toolchain, justification, partial_channel));
-            }
+                    let missing_components: Vec<_> =
+                        required_components.difference(&installed_components).collect();
 
-            println!("Found that the current active toolchain is missing some components:");
-            for component in missing_components {
-                println!("- {}", component);
-            }
-            println!("Proceeding to install them");
-        } else {
-            println!("Found current toolchain to be {desired_channel}. Now installing it.");
-        }
+                    if missing_components.is_empty() {
+                        return Ok((
+                            current_toolchain,
+                            justification,
+                            Some(partial_channel.clone()),
+                        ));
+                    }
+
+                    println!("Found that the current active toolchain is missing some components:");
+                    for component in &missing_components {
+                        println!("- {}", component.name);
+                    }
+                    println!("Proceeding to install them");
+
+                    // We add the missing components.
+                    let mut new_channel = installed_channel.clone();
+                    for component in missing_components {
+                        new_channel.components.push((*component).clone());
+                    }
+                    new_channel
+                } else {
+                    return Ok((current_toolchain, justification, Some(partial_channel.clone())));
+                }
+            },
+            (Some(_installed_channel), None) => {
+                // There's no partial channel
+                return Ok((current_toolchain, justification, None));
+            },
+            (None, Some(partial_channel)) => {
+                println!("Found current toolchain to be {desired_channel}. Now installing it.");
+                partial_channel.clone()
+            },
+            (None, None) => {
+                println!("Found current toolchain to be {desired_channel}. Now installing it.");
+                upstream_channel.clone()
+            },
+        };
 
         commands::install(
             config,
-            channel_to_install,
+            &channel_to_install,
             local_manifest,
             &InstallationOptions::default(),
         )?;

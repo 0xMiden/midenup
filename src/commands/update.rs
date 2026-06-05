@@ -334,9 +334,17 @@ pub fn components_to_update(
     // This is the subset of new components present in the channel since last sync.
     //
     // NOTE: Equality between components is done via their name, see [Component::eq].
-    let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
+    let new_components = new_channel
+        .difference(&current)
+        // If the older channel is partially installed, we're not interested in
+        // getting the difference in components; since the user explictely
+        // installed them.
+        .filter(|_| !older.is_partially_installed())
+        .map(|comp| (comp, UpdateMotive::Added));
 
     // This is the subset of old components that need to be removed.
+    // In the case of removed components from partially installed channels, we
+    // *are* interested in removing those; since they were explictely removed.
     let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
 
     // These are the elements that are present in boths sets. We are only interested in those which

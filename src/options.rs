@@ -8,12 +8,15 @@ pub struct InstallationOptions {
     #[clap(long, short, default_value = "false")]
     /// Displays the entirety of cargo's output when performing installations.
     pub verbose: bool,
+    #[clap(long, short, default_value = "false")]
+    /// Makes the installation interactive.
+    pub interactive: bool,
 }
 
 #[allow(clippy::derivable_impls)]
 impl Default for InstallationOptions {
     fn default() -> Self {
-        Self { verbose: false }
+        Self { verbose: false, interactive: false }
     }
 }
 
@@ -58,6 +61,9 @@ impl From<InstallationOptions> for UpdateOptions {
 
 impl From<UpdateOptions> for InstallationOptions {
     fn from(value: UpdateOptions) -> Self {
-        InstallationOptions { verbose: value.verbose }
+        InstallationOptions {
+            verbose: value.verbose,
+            interactive: false,
+        }
     }
 }
