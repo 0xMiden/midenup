@@ -105,11 +105,12 @@ impl Manifest {
             if data.is_empty() {
                 return Err(ManifestError::EmptyWebpage(uri.to_string()));
             }
-            serde_json::from_slice::<Manifest>(&data).map_err(|_| {
-                let text = String::from_utf8(data.clone()).unwrap_or_default();
+            let text = String::from_utf8(data.clone()).unwrap_or_default();
+            serde_json::from_slice::<Manifest>(&data).map_err(|e| {
                 ManifestError::Invalid(format!(
-                    "Invalid channel manifest
-{text}"
+                    "Invalid channel manifest in {}: {e}.
+{text}",
+                    uri
                 ))
             })
         } else {
