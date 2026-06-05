@@ -56,21 +56,16 @@ impl Manifest {
     /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
         let uri = uri.as_ref();
-        let manifest = if let Some(manifest_path) = uri.strip_prefix("file://") {
+
+        let manifest_data = if let Some(manifest_path) = uri.strip_prefix("file://") {
             let path = Path::new(manifest_path);
-            let contents = std::fs::read_to_string(path)
+            let manifest_contents = std::fs::read_to_string(path)
                 .map_err(|_| ManifestError::Missing(path.display().to_string()))?;
             // This could potentially be valid if we are parsing the local manifest
-            if contents.is_empty() {
+            if manifest_contents.is_empty() {
                 return Err(ManifestError::Empty);
             }
-
-            serde_json::from_str::<Manifest>(&contents).map_err(|e| {
-                ManifestError::Invalid(format!(
-                    "Invalid channel manifest in {}: {e}",
-                    path.display()
-                ))
-            })
+            manifest_contents
         } else if uri.starts_with("https://") {
             let mut data = Vec::new();
             let mut handle = curl::easy::Easy::new();
@@ -105,17 +100,18 @@ impl Manifest {
             if data.is_empty() {
                 return Err(ManifestError::EmptyWebpage(uri.to_string()));
             }
-            let text = String::from_utf8(data.clone()).unwrap_or_default();
-            serde_json::from_slice::<Manifest>(&data).map_err(|e| {
-                ManifestError::Invalid(format!(
-                    "Invalid channel manifest in {}: {e}.
-{text}",
-                    uri
-                ))
-            })
+            String::from_utf8(data.clone()).unwrap_or_default()
         } else {
             return Err(ManifestError::Unsupported(uri.to_string()));
-        }?;
+        };
+
+        let manifest = serde_json::from_str::<Manifest>(&manifest_data).map_err(|e| {
+            ManifestError::Invalid(format!(
+                "Invalid channel manifest in {}: {e}:
+{}",
+                uri, manifest_data
+            ))
+        })?;
 
         Ok(manifest)
     }
