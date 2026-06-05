@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::channel::{Channel, ChannelAlias, UserChannel};
 
-const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 0);
+const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 1);
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 /// The global manifest of all known channels and their toolchains
