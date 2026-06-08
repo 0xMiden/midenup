@@ -8,8 +8,8 @@ use colored::Colorize;
 
 use crate::{
     channel::{
-        Channel, Component, InstalledFile, MigrationStrategy, UpdateStatus, UpstreamChannel,
-        UpstreamMatch, UserChannel,
+        Channel, Component, InstalledFile, MigrationStrategy, UpstreamChannel, UpstreamMatch,
+        UserChannel,
     },
     commands::{self},
     config::Config,
@@ -363,10 +363,8 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
                         ))
                     } else {
                         let mut current_component = current_component.clone();
-                        if current_component.is_up_to_date(new_component)
-                            == UpdateStatus::NeedsUpdate
-                        {
-                            Some((new_component.clone(), UpdateMotive::NewerVersion))
+                        if !current_component.is_up_to_date(new_component) {
+                            Some((current_component, UpdateMotive::NewerVersion))
                         } else {
                             None
                         }
