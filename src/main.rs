@@ -969,8 +969,8 @@ Error: {}",
             (last_modification, revision)
         };
 
-        // We call for an update, to check that midenup recognizes that no component needs to be
-        // updated.
+        // We call for an update. This should update the client since the
+        // revision in the manifest has changed.
         let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
         let Behavior::Midenup { command: Some(command), .. } = command.behavior else {
             panic!("Error while parsing test command. Expected Midneup Behavior, got Miden");

@@ -69,7 +69,7 @@ pub fn migrate_toolchain(config: &Config, local_manifest: &Manifest) -> anyhow::
         let relative_install_target =
             PathBuf::from("..").join("installed_toolchains").join(&install_dir_name);
 
-        std::fs::remove_dir_all(dbg!(&old_toolchain_dir)).with_context(|| {
+        std::fs::remove_dir_all(&old_toolchain_dir).with_context(|| {
             format!("failed to remove old toolchain directory: '{}'", old_toolchain_dir.display())
         })?;
         utils::fs::symlink(&old_toolchain_dir, &relative_install_target).with_context(|| {
