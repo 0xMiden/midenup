@@ -144,19 +144,19 @@ fn update_channel(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     // These are the components that require updating
-    let comp_to_delete_with_motive = components_to_update(local_channel, upstream_channel);
+    let detected_updates = components_to_update(local_channel, upstream_channel);
 
-    if comp_to_delete_with_motive.is_empty() {
+    if detected_updates.is_empty() {
         println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     }
 
-    display_warnings(&comp_to_delete_with_motive, &upstream_channel.channel, options);
+    display_warnings(&detected_updates, &upstream_channel.channel, options);
 
     let mut components_to_install: Vec<Component> = Vec::new();
     let mut components_to_uninstall: Vec<Component> = Vec::new();
     let mut components_for_manifest: Vec<Component> = Vec::new();
-    for update in comp_to_delete_with_motive.iter() {
+    for update in detected_updates.iter() {
         let component = &update.component;
         let motive = &update.motive;
 
