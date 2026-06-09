@@ -105,7 +105,9 @@ pub struct UpstreamChannel {
 }
 
 impl UpstreamChannel {
-    fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
+    pub fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
+        let mut synced_channel = channel.clone();
+        synced_channel.sync();
         UpstreamChannel { channel, upstream_match }
     }
 }
@@ -303,6 +305,13 @@ impl Channel {
             };
         }
         upstream_counterpart
+    }
+
+    // Syncs the channel to the latest changes
+    fn sync(&mut self) {
+        for comp in self.components.iter_mut() {
+            comp.sync();
+        }
     }
 }
 
@@ -809,6 +818,46 @@ impl Component {
     /// Returns the URI for a given `target` (if available).
     pub fn get_artifact_uri(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
+    }
+
+    // Sync to the latest changes.
+    pub fn sync(&mut self) {
+        match &mut self.version {
+            Authority::Path {
+                path,
+                crate_name: _crate_name,
+                last_modification,
+            } => {
+                // If, for whatever reason, we fail to find the latest
+                // registered modification, we simply leave it empty. That does
+                // mean that an update will be triggered even if the component
+                // does not need it.
+                let latest_registered_modification =
+                    utils::fs::latest_modification(path).ok().map(|modification| modification.0);
+                *last_modification = latest_registered_modification;
+            },
+            Authority::Git {
+                repository_url,
+                crate_name: _crate_name,
+                target,
+            } => {
+                match target {
+                    GitTarget::Branch { name: branch_name, latest_revision } => {
+                        // If, for whatever reason, we fail to find the latest hash, we
+                        // simply leave it empty. That does mean that an update will be
+                        // triggered even if the component does not need it.
+                        let latest_upstream_revision =
+                            utils::git::find_latest_hash(repository_url.as_str(), branch_name)
+                                .ok();
+
+                        *latest_revision = latest_upstream_revision;
+                    },
+                    GitTarget::Revision { hash: _hash } => {},
+                    GitTarget::Tag { name: _name } => {},
+                }
+            },
+            Authority::Cargo { package: _package, version: _version } => {},
+        }
     }
 }
 
