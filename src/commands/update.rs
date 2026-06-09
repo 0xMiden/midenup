@@ -376,11 +376,10 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
                             UpdateStatus::Migrated { strategy: strategy.clone() },
                         )
                     } else {
-                        let mut current_component = current_component.clone();
                         if !current_component.is_up_to_date(new_component) {
                             (new_component.clone(), UpdateStatus::NeedsUpdate)
                         } else {
-                            (current_component, UpdateStatus::UpToDate)
+                            (current_component.clone(), UpdateStatus::UpToDate)
                         }
                     }
                 },

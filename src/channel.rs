@@ -634,13 +634,8 @@ impl Component {
     /// difference is found, and fallback to "UpToDate" if none are
     /// found. Therefore, there should be *no* early returns that return
     /// `UpToDate`, since they might skip a field that differes later on.
-    pub fn is_up_to_date(&mut self, upstream: &Self) -> bool {
-        match (&mut self.version, &upstream.version) {
-            // NOTE: Components that are installed via git BRANCHES are a special case because we
-            // need to check if new commits have been pushed since the component was installed.
-            // When these components are installed, the lastest available commit hash is saved with
-            // them in the local manifest. We use this to check if an update is in order. Do note
-            // that the upstream manifest is not needed for these.
+    pub fn is_up_to_date(&self, upstream: &Self) -> bool {
+        match (&self.version, &upstream.version) {
             (
                 Authority::Git {
                     repository_url: repository_url_a,
@@ -657,7 +652,7 @@ impl Component {
                     target:
                         GitTarget::Branch {
                             name: name_b,
-                            latest_revision: _upstream_revision,
+                            latest_revision: upstream_revision,
                         },
                 },
             ) => {
@@ -677,15 +672,9 @@ impl Component {
                     return false;
                 }
 
-                // If, for whatever reason, we fail to find the latest hash, we simply leave it
-                // empty. That does mean that an update will be triggered even if the component does
-                // not need it.
-                let latest_upstream_revision =
-                    utils::git::find_latest_hash(repository_url_b.as_str(), name_b).ok();
-
-                match (local_revision, latest_upstream_revision) {
+                match (local_revision, upstream_revision) {
                     (Some(local_revision), Some(upstream_revision)) => {
-                        if *local_revision != upstream_revision {
+                        if *local_revision != *upstream_revision {
                             return false;
                         }
                     },
@@ -714,20 +703,9 @@ impl Component {
                     return false;
                 }
 
-                let local_latest = last_modification_a;
-
-                let latest_registered_modification =
-                    utils::fs::latest_modification(path_b).ok().map(|modification| modification.0);
-
-                // last_modification_b should almost always be None, since the latest modification
-                // time is checked on demand. However, if for whatever reason, the manifest contains
-                // a latest modification time, we honor it.
-                let new_latest = last_modification_b.or(latest_registered_modification);
-
-                match (local_latest, new_latest) {
+                match (last_modification_a, last_modification_b) {
                     (Some(local_latest), Some(new_latest)) => {
-                        if new_latest > *local_latest {
-                            *local_latest = new_latest;
+                        if new_latest > local_latest {
                             return false;
                         }
                     },
@@ -836,6 +814,11 @@ impl Component {
                     utils::fs::latest_modification(path).ok().map(|modification| modification.0);
                 *last_modification = latest_registered_modification;
             },
+            // NOTE: Components that are installed via git BRANCHES are a special case because we
+            // need to check if new commits have been pushed since the component was installed.
+            // When these components are installed, the lastest available commit hash is saved with
+            // them in the local manifest. We use this to check if an update is in order. Do note
+            // that the upstream manifest is not needed for these.
             Authority::Git {
                 repository_url,
                 crate_name: _crate_name,
@@ -847,8 +830,7 @@ impl Component {
                         // simply leave it empty. That does mean that an update will be
                         // triggered even if the component does not need it.
                         let latest_upstream_revision =
-                            utils::git::find_latest_hash(repository_url.as_str(), branch_name)
-                                .ok();
+                            utils::git::find_latest_hash(repository_url.as_str(), branch_name).ok();
 
                         *latest_revision = latest_upstream_revision;
                     },
