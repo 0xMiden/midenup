@@ -715,6 +715,8 @@ Error: {}",
     fn integration_update_test() {
         let test_name = "integration_update_test";
         let test_env = environment_setup(test_name);
+        let kept = test_env.tmp_dir.into_path();
+        eprintln!("KEEPING temp dir at: {}", kept.display());
 
         let tmp_home = test_env.midenup_dir;
         let midenup_home = tmp_home.join("midenup");

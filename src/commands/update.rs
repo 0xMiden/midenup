@@ -144,46 +144,20 @@ fn update_channel(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     // These are the components that require updating
-    let detected_updates = components_to_update(local_channel, upstream_channel);
-
-    if detected_updates.is_empty() {
+    let Some(Update {
+        mut channel_to_install,
+        components_to_uninstall,
+        channel_to_uninstall,
+    }) = compute_update(local_channel, upstream_channel)
+    else {
         println!("Toolchain {} is up to date", local_channel);
         return Ok(());
-    }
+    };
 
-    display_warnings(&detected_updates, &upstream_channel.channel, options);
+    display_warnings(&channel_to_install, &upstream_channel.channel, options);
 
-    let mut components_to_install: Vec<Component> = Vec::new();
-    let mut components_to_uninstall: Vec<Component> = Vec::new();
-    let mut components_for_manifest: Vec<Component> = Vec::new();
-    for update in detected_updates.iter() {
-        let component = &update.component;
-        let motive = &update.motive;
-
-        let mut do_install = false;
-        let mut do_uninstall = false;
-        let mut include_in_channel = true;
-        match motive {
-            // Added components have nothing to uninstall.
-            UpdateStatus::Added => do_install = true,
-            // Removed components have nothing to install.
-            UpdateStatus::Removed => {
-                include_in_channel = false;
-                do_uninstall = true;
-            },
-            // Components with newer versions need to perform both installs and
-            // uninstalls.
-            UpdateStatus::NeedsUpdate => {
-                do_install = true;
-                do_uninstall = true;
-            },
-            UpdateStatus::UpToDate => do_install = true,
-            UpdateStatus::Migrated { strategy } => match strategy {
-                MigrationStrategy::NameChange { old_channel: _old_channel } => (),
-            },
-        };
-
-        let skip_install = match component.get_installed_file() {
+    for component in channel_to_install.components.iter_mut() {
+        let skip_update = match component.get_installed_file() {
             InstalledFile::Library { .. } => false,
             InstalledFile::Executable { .. } => match component.version {
                 Authority::Cargo { .. } | Authority::Git { .. } => false,
@@ -203,22 +177,10 @@ fn update_channel(
             },
         };
 
-        if include_in_channel {
-            components_for_manifest.push(component.clone());
-        }
-        if do_install && !skip_install {
-            components_to_install.push(component.clone());
-        }
-        if do_uninstall && !skip_install {
-            components_to_uninstall.push(component.clone());
+        if skip_update && let Some(old) = local_channel.get_component(&component.name) {
+            *component = old.clone();
         }
     }
-
-    let channel_to_install = {
-        let mut channel_to_install = upstream_channel.channel.clone();
-        channel_to_install.components = components_for_manifest;
-        channel_to_install
-    };
 
     let install_options = InstallationOptions {
         verbose: options.verbose,
@@ -227,12 +189,11 @@ fn update_channel(
 
     commands::install(config, &channel_to_install, local_manifest, &install_options)?;
 
-    let was_migrated = matches!(upstream_channel.upstream_match, UpstreamMatch::Migrated(_));
-    if was_migrated {
+    if let Some(channel_to_install) = channel_to_uninstall {
         // If the update were to be interrumpted before the uninstall finishes,
         // re-running `midenup update` would finish the process.
         // This does mean that channel migration is a non-atomic operation.
-        commands::uninstall(config, local_channel, local_manifest)?;
+        commands::uninstall(config, &channel_to_install, local_manifest)?;
     };
 
     Ok(())
@@ -321,12 +282,14 @@ impl ComponentUpdate {
 }
 
 #[derive(Debug, Clone)]
+/// [[Update]] represents the set of changes that need to take place.
 pub struct Update {
     /// This is the channel that will be saved on the manifest and represents
     /// the newly updated channel. It contains:
     /// - The components that got added.
     /// - The components that got updated.
     /// - The components that are up to date, i.e. that stay the same.
+    ///
     /// This channel also contains all the metadata from the channel it got
     /// computed from, i.e.: alias, tags, etc.
     pub channel_to_install: Channel,
@@ -352,12 +315,13 @@ impl Update {
         }
     }
 }
-/// This functions compares the Channel &older, with a newer channel [newer] and returns the list
-/// of [Components] that need to be updated.
+/// This functions compares the Channel &older, with a newer upstream channel
+/// [newer] and returns the resulting [[Update]]. See [[Update]] for more information
+/// on what these imply.
 ///
-/// NOTE: A component can be marked for update in the following scenarios:
+/// Regarding components, one can be marked for update in the following scenarios:
 ///
-/// - The component got removed from the newer channel entirely and thus needs to be removed from
+/// - The component got removed from the upstream channel entirely and thus needs to be removed from
 ///   the system.
 /// - A new component is present in the upstream manifest and thus needs to be installed.
 /// - A newer version of a present component is released and thus an upgrade is due.
@@ -420,6 +384,7 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
         }
 
         fn channel_to_uninstall(&self) -> Option<Channel> {
+            #[allow(clippy::manual_map)]
             match self.strategy {
                 Some(MigrationStrategy::NameChange { .. }) => Some(self.older.clone()),
                 None => None,
@@ -427,7 +392,7 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
         }
 
         fn required(&self) -> bool {
-            matches!(self.strategy, Some(_))
+            self.strategy.is_some()
         }
     }
 
@@ -442,49 +407,57 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
         // If the channel is partially installed, then we explicitely don't
         // want new components.
         .filter(|_| !older.is_partially_installed())
-        .map(|&ComponentByName(comp)| (comp.clone(), UpdateStatus::Added));
+        .map(|&ComponentByName(comp)| ComponentUpdate::new(comp.clone(), UpdateStatus::Added));
 
     // This is the subset of old components that need to be removed.
     let old_components = current
         .difference(&new_channel)
-        .map(|&ComponentByName(comp)| (comp.clone(), UpdateStatus::Removed));
+        .map(|&ComponentByName(comp)| ComponentUpdate::new(comp.clone(), UpdateStatus::Removed));
 
-    // These are the elements that are present in boths sets. We are only interested in those which
-    // need updating.
-    let components_to_update: Vec<(Component, UpdateStatus)> = current
-        .iter()
+    let mut components_to_install = Vec::new();
+    let mut components_to_uninstall =
+        Vec::from_iter(old_components.map(|comp_update| comp_update.component));
+
+    // These are the elements that are present in boths sets. We compute wether they need updating
+    // or are kept as is.
+    for component_by_name in current.iter()
         // We filter these components since they were already taken into account
         // on the new_components set
         .filter(|comp| new_channel.contains(*comp))
-        .map(|&ComponentByName(current_component)| {
-            let new_component = new_channel.get(&ComponentByName(current_component));
-            match new_component {
-                // This should't be possible, but if somehow the component is missing, then we
-                // trigger an update for said component regardless.
-                None => (current_component.clone(), UpdateStatus::Added),
-                // Note that some components might ignore this update, such as
-                // components that were installed via the filesystem.
-                Some(&ComponentByName(new_component)) => {
-                    // If the channel got marked as migrated, then every single
-                    // installed component is due for an update.
-                    if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
-                        (
-                            current_component.clone(),
-                            UpdateStatus::Migrated { strategy: strategy.clone() },
-                        )
+    {
+        let new_component = new_channel.get(component_by_name);
+        let current_component = component_by_name.0;
+        let component_update = match new_component {
+            // This should't be possible, but if somehow the component is missing, then we
+            // trigger an update for said component regardless.
+            None => ComponentUpdate::new(current_component.clone(), UpdateStatus::Added),
+            // Note that some components might ignore this update, such as
+            // components that were installed via the filesystem.
+            Some(&ComponentByName(new_component)) => {
+                // If the channel got marked as migrated, then every single
+                // installed component is due for an update.
+                if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
+                    ComponentUpdate::new(
+                        current_component.clone(),
+                        UpdateStatus::Migrated { strategy: strategy.clone() },
+                    )
+                } else {
+                    if !current_component.is_up_to_date(new_component) {
+                        // When a component needs an update, we must first
+                        // uninstall the old component
+                        components_to_uninstall.push(current_component.clone());
+                        ComponentUpdate::new(new_component.clone(), UpdateStatus::NeedsUpdate)
                     } else {
-                        if !current_component.is_up_to_date(new_component) {
-                            (new_component.clone(), UpdateStatus::NeedsUpdate)
-                        } else {
-                            (current_component.clone(), UpdateStatus::UpToDate)
-                        }
+                        ComponentUpdate::new(current_component.clone(), UpdateStatus::UpToDate)
                     }
-                },
-            }
-        })
-        .collect();
+                }
+            },
+        };
+        components_to_install.push(component_update)
+    }
 
-    let components_to_uninstall = Vec::from_iter(old_components.map(|(comp, _)| comp));
+    let components_to_install: Vec<ComponentUpdate> =
+        new_components.chain(components_to_install).collect();
 
     // Handle migrations
     let migration = MigrationEffects::new(newer, older);
@@ -492,9 +465,9 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
     // We check if an Update is actually due. This is used for safe `midenup update`
     // re-calls.
     {
-        let all_components_up_to_date = components_to_update
+        let all_components_up_to_date = components_to_install
             .iter()
-            .all(|(_, motive)| matches!(motive, UpdateStatus::UpToDate));
+            .all(|comp_update| matches!(comp_update.motive, UpdateStatus::UpToDate));
         if all_components_up_to_date && components_to_uninstall.is_empty() && !migration.required()
         {
             return None;
@@ -503,12 +476,11 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
 
     let channel_to_install = {
         let components_to_install = {
-            let components_to_install = new_components
-                .chain(components_to_update)
+            let components_to_install = components_to_install
                 .into_iter()
                 // We remove the metadata regarding why it needs to be installed,
                 // since we already used it above.
-                .map(|(comp, _)| comp);
+                .map(|comp_update| comp_update.component);
             Vec::from_iter(components_to_install)
         };
 
@@ -531,18 +503,13 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
     Some(update)
 }
 
-fn display_warnings(
-    components_with_motive: &[ComponentUpdate],
-    newer: &Channel,
-    options: &UpdateOptions,
-) {
-    let components_with_motive = components_with_motive.iter();
+fn display_warnings(channel_to_install: &Channel, _newer: &Channel, options: &UpdateOptions) {
+    let components_with_motive = channel_to_install.components.iter();
 
     // Warning for components installed from a PATH.
     {
         let components_from_path: Vec<String> = components_with_motive
-            .clone()
-            .filter_map(|update| match &update.component.version {
+            .filter_map(|component| match &component.version {
                 Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
                 _ => None,
             })
@@ -571,27 +538,27 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
     }
 
     // Warning for migrated components
-    {
-        let migrated_components: Vec<String> = components_with_motive
-            .filter_map(|update| match &update.motive {
-                UpdateStatus::Migrated { strategy } => Some((&update.component, strategy)),
-                _ => None,
-            })
-            .map(|(component, strategy)| match strategy {
-                MigrationStrategy::NameChange { old_channel } => {
-                    format!("- {} from {} into {}", component.name, old_channel, newer)
-                },
-            })
-            .collect();
-        if !migrated_components.is_empty() {
-            println!(
-                "{}: The following elements are going to be migrated.",
-                "WARNING".yellow().bold(),
-            );
+    // {
+    //     let migrated_components: Vec<String> = components_with_motive
+    //         .filter_map(|update| match &update.motive {
+    //             UpdateStatus::Migrated { strategy } => Some((&update.component, strategy)),
+    //             _ => None,
+    //         })
+    //         .map(|(component, strategy)| match strategy {
+    //             MigrationStrategy::NameChange { old_channel } => {
+    //                 format!("- {} from {} into {}", component.name, old_channel, newer)
+    //             },
+    //         })
+    //         .collect();
+    //     if !migrated_components.is_empty() {
+    //         println!(
+    //             "{}: The following elements are going to be migrated.",
+    //             "WARNING".yellow().bold(),
+    //         );
 
-            for component_message in migrated_components {
-                println!("{}", component_message);
-            }
-        }
-    }
+    //         for component_message in migrated_components {
+    //             println!("{}", component_message);
+    //         }
+    //     }
+    // }
 }
