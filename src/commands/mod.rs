@@ -15,5 +15,5 @@ pub use self::{
     set::set,
     show::ShowCommand,
     uninstall::uninstall,
-    update::{Update, update},
+    update::{ComponentUpdate, update},
 };

@@ -309,14 +309,47 @@ impl Hash for ComponentByName<'_> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Update {
+pub struct ComponentUpdate {
     pub component: Component,
     pub motive: UpdateStatus,
 }
 
+impl ComponentUpdate {
+    fn new(component: Component, motive: UpdateStatus) -> ComponentUpdate {
+        ComponentUpdate { component, motive }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Update {
+    /// This is the channel that will be saved on the manifest and represents
+    /// the newly updated channel. It contains:
+    /// - The components that got added.
+    /// - The components that got updated.
+    /// - The components that are up to date, i.e. that stay the same.
+    /// This channel also contains all the metadata from the channel it got
+    /// computed from, i.e.: alias, tags, etc.
+    pub channel_to_install: Channel,
+    /// These are the components that need to be removed from the updated
+    /// channel. These contain:
+    /// - The components that got removed.
+    pub components_to_uninstall: Vec<Component>,
+    /// Channel that needs to be uninstalled. This can be caused due to:
+    /// - A channel migration
+    pub channel_to_uninstall: Option<Channel>,
+}
+
 impl Update {
-    fn new(component: Component, motive: UpdateStatus) -> Update {
-        Update { component, motive }
+    fn new(
+        channel_to_install: Channel,
+        components_to_uninstall: Vec<Component>,
+        channel_to_uninstall: Option<Channel>,
+    ) -> Update {
+        Update {
+            channel_to_install,
+            components_to_uninstall,
+            channel_to_uninstall,
+        }
     }
 }
 /// This functions compares the Channel &older, with a newer channel [newer] and returns the list
@@ -334,7 +367,71 @@ impl Update {
 ///
 /// There is one notable exception to this rule which is when a channel is migrated into a different
 /// channel. In that case, every component is marked for update.
-pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Update> {
+pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update> {
+    struct MigrationEffects<'a> {
+        strategy: Option<&'a MigrationStrategy>,
+        newer: &'a Channel,
+        older: &'a Channel,
+    }
+
+    impl<'a> MigrationEffects<'a> {
+        fn new(upstream_channel: &'a UpstreamChannel, older: &'a Channel) -> Self {
+            match &upstream_channel.upstream_match {
+                UpstreamMatch::UpstreamCounterpart => Self {
+                    strategy: None,
+                    newer: &upstream_channel.channel,
+                    older,
+                },
+                UpstreamMatch::Migrated(migration_strategy) => {
+                    match migration_strategy {
+                        MigrationStrategy::NameChange { old_channel: _old_channel } => {
+                            // We don't want to migrate channels that have already
+                            // been migrated
+                            // See https://github.com/0xMiden/midenup/issues/193
+                            if older.name == upstream_channel.channel.name {
+                                Self {
+                                    strategy: None,
+                                    newer: &upstream_channel.channel,
+                                    older,
+                                }
+                            } else {
+                                Self {
+                                    strategy: Some(migration_strategy),
+                                    newer: &upstream_channel.channel,
+                                    older,
+                                }
+                            }
+                        },
+                    }
+                },
+            }
+        }
+
+        /// Applies the migration to `channel` in place.
+        fn migrate_channel(&self, channel: &mut Channel) {
+            match self.strategy {
+                Some(MigrationStrategy::NameChange { .. }) => {
+                    // The old channel needs to have its name match the
+                    // upstream channel's
+                    channel.name = self.newer.name.clone();
+                },
+                None => (),
+            }
+        }
+
+        fn channel_to_uninstall(&self) -> Option<Channel> {
+            match self.strategy {
+                Some(MigrationStrategy::NameChange { .. }) => Some(self.older.clone()),
+                None => None,
+            }
+        }
+
+        fn required(&self) -> bool {
+            matches!(self.strategy, Some(_))
+        }
+    }
+
+    // We turn the components into hashsets in order to compute the venn diagram-like operations
     let new_channel: HashSet<ComponentByName> =
         newer.channel.components.iter().map(ComponentByName).collect();
     let current: HashSet<ComponentByName> = older.components.iter().map(ComponentByName).collect();
@@ -354,7 +451,7 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
 
     // These are the elements that are present in boths sets. We are only interested in those which
     // need updating.
-    let components_to_update = current
+    let components_to_update: Vec<(Component, UpdateStatus)> = current
         .iter()
         // We filter these components since they were already taken into account
         // on the new_components set
@@ -384,17 +481,61 @@ pub fn components_to_update(older: &Channel, newer: &UpstreamChannel) -> Vec<Upd
                     }
                 },
             }
-        });
+        })
+        .collect();
 
-    let components = new_components
-        .chain(old_components)
-        .chain(components_to_update)
-        .map(|(comp, motive)| Update::new(comp, motive));
+    let components_to_uninstall = Vec::from_iter(old_components.map(|(comp, _)| comp));
 
-    Vec::from_iter(components)
+    // Handle migrations
+    let migration = MigrationEffects::new(newer, older);
+
+    // We check if an Update is actually due. This is used for safe `midenup update`
+    // re-calls.
+    {
+        let all_components_up_to_date = components_to_update
+            .iter()
+            .all(|(_, motive)| matches!(motive, UpdateStatus::UpToDate));
+        if all_components_up_to_date && components_to_uninstall.is_empty() && !migration.required()
+        {
+            return None;
+        }
+    }
+
+    let channel_to_install = {
+        let components_to_install = {
+            let components_to_install = new_components
+                .chain(components_to_update)
+                .into_iter()
+                // We remove the metadata regarding why it needs to be installed,
+                // since we already used it above.
+                .map(|(comp, _)| comp);
+            Vec::from_iter(components_to_install)
+        };
+
+        // We clone the older channel as a template in order to get the metadata
+        // from the installed channel (tags, etc).
+        let mut channel_to_install = older.clone();
+
+        channel_to_install.components = components_to_install;
+
+        // If no migration is needed, this will be a no-op
+        migration.migrate_channel(&mut channel_to_install);
+
+        channel_to_install
+    };
+
+    let channel_to_uninstall = migration.channel_to_uninstall();
+
+    let update = Update::new(channel_to_install, components_to_uninstall, channel_to_uninstall);
+
+    Some(update)
 }
 
-fn display_warnings(components_with_motive: &[Update], newer: &Channel, options: &UpdateOptions) {
+fn display_warnings(
+    components_with_motive: &[ComponentUpdate],
+    newer: &Channel,
+    options: &UpdateOptions,
+) {
     let components_with_motive = components_with_motive.iter();
 
     // Warning for components installed from a PATH.
