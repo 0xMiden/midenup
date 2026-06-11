@@ -46,6 +46,8 @@ pub fn install(
             format!("failed to create install directory: '{}'", install_dir.display())
         })?;
         // If a previous install of this channel exists, reuse the components.
+        // For more context behind this, see the [[update_channel]] function
+        // documentation.
         if toolchain_dir.exists() {
             utils::fs::copy_dir_recursive(&toolchain_dir, &install_dir, &[]).with_context(
                 || {

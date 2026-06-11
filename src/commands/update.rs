@@ -125,17 +125,27 @@ midenup install stable
     Ok(())
 }
 
-/// This function executes the actual update. It is in charge of "preparing the environmet" to then
-/// call [`commands::install`]. Preparation primarily consists of:
+/// This function executes the actual update. Updates are the trickiest part of
+/// the codebase.
 ///
-/// - Uninstalling components (via `cargo uninstall`).
-/// - Removing the installation indicator file.
+/// We begin by computing the [[Update]] that needs to take place on the
+/// [[compute_update]] (in some specific cases, the user to modify which
+/// components get updated, like in the case of path managed components).
+/// We then:
+/// - Call the install function with the recently computed updated channel. Inside this function we:
+///    - Copy the entire previous directory onto the new one
+///    - Uninstall the components that need updating
+/// - If required, uninstall the old channel
 ///
-/// The channel that is finally installed might differ slighltly from the upstream channel in the
-/// following scenarios:
-///
-/// - A component is explicitely not updated. In that the case, the "old" component will be written
-///   to the install.rs file to ensure consistency.
+/// Copying the entire directory is done for two main reasons:
+/// - Speeding installs up, skipping the need to re-install already installed components
+/// - Most importantly, maintain `cargo install` consistency: When `cargo install`
+///   is called, it generates metadata files which are then stored on the respective
+///   toolchain directory (ATTOW, `.crates.toml` and `.crates.json`, for more
+///   information see: https://doc.rust-lang.org/cargo/guide/cargo-home.html).
+///   These files, as per the documentation, are not to be edited manually. So,
+///   we take these extra precautions in order for midenup's local [[Manifest]]
+///   and `cargo`'s to be synced.
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
