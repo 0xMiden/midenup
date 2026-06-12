@@ -1,6 +1,6 @@
 use std::{
     borrow::Cow,
-    collections::HashMap,
+    collections::{BTreeMap, HashMap, hash_map::DefaultHasher},
     ffi::OsString,
     fmt::{self, Display},
     hash::{Hash, Hasher},
@@ -20,14 +20,23 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+/// Hash created to distinguish one installed channel from the another.
+pub struct ChannelHash(String);
+
+impl Display for ChannelHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(untagged)]
 pub enum MigrationStrategy {
     NameChange { old_channel: semver::Version },
 }
 
 /// Tags used to identify special qualities of a specific channel.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Tags {
     /// The channel is partially installed, i.e. only a subset of components
@@ -44,7 +53,7 @@ pub enum Tags {
 ///
 /// Different channels have different stability guarantees. See the specific details for the
 /// channel you are interested in to learn more.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct Channel {
     /// Channels are identified by their name. The name corresponds to the channel's version.
     /// The version can contain suffixes such as "-custom", "-beta".
@@ -96,7 +105,9 @@ pub struct UpstreamChannel {
 }
 
 impl UpstreamChannel {
-    fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
+    pub fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
+        let mut synced_channel = channel.clone();
+        synced_channel.sync();
         UpstreamChannel { channel, upstream_match }
     }
 }
@@ -149,6 +160,12 @@ impl Channel {
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
         let installed_toolchains_dir = config.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", self.name))
+    }
+
+    pub fn content_hash(&self) -> ChannelHash {
+        let mut h = DefaultHasher::new();
+        self.hash(&mut h);
+        ChannelHash(format!("{:016x}", h.finish()))
     }
 
     /// Get all the aliases that the Channel is aware of
@@ -289,26 +306,12 @@ impl Channel {
         }
         upstream_counterpart
     }
-}
 
-impl Eq for Component {}
-
-/// NOTE: Two component are "partially equal" if their names are the same.
-///
-/// This does not mean that they're equal, since they could differ in fields like versions. This is
-/// implmented manually, in order to make use of HashSets with components.
-impl PartialEq for Component {
-    fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
-    }
-}
-
-impl Hash for Component {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        self.name.hash(state)
+    // Syncs the channel to the latest changes
+    fn sync(&mut self) {
+        for comp in self.components.iter_mut() {
+            comp.sync();
+        }
     }
 }
 
@@ -329,7 +332,7 @@ impl Display for Channel {
 
 /// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
 /// These are only used for locally installed [`Channel`]s.
-#[derive(Serialize, Debug, PartialEq, Eq, Clone)]
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelAlias {
     /// Represents `stable`. Only one [Channel] can be marked as `stable` at a time.
@@ -376,7 +379,7 @@ impl core::str::FromStr for ChannelAlias {
 }
 
 /// Represents the file that the [Component] will install in the system.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum InstalledFile {
     /// The component installs an executable.
@@ -439,7 +442,7 @@ impl Display for InstalledFile {
 /// Represents each possible "word" variant that is passed to the command line.
 ///
 /// These are used to resolve an [Alias] to its associated command.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum CliCommand {
     /// Resolve the command to a [Component]'s corresponding executable.
@@ -522,31 +525,12 @@ pub fn resolve_command(
     Ok(resolution)
 }
 
-/// Checks if both the `bin` and `lib` directories within the given toolchain directory are empty,
-/// indicating the toolchain has been deleted.
-pub fn is_toolchain_deleted(toolchain_dir: &Path) -> bool {
-    let bin_empty = toolchain_dir
-        .join("bin")
-        .read_dir()
-        .map(|mut entries| entries.next().is_none())
-        .unwrap_or(true);
-
-    let lib_empty = toolchain_dir
-        .join("lib")
-        .read_dir()
-        .map(|mut entries| entries.next().is_none())
-        .unwrap_or(true);
-
-    bin_empty && lib_empty
-}
-
 pub type Alias = String;
-
 /// List of the commands that need to be run when [Alias] is called.
 pub type CliCommands = Vec<CliCommand>;
 
 /// An installable component of a toolchain
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct Component {
     /// The canonical name of this toolchain component.
     pub name: Cow<'static, str>,
@@ -605,8 +589,8 @@ pub struct Component {
     /// },
     /// ```
     #[serde(default)]
-    #[serde(skip_serializing_if = "HashMap::is_empty")]
-    pub aliases: HashMap<Alias, CliCommands>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub aliases: BTreeMap<Alias, CliCommands>,
     /// The file used by midenup's 'miden' to call the components executable.
     ///
     /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
@@ -619,7 +603,7 @@ pub struct Component {
     pub initialization: Vec<String>,
     /// Pre-built artifact.
     #[serde(flatten)]
-    artifacts: Option<Artifacts>,
+    pub artifacts: Option<Artifacts>,
 }
 
 impl Component {
@@ -632,7 +616,7 @@ impl Component {
             call_format: vec![],
             rustup_channel: None,
             installed_file: None,
-            aliases: HashMap::new(),
+            aliases: BTreeMap::new(),
             symlink_name: None,
             initialization: Vec::new(),
             artifacts: None,
@@ -645,45 +629,52 @@ impl Component {
     /// This is used to check if they different in fields _besides_ the name. The [`Component::eq`]
     /// implementation only tests name equality and is only used to check for components that got
     /// added/removed.
+    ///
+    /// WARNING: The idea behind this function is to early return when a
+    /// difference is found, and fallback to "UpToDate" if none are
+    /// found. Therefore, there should be *no* early returns that return
+    /// `UpToDate`, since they might skip a field that differes later on.
     pub fn is_up_to_date(&self, upstream: &Self) -> bool {
         match (&self.version, &upstream.version) {
-            // NOTE: Components that are installed via git BRANCHES are a special case because we
-            // need to check if new commits have been pushed since the component was installed.
-            // When these components are installed, the lastest available commit hash is saved with
-            // them in the local manifest. We use this to check if an update is in order. Do note
-            // that the upstream manifest is not needed for these.
             (
                 Authority::Git {
                     repository_url: repository_url_a,
+                    crate_name: crate_a,
                     target:
                         GitTarget::Branch {
                             name: name_a,
                             latest_revision: local_revision,
                         },
-                    ..
                 },
                 Authority::Git {
                     repository_url: repository_url_b,
-                    target: GitTarget::Branch { name: name_b, .. },
-                    ..
+                    crate_name: crate_b,
+                    target:
+                        GitTarget::Branch {
+                            name: name_b,
+                            latest_revision: upstream_revision,
+                        },
                 },
             ) => {
-                if name_a != name_b {
-                    return false;
-                }
                 if repository_url_a != repository_url_b {
                     return false;
                 }
 
-                // If, for whatever reason, we fail to find the latest hash, we simply leave it
-                // empty. That does mean that an update will be triggered even if the component does
-                // not need it.
-                let latest_upstream_revision =
-                    utils::git::find_latest_hash(repository_url_b.as_str(), name_b).ok();
+                if crate_a != crate_b {
+                    return false;
+                }
 
-                match (local_revision, latest_upstream_revision) {
+                if repository_url_a != repository_url_b {
+                    return false;
+                }
+
+                if name_a != name_b {
+                    return false;
+                }
+
+                match (local_revision, upstream_revision) {
                     (Some(local_revision), Some(upstream_revision)) => {
-                        if *local_revision != upstream_revision {
+                        if *local_revision != *upstream_revision {
                             return false;
                         }
                     },
@@ -692,8 +683,6 @@ impl Component {
                         return false;
                     },
                 };
-
-                return true;
             },
             (
                 Authority::Path {
@@ -707,29 +696,18 @@ impl Component {
                     last_modification: last_modification_b,
                 },
             ) => {
-                if path_a != path_b {
+                if *path_a != *path_b {
                     return false;
                 }
-                if crate_name_a != crate_name_b {
+                if *crate_name_a != *crate_name_b {
                     return false;
                 }
 
-                let local_latest = last_modification_a;
-
-                let latest_registered_modification =
-                    utils::fs::latest_modification(path_b).ok().map(|modification| {
-                        // std::dbg!(&modification.1);
-                        modification.0
-                    });
-
-                // last_modification_b should almost always be None, since the latest modification
-                // time is checked on demand. However, if for whatever reason, the manifest contains
-                // a latest modification time, we honor it.
-                let new_latest = last_modification_b.or(latest_registered_modification);
-
-                match (local_latest, new_latest) {
+                match (last_modification_a, last_modification_b) {
                     (Some(local_latest), Some(new_latest)) => {
-                        return new_latest <= *local_latest;
+                        if new_latest > local_latest {
+                            return false;
+                        }
                     },
                     // If anything failed, we simply mark the component as needing an update.
                     // The idea being that components installed from a path are skipped during
@@ -738,10 +716,22 @@ impl Component {
                     _ => return false,
                 }
             },
-            (version_a, version_b) => {
+            (
+                Authority::Cargo { package: package_a, version: version_a },
+                Authority::Cargo { package: package_b, version: version_b },
+            ) => {
+                if package_a != package_b {
+                    return false;
+                }
+
                 if version_a != version_b {
                     return false;
                 }
+            },
+            _ => {
+                // This case includes all the cases where the Authorities differ,
+                // which are never considered "up to date".
+                return false;
             },
         };
 
@@ -806,6 +796,50 @@ impl Component {
     /// Returns the URI for a given `target` (if available).
     pub fn get_artifact_uri(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts.as_ref().and_then(|artifacts| artifacts.get_uri_for(target))
+    }
+
+    // Sync to the latest changes.
+    pub fn sync(&mut self) {
+        match &mut self.version {
+            Authority::Path {
+                path,
+                crate_name: _crate_name,
+                last_modification,
+            } => {
+                // If, for whatever reason, we fail to find the latest
+                // registered modification, we simply leave it empty. That does
+                // mean that an update will be triggered even if the component
+                // does not need it.
+                let latest_registered_modification =
+                    utils::fs::latest_modification(path).ok().map(|modification| modification.0);
+                *last_modification = latest_registered_modification;
+            },
+            // NOTE: Components that are installed via git BRANCHES are a special case because we
+            // need to check if new commits have been pushed since the component was installed.
+            // When these components are installed, the lastest available commit hash is saved with
+            // them in the local manifest. We use this to check if an update is in order. Do note
+            // that the upstream manifest is not needed for these.
+            Authority::Git {
+                repository_url,
+                crate_name: _crate_name,
+                target,
+            } => {
+                match target {
+                    GitTarget::Branch { name: branch_name, latest_revision } => {
+                        // If, for whatever reason, we fail to find the latest hash, we
+                        // simply leave it empty. That does mean that an update will be
+                        // triggered even if the component does not need it.
+                        let latest_upstream_revision =
+                            utils::git::find_latest_hash(repository_url.as_str(), branch_name).ok();
+
+                        *latest_revision = latest_upstream_revision;
+                    },
+                    GitTarget::Revision { hash: _hash } => {},
+                    GitTarget::Tag { name: _name } => {},
+                }
+            },
+            Authority::Cargo { package: _package, version: _version } => {},
+        }
     }
 }
 

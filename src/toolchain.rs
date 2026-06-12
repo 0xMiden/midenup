@@ -91,7 +91,10 @@ impl Toolchain {
     ///    added to the `midenup` directory.
     ///
     /// If none of the previous conditions are met, then `stable` will be used.
-    pub fn current(config: &Config) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
+    pub fn current(
+        config: &Config,
+        local_manifest: &Manifest,
+    ) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
         let local_toolchain = Self::toolchain_file()?;
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
 
@@ -117,22 +120,15 @@ impl Toolchain {
                 .context("Couldn't read channel name from directory")?;
             // NOTE: This has to be a UserChannel because the default channel could be a channel
             // like "stable"
-            let channel = UserChannel::from_str(channel_name)?;
+            let user_channel = UserChannel::from_str(channel_name)?;
 
-            let installed_components_file = {
-                let possible_log_files = ["installation-successful", ".installation-in-progress"];
-
-                possible_log_files
-                    .iter()
-                    .map(|file| channel_path.join(file))
-                    .find(|log_file| log_file.exists())
-            };
+            // TODO: Maybe as a QoL improvement, we could write down the
+            // components present on the upstream channel.
+            let channel = local_manifest.get_channel(&user_channel);
 
             let components: Vec<String> = {
-                if let Some(installed_components_file) = installed_components_file {
-                    let components_file = global_toolchain.join(installed_components_file);
-
-                    std::fs::read_to_string(components_file)?.lines().map(String::from).collect()
+                if let Some(channel) = channel {
+                    channel.components.iter().map(|comp| comp.name.to_string()).collect()
                 } else {
                     println!(
                         "WARNING: Non present toolchain was set. Component list will be left empty"
@@ -140,7 +136,7 @@ impl Toolchain {
                     Vec::new()
                 }
             };
-            let toolchain = Toolchain { channel, components };
+            let toolchain = Toolchain { channel: user_channel, components };
 
             Ok((toolchain, ToolchainJustification::Override))
         } else {
@@ -152,7 +148,7 @@ impl Toolchain {
         config: &Config,
         local_manifest: &mut Manifest,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
-        let (current_toolchain, justification) = Toolchain::current(config)?;
+        let (current_toolchain, justification) = Toolchain::current(config, local_manifest)?;
         let desired_channel = &current_toolchain.channel;
 
         let Some(channel) = config.manifest.get_channel(desired_channel) else {

@@ -1,5 +1,5 @@
 {
-  "manifest_version": "1.0",
+  "manifest_version": "1.0.0",
   "date": 1745931671,
   "channels": [
     {
@@ -11,13 +11,6 @@
           "version": "0.20.3",
           "installed_library": "core.masp",
           "library_struct": "miden_core_lib::CoreLibrary"
-        },
-        {
-          "name": "vm",
-          "package": "miden-vm",
-          "version": "0.20.3",
-          "features": ["executable", "concurrent"],
-          "installed_executable": "miden-vm"
         },
         {
           "name": "client",

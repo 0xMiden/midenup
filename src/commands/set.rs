@@ -5,6 +5,7 @@ use anyhow::Context;
 use crate::{
     channel::UserChannel,
     config::Config,
+    manifest::Manifest,
     toolchain::{Toolchain, ToolchainFile},
 };
 
@@ -13,28 +14,23 @@ const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
 /// This function creates the `miden-toolchain.toml` in the present working directory.
 ///
 /// That file contains the desired toolchain with a list of the components that make it up.
-pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
+pub fn set(
+    config: &Config,
+    local_manifest: &Manifest,
+    channel: &UserChannel,
+) -> anyhow::Result<()> {
     let toolchain_file_path =
         config.working_directory.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
 
-    let current_components_list = config
-        .midenup_home
-        .join("toolchains")
-        .join(channel.to_string())
-        .join("installation-successful");
+    let local_channel = local_manifest.get_channel(channel);
 
     let components = {
-        match std::fs::read_to_string(current_components_list) {
-            Ok(components) => components,
-            Err(_) => {
-                println!(
-                    "WARNING: Non present toolchain was set. Component list will be left empty"
-                );
-                String::default()
-            },
+        if let Some(local_channel) = local_channel {
+            local_channel.components.iter().map(|comp| comp.name.to_string()).collect()
+        } else {
+            Vec::new()
         }
     };
-    let components: Vec<String> = components.lines().map(String::from).collect();
 
     let installed_toolchain = Toolchain::new(channel.clone(), components);
     let installed_toolchain = ToolchainFile::new(installed_toolchain);

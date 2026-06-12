@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, manifest::Manifest, migration, options::DEFAULT_USER_DATA_DIR, utils};
 
 #[derive(Error, Debug)]
 pub enum InitializationError {
@@ -50,21 +50,26 @@ fn cargo_bin_dir() -> Result<PathBuf, InitializationError> {
 ///
 /// ```text,ignore
 /// $MIDENUP_HOME
-/// |- opt/
-/// | |- symlinks
-/// |- toolchains
-/// | |- stable/ --> <channel>/
-/// | |- <channel>/
+/// |- toolchains/
+/// | |- stable     --> <channel>
+/// | |- <channel>  --> ../installed_toolchains/<channel>-<hash>
+/// |- installed_toolchains/
+/// | |- <channel>-<hash>/
 /// | | |- bin/
 /// | | |- lib/
 /// | | | |- std.masp
+/// | | |- opt/
+/// | | |- var/
 /// |- config.toml
 /// |- manifest.json
 /// ```
 ///
 /// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
 /// executable.
-pub fn setup_midenup(config: &Config) -> Result<InitializationState, InitializationError> {
+pub fn setup_midenup(
+    config: &Config,
+    local_manifest: &Manifest,
+) -> Result<InitializationState, InitializationError> {
     let mut state = InitializationState::AlreadyInitialized;
 
     let midenhome_dir = &config.midenup_home;
@@ -86,6 +91,17 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
     if !toolchains_dir.exists() {
         std::fs::create_dir_all(&toolchains_dir).map_err(|e| {
             InitializationError::DirectoryCreationFailed(toolchains_dir.clone(), e.to_string())
+        })?;
+        state = InitializationState::Initialized;
+    }
+
+    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
+    if !installed_toolchains_dir.exists() {
+        std::fs::create_dir_all(&installed_toolchains_dir).map_err(|e| {
+            InitializationError::DirectoryCreationFailed(
+                installed_toolchains_dir.clone(),
+                e.to_string(),
+            )
         })?;
         state = InitializationState::Initialized;
     }
@@ -151,11 +167,13 @@ source ~/.zprofile
         }
     }
 
+    migration::run_toolchain_migration(config, local_manifest).unwrap();
+
     Ok(state)
 }
 
-pub fn init(config: &Config) -> Result<(), InitializationError> {
-    let state = setup_midenup(config)?;
+pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), InitializationError> {
+    let state = setup_midenup(config, local_manifest)?;
 
     match state {
         InitializationState::Initialized => println!(

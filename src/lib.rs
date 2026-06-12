@@ -7,6 +7,7 @@ pub mod config;
 mod external;
 pub mod manifest;
 pub mod miden_wrapper;
+pub mod migration;
 pub mod options;
 mod toolchain;
 pub mod utils;

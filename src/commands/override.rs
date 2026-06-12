@@ -5,6 +5,7 @@ use crate::{
     channel::UserChannel,
     commands,
     config::Config,
+    manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
 };
@@ -14,12 +15,16 @@ use crate::{
 /// directory.
 // This function requires raw identifier syntax because "override" is a reserved keyword.
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
-pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
-    commands::setup_midenup(config)?;
+pub fn r#override(
+    config: &Config,
+    local_manifest: &Manifest,
+    channel: &UserChannel,
+) -> anyhow::Result<()> {
+    commands::setup_midenup(config, local_manifest)?;
 
     // We check which toolchain is active in order to inform the user in case the `override` command
     // won't take effect.
-    let (active, justification) = Toolchain::current(config)?;
+    let (active, justification) = Toolchain::current(config, local_manifest)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let channel_dir = match channel {

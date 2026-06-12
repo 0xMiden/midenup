@@ -1,14 +1,9 @@
-use std::{
-    fmt,
-    hash::{Hash, Hasher},
-    path::PathBuf,
-    time::SystemTime,
-};
+use std::{fmt, hash::Hash, path::PathBuf, time::SystemTime};
 
 use serde::{Deserialize, Serialize};
 
 /// Used to specify from which  particular revision of a repository.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum GitTarget {
     /// The components is pointing to a specific revision in the repository.
@@ -48,35 +43,6 @@ impl Default for GitTarget {
         }
     }
 }
-impl Eq for GitTarget {}
-impl PartialEq for GitTarget {
-    fn eq(&self, other: &Self) -> bool {
-        match (&self, other) {
-            (Self::Revision { hash: hasha }, Self::Revision { hash: hashb }) => hasha == hashb,
-            (Self::Tag { name: taga }, Self::Tag { name: tagb }) => taga == tagb,
-            // Two components are "equal" if they are pointing to the same branch.
-            //
-            // Comparison between latest available commit is done ad-hoc
-            (Self::Branch { name: name_a, .. }, Self::Branch { name: name_b, .. }) => {
-                name_a == name_b
-            },
-            _ => false,
-        }
-    }
-}
-
-impl Hash for GitTarget {
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        match &self {
-            Self::Revision { hash: hash_a } => hash_a.hash(state),
-            Self::Tag { name: tag_a } => tag_a.hash(state),
-            Self::Branch { name, .. } => name.hash(state),
-        }
-    }
-}
 
 impl fmt::Display for GitTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -99,7 +65,7 @@ impl GitTarget {
 }
 
 /// Represents the canonical versioning authority for a tool or toolchain
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum Authority {
     /// The authority for this tool/toolchain is a local filesystem path

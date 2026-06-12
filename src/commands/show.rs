@@ -25,7 +25,7 @@ impl ShowCommand {
     pub fn execute(&self, config: &Config, local_manifest: &Manifest) -> anyhow::Result<()> {
         match self {
             Self::Current { verbose } => {
-                let (toolchain, justification) = Toolchain::current(config)?;
+                let (toolchain, justification) = Toolchain::current(config, local_manifest)?;
 
                 if !verbose {
                     println!("{}", &toolchain.channel);

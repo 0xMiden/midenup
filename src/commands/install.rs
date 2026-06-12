@@ -1,4 +1,9 @@
-use std::{io::Write, path::Path, time::SystemTime};
+use std::{
+    collections::HashSet,
+    io::Write,
+    path::{Path, PathBuf},
+    time::SystemTime,
+};
 
 use anyhow::{Context, bail};
 
@@ -20,33 +25,48 @@ pub fn install(
     local_manifest: &mut Manifest,
     options: &InstallationOptions,
 ) -> anyhow::Result<()> {
-    commands::setup_midenup(config)?;
+    commands::setup_midenup(config, local_manifest)?;
 
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &channel.name));
+    let toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchain_dir = toolchains_dir.join(format!("{}", &channel.name));
 
-    let installation_indicator = toolchain_dir.join("installation-successful");
-    let is_partial = local_manifest
-        .get_channel_by_name(&channel.name)
-        .map(|ch| ch.is_partially_installed())
-        .unwrap_or(false);
+    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
+    let install_dir_name = format!("{}-{}", &channel.name, channel.content_hash());
+    let install_dir = installed_toolchains_dir.join(&install_dir_name);
 
-    if installation_indicator.exists()
-    // If the channel is "partial" then that means that only a subset of the components got
-    // installed. In that case, we can procede to install the remaining components.
-    && !is_partial
-    {
-        bail!("the '{}' toolchain is already installed", &channel.name);
-    }
+    // Relative path to the newly installed channel directory.
+    let relative_install_target =
+        PathBuf::from("..").join("installed_toolchains").join(&install_dir_name);
 
-    if !toolchain_dir.exists() {
-        std::fs::create_dir_all(&toolchain_dir).with_context(|| {
-            format!("failed to create toolchain directory: '{}'", toolchain_dir.display())
+    // If the install directory already exists; then that means we are re-issuing
+    // an install. That's probably because the installation got interrumpted
+    // mid way through.
+    if !install_dir.exists() {
+        std::fs::create_dir_all(&install_dir).with_context(|| {
+            format!("failed to create install directory: '{}'", install_dir.display())
         })?;
+        // If a previous install of this channel exists, reuse the components.
+        // For more context behind this, see the [[update_channel]] function
+        // documentation.
+        if toolchain_dir.exists() {
+            utils::fs::copy_dir_recursive(&toolchain_dir, &install_dir, &[]).with_context(
+                || {
+                    format!(
+                        "failed to seed install directory '{}' from previous install at '{}'",
+                        install_dir.display(),
+                        toolchain_dir.display()
+                    )
+                },
+            )?;
+
+            commands::uninstall::uninstall_components(
+                &install_dir,
+                &options.components_to_uninstall,
+            )?;
+        }
     }
 
-    // `bin/` directory which holds binaries.
-    let bin_dir = toolchain_dir.join("bin");
+    let bin_dir = install_dir.join("bin");
     if !bin_dir.exists() {
         std::fs::create_dir_all(&bin_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", bin_dir.display())
@@ -54,7 +74,7 @@ pub fn install(
     }
 
     // `lib/` directory which holds MASP libraries.
-    let lib_dir = toolchain_dir.join("lib");
+    let lib_dir = install_dir.join("lib");
     if !lib_dir.exists() {
         std::fs::create_dir_all(&lib_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", lib_dir.display())
@@ -70,31 +90,31 @@ pub fn install(
     // Then, when `miden` is invoked, it uses these symlinks to execute the underlying binary. With
     // this setup, `clap` displays the name as: `miden <component name>` instead of just
     // `binary_name` when displaying help messages.
-    let opt_dir = toolchain_dir.join("opt");
+    let opt_dir = install_dir.join("opt");
     if !opt_dir.exists() {
         std::fs::create_dir_all(&opt_dir).with_context(|| {
             format!("failed to create toolchain directory: '{}'", opt_dir.display())
         })?;
     }
 
-    let install_file_path = toolchain_dir.join("install").with_extension("rs");
     // NOTE: Even when performing an update, we still need to re-generate the install script.
     // This is because, the versions that will be installed are written directly into the file; so
     // the file can't be "re-used".
+    let install_file_path = install_dir.join("install").with_extension("rs");
     let mut install_file = std::fs::File::create(&install_file_path).with_context(|| {
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel, options, &toolchain_dir);
+    let install_script_contents = generate_install_script(config, channel, options, &install_dir);
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
 
     let mut child = std::process::Command::new("cargo")
-        .env("MIDEN_SYSROOT", &toolchain_dir)
+        .env("MIDEN_SYSROOT", &install_dir)
         // HACK(pauls): This is for the benefit of the compiler, until it moves to using
         // MIDEN_SYSROOT instead.
-        .env("MIDENC_SYSROOT", &toolchain_dir)
+        .env("MIDENC_SYSROOT", &install_dir)
         .args(["+nightly", "-Zscript"])
         .arg(&install_file_path)
         .stderr(std::process::Stdio::inherit())
@@ -114,17 +134,44 @@ pub fn install(
         )
     }
 
+    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", &channel.name));
+    if std::fs::symlink_metadata(&temp_symlink).is_ok() {
+        std::fs::remove_file(&temp_symlink).with_context(|| {
+            format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
+        })?;
+    }
+
+    // ======================== Installation finalized  ===========================
+
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
     // If this channel is the new stable, we update the symlink
     if is_latest_stable {
-        // NOTE: This is an absolute file path, maybe a relative symlink would be more suitable
-        let stable_dir = installed_toolchains_dir.join("stable");
+        let stable_dir = toolchains_dir.join("stable");
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
-        utils::fs::symlink(&stable_dir, &toolchain_dir).expect("Couldn't create stable dir");
+        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
+        utils::fs::symlink(&stable_dir, &relative_channel_target)
+            .expect("Couldn't create stable dir");
     }
+
+    // tmp_link is a symlink file that points to relative_install_target. Even
+    // if tmp_link file is moved, it will still point to relative_install_target.
+    // For further reference on atomic directory updates, see:
+    // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
+    utils::fs::symlink(&temp_symlink, &relative_install_target)?;
+
+    // We now rename tmp_link to toolchain_dir. When renamed, it will still be
+    // pointing to relative_install_target. If the channel direcotry existed, it
+    // will overwrite the file. This is what marks the install as completed.
+    std::fs::rename(&temp_symlink, &toolchain_dir).with_context(|| {
+        format!(
+            "failed to publish toolchain symlink '{}' -> '{}'",
+            toolchain_dir.display(),
+            relative_install_target.display()
+        )
+    })?;
 
     // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
@@ -138,29 +185,41 @@ pub fn install(
             channel.clone()
         };
 
+        // We determine how the component got installed.
+        // A component could have been installed either by cargo install (i.e. "from
+        // source") or via a pre-compiled miden-provided binary artifact.
+        // We can only *truly* determine how it got installed after the fact.
+        let cargo_installed_binaries = get_installed_cargo_binaries(toolchain_dir)?;
+
         for component in channel_to_save.components.iter_mut() {
             match &component.version {
-                // If a component was installed with --branch, then write down the current commit.
-                // This is used on updates to check if any new commits were pushed since
-                // installation.
-                Authority::Git {
-                    repository_url,
-                    crate_name,
-                    target: GitTarget::Branch { name, latest_revision: _ },
-                } => {
-                    // If, for whatever reason, we fail to find the latest hash, we simply leave it
-                    // empty. That does mean that an update will be triggered even if the component
-                    // does not need it.
-                    let revision_hash = utils::git::find_latest_hash(repository_url, name).ok();
+                #[allow(clippy::collapsible_match)]
+                Authority::Git { repository_url, crate_name, target } => {
+                    #[allow(clippy::single_match)]
+                    match target {
+                        // If a component was installed with --branch, then
+                        // write down the current commit.  This is used on
+                        // updates to check if any new commits were pushed since
+                        // installation.
+                        GitTarget::Branch { name, latest_revision: _ } => {
+                            // If, for whatever reason, we fail to find the latest hash, we simply
+                            // leave it empty. That does mean that an
+                            // update will be triggered even if the component
+                            // does not need it.
+                            let revision_hash =
+                                utils::git::find_latest_hash(repository_url, name).ok();
 
-                    component.version = Authority::Git {
-                        repository_url: repository_url.clone(),
-                        crate_name: crate_name.clone(),
-                        target: GitTarget::Branch {
-                            name: name.clone(),
-                            latest_revision: revision_hash,
+                            component.version = Authority::Git {
+                                repository_url: repository_url.clone(),
+                                crate_name: crate_name.clone(),
+                                target: GitTarget::Branch {
+                                    name: name.clone(),
+                                    latest_revision: revision_hash,
+                                },
+                            }
                         },
-                    };
+                        _ => {},
+                    }
                 },
                 Authority::Path { path, crate_name, last_modification: _ } => {
                     // If a component was installed with --path, then write down the latest
@@ -176,7 +235,35 @@ pub fn install(
                         last_modification: Some(latest_time),
                     }
                 },
-                _ => (),
+                Authority::Cargo { package, .. } => {
+                    // If a component is marked with Cargo as an authority and
+                    // also has artifacts listed as available, determine which
+                    // got used for the installation.
+                    //
+                    // Currently, by convention, if a component has an artifacts
+                    // field listed on the *LOCAL* manifest, then that means
+                    // that artifacts were used.
+                    if component.get_artifact_uri(&config.target).is_none() {
+                        continue;
+                    }
+
+                    let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
+
+                    let installed_via_cargo = cargo_installed_binaries.contains(package.as_str());
+
+                    // TODO (fabrio): Unify this in the local manifest, I don't
+                    // believe there really is a need to store both the artifact
+                    // and authority fields.  We could only store the field that
+                    // was actually used.
+                    if installed_via_cargo {
+                        // This means that the component had an artifacts entry,
+                        // yet it was not utilized. While rare, this can happen
+                        // due to a number of factors, such as: no artifact for
+                        // this system's triple or Github being offline (with
+                        // the latter becoming more likely).
+                        component.artifacts = None;
+                    }
+                },
             }
         }
 
@@ -230,9 +317,6 @@ curl = "{{ curl_version }}"
 
 // NOTE: This file was generated by midenup. Do not edit by hand
 
-use std::io::{Write};
-use std::fs::{OpenOptions, rename};
-
 {{ install_artifact.function }}
 
 // Utility functions
@@ -254,31 +338,7 @@ fn main() {
     // components.
     let miden_sysroot_dir = std::path::Path::new(env!("MIDEN_SYSROOT"));
 
-
-    // We save the state the channel was in when installed. This is used when uninstalling.
-    {
-        let channel_json = r#"{{ channel_json }}"#;
-        let channel_json_path = miden_sysroot_dir.join(".installed_channel.json");
-        let mut installed_json = std::fs::File::create(channel_json_path).expect("failed to create installation in progress file");
-        installed_json.write_all(&channel_json.as_bytes()).unwrap();
-    }
-
-
-    // As we install components, we write them down in this file. This is used
-    // to keep track of successfully installed components in case installation
-    // fails.
-    let progress_path = miden_sysroot_dir.join(".installation-in-progress");
-    // Done to truncate the file if it exists
-    let _progress_file = std::fs::File::create(progress_path.as_path()).expect("failed to create installation in progress file");
-    // We'll log which components we have successfully installed.
-    let mut progress_file = OpenOptions::new()
-        .append(true)
-        .open(&progress_path)
-        .expect("Failed to create progress file");
-
-
     let padding = "    ";
-
 
     // Install libraries
     let lib_dir = miden_sysroot_dir.join("lib");
@@ -336,7 +396,6 @@ fn main() {
         } else {
             println!("{} Already installed", padding);
         }
-        writeln!(progress_file, "{{ dep.name }}").expect("Failed to write component name to progress file");
         {%- endfor %}
     }
 
@@ -410,8 +469,6 @@ fn main() {
     } else {
         println!("{} Already installed", padding);
     }
-    writeln!(progress_file, "{{component.name}}").expect("Failed to write component name to progress file");
-
     {% endfor %}
 
     let opt_dir = miden_sysroot_dir.join("opt");
@@ -419,18 +476,12 @@ fn main() {
     {%- for link in symlinks %}
 
     let new_link = opt_dir.join("{{ link.alias }}");
-    let executable = bin_dir.join("{{ link.binary }}");
+    let executable = std::path::Path::new("../bin").join("{{ link.binary }}");
     if std::fs::read_link(&new_link).is_err() {
          utility::symlink(&new_link, &executable);
     }
 
     {%- endfor %}
-
-
-    // Now that installation finished, we rename the file to indicate that
-    // installation finished successfully.
-    let checkpoint_path = miden_sysroot_dir.join("installation-successful");
-    rename(progress_path, checkpoint_path).expect("Couldn't rename .installation-in-progress to installation-successful");
 
     // Create var directory
     let var_dir = miden_sysroot_dir.join("var");
@@ -663,4 +714,43 @@ fn main() {
         )
         .to_string()
         .unwrap_or_else(|err| panic!("install script rendering failed: {err}"))
+}
+
+type InstalledBinary = String;
+/// Returns the names of all packages installed via cargo at the given root.
+///
+/// Runs `cargo install --list --root <root>` and parses each package header line.
+pub fn get_installed_cargo_binaries(root_dir: PathBuf) -> anyhow::Result<HashSet<InstalledBinary>> {
+    let output = std::process::Command::new("cargo")
+        .arg("install")
+        .arg("--root")
+        .arg(&root_dir)
+        .arg("--list")
+        .output()
+        .with_context(|| "Failed to obtain binaries intalled via cargo")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        bail!("Failed to obtain binaries installed via cargo {stderr}");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let programs = stdout
+        .lines()
+        // The format of cargo install --list is as follows:
+        // <crate> <version>
+        //     <binary>
+        //
+        // e.g.:
+        // ripgrep v15.1.0:
+        //     rg
+        // sccache v0.10.0:
+        //     sccache
+        .filter(|line| !line.is_empty() && !line.starts_with(char::is_whitespace))
+        // The first item is the name of the crate that we have installed.
+        .filter_map(|line| line.split_whitespace().next())
+        .map(String::from)
+        .collect();
+
+    Ok(programs)
 }

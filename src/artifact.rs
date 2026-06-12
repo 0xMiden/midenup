@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// All the artifacts that the [Component] contains.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct Artifacts {
     artifacts: Vec<Artifact>,
 }
@@ -16,7 +16,7 @@ impl Artifacts {
 /// Holds a URI used to fetch an artifact.
 ///
 /// These URIs have the following format: `(https://|file://)<path>/<component name>(-<triplet>|.masp)`
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 struct Artifact(String);
 
 #[derive(Debug, PartialEq)]

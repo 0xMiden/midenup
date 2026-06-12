@@ -1,5 +1,5 @@
 {
-  "manifest_version": "1.0",
+  "manifest_version": "1.0.0",
   "date": 1745931671,
   "channels": [
     {
@@ -24,7 +24,7 @@
           "package": "miden-vm",
           "version": "0.13.0",
           "features": ["executable", "concurrent"],
-          "installed_file": "miden"
+          "installed_executable": "miden"
         },
         {
           "name": "client",
@@ -48,7 +48,8 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.16.2",
-          "features": ["executable", "concurrent"]
+          "features": ["executable", "concurrent"],
+          "installed_executable": "miden"
         }
       ]
     },
