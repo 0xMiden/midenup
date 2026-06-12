@@ -73,11 +73,6 @@ pub fn uninstall(
         }
     }
 
-    // We remove the symlink, thus making the channel unaccesible.
-    if toolchain_symlink.exists() {
-        std::fs::remove_file(&toolchain_symlink)?;
-    }
-
     // If cleanup is interrumpted, then `midenup clean` can be used to clean
     // stale files.
     if let Ok(installed_channel_dir) = installed_channel_dir {
@@ -90,6 +85,11 @@ pub fn uninstall(
                 installed_channel_dir.to_path_buf(),
             )
         })?;
+    }
+
+    // We remove the symlink, thus making the channel unaccesible.
+    if toolchain_symlink.exists() {
+        std::fs::remove_file(&toolchain_symlink)?;
     }
 
     // We remove the channel from the local manifest.
