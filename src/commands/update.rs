@@ -153,18 +153,18 @@ fn update_channel(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    // These are the components that require updating
-    let Some(Update {
-        mut channel_to_install,
-        components_to_uninstall,
-        channel_to_uninstall,
-    }) = compute_update(local_channel, upstream_channel)
-    else {
+    let Some(update) = compute_update(local_channel, upstream_channel) else {
         println!("Toolchain {} is up to date", local_channel);
         return Ok(());
     };
 
-    display_warnings(&channel_to_install, &upstream_channel.channel, options);
+    display_warnings(&update, options);
+
+    let Update {
+        mut channel_to_install,
+        components_to_uninstall,
+        channel_to_uninstall,
+    } = update;
 
     for component in channel_to_install.components.iter_mut() {
         let skip_update = match component.get_installed_file() {
@@ -513,12 +513,13 @@ pub fn compute_update(older: &Channel, newer: &UpstreamChannel) -> Option<Update
     Some(update)
 }
 
-fn display_warnings(channel_to_install: &Channel, _newer: &Channel, options: &UpdateOptions) {
-    let components_with_motive = channel_to_install.components.iter();
-
+fn display_warnings(update: &Update, options: &UpdateOptions) {
     // Warning for components installed from a PATH.
     {
-        let components_from_path: Vec<String> = components_with_motive
+        let components_from_path: Vec<String> = update
+            .channel_to_install
+            .components
+            .iter()
             .filter_map(|component| match &component.version {
                 Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
                 _ => None,
@@ -548,27 +549,31 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
     }
 
     // Warning for migrated components
-    // {
-    //     let migrated_components: Vec<String> = components_with_motive
-    //         .filter_map(|update| match &update.motive {
-    //             UpdateStatus::Migrated { strategy } => Some((&update.component, strategy)),
-    //             _ => None,
-    //         })
-    //         .map(|(component, strategy)| match strategy {
-    //             MigrationStrategy::NameChange { old_channel } => {
-    //                 format!("- {} from {} into {}", component.name, old_channel, newer)
-    //             },
-    //         })
-    //         .collect();
-    //     if !migrated_components.is_empty() {
-    //         println!(
-    //             "{}: The following elements are going to be migrated.",
-    //             "WARNING".yellow().bold(),
-    //         );
+    {
+        // A pending channel uninstall can only mean one thing: the channel got
+        // migrated, and every component is going to be carried over.
+        if let Some(old_channel) = &update.channel_to_uninstall {
+            let migrated_components: Vec<String> = update
+                .channel_to_install
+                .components
+                .iter()
+                .map(|component| {
+                    format!(
+                        "- {} from {} into {}",
+                        component.name, old_channel, update.channel_to_install
+                    )
+                })
+                .collect();
+            if !migrated_components.is_empty() {
+                println!(
+                    "{}: The following elements are going to be migrated.",
+                    "WARNING".yellow().bold(),
+                );
 
-    //         for component_message in migrated_components {
-    //             println!("{}", component_message);
-    //         }
-    //     }
-    // }
+                for component_message in migrated_components {
+                    println!("{}", component_message);
+                }
+            }
+        }
+    }
 }
