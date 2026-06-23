@@ -665,19 +665,7 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.15.0",
-          "installed_executable": "miden-node",
-          "aliases": {
-            "start-node": [
-              "executable",
-              "bundled",
-              "start",
-              "--data-directory",
-              "var_path",
-              "data",
-              "--rpc.url",
-              "http://0.0.0.0:57291"
-            ]
-          }
+          "installed_executable": "miden-node"
         },
         {
           "name": "debug",
