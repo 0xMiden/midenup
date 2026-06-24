@@ -197,7 +197,7 @@ impl Channel {
     /// Creates a "partial channel" from the original channel, given a toolchain "Partial" in this
     /// context refers to the fact that the channel will not install all the available components,
     /// but rather a subset.
-    pub fn create_subset(
+    fn create_subset(
         &self,
         current_toolchain: &Toolchain,
         toolchain_justification: &ToolchainJustification,
@@ -277,6 +277,27 @@ impl Channel {
         };
 
         Some(partial_channel)
+    }
+
+    /// Resolves the concrete channel to install for `current_toolchain`.
+    pub fn resolve_for_toolchain(
+        &self,
+        current_toolchain: &Toolchain,
+        toolchain_justification: &ToolchainJustification,
+    ) -> Channel {
+        let partial_channel = self.create_subset(current_toolchain, toolchain_justification);
+
+        let mut channel_to_install = partial_channel.unwrap_or_else(|| self.clone());
+
+        for component in channel_to_install.components.iter_mut() {
+            if let Some(authority) = current_toolchain.patches.get(component.name.as_ref()) {
+                component.version = authority.clone();
+                // The pre-built artifact is only valid for published component.
+                component.artifacts = None;
+            }
+        }
+
+        channel_to_install
     }
 
     /// Checks wheter the channel [other] is Self's upstream counterpart.

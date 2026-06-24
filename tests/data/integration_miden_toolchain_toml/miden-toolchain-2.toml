@@ -4,3 +4,8 @@ components = [
     "vm",
     "midenc",
 ]
+
+[patches.vm]
+repository_url = "https://github.com/0xMiden/miden-vm.git"
+crate_name = "miden-vm"
+tag = "0.22.1"

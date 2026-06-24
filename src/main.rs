@@ -685,6 +685,21 @@ Error: {}",
         // VM, Compiler and both libraries
         assert_eq!(installed_channel.components.len(), 4);
 
+        // The toolchain file patches `vm` to a git tag; the installed component should reflect
+        // the patched authority.
+        let vm = installed_channel.get_component("vm").expect("vm component missing");
+        match &vm.version {
+            version::Authority::Git { repository_url, crate_name, target } => {
+                assert_eq!(repository_url, "https://github.com/0xMiden/miden-vm.git");
+                assert_eq!(crate_name, "miden-vm");
+                match target {
+                    version::GitTarget::Tag { name } => assert_eq!(name, "0.22.1"),
+                    other => panic!("expected tag target, got {other:?}"),
+                }
+            },
+            other => panic!("expected vm to have a Git authority, got {other:?}"),
+        }
+
         // Now, we try updating the installed toolchain. This should only update the installed
         // components and ignore the rest.
         let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
