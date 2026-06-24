@@ -14,6 +14,8 @@ pub enum InitializationError {
     FileCreationFailed(PathBuf, String),
     #[error("Failed to create symlink. {0}")]
     SymlinkFailed(String),
+    #[error(transparent)]
+    MigrationFailed(anyhow::Error),
 }
 
 pub enum InitializationState {
@@ -167,7 +169,8 @@ source ~/.zprofile
         }
     }
 
-    migration::run_toolchain_migration(config, local_manifest).unwrap();
+    migration::run_toolchain_migration(config, local_manifest)
+        .map_err(InitializationError::MigrationFailed)?;
 
     Ok(state)
 }
