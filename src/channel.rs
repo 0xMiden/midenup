@@ -1,15 +1,16 @@
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, HashMap, hash_map::DefaultHasher},
+    collections::{BTreeMap, HashMap},
     ffi::OsString,
     fmt::{self, Display},
-    hash::{Hash, Hasher},
+    hash::Hash,
     path::{Path, PathBuf},
 };
 
 use anyhow::{Context, bail};
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 
 use crate::{
     artifact::{Artifacts, TargetTriple},
@@ -108,7 +109,7 @@ impl UpstreamChannel {
     pub fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
         let mut synced_channel = channel.clone();
         synced_channel.sync();
-        UpstreamChannel { channel, upstream_match }
+        UpstreamChannel { channel: synced_channel, upstream_match }
     }
 }
 
@@ -163,9 +164,26 @@ impl Channel {
     }
 
     pub fn content_hash(&self) -> ChannelHash {
-        let mut h = DefaultHasher::new();
+        use core::fmt::Write;
+
+        struct Sha256Hasher(sha2::Sha256);
+        impl core::hash::Hasher for Sha256Hasher {
+            fn finish(&self) -> u64 {
+                panic!("finish is intended to be left unused")
+            }
+
+            fn write(&mut self, bytes: &[u8]) {
+                self.0.update(bytes);
+            }
+        }
+        let mut h = Sha256Hasher(sha2::Sha256::new());
         self.hash(&mut h);
-        ChannelHash(format!("{:016x}", h.finish()))
+        let out = h.0.finalize();
+        let mut hex = String::with_capacity(64);
+        for byte in out {
+            write!(&mut hex, "{byte:02x}").expect("failed to write channel hash");
+        }
+        ChannelHash(hex)
     }
 
     /// Get all the aliases that the Channel is aware of
