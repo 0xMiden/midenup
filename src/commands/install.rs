@@ -143,6 +143,23 @@ pub fn install(
 
     // ======================== Installation finalized  ===========================
 
+    // tmp_link is a symlink file that points to relative_install_target. Even
+    // if tmp_link file is moved, it will still point to relative_install_target.
+    // For further reference on atomic directory updates, see:
+    // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
+    utils::fs::symlink(&temp_symlink, &relative_install_target)?;
+
+    // We now rename tmp_link to toolchain_dir. When renamed, it will still be
+    // pointing to relative_install_target. If the channel directory existed, it
+    // will overwrite the file. This is what marks the install as completed.
+    std::fs::rename(&temp_symlink, &toolchain_dir).with_context(|| {
+        format!(
+            "failed to publish toolchain symlink '{}' -> '{}'",
+            toolchain_dir.display(),
+            relative_install_target.display()
+        )
+    })?;
+
     let is_latest_stable = config.manifest.is_latest_stable(channel);
 
     // If this channel is the new stable, we update the symlink
@@ -155,23 +172,6 @@ pub fn install(
         utils::fs::symlink(&stable_dir, &relative_channel_target)
             .expect("Couldn't create stable dir");
     }
-
-    // tmp_link is a symlink file that points to relative_install_target. Even
-    // if tmp_link file is moved, it will still point to relative_install_target.
-    // For further reference on atomic directory updates, see:
-    // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
-    utils::fs::symlink(&temp_symlink, &relative_install_target)?;
-
-    // We now rename tmp_link to toolchain_dir. When renamed, it will still be
-    // pointing to relative_install_target. If the channel direcotry existed, it
-    // will overwrite the file. This is what marks the install as completed.
-    std::fs::rename(&temp_symlink, &toolchain_dir).with_context(|| {
-        format!(
-            "failed to publish toolchain symlink '{}' -> '{}'",
-            toolchain_dir.display(),
-            relative_install_target.display()
-        )
-    })?;
 
     // Update local manifest
     let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
