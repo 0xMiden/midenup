@@ -1,7 +1,6 @@
 use std::{
     ffi::OsStr,
-    fmt::Display,
-    io::{Read, Write},
+    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -129,8 +128,12 @@ pub fn uninstall_components(
     for lib in installed_libraries {
         println!("removing previous version of component {}", &lib.name);
         let lib_path = install_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
-        std::fs::remove_file(&lib_path)
-            .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
+        // Only remove the file if it exists - treat inability to determine existence as
+        // non-existent
+        if lib_path.try_exists().unwrap_or(false) {
+            std::fs::remove_file(&lib_path)
+                .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
+        }
     }
 
     for exe in installed_executables {
@@ -142,8 +145,12 @@ pub fn uninstall_components(
         // *actually* installed via it.
         if exe.artifacts.is_some() {
             let bin_path = exe.get_installed_file().get_path_from(install_dir);
-            std::fs::remove_file(&bin_path)
-                .map_err(|err| UninstallError::FailedToDeleteFile(bin_path, err.to_string()))?;
+            // Only remove the file if it exists - treat inability to determine existence as
+            // non-existent
+            if bin_path.try_exists().unwrap_or(false) {
+                std::fs::remove_file(&bin_path)
+                    .map_err(|err| UninstallError::FailedToDeleteFile(bin_path, err.to_string()))?;
+            }
         } else {
             match &exe.version {
                 Authority::Cargo { package, .. } => {
@@ -163,44 +170,44 @@ pub fn uninstall_components(
     Ok(())
 }
 
-pub fn uninstall_executable(
-    name: impl AsRef<OsStr> + Display,
-    root_dir: impl AsRef<OsStr>,
-) -> Result<(), UninstallError> {
-    let mut remove_exe = std::process::Command::new("cargo")
+pub fn uninstall_executable(name: &str, root_dir: impl AsRef<OsStr>) -> Result<(), UninstallError> {
+    let output = std::process::Command::new("cargo")
         .arg("uninstall")
-        .arg(&name)
+        .arg(name)
         .arg("--root")
         .arg(&root_dir)
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .spawn()
+        .output()
         .map_err(|err| UninstallError::InternalCargoError(err.to_string()))?;
 
-    let status = remove_exe
-        .wait()
-        .map_err(|err| UninstallError::InternalCargoError(err.to_string()))?;
+    if !output.status.success() {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
 
-    if !status.success() {
-        let error = remove_exe.stderr.take();
+        // If the uninstall failed because the component is already removed, then treat it as
+        // successful
+        if stdout.contains(&format!("package ID specification `{name}` did not match any packages"))
+        {
+            return Ok(());
+        }
 
-        let error_msg = if let Some(mut error) = error {
-            let mut stderr_msg = String::new();
-            let read_err_msg = error.read_to_string(&mut stderr_msg);
-
-            if read_err_msg.is_err() {
-                String::from("")
-            } else {
-                format!("The following error was raised: {stderr_msg}")
-            }
-        } else {
-            String::from("")
-        };
+        let mut error = String::with_capacity(stdout.len() + stderr.len());
+        error.push_str("======= stdout =========\n");
+        if stdout.trim().is_empty() {
+            error.push_str(stdout.trim());
+            error.push('\n');
+        }
+        error.push_str("========================\n");
+        error.push_str("======= stderr =========\n");
+        if stderr.trim().is_empty() {
+            error.push_str(stderr.trim());
+            error.push('\n');
+        }
+        error.push_str("========================\n");
 
         return Err(UninstallError::FailedToUninstallPackage(
             name.to_string(),
-            status.code().unwrap_or(1),
-            error_msg,
+            output.status.code().unwrap_or(1),
+            error,
         ));
     }
 
