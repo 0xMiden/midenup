@@ -127,12 +127,14 @@ pub fn uninstall_components(
             .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
     for lib in installed_libraries {
+        println!("removing previous version of component {}", &lib.name);
         let lib_path = install_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
         std::fs::remove_file(&lib_path)
             .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
     }
 
     for exe in installed_executables {
+        println!("removing previous version of component {}", &exe.name);
         let opt_path = install_dir.join("opt").join(exe.get_symlink_name());
         let _ = std::fs::remove_file(&opt_path);
 

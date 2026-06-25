@@ -25,6 +25,7 @@ pub fn update(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    let last_updated = local_manifest.last_updated();
     match channel_type {
         Some(UserChannel::Stable) => {
             let local_stable = local_manifest.get_latest_stable().context(
@@ -32,6 +33,10 @@ pub fn update(
 midenup install stable
 ",
             )?;
+            println!(
+                "syncing channel updates for stable (last updated on {last_updated} as {})",
+                &local_stable.name
+            );
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()
@@ -40,6 +45,12 @@ midenup install stable
                 // This is most likely an edge-case that shouldn't happen. If it does happen, it
                 // probably means there's an error in midenup's parsing.
                 .context("ERROR: No stable channel found in upstream")?;
+
+            println!(
+                "latest update on {} for version {}",
+                config.manifest.last_updated(),
+                &upstream_stable.name
+            );
 
             if upstream_stable.name > local_stable.name {
                 let component_subset: Option<HashSet<_>> = if local_stable.is_partially_installed()
@@ -72,12 +83,8 @@ midenup install stable
                     }
                 };
 
-                commands::install(
-                    config,
-                    &channel_to_install,
-                    local_manifest,
-                    &((*options).into()),
-                )?
+                let install_options = InstallationOptions::from(*options);
+                commands::install(config, &channel_to_install, local_manifest, &install_options)?
             } else {
                 println!("Nothing to update, you are all up to date");
             }
@@ -89,11 +96,18 @@ midenup install stable
                 .context(format!("ERROR: No installed channel found with version {version}"))?
                 .clone();
 
+            println!(
+                "syncing channel updates for {} (last updated on {last_updated})",
+                &local_channel.name
+            );
+
             let upstream_counterpart =
                 local_channel.find_upstream_counterpart(&config.manifest).context(format!(
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got \
                      removed."
                 ))?;
+
+            println!("latest update on {}", config.manifest.last_updated(),);
 
             update_channel(config, &local_channel, &upstream_counterpart, local_manifest, options)?
         },
@@ -103,6 +117,7 @@ midenup install stable
             for local_channel in local_manifest.get_channels() {
                 let upstream_counterpart =
                     local_channel.find_upstream_counterpart(&config.manifest);
+
                 let Some(upstream_channel) = upstream_counterpart else {
                     // NOTE: A bit of an edge case. If the channel is present in the local manifest
                     // but not in upstream, then it probably either:
@@ -112,10 +127,16 @@ midenup install stable
                     //   old/deprecated/got rolled back)
                     continue;
                 };
+
                 channels_to_update.push((local_channel.clone(), upstream_channel.clone()));
             }
 
             for (local_channel, upstream_channel) in channels_to_update {
+                println!(
+                    "syncing channel updates for {} (last updated on {last_updated})",
+                    &local_channel.name
+                );
+                println!("latest update on {}", config.manifest.last_updated(),);
                 update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
             }
         },

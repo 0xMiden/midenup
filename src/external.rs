@@ -8,7 +8,8 @@
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 #[allow(dead_code)]
-pub fn install_artifact(uri: &str, to: &std::path::Path) -> Result<(), String> {
+pub fn install_artifact(uri: &str, to: impl AsRef<std::path::Path>) -> Result<(), String> {
+    let to = to.as_ref();
     if let Some(binary_path) = uri.strip_prefix("file://") {
         std::fs::copy(binary_path, to).map_err(|err| {
             format!("Failed to copy binary file to {} because of {}", to.display(), err)
@@ -80,8 +81,9 @@ pub fn install_from_source(
     chosen_profile: &[&str],
     verbosity_flag: &str,
     args: &[&str],
-    root_directory: &std::path::Path,
+    root_directory: impl AsRef<std::path::Path>,
 ) -> Result<(), String> {
+    let root_directory = root_directory.as_ref();
     let mut child = std::process::Command::new("cargo")
                 .arg(toolchain_flag)
                 .arg("install")

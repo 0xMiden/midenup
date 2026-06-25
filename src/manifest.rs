@@ -117,7 +117,6 @@ impl Manifest {
     }
 
     pub fn remove_channel(&mut self, channel_name: semver::Version) {
-        //
         self.channels.retain(|c| c.name != channel_name);
     }
 
@@ -215,6 +214,10 @@ impl Manifest {
 
     pub fn get_channels(&self) -> impl Iterator<Item = &Channel> {
         self.channels.iter()
+    }
+
+    pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
     }
 }
 

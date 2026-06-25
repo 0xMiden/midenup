@@ -21,6 +21,22 @@ pub enum InitializationState {
     Initialized,
 }
 
+pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), InitializationError> {
+    let state = setup_midenup(config, local_manifest)?;
+
+    match state {
+        InitializationState::Initialized => println!(
+            "midenup was successfully initialized in:\n{}",
+            config.midenup_home.as_path().display()
+        ),
+        InitializationState::AlreadyInitialized => {
+            println!("midenup already initialized in:\n{}", config.midenup_home.as_path().display())
+        },
+    }
+
+    Ok(())
+}
+
 /// This functions bootstrap the `midenup` environment, if not already initialized.
 ///
 /// Initialization is comprised of:
@@ -153,20 +169,4 @@ source ~/.zprofile
         .map_err(InitializationError::Migration)?;
 
     Ok(state)
-}
-
-pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), InitializationError> {
-    let state = setup_midenup(config, local_manifest)?;
-
-    match state {
-        InitializationState::Initialized => println!(
-            "midenup was successfully initialized in:\n{}",
-            config.midenup_home.as_path().display()
-        ),
-        InitializationState::AlreadyInitialized => {
-            println!("midenup already initialized in:\n{}", config.midenup_home.as_path().display())
-        },
-    }
-
-    Ok(())
 }

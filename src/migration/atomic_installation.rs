@@ -8,6 +8,8 @@ use crate::{config::Config, manifest::Manifest, utils};
 pub fn migrate_toolchain(config: &Config, local_manifest: &Manifest) -> anyhow::Result<()> {
     const OBSOLETE_FILES: [&str; 2] = [".installed_channel.json", "installation-successful"];
 
+    println!("migrating pre-1.0.1 installation to new toolchain layout");
+
     let toolchains_dir = config.midenup_home.join("toolchains");
     let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
 
@@ -107,7 +109,8 @@ pub fn migrate_toolchain(config: &Config, local_manifest: &Manifest) -> anyhow::
             })?;
         }
     }
-    // panic!();
+
+    println!("migration complete!");
 
     Ok(())
 }
