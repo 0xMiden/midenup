@@ -56,6 +56,8 @@ struct GlobalArgs {
     /// The location of the Miden toolchain root
     #[arg(long, hide(true), value_name = "DIR", env = "MIDENUP_HOME")]
     pub midenup_home: Option<PathBuf>,
+    #[arg(long, hide(true), value_name = "DIR", env = "CARGO_HOME")]
+    pub cargo_home: Option<PathBuf>,
     /// The URI from which we should load the global toolchain manifest
     #[arg(
         long,
@@ -68,16 +70,16 @@ struct GlobalArgs {
     /// Determines wether the components are installed in debug mode. Useful for
     /// debugging and faster installations. This flag is only avaialble to
     /// `midenup`, not `miden`.
-    #[clap(env = "MIDENUP_DEBUG_MODE", action = ArgAction::Set, default_value = "false", hide = true)]
+    #[arg(env = "MIDENUP_DEBUG_MODE", action = ArgAction::Set, default_value = "false", hide = true)]
     pub debug: bool,
     /// Display verbose output, mainly used during install.
-    #[clap(short, long, action, default_value_t = false)]
+    #[arg(short, long, action, default_value_t = false)]
     pub verbose: bool,
     // This flag needed to be implemented manually in order to use the
     // `display_version` function and circumvent `clap`'s default `--version`
     // output.
     /// Displays `midenup`'s version information.
-    #[clap(short = 'V', long, action, default_value_t = false)]
+    #[arg(short = 'V', long, action, default_value_t = false)]
     pub version: bool,
 }
 
@@ -182,6 +184,8 @@ impl Commands {
 impl Midenup {
     /// Get the effective configuration for the current session
     pub fn config(&self) -> anyhow::Result<config::Config> {
+        let working_directory =
+            std::env::current_dir().context("unable to read current directory")?;
         match &self.behavior {
             Behavior::Miden(_) => {
                 // Always respect XDG dirs if set
@@ -192,7 +196,7 @@ impl Midenup {
                     // If for whatever reason, we can't access the data dir, we fall
                     // back to .local/share
                     .or_else(|| {
-                        std::env::home_dir()
+                        dirs::home_dir()
                             .map(|home| home.join(".local").join("share"))
                     })
                     .ok_or_else(||
@@ -201,9 +205,25 @@ impl Midenup {
                                 )
                     )?;
 
+                let cargo_home = std::env::var_os("CARGO_HOME")
+                    .map(PathBuf::from)
+                    .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "$CARGO_HOME and $HOME are unset, but at least one must be set in \
+                             your shell's profile"
+                        )
+                    })?;
+
                 let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                     .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
-                config::Config::init(midenup_home, manifest_uri, false)
+                config::Config::init(
+                    working_directory,
+                    midenup_home,
+                    cargo_home,
+                    manifest_uri,
+                    false,
+                )
             },
             Behavior::Midenup { config, .. } => {
                 let midenup_home = config
@@ -219,7 +239,7 @@ impl Midenup {
                     // If for whatever reason, we can't access the data dir, we fall
                     // back to .local/share
                     .or_else(|| {
-                        std::env::home_dir()
+                        dirs::home_dir()
                             .map(|home| home.join(".local").join("share"))
                     })
                     .ok_or_else(||
@@ -227,8 +247,25 @@ impl Midenup {
                                         Consider setting a value for XDG_DATA_HOME in your shell's profile"
                                 )
                     )?;
+                let cargo_home = config
+                    .cargo_home
+                    .clone()
+                    .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
+                    .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "$CARGO_HOME and $HOME are unset, but at least one must be set in \
+                             your shell's profile"
+                        )
+                    })?;
 
-                config::Config::init(midenup_home, &config.manifest_uri, config.debug)
+                config::Config::init(
+                    working_directory,
+                    midenup_home,
+                    cargo_home,
+                    &config.manifest_uri,
+                    config.debug,
+                )
             },
         }
     }

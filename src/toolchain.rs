@@ -1,4 +1,9 @@
-use std::{borrow::Cow, collections::HashSet, path::PathBuf, str::FromStr};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
@@ -61,29 +66,6 @@ impl Toolchain {
         Toolchain { channel, components }
     }
 
-    /// Returns the `miden-toolchain.toml` file, if it exists.
-    ///
-    /// It looks for the file from the present working directory upwards, until the root directory
-    /// is reached.
-    fn toolchain_file() -> anyhow::Result<Option<PathBuf>> {
-        // Check for a `miden-toolchain.toml` file in $CWD and recursively upwards.
-        let present_working_dir =
-            std::env::current_dir().context("unable to read current working directory")?;
-
-        let mut current_dir = Some(present_working_dir.as_path());
-        let mut toolchain_file = None;
-        while let Some(current_path) = current_dir {
-            let current_file = current_path.join("miden-toolchain").with_extension("toml");
-            if current_file.exists() {
-                toolchain_file = Some(current_file);
-                break;
-            }
-            current_dir = current_path.parent();
-        }
-
-        Ok(toolchain_file)
-    }
-
     /// Returns the current active Toolchain according to the following prescedence:
     ///
     /// 1. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
@@ -95,7 +77,7 @@ impl Toolchain {
         config: &Config,
         local_manifest: &Manifest,
     ) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
-        let local_toolchain = Self::toolchain_file()?;
+        let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
 
         if let Some(local_toolchain) = local_toolchain {
@@ -206,5 +188,25 @@ impl Toolchain {
 
         // Now installed
         Ok((current_toolchain, justification, partial_channel))
+    }
+
+    /// Returns the `miden-toolchain.toml` file, if it exists.
+    ///
+    /// It looks for the file from the present working directory upwards, until the root directory
+    /// is reached.
+    fn toolchain_file(working_directory: &Path) -> Option<PathBuf> {
+        // Check for a `miden-toolchain.toml` file in $CWD and recursively upwards.
+        let mut current_dir = Some(working_directory);
+        let mut toolchain_file = None;
+        while let Some(current_path) = current_dir {
+            let current_file = current_path.join("miden-toolchain").with_extension("toml");
+            if current_file.exists() {
+                toolchain_file = Some(current_file);
+                break;
+            }
+            current_dir = current_path.parent();
+        }
+
+        toolchain_file
     }
 }

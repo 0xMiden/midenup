@@ -336,14 +336,14 @@ impl Channel {
 impl Display for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.alias {
-            Some(ChannelAlias::Stable) => write!(f, "Channel stable ({})", self.name),
-            Some(ChannelAlias::Tag(tag)) => write!(f, "Channel {}-{}", self.name, tag.as_ref()),
+            Some(ChannelAlias::Stable) => write!(f, "stable ({})", self.name),
+            Some(ChannelAlias::Tag(tag)) => write!(f, "{}-{}", self.name, tag.as_ref()),
             Some(ChannelAlias::Nightly(tag)) => {
                 let nightly_suffix =
                     tag.as_ref().map(|suffix| format!("-{}", suffix)).unwrap_or(String::from(""));
-                write!(f, "Nightly channel {}{}", self.name, nightly_suffix)
+                write!(f, "nightly-{}{}", self.name, nightly_suffix)
             },
-            None => write!(f, "Channel {}", self.name),
+            None => write!(f, "{}", self.name),
         }
     }
 }

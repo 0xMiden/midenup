@@ -6,36 +6,19 @@ use crate::{config::Config, manifest::Manifest, migration, options::DEFAULT_USER
 
 #[derive(Error, Debug)]
 pub enum InitializationError {
-    #[error("Could not determine cargo bin directory. Set CARGO_HOME or HOME.")]
-    CargoBinNotFound,
     #[error("Failed to create directory: '{0}'. {1}")]
-    DirectoryCreationFailed(PathBuf, String),
+    DirectoryCreation(PathBuf, String),
     #[error("Failed to create file: '{0}'. {1}")]
-    FileCreationFailed(PathBuf, String),
+    FileCreation(PathBuf, String),
     #[error("Failed to create symlink. {0}")]
-    SymlinkFailed(String),
+    Symlink(String),
     #[error(transparent)]
-    MigrationFailed(anyhow::Error),
+    Migration(anyhow::Error),
 }
 
 pub enum InitializationState {
     AlreadyInitialized,
     Initialized,
-}
-
-/// Get the user's cargo bin directory.
-///
-/// If the user has `$CARGO_HOME/bin` set, then use it. If not, fallback to `$HOME/.cargo/bin`.
-///
-/// This relies on the behavior described [here](https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-reads)
-fn cargo_bin_dir() -> Result<PathBuf, InitializationError> {
-    if let Some(cargo_home) = std::env::var_os("CARGO_HOME") {
-        return Ok(PathBuf::from(cargo_home).join("bin"));
-    }
-    if let Some(home) = dirs::home_dir() {
-        return Ok(home.join(".cargo").join("bin"));
-    }
-    Err(InitializationError::CargoBinNotFound)
 }
 
 /// This functions bootstrap the `midenup` environment, if not already initialized.
@@ -77,14 +60,14 @@ pub fn setup_midenup(
     let midenhome_dir = &config.midenup_home;
     if !midenhome_dir.exists() {
         std::fs::create_dir_all(midenhome_dir).map_err(|e| {
-            InitializationError::DirectoryCreationFailed(midenhome_dir.clone(), e.to_string())
+            InitializationError::DirectoryCreation(midenhome_dir.clone(), e.to_string())
         })?;
         state = InitializationState::Initialized;
     }
     let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
     if !local_manifest_file.exists() {
         std::fs::File::create(&local_manifest_file).map_err(|e| {
-            InitializationError::FileCreationFailed(local_manifest_file.clone(), e.to_string())
+            InitializationError::FileCreation(local_manifest_file.clone(), e.to_string())
         })?;
         state = InitializationState::Initialized;
     }
@@ -92,7 +75,7 @@ pub fn setup_midenup(
     let toolchains_dir = config.midenup_home.join("toolchains");
     if !toolchains_dir.exists() {
         std::fs::create_dir_all(&toolchains_dir).map_err(|e| {
-            InitializationError::DirectoryCreationFailed(toolchains_dir.clone(), e.to_string())
+            InitializationError::DirectoryCreation(toolchains_dir.clone(), e.to_string())
         })?;
         state = InitializationState::Initialized;
     }
@@ -100,10 +83,7 @@ pub fn setup_midenup(
     let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
     if !installed_toolchains_dir.exists() {
         std::fs::create_dir_all(&installed_toolchains_dir).map_err(|e| {
-            InitializationError::DirectoryCreationFailed(
-                installed_toolchains_dir.clone(),
-                e.to_string(),
-            )
+            InitializationError::DirectoryCreation(installed_toolchains_dir.clone(), e.to_string())
         })?;
         state = InitializationState::Initialized;
     }
@@ -111,11 +91,11 @@ pub fn setup_midenup(
     // Install the `miden` symlink.
     {
         // Write the symlink for `miden` to $CARGO_HOME/bin
-        let cargo_bin = cargo_bin_dir()?;
+        let cargo_bin = config.cargo_home.join("bin");
         if !cargo_bin.exists() {
             // In most cases, this directory should already directory
             std::fs::create_dir_all(&cargo_bin).map_err(|e| {
-                InitializationError::DirectoryCreationFailed(cargo_bin.clone(), e.to_string())
+                InitializationError::DirectoryCreation(cargo_bin.clone(), e.to_string())
             })?;
         }
 
@@ -124,7 +104,7 @@ pub fn setup_midenup(
         let miden_exe = cargo_bin.join("miden");
         if !miden_exe.exists() {
             utils::fs::symlink(&miden_exe, &current_exe)
-                .map_err(|e| InitializationError::SymlinkFailed(e.to_string()))?;
+                .map_err(|e| InitializationError::Symlink(e.to_string()))?;
             state = InitializationState::Initialized;
         }
 
@@ -170,7 +150,7 @@ source ~/.zprofile
     }
 
     migration::run_toolchain_migration(config, local_manifest)
-        .map_err(InitializationError::MigrationFailed)?;
+        .map_err(InitializationError::Migration)?;
 
     Ok(state)
 }

@@ -12,17 +12,13 @@ fn integration_miden_test() {
     let test_name = "integration_miden_test";
     let test_env = environment_setup(test_name);
 
-    let tmp_home = test_env.midenup_dir;
-    let cargo_home = test_env.cargo_home;
-    let midenup_home = tmp_home.join("midenup");
-
     // SIDENOTE: This tests uses a toolchain with version number 0.14.0. This
     // is simply used for testing purposes and is not a "real" toolchain.
     const FILE: &str =
         full_path_manifest!("tests/data/integration_miden_test/channel-manifest.json");
 
-    let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
-    let toolchain_dir = midenup_home.join("toolchains");
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
+    let toolchain_dir = test_env.midenup_home.join("toolchains");
 
     // By default, the active toolchain is the latest stable version. In the
     // case of the manifest present in FILE, that is version 0.16.0.
@@ -38,10 +34,10 @@ fn integration_miden_test() {
     //    thus needs to be initialized.
 
     // midenup initialized check
-    assert!(midenup_home.exists());
+    assert!(test_env.midenup_home.exists());
     assert!(toolchain_dir.exists());
     // The miden symlink should be in $CARGO_HOME/bin
-    assert!(cargo_home.join("bin").join("miden").exists());
+    assert!(test_env.cargo_home.join("bin").join("miden").exists());
 
     // Stable toolchain installed check
     let latest_toolchain = toolchain_dir.join("0.16.0");
@@ -118,16 +114,12 @@ fn integration_miden_toolchain_toml() {
     let test_name = "integration_miden_toolchain_toml";
     let test_env = environment_setup(test_name);
 
-    let pwd = test_env.present_working_dir;
-
-    let tmp_home = test_env.midenup_dir;
-    let tmp_home_path = tmp_home;
-    let midenup_home = tmp_home_path.join("midenup");
+    let pwd = &test_env.present_working_dir;
 
     const FILE: &str =
         full_path_manifest!("tests/data/integration_miden_toolchain_toml/channel-manifest.json");
 
-    let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
 
     // This should create a miden-toolchain.toml file that sets toolchain 0.16.0 as the active
     // one on the current project. Since the toolchain is not installed, the component list is
@@ -152,7 +144,7 @@ fn integration_miden_toolchain_toml() {
         .execute_with_manifest(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
-    let toolchain_dir = midenup_home.join("toolchains");
+    let toolchain_dir = test_env.midenup_home.join("toolchains");
     assert!(toolchain_dir.exists());
 
     let installed_channel =
@@ -212,20 +204,17 @@ fn midenup_catches_installation_failure() {
     let test_name = "midenup_catches_installation_failure";
     let test_env = environment_setup(test_name);
 
-    let tmp_home = test_env.midenup_dir;
-    let midenup_home = tmp_home.join("midenup");
-
     const FILE_PRE_UPDATE: &str = full_path_manifest!(
         "tests/data/unit_test_manifest_additional/manifest-uncompilable-midenc.json"
     );
 
-    let (mut local_manifest, config) = test_setup(&midenup_home, FILE_PRE_UPDATE);
+    let (mut local_manifest, config) = test_setup(&test_env, FILE_PRE_UPDATE);
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
         .expect("failed to install stable");
     // After install is executed, the local manifest should be present
-    let manifest = midenup_home.join("manifest").with_extension("json");
+    let manifest = test_env.midenup_home.join("manifest").with_extension("json");
     assert!(manifest.exists());
 }

@@ -4,7 +4,8 @@
   "channels": [
     {
       "name": "0.14.0",
-      "components": [{
+      "components": [
+        {
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.14.0",

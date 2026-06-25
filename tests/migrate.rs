@@ -10,17 +10,15 @@ use common::*;
 /// - Updating a toolchain with a migration tag installs into the NEW name directory and removes the
 ///   OLD directory.
 #[test]
-fn integration_migration_test() {
-    let test_name = "integration_migration_test";
+fn integration_channel_migration_test() {
+    let test_name = "integration_channel_migration_test";
     let test_env = environment_setup(test_name);
-    let tmp_home = test_env.midenup_dir;
-    let midenup_home = tmp_home.join("midenup");
-    let toolchain_dir = midenup_home.join("toolchains");
+    let toolchain_dir = test_env.midenup_home.join("toolchains");
 
     // Load manifest 1 (channel "0.20.3", no migration tag)
     let manifest: &str =
         full_path_manifest!("tests/data/integration_migration_test/channel-manifest-1.json");
-    let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
+    let (mut local_manifest, config) = test_setup(&test_env, manifest);
 
     // Initialize midenup
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
@@ -42,7 +40,7 @@ fn integration_migration_test() {
     // Swap to manifest 2 (channel "0.13.0" with migration from "0.20.3")
     let manifest: &str =
         full_path_manifest!("tests/data/integration_migration_test/channel-manifest-2.json");
-    let (_, config) = test_setup(&midenup_home, manifest);
+    let (_, config) = test_setup(&test_env, manifest);
 
     // Perform global update
     let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();

@@ -154,7 +154,10 @@ fn update_channel(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     let update = match compute_update(local_channel, upstream_channel, options)? {
-        UpdatePlan::Abort => return Ok(()),
+        UpdatePlan::Abort => {
+            println!("Aborting update of {} due to user input/configuration", local_channel);
+            return Ok(());
+        },
         UpdatePlan::Skip => {
             println!("Toolchain {} is up to date", local_channel);
             return Ok(());
@@ -163,6 +166,8 @@ fn update_channel(
     };
 
     display_warnings(&update, options);
+
+    println!("Updating toolchain {}..", &local_channel.name);
 
     let Update {
         channel_to_install,
@@ -422,7 +427,7 @@ fn compute_update(
 
     for component_by_name in changed_components {
         let new_component = new_channel.get(component_by_name).unwrap().0;
-        let current_component = component_by_name.0;
+        let current_component = current.get(component_by_name).unwrap().0;
         // NOTE: that some components might ignore this update, such as components that were
         // installed via the filesystem.
         let update_status = {
@@ -478,14 +483,12 @@ fn compute_update(
     }
 
     let channel_to_install = {
-        let components_to_install = {
-            let components_to_install = components_to_install
+        let components_to_install = components_to_install
                 .into_iter()
                 // We remove the metadata regarding why it needs to be installed,
                 // since we already used it above.
-                .map(|comp_update| comp_update.component);
-            Vec::from_iter(components_to_install)
-        };
+                .map(|comp_update| comp_update.component)
+                .collect::<Vec<_>>();
 
         // We clone the older channel as a template in order to get the metadata
         // from the installed channel (tags, etc).

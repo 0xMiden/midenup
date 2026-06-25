@@ -27,6 +27,8 @@ pub struct Config {
     ///
     /// `MIDENUP_HOME=/path/to/custom/home midenup`
     pub midenup_home: PathBuf,
+    /// The path to `$CARGO_HOME`
+    pub cargo_home: PathBuf,
     /// This represents the upstream manifest, which contains the state of all the available
     /// toolchains with their respective components.
     ///
@@ -54,13 +56,13 @@ pub struct Config {
 
 impl Config {
     pub fn init(
+        working_directory: PathBuf,
         midenup_home: PathBuf,
+        cargo_home: PathBuf,
         manifest_uri: impl AsRef<str>,
         debug: bool,
     ) -> anyhow::Result<Config> {
         let manifest = Manifest::load_from(manifest_uri)?;
-        let working_directory =
-            std::env::current_dir().context("Could not obtain present working directory")?;
 
         let target = {
             let target = env!("TARGET");
@@ -70,6 +72,7 @@ impl Config {
         let config = Config {
             working_directory,
             midenup_home,
+            cargo_home,
             manifest,
             debug,
             target,

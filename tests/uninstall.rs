@@ -14,14 +14,11 @@ fn integration_install_uninstall_test() {
     let test_name = "integration_install_uninstall_test";
     let test_env = environment_setup(test_name);
 
-    let tmp_home = test_env.midenup_dir;
-    let cargo_home = test_env.cargo_home;
-    let midenup_home = tmp_home.join("midenup");
-
     const FILE: &str =
         full_path_manifest!("tests/data/integration_install_uninstall_test/channel-manifest.json");
-    let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
-    let toolchain_dir = midenup_home.join("toolchains");
+
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
+    let toolchain_dir = test_env.midenup_home.join("toolchains");
 
     // We begin by initializing the midenup directory
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
@@ -30,10 +27,10 @@ fn integration_install_uninstall_test() {
         .expect("failed to initialize");
 
     // We check that the basic midenup directory structure is present
-    assert!(midenup_home.exists());
+    assert!(test_env.midenup_home.exists());
     assert!(toolchain_dir.exists());
     // The miden symlink should be in $CARGO_HOME/bin
-    assert!(cargo_home.join("bin").join("miden").exists());
+    assert!(test_env.cargo_home.join("bin").join("miden").exists());
 
     // Now, we install stable
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();

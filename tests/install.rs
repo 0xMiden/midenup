@@ -20,12 +20,9 @@ fn integration_install_stable() {
     let test_name = "integration_install_stable";
     let test_env = environment_setup(test_name);
 
-    let tmp_home = test_env.midenup_dir;
-    let midenup_home = tmp_home.join("midenup");
-
     const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
 
-    let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
@@ -33,10 +30,10 @@ fn integration_install_stable() {
         .expect("failed to install stable");
 
     // After install is executed, the local manifest should be present
-    let manifest = midenup_home.join("manifest").with_extension("json");
+    let manifest = test_env.midenup_home.join("manifest").with_extension("json");
     assert!(manifest.exists());
 
-    let stable_dir = midenup_home.join("toolchains").join("stable");
+    let stable_dir = test_env.midenup_home.join("toolchains").join("stable");
     assert!(stable_dir.exists());
     assert!(stable_dir.is_symlink());
 
@@ -83,13 +80,12 @@ fn integration_install_from_non_cargo() {
         utils::git::clone_specific_revision(miden_vm_repo, vm_release_16, &miden_vm_clone_path)
             .unwrap();
     };
-    let midenup_home = test_env.midenup_dir;
 
     // Initial manifest with a client tracked by version::Authority::Git::Revision
     let manifest: &str = full_path_manifest!(
         "tests/data/integration_install_from_non_cargo/channel-manifest-1.json"
     );
-    let (mut local_manifest, config) = test_setup(&midenup_home, manifest);
+    let (mut local_manifest, config) = test_setup(&test_env, manifest);
 
     // We install stable
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
@@ -174,7 +170,7 @@ fn integration_install_from_non_cargo() {
     let manifest: &str = full_path_manifest!(
         "tests/data/integration_install_from_non_cargo/channel-manifest-2.json"
     );
-    let (_, config) = test_setup(&midenup_home, manifest);
+    let (_, config) = test_setup(&test_env, manifest);
     {
         OpenOptions::new()
             .read(true)
@@ -237,11 +233,8 @@ fn integration_test_components_are_runnable() {
     let test_name = "integration_test_components";
     let test_env = environment_setup(test_name);
 
-    let tmp_home = test_env.midenup_dir;
-    let midenup_home = tmp_home.join("midenup");
-
     const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
-    let (mut local_manifest, config) = test_setup(&midenup_home, FILE);
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
 
     // Install the latest stable toolchain
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
