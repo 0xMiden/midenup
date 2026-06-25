@@ -76,7 +76,6 @@ pub fn install_artifact(uri: &str, to: impl AsRef<std::path::Path>) -> Result<()
 
 #[allow(dead_code)]
 pub fn install_from_source(
-    component_name: &str,
     toolchain_flag: &str,
     chosen_profile: &[&str],
     verbosity_flag: &str,
@@ -84,7 +83,8 @@ pub fn install_from_source(
     root_directory: impl AsRef<std::path::Path>,
 ) -> Result<(), String> {
     let root_directory = root_directory.as_ref();
-    let mut child = std::process::Command::new("cargo")
+    let mut command = std::process::Command::new("cargo");
+    command
                 .arg(toolchain_flag)
                 .arg("install")
                 .arg("--locked")
@@ -96,17 +96,17 @@ pub fn install_from_source(
                 .arg(root_directory)
                 // Spawn command
                 .stderr(std::process::Stdio::inherit())
-                .stdout(std::process::Stdio::inherit())
-                .spawn()
-                .map_err(|error|format!("Failed to install {component_name} because of {error}"))?;
+                .stdout(std::process::Stdio::inherit());
+    let argv = command.get_args().map(|arg| arg.display().to_string()).collect::<Vec<_>>();
+    let mut child = command.spawn().map_err(|error| error.to_string())?;
 
     // Await results
-    let status = child.wait().map_err(|error| {
-        format!("Error occurred while waiting to install {component_name} because of {error}")
-    })?;
+    let status = child
+        .wait()
+        .map_err(|error| format!("failed to execute `cargo {}`: {error}", argv.join(" ")))?;
 
     if !status.success() {
-        return Err(format!("midenup failed to install '{component_name}'"));
+        return Err(format!("command `cargo {}` exited with non-zero status", argv.join(" ")));
     }
 
     Ok(())

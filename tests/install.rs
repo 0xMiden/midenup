@@ -71,7 +71,7 @@ fn integration_install_from_non_cargo() {
     let test_name = "integration_install_from_non_cargo";
     let test_env = environment_setup(test_name);
 
-    let miden_vm_clone_path = test_env.present_working_dir.join("miden_vm");
+    let miden_vm_clone_path = test_env.present_working_dir.join("miden-vm");
     {
         let miden_vm_repo = "https://github.com/0xMiden/miden-vm.git";
         // Commit corresponding to release number 0.16.4 of the miden-vm
@@ -103,7 +103,7 @@ fn integration_install_from_non_cargo() {
         let last_modification = match vm_from_path.version {
             version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
             _ => panic!(
-                "Failed to recognize miden_vm's Authority as Path, despite being installed like \
+                "Failed to recognize miden-vm's Authority as Path, despite being installed like \
                  so."
             ),
         };
@@ -140,7 +140,7 @@ fn integration_install_from_non_cargo() {
         let last_modification = match vm_from_path.version {
             version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
             _ => panic!(
-                "Failed to recognize miden_vm's Authority as Path, despite being installed like \
+                "Failed to recognize miden-vm's Authority as Path, despite being installed like \
                  so."
             ),
         };
@@ -177,7 +177,7 @@ fn integration_install_from_non_cargo() {
             .write(true)
             .create(true)
             .truncate(false)
-            .open(miden_vm_clone_path.join("miden-vm/").join("trigger-update"))
+            .open(miden_vm_clone_path.join("miden-vm").join("trigger-update"))
             .unwrap();
     }
 
@@ -196,7 +196,7 @@ fn integration_install_from_non_cargo() {
         let last_modification = match vm_from_path.version {
             version::Authority::Path { last_modification, .. } => last_modification.unwrap(),
             _ => panic!(
-                "Failed to recognize miden_vm's Authority as Path, despite being installed like \
+                "Failed to recognize miden-vm's Authority as Path, despite being installed like \
                  so."
             ),
         };

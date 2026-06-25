@@ -4,7 +4,8 @@
   "channels": [
     {
       "name": "0.15.0",
-      "components": [{
+      "components": [
+        {
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.15.0",
@@ -20,7 +21,7 @@
         },
         {
           "name": "vm",
-          "path": "miden_vm/miden-vm",
+          "path": "miden-vm/miden-vm",
           "crate_name": "miden-vm",
           "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm"
@@ -32,14 +33,20 @@
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
           "installed_executable": "miden-client",
           "aliases": {
-              "account": ["executable", "new-account"],
-              "deploy": ["executable", "-s", "public", "--account-type", "regular-account-immutable-code"],
-              "faucet": ["executable", "mint"],
-              "new-wallet": ["executable", "new-wallet", "--deploy"],
-              "call": ["executable", "call", "--show"],
-              "send": ["executable", "send"],
-              "simulate": ["executable", "exec"]
-           }
+            "account": ["executable", "new-account"],
+            "deploy": [
+              "executable",
+              "-s",
+              "public",
+              "--account-type",
+              "regular-account-immutable-code"
+            ],
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "call": ["executable", "call", "--show"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
+          }
         }
       ]
     }

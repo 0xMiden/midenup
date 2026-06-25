@@ -200,7 +200,7 @@ fn integration_miden_toolchain_toml() {
 /// and thus installation should fail.
 #[test]
 #[should_panic]
-fn midenup_catches_installation_failure() {
+fn integration_midenup_catches_installation_failure() {
     let test_name = "midenup_catches_installation_failure";
     let test_env = environment_setup(test_name);
 

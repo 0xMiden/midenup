@@ -27,11 +27,11 @@ test-build: ## Build the test binary
 
 .PHONY: test
 test: ## Run all tests, except integration
-	cargo nextest run -- --skip integration
+	cargo nextest run --no-fail-fast -- --skip integration
 
 .PHONY: integration-test
 integration-test: ## Run all integration tests
-	cargo nextest run integration
+	cargo nextest run --no-fail-fast integration
 
 # --- building ------------------------------------------------------------------------------------
 

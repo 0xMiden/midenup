@@ -34,7 +34,7 @@ midenup install stable
 ",
             )?;
             println!(
-                "syncing channel updates for stable (last updated on {last_updated} as {})",
+                "syncing channel updates for stable (last update was {last_updated} as {})",
                 &local_stable.name
             );
             let upstream_stable = config
@@ -47,9 +47,9 @@ midenup install stable
                 .context("ERROR: No stable channel found in upstream")?;
 
             println!(
-                "latest update on {} for version {}",
-                config.manifest.last_updated(),
-                &upstream_stable.name
+                "latest stable is version {} (upstream last updated on {})",
+                &upstream_stable.name,
+                config.manifest.last_updated()
             );
 
             if upstream_stable.name > local_stable.name {
@@ -97,17 +97,17 @@ midenup install stable
                 .clone();
 
             println!(
-                "syncing channel updates for {} (last updated on {last_updated})",
+                "syncing channel updates for {} (last update was {last_updated})",
                 &local_channel.name
             );
 
             let upstream_counterpart =
-                local_channel.find_upstream_counterpart(&config.manifest).context(format!(
+                local_channel.find_upstream_counterpart(config).context(format!(
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got \
                      removed."
                 ))?;
 
-            println!("latest update on {}", config.manifest.last_updated(),);
+            println!("upstream last updated on {}", config.manifest.last_updated());
 
             update_channel(config, &local_channel, &upstream_counterpart, local_manifest, options)?
         },
@@ -115,8 +115,7 @@ midenup install stable
             // Update all toolchains
             let mut channels_to_update = Vec::new();
             for local_channel in local_manifest.get_channels() {
-                let upstream_counterpart =
-                    local_channel.find_upstream_counterpart(&config.manifest);
+                let upstream_counterpart = local_channel.find_upstream_counterpart(config);
 
                 let Some(upstream_channel) = upstream_counterpart else {
                     // NOTE: A bit of an edge case. If the channel is present in the local manifest
@@ -133,10 +132,10 @@ midenup install stable
 
             for (local_channel, upstream_channel) in channels_to_update {
                 println!(
-                    "syncing channel updates for {} (last updated on {last_updated})",
+                    "syncing channel updates for {} (last update was {last_updated})",
                     &local_channel.name
                 );
-                println!("latest update on {}", config.manifest.last_updated(),);
+                println!("upstream last updated on {}", config.manifest.last_updated());
                 update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
             }
         },
@@ -587,7 +586,8 @@ fn display_warnings(update: &Update, options: &UpdateOptions) {
             .collect();
         if !components_from_path.is_empty() {
             println!(
-                "{}: The following elements are installed from a specific path in the filesystem.",
+                "\n{}: The following elements are installed from a specific path in the \
+                 filesystem.",
                 "WARNING".yellow().bold(),
             );
 

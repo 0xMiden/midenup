@@ -15,7 +15,6 @@ use sha2::Digest;
 use crate::{
     artifact::{Artifacts, TargetTriple},
     config::Config,
-    manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -106,9 +105,9 @@ pub struct UpstreamChannel {
 }
 
 impl UpstreamChannel {
-    pub fn new(channel: Channel, upstream_match: UpstreamMatch) -> Self {
+    pub fn new(channel: Channel, upstream_match: UpstreamMatch, config: &Config) -> Self {
         let mut synced_channel = channel.clone();
-        synced_channel.sync();
+        synced_channel.sync(config);
         UpstreamChannel { channel: synced_channel, upstream_match }
     }
 }
@@ -283,10 +282,8 @@ impl Channel {
     /// Currently this can happen in two scenarios:
     /// - They share the same name (i.e. version).
     /// - The upstream version is tagged as having being migrated from self's .
-    pub fn find_upstream_counterpart(
-        &self,
-        upstream_manifest: &Manifest,
-    ) -> Option<UpstreamChannel> {
+    pub fn find_upstream_counterpart(&self, config: &Config) -> Option<UpstreamChannel> {
+        let upstream_manifest = &config.manifest;
         let mut upstream_counterpart = None;
 
         for upstream_channel in upstream_manifest.get_channels() {
@@ -295,7 +292,7 @@ impl Channel {
             if equal_name {
                 let upstream_match = UpstreamMatch::UpstreamCounterpart;
                 upstream_counterpart =
-                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match));
+                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match, config));
                 break;
             };
 
@@ -318,7 +315,7 @@ impl Channel {
             if let Some(migration) = was_migrated {
                 let upstream_match = UpstreamMatch::Migrated(migration.clone());
                 upstream_counterpart =
-                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match));
+                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match, config));
                 break;
             };
         }
@@ -326,9 +323,9 @@ impl Channel {
     }
 
     // Syncs the channel to the latest changes
-    fn sync(&mut self) {
+    fn sync(&mut self, config: &Config) {
         for comp in self.components.iter_mut() {
-            comp.sync();
+            comp.sync(config);
         }
     }
 }
@@ -817,7 +814,7 @@ impl Component {
     }
 
     // Sync to the latest changes.
-    pub fn sync(&mut self) {
+    pub fn sync(&mut self, config: &Config) {
         match &mut self.version {
             Authority::Path {
                 path,
@@ -828,8 +825,13 @@ impl Component {
                 // registered modification, we simply leave it empty. That does
                 // mean that an update will be triggered even if the component
                 // does not need it.
+                let path = if path.is_absolute() {
+                    Cow::Borrowed(&*path)
+                } else {
+                    Cow::Owned(config.working_directory.join(&*path))
+                };
                 let latest_registered_modification =
-                    utils::fs::latest_modification(path).ok().map(|modification| modification.0);
+                    utils::fs::latest_modification(&path).ok().map(|modification| modification.0);
                 *last_modification = latest_registered_modification;
             },
             // NOTE: Components that are installed via git BRANCHES are a special case because we
