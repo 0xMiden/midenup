@@ -27,9 +27,14 @@ use crate::{channel, config, manifest, options};
 pub const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 
 #[derive(Debug, Parser)]
-#[command(name = "midenup")]
-#[command(multicall(true))]
-#[command(author, about = "The Miden toolchain installer", long_about = None)]
+#[command(
+    name = "midenup",
+    author,
+    about = "The Miden toolchain installer",
+    long_about = None,
+    multicall(true),
+    disable_version_flag(true)
+)]
 pub struct Midenup {
     #[command(subcommand)]
     behavior: Behavior,
@@ -75,9 +80,6 @@ struct GlobalArgs {
     /// Display verbose output, mainly used during install.
     #[arg(short, long, action, default_value_t = false)]
     pub verbose: bool,
-    // This flag needed to be implemented manually in order to use the
-    // `display_version` function and circumvent `clap`'s default `--version`
-    // output.
     /// Displays `midenup`'s version information.
     #[arg(short = 'V', long, action, default_value_t = false)]
     pub version: bool,
@@ -137,7 +139,6 @@ enum Commands {
         #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<channel::UserChannel>,
-
         #[clap(flatten)]
         options: options::UpdateOptions,
     },
