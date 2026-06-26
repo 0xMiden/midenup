@@ -22,7 +22,7 @@ fn integration_miden_test() {
 
     // By default, the active toolchain is the latest stable version. In the
     // case of the manifest present in FILE, that is version 0.16.0.
-    let command = Midenup::try_parse_from(["miden", "client", "--version"]).unwrap();
+    let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
         .expect("failed to get client version");
@@ -59,7 +59,7 @@ fn integration_miden_test() {
 
     // This should also trigger an install, since toolchain 0.15.0 is missing and is now the
     // active toolchain.
-    let command = Midenup::try_parse_from(["miden", "client", "--version"]).unwrap();
+    let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
         .expect("failed to get client version");
@@ -78,7 +78,7 @@ fn integration_miden_test() {
         .expect("failed to set local toolchain");
 
     // This should also trigger an install, since toolchain 0.14.0 is now missing
-    let command = Midenup::try_parse_from(["miden", "client", "--version"]).unwrap();
+    let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
         .expect("failed to get client version");

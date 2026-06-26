@@ -237,7 +237,8 @@ fn integration_test_components_are_runnable() {
     let (mut local_manifest, config) = test_setup(&test_env, FILE);
 
     // Install the latest stable toolchain
-    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+    let command =
+        Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
         .expect("failed to install stable");
