@@ -49,7 +49,7 @@ build-release: ## Builds with release profile
 
 .PHONY: install
 install: ## Installs midenup in release configuration
-	cargo install --locked --path . --release --force --bin midenup
+	cargo install --locked --path . --force --bin midenup
 
 # --- docs ----------------------------------------------------------------------------------------
 .PHONY: serve-docs

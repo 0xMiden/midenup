@@ -26,11 +26,11 @@ pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), Initializa
 
     match state {
         InitializationState::Initialized => println!(
-            "midenup was successfully initialized in:\n{}",
+            "midenup was successfully initialized in: {}",
             config.midenup_home.as_path().display()
         ),
         InitializationState::AlreadyInitialized => {
-            println!("midenup already initialized in:\n{}", config.midenup_home.as_path().display())
+            println!("midenup already initialized in: {}", config.midenup_home.as_path().display())
         },
     }
 
