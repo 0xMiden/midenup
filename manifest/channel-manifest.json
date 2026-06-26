@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.1",
-  "date": 1782509394,
+  "date": 1782514430,
   "channels": [
     {
       "name": "0.9.0",
@@ -878,11 +878,6 @@
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
             "new": [
               "cargo",
               "miden",
@@ -987,6 +982,11 @@
             "lib_path"
           ],
           "rustup_channel": "nightly-2025-12-10",
+          "aliases": {
+            "build": [
+              "executable"
+            ]
+          },
           "artifacts": [
             "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
             "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
