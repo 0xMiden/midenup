@@ -70,11 +70,11 @@ fn integration_update_test() {
     //
     // This update should perform the following changes:
     //
-    // - Update 0.15.0's miden-vm to version 0.16.2.
-    // - Remove base.masp from 0.15.0's toolchain dir.
+    // - Update 0.15.0's miden-vm to version 0.23.4.
+    // - Remove core.masp from 0.15.0's toolchain dir.
     // - Downgrade 0.14.0's miden-vm.
     // - Add the miden-client to 0.14.0's toolchain dir
-    // - Change 0.14.0's std's authority from Cargo to Git.
+    // - Change 0.14.0's core's authority from Cargo to Git.
     //
     // Currently this does _not_ update the `stable` symlink
     let manifest: &str =
@@ -102,14 +102,14 @@ fn integration_update_test() {
         .unwrap_or_else(|err| {
             panic!("error occurred executing {}: {err}", vm_exe_stable.display())
         });
-    assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.16.2\n");
-    assert!(!toolchain_v15.join("lib").join("base.masp").exists());
+    assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.23.4\n");
+    assert!(!toolchain_v15.join("lib").join("core.masp").exists());
 
     let std_version = &local_manifest
         .get_channel(&channel::UserChannel::Version(semver::Version::new(0, 14, 0)))
         .expect("Couldn't find toolchain 0.14.0 in local manifest")
-        .get_component("std")
-        .expect("Couldn't find std library despite being listed in manifest.")
+        .get_component("core")
+        .expect("Couldn't find core library despite being listed in manifest.")
         .version;
 
     assert!(
@@ -119,7 +119,7 @@ fn integration_update_test() {
 
     let vm_exe_v14 = toolchain_v14.join("bin").join("miden");
     let command = std::process::Command::new(vm_exe_v14).arg("--version").output().unwrap();
-    assert_eq!(String::from_utf8(command.stdout).unwrap(), "Miden 0.13.0\n");
+    assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.23.2\n");
     let client_v14 = toolchain_v14.join("bin").join("miden-client");
     assert!(client_v14.exists());
 

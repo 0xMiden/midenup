@@ -133,12 +133,7 @@ fn integration_miden_toolchain_toml() {
     let miden_toolchain_file = pwd.join("miden-toolchain.toml");
     assert!(miden_toolchain_file.exists());
 
-    // Now, we update the file to include the vm
-    let toolchain_with_components =
-        full_path!("tests/data/integration_miden_toolchain_toml/miden-toolchain-1.toml");
-    std::fs::copy(toolchain_with_components, &miden_toolchain_file).unwrap();
-
-    // `miden` should now install the components listed in the toolchain file.
+    // `miden` should now install the minimal profile components for 0.16.0
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
@@ -149,17 +144,16 @@ fn integration_miden_toolchain_toml() {
 
     let installed_channel =
         local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
-    assert!(installed_channel.components.len() == 1);
+    assert_eq!(installed_channel.components.len(), 1);
 
-    // Now, we'll add the miden compiler to the list.
+    // Now, we'll add the optional debugger component to the list.
     let toolchain_with_components =
         full_path!("tests/data/integration_miden_toolchain_toml/miden-toolchain-2.toml");
     std::fs::copy(toolchain_with_components, miden_toolchain_file).unwrap();
 
     // `miden` should now install:
-    // - The compiler which was just added
-    // - Both the standard library and transaction kernel libraris since they are a dependency for
-    //   the compiler.
+    // - The vm and debugger
+    // - The core library as it is a dependency for the debugger
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
     command
         .execute_with_manifest(&config, &mut local_manifest)
@@ -170,8 +164,8 @@ fn integration_miden_toolchain_toml() {
         .unwrap()
         .clone();
 
-    // VM, Compiler and both libraries
-    assert_eq!(installed_channel.components.len(), 4);
+    // VM, debugger and core library
+    assert_eq!(installed_channel.components.len(), 3);
 
     // Now, we try updating the installed toolchain. This should only update the installed
     // components and ignore the rest.
@@ -181,7 +175,7 @@ fn integration_miden_toolchain_toml() {
         .expect("failed to update stable toolchain");
 
     // No components should have been added
-    assert_eq!(installed_channel.components.len(), 4);
+    assert_eq!(installed_channel.components.len(), 3);
 
     // Finally, we attempt to install the entire stable toolchain, which should install the
     // remaining components.
@@ -193,7 +187,7 @@ fn integration_miden_toolchain_toml() {
     // Now, the entire toolchain should be installed
     let installed_channel =
         local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
-    assert_eq!(installed_channel.components.len(), 6);
+    assert_eq!(installed_channel.components.len(), 4);
 }
 
 /// This 'midenc' component present in this manifest is lacking its required 'rustup_channel"

@@ -59,7 +59,6 @@ fn integration_install_uninstall_test() {
         .expect("failed to install 0.15.0");
 
     // This should install toolchain version 0.15.0.
-
     let older_toolchain = toolchain_dir.join("0.15.0");
     assert!(older_toolchain.exists());
 

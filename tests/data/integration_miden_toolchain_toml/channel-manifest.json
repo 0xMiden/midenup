@@ -4,87 +4,103 @@
   "channels": [
     {
       "name": "0.14.0",
-      "components": [{
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.14.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+      "components": [
+        {
+          "name": "core",
+          "package": "miden-core-lib",
+          "optional": true,
+          "version": "0.23.4",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary",
+          "artifacts": ["https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"]
         },
         {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.7.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "name": "midenc",
+          "version": "0.8.1",
+          "optional": true,
+          "requires": ["core"],
+          "call_format": ["executable", "-L", "lib_path"],
+          "rustup_channel": "nightly-2025-12-10",
+          "artifacts": [
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "debug",
+          "optional": true,
+          "package": "miden-debug",
+          "version": "0.8.1",
+          "installed_executable": "miden-debug",
+          "alias_only": false,
+          "requires": ["core"],
+          "artifacts": [
+            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-x86_64-unknown-linux-gnu"
+          ]
         },
         {
           "name": "vm",
           "package": "miden-vm",
-          "version": "0.14.0",
+          "version": "0.23.2",
           "features": ["executable", "concurrent"],
-          "installed_executable": "miden"
-        },
-        {
-          "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "requires": ["base", "std"],
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "installed_executable": "miden-vm",
+          "alias_only": false,
+          "artifacts": [
+            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.2/miden-vm-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.2/miden-vm-x86_64-unknown-linux-gnu"
+          ]
         }
       ]
     },
     {
       "name": "0.15.0",
-      "components": [{
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.15.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+      "components": [
+        {
+          "name": "core",
+          "package": "miden-core-lib",
+          "optional": true,
+          "version": "0.23.4",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary",
+          "artifacts": ["https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"]
         },
         {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.9.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "name": "midenc",
+          "optional": true,
+          "version": "0.8.1",
+          "requires": ["core"],
+          "call_format": ["executable", "-L", "lib_path"],
+          "rustup_channel": "nightly-2025-12-10",
+          "artifacts": [
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "debug",
+          "optional": true,
+          "package": "miden-debug",
+          "version": "0.8.1",
+          "installed_executable": "miden-debug",
+          "alias_only": false,
+          "requires": ["core"],
+          "artifacts": [
+            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-x86_64-unknown-linux-gnu"
+          ]
         },
         {
           "name": "vm",
           "package": "miden-vm",
-          "version": "0.15.0",
+          "version": "0.23.3",
           "features": ["executable", "concurrent"],
-          "installed_executable": "miden"
-        },
-        {
-          "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "requires": ["base", "std"],
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "installed_executable": "miden-vm",
+          "alias_only": false,
+          "artifacts": [
+            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.3/miden-vm-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.3/miden-vm-x86_64-unknown-linux-gnu"
+          ]
         }
       ]
     },
@@ -92,42 +108,50 @@
       "name": "0.16.0",
       "components": [
         {
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.16.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+          "name": "core",
+          "optional": true,
+          "package": "miden-core-lib",
+          "version": "0.23.4",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary",
+          "artifacts": ["https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"]
         },
         {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.10.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "name": "midenc",
+          "optional": true,
+          "version": "0.8.1",
+          "requires": ["core"],
+          "call_format": ["executable", "-L", "lib_path"],
+          "rustup_channel": "nightly-2025-12-10",
+          "artifacts": [
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "debug",
+          "optional": true,
+          "package": "miden-debug",
+          "version": "0.8.1",
+          "installed_executable": "miden-debug",
+          "alias_only": false,
+          "requires": ["core"],
+          "artifacts": [
+            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-x86_64-unknown-linux-gnu"
+          ]
         },
         {
           "name": "vm",
           "package": "miden-vm",
-          "version": "0.16.2",
+          "version": "0.23.4",
           "features": ["executable", "concurrent"],
-          "installed_executable": "miden-vm"
-        },
-        {
-          "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.10.2",
-          "installed_executable": "miden-client"
-        },
-        {
-          "name": "midenc",
-          "version": "0.1.0",
-          "requires": ["base", "std"],
-          "rustup_channel": "nightly-2025-03-20"
-        },
-        {
-          "name": "cargo-miden",
-          "version": "0.1.0",
-          "rustup_channel": "nightly-2025-03-20"
+          "installed_executable": "miden-vm",
+          "alias_only": false,
+          "artifacts": [
+            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/miden-vm-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/miden-vm-x86_64-unknown-linux-gnu"
+          ]
         }
       ]
     }

@@ -4,51 +4,77 @@
   "channels": [
     {
       "name": "0.14.0",
-      "components": [{
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.14.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
-        },
-        {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.7.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
-        },
+      "components": [
         {
           "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
+          "package": "miden-client-cli",
+          "version": "0.15.2",
+          "installed_executable": "miden-client",
+          "alias_only": false,
+          "aliases": {
+            "account": ["executable", "new-account"],
+            "deploy": [
+              "executable",
+              "-s",
+              "public",
+              "--account-type",
+              "regular-account-immutable-code"
+            ],
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
+          },
+          "artifacts": [
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "core",
+          "package": "miden-core-lib",
+          "version": "0.23.4",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary",
+          "artifacts": ["https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"]
         }
       ]
     },
     {
       "name": "0.15.0",
-      "components": [{
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.15.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
-        },
-        {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.9.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
-        },
+      "components": [
         {
           "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client"
+          "package": "miden-client-cli",
+          "version": "0.15.2",
+          "installed_executable": "miden-client",
+          "alias_only": false,
+          "aliases": {
+            "account": ["executable", "new-account"],
+            "deploy": [
+              "executable",
+              "-s",
+              "public",
+              "--account-type",
+              "regular-account-immutable-code"
+            ],
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
+          },
+          "artifacts": [
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "core",
+          "package": "miden-core-lib",
+          "version": "0.23.4",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary",
+          "artifacts": ["https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"]
         }
       ]
     },
@@ -56,24 +82,37 @@
       "name": "0.16.0",
       "components": [
         {
-          "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.16.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
-        },
-        {
-          "name": "base",
-          "package": "miden-lib",
-          "version": "0.10.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
-        },
-        {
           "name": "client",
           "package": "miden-client-cli",
-          "version": "0.10.2",
-          "installed_executable": "miden-client"
+          "version": "0.15.2",
+          "installed_executable": "miden-client",
+          "alias_only": false,
+          "aliases": {
+            "account": ["executable", "new-account"],
+            "deploy": [
+              "executable",
+              "-s",
+              "public",
+              "--account-type",
+              "regular-account-immutable-code"
+            ],
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
+          },
+          "artifacts": [
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-x86_64-unknown-linux-gnu"
+          ]
+        },
+        {
+          "name": "core",
+          "package": "miden-core-lib",
+          "version": "0.23.4",
+          "installed_library": "core.masp",
+          "library_struct": "miden_core_lib::CoreLibrary",
+          "artifacts": ["https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"]
         }
       ]
     }
