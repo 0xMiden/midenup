@@ -1,9 +1,11 @@
 [profile.default]
 slow-timeout = "5m"
 
-# Run integration tests with a maximum concurrency of 2, so as to avoid
+# Run integration tests with a maximum concurrency of 1, so as to avoid
 # consuming all available logical CPUs with tests, when each test will
-# also need CPU time to build components from source.
+# also need CPU time to build components from source. It additionally
+# avoids the issue where `rustup` could get invoked concurrently in ways
+# that it doesn't support
 [[profile.default.overrides]]
 filter = 'test(/integration/)'
-threads-required = 2
+threads-required = 1
