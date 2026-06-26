@@ -652,7 +652,7 @@ pub struct Component {
 }
 
 const fn is_false(value: &bool) -> bool {
-    *value
+    !*value
 }
 
 impl Component {

@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.1",
-  "date": 1782503498,
+  "date": 1782509394,
   "channels": [
     {
       "name": "0.9.0",
@@ -9,14 +9,12 @@
           "name": "base",
           "package": "miden-lib",
           "version": "0.9.0",
-          "optional": false,
           "installed_library": "base.masp",
           "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -43,7 +41,6 @@
           "repository_url": "https://github.com/0xMiden/miden-client.git",
           "crate_name": "miden-client-cli",
           "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -85,7 +82,6 @@
         {
           "name": "midenc",
           "version": "0.1.0",
-          "optional": false,
           "requires": [
             "base",
             "std"
@@ -102,7 +98,6 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.10.1",
-          "optional": false,
           "installed_executable": "miden-node",
           "alias_only": false,
           "aliases": {
@@ -121,7 +116,6 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.15.0",
-          "optional": false,
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
         },
@@ -129,7 +123,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.15.0",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
@@ -146,14 +139,12 @@
           "name": "base",
           "package": "miden-lib",
           "version": "0.10.0",
-          "optional": false,
           "installed_library": "base.masp",
           "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -179,7 +170,6 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.10.2",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -221,7 +211,6 @@
         {
           "name": "midenc",
           "version": "0.1.0",
-          "optional": false,
           "requires": [
             "base",
             "std"
@@ -238,7 +227,6 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.10.1",
-          "optional": false,
           "installed_executable": "miden-node",
           "alias_only": false,
           "aliases": {
@@ -257,7 +245,6 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.16.0",
-          "optional": false,
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
         },
@@ -265,7 +252,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.16.2",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
@@ -282,14 +268,12 @@
           "name": "base",
           "package": "miden-lib",
           "version": "0.11.5",
-          "optional": false,
           "installed_library": "base.masp",
           "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "cargo-miden",
           "version": "0.4.1",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -315,7 +299,6 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.11.8",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -357,7 +340,6 @@
         {
           "name": "midenc",
           "version": "0.4.1",
-          "optional": false,
           "requires": [
             "base",
             "std"
@@ -376,7 +358,6 @@
           "crate_name": "miden-node",
           "branch": "fabrizioorsi/create-account-data-dirs",
           "latest_revision": null,
-          "optional": false,
           "installed_executable": "miden-node",
           "alias_only": false,
           "aliases": {
@@ -396,7 +377,6 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.17.2",
-          "optional": false,
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
         },
@@ -404,7 +384,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.17.2",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
@@ -421,14 +400,12 @@
           "name": "base",
           "package": "miden-lib",
           "version": "0.12.4",
-          "optional": false,
           "installed_library": "base.masp",
           "library_struct": "miden_lib::MidenLib"
         },
         {
           "name": "cargo-miden",
           "version": "0.6.0",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -454,7 +431,6 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.12.6",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -497,7 +473,6 @@
           "name": "debug",
           "package": "miden-debug",
           "version": "0.4.4",
-          "optional": false,
           "installed_executable": "miden-debug",
           "alias_only": false,
           "artifacts": [
@@ -507,7 +482,6 @@
         {
           "name": "midenc",
           "version": "0.6.0",
-          "optional": false,
           "requires": [
             "base",
             "std"
@@ -523,7 +497,6 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.12.8",
-          "optional": false,
           "installed_executable": "miden-node",
           "alias_only": false,
           "aliases": {
@@ -543,7 +516,6 @@
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.19.1",
-          "optional": false,
           "installed_library": "std.masp",
           "library_struct": "miden_stdlib::StdLibrary"
         },
@@ -551,7 +523,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.19.1",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
@@ -574,7 +545,6 @@
         {
           "name": "cargo-miden",
           "version": "0.7.0",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -600,7 +570,6 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.13.0",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -643,7 +612,6 @@
           "name": "core",
           "package": "miden-core-lib",
           "version": "0.20.3",
-          "optional": false,
           "installed_library": "core.masp",
           "library_struct": "miden_core_lib::CoreLibrary"
         },
@@ -651,7 +619,6 @@
           "name": "debug",
           "package": "miden-debug",
           "version": "0.4.6",
-          "optional": false,
           "installed_executable": "miden-debug",
           "alias_only": false,
           "artifacts": [
@@ -663,7 +630,6 @@
           "name": "faucet-client",
           "package": "miden-faucet-client",
           "version": "0.13.0",
-          "optional": false,
           "installed_executable": "miden-faucet-client",
           "alias_only": false,
           "aliases": {
@@ -676,7 +642,6 @@
         {
           "name": "midenc",
           "version": "0.7.0",
-          "optional": false,
           "requires": [
             "base",
             "std"
@@ -692,7 +657,6 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.13.4",
-          "optional": false,
           "installed_executable": "miden-node",
           "alias_only": false,
           "aliases": {
@@ -712,7 +676,6 @@
           "name": "protocol",
           "package": "miden-protocol",
           "version": "0.13.3",
-          "optional": false,
           "installed_library": "protocol.masp",
           "library_struct": "miden_protocol::ProtocolLib"
         },
@@ -720,7 +683,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.20.3",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
@@ -736,7 +698,6 @@
         {
           "name": "cargo-miden",
           "version": "0.8.1",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -766,7 +727,6 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.14.9",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -813,7 +773,6 @@
           "name": "core",
           "package": "miden-core-lib",
           "version": "0.22.4",
-          "optional": false,
           "installed_library": "core.masp",
           "library_struct": "miden_core_lib::CoreLibrary"
         },
@@ -821,7 +780,6 @@
           "name": "debug",
           "package": "miden-debug",
           "version": "0.7.1",
-          "optional": false,
           "installed_executable": "miden-debug",
           "alias_only": false
         },
@@ -829,7 +787,6 @@
           "name": "faucet-client",
           "package": "miden-faucet-client",
           "version": "0.14.3",
-          "optional": false,
           "installed_executable": "miden-faucet-client",
           "alias_only": false,
           "aliases": {
@@ -842,7 +799,6 @@
         {
           "name": "midenc",
           "version": "0.8.1",
-          "optional": false,
           "requires": [
             "core",
             "protocol"
@@ -862,7 +818,6 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.14.10",
-          "optional": false,
           "installed_executable": "miden-node",
           "alias_only": false,
           "aliases": {
@@ -882,7 +837,6 @@
           "name": "protocol",
           "package": "miden-protocol",
           "version": "0.14.5",
-          "optional": false,
           "installed_library": "protocol.masp",
           "library_struct": "miden_protocol::ProtocolLib"
         },
@@ -890,7 +844,6 @@
           "name": "verify",
           "package": "miden-verify",
           "version": "0.3.0",
-          "optional": false,
           "installed_executable": "miden-verify",
           "alias_only": false,
           "artifacts": [
@@ -902,7 +855,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.22.4",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
@@ -918,7 +870,6 @@
         {
           "name": "cargo-miden",
           "version": "0.8.1",
-          "optional": false,
           "call_format": [
             "cargo",
             "miden"
@@ -948,7 +899,6 @@
           "name": "client",
           "package": "miden-client-cli",
           "version": "0.15.2",
-          "optional": false,
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
@@ -990,7 +940,6 @@
           "name": "core",
           "package": "miden-core-lib",
           "version": "0.23.4",
-          "optional": false,
           "installed_library": "core.masp",
           "library_struct": "miden_core_lib::CoreLibrary",
           "artifacts": [
@@ -1001,7 +950,6 @@
           "name": "debug",
           "package": "miden-debug",
           "version": "0.8.1",
-          "optional": false,
           "installed_executable": "miden-debug",
           "alias_only": false,
           "artifacts": [
@@ -1013,7 +961,6 @@
           "name": "faucet-client",
           "package": "miden-faucet-client",
           "version": "0.15.1",
-          "optional": false,
           "installed_executable": "miden-faucet-client",
           "alias_only": false,
           "aliases": {
@@ -1030,7 +977,6 @@
         {
           "name": "midenc",
           "version": "0.8.1",
-          "optional": false,
           "requires": [
             "core",
             "protocol"
@@ -1050,6 +996,7 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.15.0",
+          "optional": true,
           "installed_executable": "miden-node",
           "alias_only": false
         },
@@ -1057,6 +1004,7 @@
           "name": "ntx-builder",
           "package": "miden-ntx-builder",
           "version": "0.15.0",
+          "optional": true,
           "installed_executable": "miden-ntx-builder",
           "alias_only": false
         },
@@ -1064,7 +1012,6 @@
           "name": "protocol",
           "package": "miden-protocol",
           "version": "0.15.3",
-          "optional": false,
           "installed_library": "protocol.masp",
           "library_struct": "miden_protocol::ProtocolLib"
         },
@@ -1072,6 +1019,7 @@
           "name": "remote-prover",
           "package": "miden-remote-prover",
           "version": "0.15.0",
+          "optional": true,
           "installed_executable": "miden-remote-prover",
           "alias_only": false
         },
@@ -1079,6 +1027,7 @@
           "name": "validator",
           "package": "miden-validator",
           "version": "0.15.0",
+          "optional": true,
           "installed_executable": "miden-validator",
           "alias_only": false
         },
@@ -1086,7 +1035,6 @@
           "name": "verify",
           "package": "miden-verify",
           "version": "0.3.0",
-          "optional": false,
           "installed_executable": "miden-verify",
           "alias_only": false,
           "artifacts": [
@@ -1098,7 +1046,6 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.23.4",
-          "optional": false,
           "features": [
             "executable",
             "concurrent"
