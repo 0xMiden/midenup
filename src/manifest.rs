@@ -53,67 +53,98 @@ impl Manifest {
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
 
+    /// Parses a [Manifest] from `content`, and returns it in canonical form
+    pub fn parse_str(content: &str) -> Result<Manifest, ManifestError> {
+        let mut manifest = serde_json::from_str::<Manifest>(content)
+            .map_err(|err| ManifestError::Invalid(format!("failed to parse manifest: {err}")))?;
+
+        // Sort channels by version, in ascending order
+        if !manifest.channels.is_sorted_by_key(|channel| &channel.name) {
+            manifest.channels.sort_by_key(|channel| channel.name.clone());
+        }
+
+        // Sort the components of each channel by name
+        for channel in manifest.channels.iter_mut() {
+            if !channel.components.is_sorted_by_key(|c| c.name.as_ref()) {
+                channel.components.sort_by_key(|c| c.name.clone());
+            }
+        }
+
+        Ok(manifest)
+    }
+
+    /// Loads a [Manifest] from the given file path.
+    pub fn load_from_file(path: impl AsRef<Path>) -> Result<Manifest, ManifestError> {
+        let path = path.as_ref();
+        let manifest_contents = std::fs::read_to_string(path)
+            .map_err(|_| ManifestError::Missing(path.display().to_string()))?;
+        // This could potentially be valid if we are parsing the local manifest
+        if manifest_contents.is_empty() {
+            return Err(ManifestError::Empty);
+        }
+
+        Self::parse_str(&manifest_contents)
+    }
+
     /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
         let uri = uri.as_ref();
 
-        let manifest_data = if let Some(manifest_path) = uri.strip_prefix("file://") {
-            let path = Path::new(manifest_path);
-            let manifest_contents = std::fs::read_to_string(path)
-                .map_err(|_| ManifestError::Missing(path.display().to_string()))?;
-            // This could potentially be valid if we are parsing the local manifest
-            if manifest_contents.is_empty() {
-                return Err(ManifestError::Empty);
+        if let Some(manifest_path) = uri.strip_prefix("file://") {
+            return Self::load_from_file(manifest_path);
+        }
+
+        if !uri.starts_with("https://") {
+            return Err(ManifestError::Unsupported(uri.to_string()));
+        }
+
+        let mut data = Vec::new();
+        let mut handle = curl::easy::Easy::new();
+        handle.url(uri).map_err(|error| {
+            let mut err = format!("Error code {}: ", error.code());
+            err.push_str(error.description());
+            ManifestError::InternalCurlError(err)
+        })?;
+        {
+            let response_code = handle.response_code().map_err(|_| {
+                ManifestError::InternalCurlError(String::from(
+                    "Failed to get response code; despite HTTP protocol supporting it.",
+                ))
+            })?;
+            if HTTP_ERROR_CODES.contains(&response_code) {
+                return Err(ManifestError::WebpageError(uri.to_string()));
             }
-            manifest_contents
-        } else if uri.starts_with("https://") {
-            let mut data = Vec::new();
-            let mut handle = curl::easy::Easy::new();
-            handle.url(uri).map_err(|error| {
+
+            let mut transfer = handle.transfer();
+            transfer
+                .write_function(|new_data| {
+                    data.extend_from_slice(new_data);
+                    Ok(new_data.len())
+                })
+                .unwrap();
+            transfer.perform().map_err(|error| {
                 let mut err = format!("Error code {}: ", error.code());
                 err.push_str(error.description());
                 ManifestError::InternalCurlError(err)
-            })?;
-            {
-                let response_code = handle.response_code().map_err(|_| {
-                    ManifestError::InternalCurlError(String::from(
-                        "Failed to get response code; despite HTTP protocol supporting it.",
-                    ))
-                })?;
-                if HTTP_ERROR_CODES.contains(&response_code) {
-                    return Err(ManifestError::WebpageError(uri.to_string()));
-                }
-
-                let mut transfer = handle.transfer();
-                transfer
-                    .write_function(|new_data| {
-                        data.extend_from_slice(new_data);
-                        Ok(new_data.len())
-                    })
-                    .unwrap();
-                transfer.perform().map_err(|error| {
-                    let mut err = format!("Error code {}: ", error.code());
-                    err.push_str(error.description());
-                    ManifestError::InternalCurlError(err)
-                })?
-            }
-            if data.is_empty() {
-                return Err(ManifestError::EmptyWebpage(uri.to_string()));
-            }
-            String::from_utf8(data.clone()).unwrap_or_default()
-        } else {
-            return Err(ManifestError::Unsupported(uri.to_string()));
-        };
-
-        let manifest = serde_json::from_str::<Manifest>(&manifest_data).map_err(|e| {
-            ManifestError::Invalid(format!(
-                "Invalid channel manifest in {}: {e}:
-{}",
-                uri, manifest_data
-            ))
+            })?
+        }
+        if data.is_empty() {
+            return Err(ManifestError::EmptyWebpage(uri.to_string()));
+        }
+        let manifest_data = core::str::from_utf8(&data).map_err(|err| {
+            ManifestError::Invalid(format!("manifest contains invalid utf8 data: {err}"))
         })?;
 
-        Ok(manifest)
+        Self::parse_str(manifest_data)
+    }
+
+    pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
+        chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
+    }
+
+    /// Sets the timestamp of this manifest to now in UTC seconds
+    pub fn update_last_modified(&mut self) {
+        self.date = chrono::Utc::now().timestamp();
     }
 
     pub fn remove_channel(&mut self, channel_name: semver::Version) {
@@ -173,6 +204,11 @@ impl Manifest {
             })
     }
 
+    pub fn get_latest_stable_mut(&mut self) -> Option<&mut Channel> {
+        let stable_version = self.get_latest_stable().map(|channel| channel.name.clone())?;
+        self.get_channel_by_name_mut(&stable_version)
+    }
+
     pub fn get_latest_nightly(&self) -> Option<&Channel> {
         self.channels.iter().find(|c| c.is_latest_nightly()).or_else(|| {
             self.channels
@@ -180,6 +216,11 @@ impl Manifest {
                 .filter(|c| c.is_nightly())
                 .max_by(|x, y| x.name.cmp_precedence(&y.name))
         })
+    }
+
+    pub fn get_latest_nightly_mut(&mut self) -> Option<&mut Channel> {
+        let nightly_version = self.get_latest_nightly().map(|channel| channel.name.clone())?;
+        self.get_channel_by_name_mut(&nightly_version)
     }
 
     pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
@@ -190,8 +231,20 @@ impl Manifest {
         })
     }
 
+    pub fn get_named_nightly_mut(&mut self, name: impl AsRef<str>) -> Option<&mut Channel> {
+        self.channels.iter_mut().find(|c| {
+            c.alias.as_ref().is_some_and(
+                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
+            )
+        })
+    }
+
     pub fn get_channel_by_name(&self, ver: &semver::Version) -> Option<&Channel> {
         self.channels.iter().find(|c| &c.name == ver)
+    }
+
+    pub fn get_channel_by_name_mut(&mut self, ver: &semver::Version) -> Option<&mut Channel> {
+        self.channels.iter_mut().find(|c| &c.name == ver)
     }
 
     /// Attempts to fetch the [Channel] corresponding to the given [UserChannel]
@@ -212,12 +265,25 @@ impl Manifest {
         }
     }
 
-    pub fn get_channels(&self) -> impl Iterator<Item = &Channel> {
-        self.channels.iter()
+    pub fn get_channel_mut(&mut self, channel: &UserChannel) -> Option<&mut Channel> {
+        match channel {
+            UserChannel::Version(v) => self.channels.iter_mut().find(|c| &c.name == v),
+            UserChannel::Stable => self.get_latest_stable_mut(),
+            UserChannel::Nightly => self.get_latest_nightly_mut(),
+            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
+                Some(suffix) => self.get_named_nightly_mut(suffix),
+                None => self.channels.iter_mut().find(|c| {
+                    c.alias.as_ref().is_some_and(|alias| {
+                        matches!(alias, ChannelAlias::Tag(t) if t ==
+                    tag.as_ref())
+                    })
+                }),
+            },
+        }
     }
 
-    pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
+    pub fn get_channels(&self) -> impl Iterator<Item = &Channel> {
+        self.channels.iter()
     }
 }
 

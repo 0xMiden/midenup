@@ -820,6 +820,10 @@ impl Component {
         }
     }
 
+    pub fn set_installed_file(&mut self, installed_file: Option<InstalledFile>) {
+        self.installed_file = installed_file;
+    }
+
     /// Returns the string representation under which midenup calls a component.
     pub fn get_cli_display(&self) -> String {
         format!("miden {}", self.name)

@@ -1,28 +1,43 @@
 # Update instructions
+
 This guide is meant to describe how to update midenup's manifest.
 
-Each toolchain has an associated version which corresponds to the included Miden Virtual Machine's.
+Each toolchain has an associated version which corresponds to the version of the Miden protocol that the toolchain is oriented towards.
 
-Every component present in a toolchain is indented to be compatible with the same underlying VM version; which can be checked by looking at the component's Cargo.toml file.
+You must ensure that all components in a toolchain are compatible with the given protocol version. The VM component in particular must be the same version as the protocol itself was built aggainst. You can look on crates.io to see what versions of each crate a component depends on.
+
+## Prerequisites
+
+Make sure you have built the `bin/update-manifest` CLI tool with:
+
+```
+make update-manifest
+```
+
+The following steps will use this tool to perform modifications to the channel manifest.
 
 ## New toolchain version
-When a new release[^1] is made, a new channel entry needs to be added to the manifest's `channels` array. The channel name should match the VM version (e.g., `0.20.3`).
 
-1. Create a new channel object at the end of the `channels` array:
-   ```json
-   {
-     "name": "<VM_VERSION>",
-     "components": []
-   }
-   ```
+When a new release[^1] is made, a new channel entry needs to be added to the manifest's `channels` array. The channel name should match the protocol version it is linked to, without the patch version set to `0` (e.g. `0.15.0`). The simplest way to do this is to clone the latest stable release and give it the new version:
 
-2. Populate the `components` array by looking up each component's compatible version. For each component, check its `Cargo.toml` to verify it depends on the correct VM version. Note that most repositories depend on `miden-base` rather than `miden-vm` directly, so ensure the `miden-base` version points to the target VM version.
+```
+bin/update-manifest --manifest-path manifest/channel-manifest.json \
+    clone-toolchain --from stable --to 0.15.0
+```
+
+Next, you will need to update each component in the cloned toolchain, as appropriate. See the section on updating an existing toolchain for details.
 
 ## Updating an existing toolchain (minor/patch)
-When a minor or patch version is released for a component within an existing toolchain, update the component entry in place rather than creating a new channel.
 
-1. Identify the target channel in the `channels` array and locate the component that received the update.
+In typical cases, this is just a matter of bumping the version of each affected component - for more complex changes, see the output of `bin/update-manifest help update-component`, or modify the manifest by hand. Bumping the component version is as simple as:
 
-2. Update the version field. If the patch affects the VM itself, update the channel `name` to reflect the new version (e.g., `0.20.2` → `0.20.3`).
+```
+bin/update-manifest --manifest-path manifest/channel-manifest.json \
+    update-component $COMPONENT \
+    --channel $CHANNEL
+    --authority=$COMPONENT_VERSION
+```
 
-[^1]: A release refers to a tagged version of the Miden Virtual Machine. This version tag serves as the reference point for assembling a compatible toolchain, as all related components (client, node, faucet, etc.) are expected to align with the same VM version.
+For newly added components, see the `add-component` subcommand.
+
+For removed components, see the `remove-component` subcommand.

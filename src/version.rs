@@ -1,5 +1,6 @@
 use std::{fmt, hash::Hash, path::PathBuf, time::SystemTime};
 
+pub use semver;
 use serde::{Deserialize, Serialize};
 
 /// Used to specify from which  particular revision of a repository.
@@ -107,6 +108,14 @@ pub enum Authority {
         /// The semantic versioning string for the package to fetch
         version: semver::Version,
     },
+}
+
+impl core::str::FromStr for Authority {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
 }
 
 impl fmt::Display for Authority {

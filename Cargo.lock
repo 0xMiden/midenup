@@ -752,6 +752,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
+name = "update-manifest"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "colored",
+ "midenup",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "upon"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -9,12 +9,20 @@ fix: ## Runs Fix with configs
 	cargo fix --allow-staged --allow-dirty --all-targets
 
 .PHONY: format
-format: ## Runs Format using nightly toolchain
+format: format-manifest ## Runs Format using nightly toolchain
 	cargo +nightly fmt --all
 
 .PHONY: format-check
 format-check: ## Runs Format using nightly toolchain but only in check mode
 	cargo +nightly fmt --all --check
+
+.PHONY: check-manifest
+check-manifest: update-manifest
+	bin/update-manifest --manifest-path manifest/channel-manifest.json check
+
+.PHONY: format-manifest
+format-manifest: update-manifest
+	bin/update-manifest --manifest-path manifest/channel-manifest.json format
 
 .PHONY: lint
 lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
@@ -50,6 +58,10 @@ build-release: ## Builds with release profile
 .PHONY: install
 install: ## Installs midenup in release configuration
 	cargo install --locked --path . --force --bin midenup
+
+.PHONY: update-manifest
+update-manifest: ## Builds the update-manifest tool
+	cargo +nightly -Z unstable-options build -p update-manifest --artifact-dir bin
 
 # --- docs ----------------------------------------------------------------------------------------
 .PHONY: serve-docs

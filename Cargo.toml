@@ -1,7 +1,8 @@
-[package]
-name = "midenup"
+[workspace]
+members = [".", "tools/update-manifest"]
+
+[workspace.package]
 version = "0.3.0"
-description = "The Miden toolchain manager"
 authors = ["Miden contributors"]
 repository = "https://github.com/0xMiden/midenup"
 homepage = "https://github.com/0xMiden/midenup"
@@ -10,6 +11,33 @@ categories = ["compilers"]
 keywords = ["miden"]
 license = "MIT"
 edition = "2024"
+readme = "README.md"
+
+[workspace.dependencies]
+anyhow = "1.0"
+chrono = { version = "0.4", default-features = false, features = [
+    "std",
+    "now",
+] }
+clap = { version = "4.5", features = ["derive", "env"] }
+colored = "3.0"
+midenup = { version = "0.3.0", path = "." }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[package]
+name = "midenup"
+version.workspace = true
+description = "The Miden toolchain manager"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+categories.workspace = true
+keywords.workspace = true
+license.workspace = true
+edition.workspace = true
 
 [lib]
 name = "midenup"
@@ -20,21 +48,18 @@ name = "midenup"
 path = "src/main.rs"
 
 [dependencies]
-anyhow = "1.0"
-chrono = { version = "0.4", default-features = false, features = [
-    "std",
-    "now",
-] }
-clap = { version = "4.5", features = ["derive", "env"] }
-colored = "3.0"
+anyhow.workspace = true
+chrono.workspace = true
+clap.workspace = true
+colored.workspace = true
 curl = "0.4"
 dirs = "6.0"
 semver = { version = "1.0", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 serde-untagged = "0.1"
 sha2 = "0.11"
-thiserror = "2.0"
+thiserror.workspace = true
 toml = { version = "1.0", features = ["preserve_order"] }
 upon = { version = "0.10", default-features = false, features = [
     "serde",
