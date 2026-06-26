@@ -47,6 +47,10 @@ build: ## Builds with default parameters
 build-release: ## Builds with release profile
 	cargo build --release
 
+.PHONY: install
+install: ## Installs midenup in release configuration
+	cargo install --locked --path . --release --force --bin midenup
+
 # --- docs ----------------------------------------------------------------------------------------
 .PHONY: serve-docs
 serve-docs: ## Builds docusaurus documentation & serves documentation site
