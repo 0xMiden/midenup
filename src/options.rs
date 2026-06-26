@@ -1,17 +1,20 @@
 use clap::{Parser, ValueEnum};
 
-use crate::channel::Component;
+use crate::{channel::Component, profile::Profile};
 
 pub const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 
 /// Optional installation settings.
 #[derive(Default, Debug, Parser, Clone)]
 pub struct InstallationOptions {
+    /// The toolchain profile to install
+    #[arg(long, short, default_value = "minimal")]
+    pub profile: Profile,
     /// Displays the entirety of cargo's output when performing installations.
-    #[clap(long, short, default_value = "false")]
+    #[arg(long, short, default_value = "false")]
     pub verbose: bool,
     /// These are the components that will be uninstalled before re-installation.
-    #[clap(skip)]
+    #[arg(skip)]
     pub components_to_uninstall: Vec<Component>,
 }
 
@@ -52,6 +55,7 @@ impl From<InstallationOptions> for UpdateOptions {
 impl From<UpdateOptions> for InstallationOptions {
     fn from(value: UpdateOptions) -> Self {
         InstallationOptions {
+            profile: Profile::Minimal,
             verbose: value.verbose,
             components_to_uninstall: Vec::new(),
         }

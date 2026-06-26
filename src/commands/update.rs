@@ -15,6 +15,7 @@ use crate::{
     config::Config,
     manifest::Manifest,
     options::{InstallationOptions, PathUpdate, UpdateOptions},
+    profile::Profile,
     version::Authority,
 };
 
@@ -196,6 +197,7 @@ fn update_channel(
     } = update;
 
     let install_options = InstallationOptions {
+        profile: Profile::Minimal,
         verbose: options.verbose,
         components_to_uninstall,
     };

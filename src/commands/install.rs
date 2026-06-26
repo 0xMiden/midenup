@@ -15,6 +15,7 @@ use crate::{
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
+    profile::Profile,
     utils,
     version::{Authority, GitTarget},
 };
@@ -494,7 +495,11 @@ fn main() -> ExitCode {
     // Prepare install script context with available channel components
     let mut dependencies = Vec::new();
     let mut installable_components = Vec::new();
+    let minimal_install = matches!(options.profile, Profile::Minimal);
     for component in channel.components.iter() {
+        if minimal_install && component.optional {
+            continue;
+        }
         max_component_width = core::cmp::max(max_component_width, component.name.chars().count());
         match component.get_installed_file() {
             InstalledFile::Executable { .. } => {
@@ -531,6 +536,7 @@ fn main() -> ExitCode {
     let symlinks = channel
         .components
         .iter()
+        .filter(|c| !(minimal_install && c.optional))
         .flat_map(|component| {
             let mut executables = Vec::new();
 
