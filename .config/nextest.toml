@@ -1,0 +1,9 @@
+[profile.default]
+slow-timeout = "5m"
+
+# Run integration tests with a maximum concurrency of 2, so as to avoid
+# consuming all available logical CPUs with tests, when each test will
+# also need CPU time to build components from source.
+[[profile.default.overrides]]
+filter = 'test(/integration/)'
+threads-required = 2
