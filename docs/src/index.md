@@ -18,11 +18,11 @@ The notion of a _toolchain_ here refers to a group of components from the Miden 
 
 Currently, the set of components consists of:
 
-- The [Miden VM](https://0xmiden.github.io/miden-vm/).
-- The [Miden compiler](https://0xmiden.github.io/compiler/usage/midenc.html) and its cargo extension [Cargo Miden](https://0xmiden.github.io/compiler/usage/cargo-miden.html).
-- The [Miden client](https://0xmiden.github.io/miden-client/).
-- The [Miden node](https://0xmiden.github.io/miden-node/).
-- The [Miden standard library](https://github.com/0xMiden/miden-vm?tab=readme-ov-file#project-structure).
-- The [Miden transaction kernel library](https://github.com/0xMiden/miden-base?tab=readme-ov-file#project-structure).
+- The [Miden VM](https://docs.miden.xyz/reference/miden-vm/).
+- The [Miden compiler](https://docs.miden.xyz/reference/compiler/usage/midenc) and its cargo extension [Cargo Miden](https://docs.miden.xyz/reference/compiler/usage/cargo-miden).
+- The [Miden client](https://docs.miden.xyz/builder/tools/clients/rust-client/).
+- The [Miden node](https://docs.miden.xyz/reference/node/).
+- The [Miden standard library](https://docs.miden.xyz/reference/miden-vm/user_docs/core_lib/).
+- The [Miden transaction kernel library](https://docs.miden.xyz/reference/protocol/transaction/).
 
 In the future, more components will be added.
