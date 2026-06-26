@@ -2,7 +2,7 @@
 members = [".", "tools/update-manifest"]
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 authors = ["Miden contributors"]
 repository = "https://github.com/0xMiden/midenup"
 homepage = "https://github.com/0xMiden/midenup"
