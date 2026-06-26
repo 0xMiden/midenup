@@ -255,7 +255,9 @@ impl Channel {
                     continue;
                 };
 
-                components_to_install.push(dependency.clone());
+                if !components_to_install.iter().any(|c| c.name == dependency.name) {
+                    components_to_install.push(dependency.clone());
+                }
             }
         }
         if !components_not_found.is_empty() {
