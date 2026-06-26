@@ -1,50 +1,43 @@
 use clap::{Parser, ValueEnum};
 
+use crate::channel::Component;
+
 pub const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 
 /// Optional installation settings.
-#[derive(Debug, Parser, Clone, Copy)]
+#[derive(Default, Debug, Parser, Clone)]
 pub struct InstallationOptions {
-    #[clap(long, short, default_value = "false")]
     /// Displays the entirety of cargo's output when performing installations.
+    #[clap(long, short, default_value = "false")]
     pub verbose: bool,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for InstallationOptions {
-    fn default() -> Self {
-        Self { verbose: false }
-    }
+    /// These are the components that will be uninstalled before re-installation.
+    #[clap(skip)]
+    pub components_to_uninstall: Vec<Component>,
 }
 
 /// Optional update settings.
-#[derive(Debug, Parser, Clone, Copy)]
+#[derive(Default, Debug, Parser, Clone, Copy)]
 pub struct UpdateOptions {
-    #[clap(long, short, default_value = "false")]
     /// Displays the entirety of cargo's output when performing installations.
+    #[clap(long, short, default_value = "false")]
     pub verbose: bool,
-
     /// Determines how midenup will handle updates for components installed from a path
     #[clap(value_enum, short, long, default_value = "off")]
     pub path_update: PathUpdate,
 }
 
+/// Represents the behavior chosen when a component being updated was installed from a path
 #[derive(Default, Debug, Parser, Clone, Copy, ValueEnum)]
 pub enum PathUpdate {
+    /// Skip updating the component
     #[default]
     Off,
+    /// Force the component to be updated
+    ///
+    /// TODO(pauls): Clarify the semantics of what this option does
     All,
+    /// Prompt the user to determine how to proceed
     Interactive,
-}
-
-#[allow(clippy::derivable_impls)]
-impl Default for UpdateOptions {
-    fn default() -> Self {
-        Self {
-            verbose: false,
-            path_update: PathUpdate::default(),
-        }
-    }
 }
 
 impl From<InstallationOptions> for UpdateOptions {
@@ -58,6 +51,9 @@ impl From<InstallationOptions> for UpdateOptions {
 
 impl From<UpdateOptions> for InstallationOptions {
     fn from(value: UpdateOptions) -> Self {
-        InstallationOptions { verbose: value.verbose }
+        InstallationOptions {
+            verbose: value.verbose,
+            components_to_uninstall: Vec::new(),
+        }
     }
 }

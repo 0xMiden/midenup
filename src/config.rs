@@ -6,7 +6,11 @@ use std::{
 use anyhow::{Context, bail};
 
 use crate::{
-    artifact::TargetTriple, channel::Channel, manifest::Manifest, toolchain::Toolchain, utils,
+    artifact::TargetTriple,
+    channel::Channel,
+    manifest::{Manifest, ManifestError},
+    toolchain::Toolchain,
+    utils,
 };
 
 /// This struct holds contextual information about the environment in which midenup/miden will
@@ -23,6 +27,8 @@ pub struct Config {
     ///
     /// `MIDENUP_HOME=/path/to/custom/home midenup`
     pub midenup_home: PathBuf,
+    /// The path to `$CARGO_HOME`
+    pub cargo_home: PathBuf,
     /// This represents the upstream manifest, which contains the state of all the available
     /// toolchains with their respective components.
     ///
@@ -50,13 +56,13 @@ pub struct Config {
 
 impl Config {
     pub fn init(
+        working_directory: PathBuf,
         midenup_home: PathBuf,
+        cargo_home: PathBuf,
         manifest_uri: impl AsRef<str>,
         debug: bool,
     ) -> anyhow::Result<Config> {
         let manifest = Manifest::load_from(manifest_uri)?;
-        let working_directory =
-            std::env::current_dir().context("Could not obtain present working directory")?;
 
         let target = {
             let target = env!("TARGET");
@@ -66,12 +72,28 @@ impl Config {
         let config = Config {
             working_directory,
             midenup_home,
+            cargo_home,
             manifest,
             debug,
             target,
         };
 
         Ok(config)
+    }
+
+    /// Get the [Manifest] for locally installed toolchains
+    pub fn local_manifest(&self) -> anyhow::Result<Manifest> {
+        let local_manifest_path = self.midenup_home.join("manifest").with_extension("json");
+        let local_manifest_uri = format!(
+            "file://{}",
+            local_manifest_path.to_str().context("Couldn't convert miden directory")?,
+        );
+        match Manifest::load_from(local_manifest_uri) {
+            Ok(manifest) => Ok(manifest),
+            Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
+            Err(err) => Err(err),
+        }
+        .context("unable to load local manifest")
     }
 
     pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {

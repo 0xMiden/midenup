@@ -30,26 +30,28 @@ impl ShowCommand {
                 if !verbose {
                     println!("{}", &toolchain.channel);
                 } else {
-                    println!("The current active toolchain is {}", &toolchain.channel);
                     match justification {
                         ToolchainJustification::MidenToolchainFile { path } => {
                             println!(
-                                "This is because there exits a miden-toolchain.toml file in {}",
+                                "{}: found a miden-toolchain.toml file in {}",
+                                "info".white().bold(),
                                 path.display()
                             )
                         },
                         ToolchainJustification::Override => {
                             println!(
-                                "This is because the system's default has been overriden. You can \
-                                 change to a different toolchain with:
-midenup override
-"
+                                "{}: system default has been overridden via `midenup override`",
+                                "info".white().bold(),
                             )
                         },
                         ToolchainJustification::Default => {
-                            println!("This is because not other toolchain was specified")
+                            println!(
+                                "{}: current toolchain is system default",
+                                "info".white().bold()
+                            );
                         },
                     }
+                    println!("The current active toolchain is {}", &toolchain.channel);
                 }
 
                 Ok(())

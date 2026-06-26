@@ -1,17 +1,20 @@
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    hash::{Hash, Hasher},
+};
 
-use anyhow::{Context, bail};
+use anyhow::Context;
 use colored::Colorize;
 
 use crate::{
     channel::{
         Channel, Component, InstalledFile, MigrationStrategy, UpstreamChannel, UpstreamMatch,
-        UserChannel, is_toolchain_deleted,
+        UserChannel,
     },
-    commands::{self, uninstall::uninstall_executable},
+    commands::{self},
     config::Config,
     manifest::Manifest,
-    options::{PathUpdate, UpdateOptions},
+    options::{InstallationOptions, PathUpdate, UpdateOptions},
     version::Authority,
 };
 
@@ -22,6 +25,7 @@ pub fn update(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    let last_updated = local_manifest.last_updated();
     match channel_type {
         Some(UserChannel::Stable) => {
             let local_stable = local_manifest.get_latest_stable().context(
@@ -29,6 +33,10 @@ pub fn update(
 midenup install stable
 ",
             )?;
+            println!(
+                "syncing channel updates for stable (last update was {last_updated} as {})",
+                &local_stable.name
+            );
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()
@@ -38,9 +46,16 @@ midenup install stable
                 // probably means there's an error in midenup's parsing.
                 .context("ERROR: No stable channel found in upstream")?;
 
+            println!(
+                "latest stable is version {} (upstream last updated on {})",
+                &upstream_stable.name,
+                config.manifest.last_updated()
+            );
+
             if upstream_stable.name > local_stable.name {
-                let component_subset = if local_stable.is_partially_installed() {
-                    Some(local_stable.components.clone())
+                let component_subset: Option<HashSet<_>> = if local_stable.is_partially_installed()
+                {
+                    Some(local_stable.components.iter().map(|comp| comp.name.clone()).collect())
                 } else {
                     None
                 };
@@ -48,15 +63,16 @@ midenup install stable
                 let channel_to_install = {
                     let components = upstream_stable
                         .components
-                        .iter()
+                        .clone()
+                        .into_iter()
                         .filter(|comp| {
                             if let Some(component_subset) = &component_subset {
-                                component_subset.contains(comp)
+                                let name = &comp.name;
+                                component_subset.contains(name)
                             } else {
                                 true
                             }
                         })
-                        .cloned()
                         .collect();
 
                     Channel {
@@ -67,12 +83,8 @@ midenup install stable
                     }
                 };
 
-                commands::install(
-                    config,
-                    &channel_to_install,
-                    local_manifest,
-                    &((*options).into()),
-                )?
+                let install_options = InstallationOptions::from(*options);
+                commands::install(config, &channel_to_install, local_manifest, &install_options)?
             } else {
                 println!("Nothing to update, you are all up to date");
             }
@@ -84,11 +96,18 @@ midenup install stable
                 .context(format!("ERROR: No installed channel found with version {version}"))?
                 .clone();
 
+            println!(
+                "syncing channel updates for {} (last update was {last_updated})",
+                &local_channel.name
+            );
+
             let upstream_counterpart =
-                local_channel.find_upstream_counterpart(&config.manifest).context(format!(
+                local_channel.find_upstream_counterpart(config).context(format!(
                     "ERROR: Couldn't find a channel upstream with version {version}. Maybe it got \
                      removed."
                 ))?;
+
+            println!("upstream last updated on {}", config.manifest.last_updated());
 
             update_channel(config, &local_channel, &upstream_counterpart, local_manifest, options)?
         },
@@ -96,8 +115,8 @@ midenup install stable
             // Update all toolchains
             let mut channels_to_update = Vec::new();
             for local_channel in local_manifest.get_channels() {
-                let upstream_counterpart =
-                    local_channel.find_upstream_counterpart(&config.manifest);
+                let upstream_counterpart = local_channel.find_upstream_counterpart(config);
+
                 let Some(upstream_channel) = upstream_counterpart else {
                     // NOTE: A bit of an edge case. If the channel is present in the local manifest
                     // but not in upstream, then it probably either:
@@ -107,10 +126,16 @@ midenup install stable
                     //   old/deprecated/got rolled back)
                     continue;
                 };
+
                 channels_to_update.push((local_channel.clone(), upstream_channel.clone()));
             }
 
             for (local_channel, upstream_channel) in channels_to_update {
+                println!(
+                    "syncing channel updates for {} (last update was {last_updated})",
+                    &local_channel.name
+                );
+                println!("upstream last updated on {}", config.manifest.last_updated());
                 update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
             }
         },
@@ -120,17 +145,27 @@ midenup install stable
     Ok(())
 }
 
-/// This function executes the actual update. It is in charge of "preparing the environmet" to then
-/// call [`commands::install`]. Preparation primarily consists of:
+/// This function executes the actual update. Updates are the trickiest part of
+/// the codebase.
 ///
-/// - Uninstalling components (via `cargo uninstall`).
-/// - Removing the installation indicator file.
+/// We begin by computing the [[Update]] that needs to take place on the
+/// [[compute_update]] (in some specific cases, the user to modify which
+/// components get updated, like in the case of path managed components).
+/// We then:
+/// - Call the install function with the recently computed updated channel. Inside this function we:
+///    - Copy the entire previous directory onto the new one
+///    - Uninstall the components that need updating
+/// - If required, uninstall the old channel
 ///
-/// The channel that is finally installed might differ slighltly from the upstream channel in the
-/// following scenarios:
-///
-/// - A component is explicitely not updated. In that the case, the "old" component will be written
-///   to the install.rs file to ensure consistency.
+/// Copying the entire directory is done for two main reasons:
+/// - Speeding installs up, skipping the need to re-install already installed components
+/// - Most importantly, maintain `cargo install` consistency: When `cargo install`
+///   is called, it generates metadata files which are then stored on the respective
+///   toolchain directory (ATTOW, `.crates.toml` and `.crates.json`, for more
+///   information see: https://doc.rust-lang.org/cargo/guide/cargo-home.html).
+///   These files, as per the documentation, are not to be edited manually. So,
+///   we take these extra precautions in order for midenup's local [[Manifest]]
+///   and `cargo`'s to be synced.
 fn update_channel(
     config: &Config,
     local_channel: &Channel,
@@ -138,139 +173,54 @@ fn update_channel(
     local_manifest: &mut Manifest,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let installed_toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = installed_toolchains_dir.join(format!("{}", &local_channel.name));
+    let update = match compute_update(local_channel, upstream_channel, options)? {
+        UpdatePlan::Abort => {
+            println!("Aborting update of {} due to user input/configuration", local_channel);
+            return Ok(());
+        },
+        UpdatePlan::Skip => {
+            println!("Toolchain {} is up to date", local_channel);
+            return Ok(());
+        },
+        UpdatePlan::Pending(update) => update,
+    };
 
-    let comp_to_delete_with_motive = components_to_update(local_channel, upstream_channel);
+    display_warnings(&update, options);
 
-    let mut channel_to_install = upstream_channel.channel.clone();
+    println!("Updating toolchain {}..", &local_channel.name);
 
-    if comp_to_delete_with_motive.is_empty() {
-        println!("Toolchain {} is up to date", local_channel);
-        return Ok(());
-    }
+    let Update {
+        channel_to_install,
+        components_to_uninstall,
+        channel_to_uninstall,
+    } = update;
 
-    display_warnings(&comp_to_delete_with_motive, &upstream_channel.channel, options);
+    let install_options = InstallationOptions {
+        verbose: options.verbose,
+        components_to_uninstall,
+    };
 
-    let mut exes_to_uninstall = Vec::new();
-    let mut libs_to_uninstall = Vec::new();
-    for (component, motive) in comp_to_delete_with_motive {
-        // If the component got added to the toolchain, then there's nothing to delete.
-        if matches!(motive, UpdateMotive::Added) {
-            continue;
-        }
-        match component.get_installed_file() {
-            InstalledFile::Library { library_name, .. } => {
-                let lib_path = toolchain_dir.join("lib").join(library_name);
-                libs_to_uninstall.push(lib_path);
-            },
-            InstalledFile::Executable { .. } => {
-                let executable_to_uninstall: Option<String> = match component.version {
-                    Authority::Cargo { package, .. } => {
-                        let package_name = package.unwrap_or(component.name.to_string());
-                        Some(package_name)
-                    },
-                    Authority::Git { crate_name, .. } => Some(crate_name),
-                    // Since uninstalling a component from the filesystem is potentially
-                    // irreversible, we take special precautions before uninstalling them.
-                    Authority::Path { crate_name, .. } => match options.path_update {
-                        PathUpdate::Interactive => {
-                            match handle_path_uninstall_interactive(crate_name)? {
-                                InteractiveResult::Cancel => return Ok(()),
-                                InteractiveResult::ComponentUpdate(update_decision) => {
-                                    update_decision
-                                },
-                            }
-                        },
-                        PathUpdate::All => Some(crate_name),
-                        PathUpdate::Off => None,
-                    },
-                };
+    commands::install(config, &channel_to_install, local_manifest, &install_options)?;
 
-                if let Some(executable_name) = executable_to_uninstall {
-                    exes_to_uninstall.push(executable_name);
-                } else {
-                    // Case where the user wants to skip component update
-                    let Some(component_to_install) =
-                        channel_to_install.get_component_mut(&component.name)
-                    else {
-                        // This else case can occur when:
-                        //
-                        // - A user doesn't want to uninstall a component and
-                        // - Said component is not present in the upstream channel, which means that
-                        //   the component got removed from the toolchain entirely after the update.
-                        continue;
-                    };
+    if let Some(channel_to_install) = channel_to_uninstall {
+        // If the update were to be interrupted before the uninstall finishes,
+        // re-running `midenup update` would finish the process.
+        // This does mean that channel migration is a non-atomic operation.
+        commands::uninstall(config, &channel_to_install, local_manifest)?;
+    };
 
-                    // SAFETY: If the component is installed, it *must* be present on
-                    // the local_channel.
-                    let local_component =
-                        local_channel.get_component(&component_to_install.name).unwrap();
-
-                    *component_to_install = local_component.clone();
-                }
-            },
-        }
-    }
-
-    // The update begins
-    {
-        // We remove the "installation-successful" file to trigger a re-installation.
-        let installation_indicator = toolchain_dir.join("installation-successful");
-        match std::fs::remove_file(&installation_indicator) {
-            Ok(()) => (),
-            // NOTE: If the installation indicator is not present, then it means that an update got
-            // stopped mid way through. If that's the case, then this update run will bring the
-            // toolchain back to a valid state.
-            Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => (),
-            Err(e) => bail!(format!(
-                "Couldn't delete installation complete indicator in: {}because of {e}",
-                &installation_indicator.display()
-            )),
-        }
-
-        for lib in libs_to_uninstall {
-            std::fs::remove_file(&lib).context(format!("Couldn't delete {}", lib.display()))?;
-        }
-
-        for exe in exes_to_uninstall {
-            let result = uninstall_executable(exe, &toolchain_dir);
-            match result {
-                // If we fail to explicitely uninstall the executable, we simply keep going.
-                // Failure in most cases originates from the "exe" not being found in the
-                // `toolchain_dir`.  If the package is not found, then the new, updated, version can
-                // simply be placed in the directory without any issues. This discrepancy can be
-                // caused when an update is cut mid-way through.
-                Err(commands::uninstall::UninstallError::FailedToUninstallPackage(name, ..)) => {
-                    println!(
-                        "INFO: Failed to uninstall old version of {name}. Proceeding regardless."
-                    );
-                    continue;
-                },
-                Err(err) => return Err(err)?,
-                Ok(_) => continue,
-            };
-        }
-
-        commands::install(config, &channel_to_install, local_manifest, &((*options).into()))?;
-
-        // After removing the components, we check if we can remove the toolchain entirely.
-        let is_entirely_removed = is_toolchain_deleted(&toolchain_dir);
-        if is_entirely_removed {
-            commands::uninstall(config, local_channel, local_manifest)?;
-        };
-    }
     Ok(())
 }
 
 enum InteractiveResult {
     /// Cancel the update all together. Useful for potential miss-clicks.
     Cancel,
-    /// Wether to update the component or not.
-    ComponentUpdate(Option<String>),
+    UpdateComponent,
+    DontUpdateComponent,
 }
 
-fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<InteractiveResult> {
+fn handle_path_uninstall_interactive(component: &Component) -> anyhow::Result<InteractiveResult> {
+    let component_name = &component.name;
     println!(
         "Would you like to update this component? (N/y/c)
    - N: no, skip this component
@@ -283,38 +233,116 @@ fn handle_path_uninstall_interactive(crate_name: String) -> anyhow::Result<Inter
     let input = input.trim().to_ascii_lowercase();
     match input.as_str() {
         "y" => {
-            println!("Updating {crate_name}");
-            Ok(InteractiveResult::ComponentUpdate(Some(crate_name)))
+            println!("Updating {component_name}");
+            Ok(InteractiveResult::UpdateComponent)
         },
         "c" => {
             println!("Cancelling update, no changes will be applied.");
             Ok(InteractiveResult::Cancel)
         },
         _ => {
-            println!("Skipping {crate_name}, it will not be updated");
-            Ok(InteractiveResult::ComponentUpdate(None))
+            println!("Skipping {component_name}, it will not be updated");
+            Ok(InteractiveResult::DontUpdateComponent)
         },
     }
 }
 
 #[derive(Debug, Clone)]
-pub enum UpdateMotive {
+pub enum UpdateStatus {
     /// This component was added to the toolchain and wasn't there before.
     Added,
     /// This component was removed and is no longer part of the toolchain.
     Removed,
     /// A newer version was released.
-    NewerVersion,
+    NeedsUpdate,
     /// The entire channel was migrated.
     Migrated { strategy: MigrationStrategy },
+    /// The component doesn't need updating.
+    UpToDate,
 }
 
-/// This functions compares the Channel &older, with a newer channel [newer] and returns the list
-/// of [Components] that need to be updated.
+/// Wrapper around `&Component` that defines `Hash`/`Eq` by name only, so we can
+/// use `HashSet` set operations (difference, intersection, contains) keyed on
+/// names. This is not a property of component themselves, hence the wrapper
+/// type.
 ///
-/// NOTE: A component can be marked for update in the following scenarios:
+/// See https://stackoverflow.com/a/65671830 as a reference.
+#[derive(Debug, Clone)]
+struct ComponentByName<'a>(&'a Component);
+
+impl PartialEq for ComponentByName<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.name == other.0.name
+    }
+}
+impl Eq for ComponentByName<'_> {}
+impl Hash for ComponentByName<'_> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.name.hash(state);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ComponentUpdate {
+    pub component: Component,
+    pub motive: UpdateStatus,
+}
+
+impl ComponentUpdate {
+    fn new(component: Component, motive: UpdateStatus) -> ComponentUpdate {
+        ComponentUpdate { component, motive }
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+enum UpdatePlan {
+    /// The update command is being canceled/aborted due to user configuration or input
+    Abort,
+    /// The update has nothing to do, i.e. the toolchain is already up to date
+    Skip,
+    /// The update plan has been computed, and is pending application
+    Pending(Update),
+}
+
+/// [[Update]] represents the set of changes that need to take place.
+#[derive(Debug, Clone)]
+pub struct Update {
+    /// This is the channel that will be saved on the manifest and represents
+    /// the newly updated channel. It contains:
+    ///
+    /// - The components that got added.
+    /// - The components that got updated.
+    /// - The components that are up to date, i.e. that stay the same.
+    ///
+    /// This channel also contains all the metadata from the channel it got computed from, i.e.:
+    /// alias, tags, etc.
+    pub channel_to_install: Channel,
+    /// These are the components that need to be removed from the updated channel.
+    pub components_to_uninstall: Vec<Component>,
+    /// Channel that needs to be uninstalled due to a migration
+    pub channel_to_uninstall: Option<Channel>,
+}
+
+impl Update {
+    fn new(
+        channel_to_install: Channel,
+        components_to_uninstall: Vec<Component>,
+        channel_to_uninstall: Option<Channel>,
+    ) -> Update {
+        Update {
+            channel_to_install,
+            components_to_uninstall,
+            channel_to_uninstall,
+        }
+    }
+}
+
+/// This functions compares the `older` Channel, with the `newer` upstream channel and returns the
+/// resulting [[Update]]. See [[Update]] for more information on what these imply.
 ///
-/// - The component got removed from the newer channel entirely and thus needs to be removed from
+/// Regarding components, one can be marked for update in the following scenarios:
+///
+/// - The component got removed from the upstream channel entirely and thus needs to be removed from
 ///   the system.
 /// - A new component is present in the upstream manifest and thus needs to be installed.
 /// - A newer version of a present component is released and thus an upgrade is due.
@@ -324,71 +352,231 @@ pub enum UpdateMotive {
 ///
 /// There is one notable exception to this rule which is when a channel is migrated into a different
 /// channel. In that case, every component is marked for update.
-pub fn components_to_update(
+fn compute_update(
     older: &Channel,
     newer: &UpstreamChannel,
-) -> Vec<(Component, UpdateMotive)> {
-    let new_channel: HashSet<&Component> = HashSet::from_iter(newer.channel.components.iter());
-    let current = HashSet::from_iter(older.components.iter());
+    options: &UpdateOptions,
+) -> anyhow::Result<UpdatePlan> {
+    struct MigrationEffects<'a> {
+        strategy: Option<&'a MigrationStrategy>,
+        newer: &'a Channel,
+        older: &'a Channel,
+    }
 
-    // This is the subset of new components present in the channel since last sync.
-    //
-    // NOTE: Equality between components is done via their name, see [Component::eq].
-    let new_components = new_channel.difference(&current).map(|comp| (comp, UpdateMotive::Added));
-
-    // This is the subset of old components that need to be removed.
-    let old_components = current.difference(&new_channel).map(|comp| (comp, UpdateMotive::Removed));
-
-    // These are the elements that are present in boths sets. We are only interested in those which
-    // need updating.
-    let components_to_update = current
-        .iter()
-        .filter(|comp| new_channel.contains(**comp))
-        .filter_map(|current_component| {
-            let new_component = new_channel.get(*current_component);
-            match new_component {
-                // This should't be possible, but if somehow the component is missing, then we
-                // trigger an update for said component regardless.
-                None => Some((current_component, UpdateMotive::Added)),
-                // Note that some components might ignore this update, such as
-                // components that were installed via the filesystem.
-                Some(new_component) => {
-                    // If the channel got marked as migrated, then every single
-                    // installed component is due for an update.
-                    if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
-                        Some((
-                            current_component,
-                            UpdateMotive::Migrated { strategy: strategy.clone() },
-                        ))
-                    } else if !current_component.is_up_to_date(new_component) {
-                        Some((current_component, UpdateMotive::NewerVersion))
-                    } else {
-                        None
+    impl<'a> MigrationEffects<'a> {
+        fn new(upstream_channel: &'a UpstreamChannel, older: &'a Channel) -> Self {
+            match &upstream_channel.upstream_match {
+                UpstreamMatch::UpstreamCounterpart => Self {
+                    strategy: None,
+                    newer: &upstream_channel.channel,
+                    older,
+                },
+                UpstreamMatch::Migrated(migration_strategy) => {
+                    match migration_strategy {
+                        MigrationStrategy::NameChange { old_channel: _old_channel } => {
+                            // We don't want to migrate channels that have already been migrated
+                            // See https://github.com/0xMiden/midenup/issues/193
+                            if older.name == upstream_channel.channel.name {
+                                Self {
+                                    strategy: None,
+                                    newer: &upstream_channel.channel,
+                                    older,
+                                }
+                            } else {
+                                Self {
+                                    strategy: Some(migration_strategy),
+                                    newer: &upstream_channel.channel,
+                                    older,
+                                }
+                            }
+                        },
                     }
                 },
             }
-        });
+        }
 
-    let components = new_components
-        .chain(old_components)
-        .chain(components_to_update)
-        .map(|(comp, motive)| ((*comp).clone(), motive));
+        /// Applies the migration to `channel` in place.
+        fn migrate_channel(&self, channel: &mut Channel) {
+            match self.strategy {
+                Some(MigrationStrategy::NameChange { .. }) => {
+                    // The old channel needs to have its name match the
+                    // upstream channel's
+                    channel.name = self.newer.name.clone();
+                },
+                None => (),
+            }
+        }
 
-    Vec::from_iter(components)
+        fn channel_to_uninstall(&self) -> Option<Channel> {
+            #[allow(clippy::manual_map)]
+            match self.strategy {
+                Some(MigrationStrategy::NameChange { .. }) => Some(self.older.clone()),
+                None => None,
+            }
+        }
+
+        fn required(&self) -> bool {
+            self.strategy.is_some()
+        }
+    }
+
+    // Compute the set of components in the old and new channels, in order to determine the effects
+    // to apply to each component (i.e. install if present in the new channel, but not old;
+    // uninstall if present in the old channel, but not new; and update if present in both sets).
+    let new_channel: HashSet<ComponentByName> =
+        newer.channel.components.iter().map(ComponentByName).collect();
+    let current: HashSet<ComponentByName> = older.components.iter().map(ComponentByName).collect();
+
+    // Extract the set of components to add (present in the new channel, not in the old)
+    let new_components = new_channel
+        .difference(&current)
+        // If the channel is partially installed, then we explicitely don't want new components.
+        .filter(|_| !older.is_partially_installed())
+        .map(|&ComponentByName(comp)| ComponentUpdate::new(comp.clone(), UpdateStatus::Added));
+
+    // Extract the set of components to remove (present in the old channel, not in the new)
+    let old_components = current
+        .difference(&new_channel)
+        .map(|&ComponentByName(comp)| ComponentUpdate::new(comp.clone(), UpdateStatus::Removed));
+
+    // Extract the set of components to update (present in both old and new channels)
+    let changed_components = current.intersection(&new_channel);
+
+    let mut components_to_install = Vec::from_iter(new_components);
+    let mut components_to_uninstall = Vec::from_iter(old_components.map(|cu| cu.component));
+
+    for component_by_name in changed_components {
+        let new_component = new_channel.get(component_by_name).unwrap().0;
+        let current_component = current.get(component_by_name).unwrap().0;
+        // NOTE: that some components might ignore this update, such as components that were
+        // installed via the filesystem.
+        let update_status = {
+            // If the channel got marked as migrated, then every single installed component is due
+            // for an update.
+            if let UpstreamMatch::Migrated(strategy) = &newer.upstream_match {
+                UpdateStatus::Migrated { strategy: strategy.clone() }
+            } else if !current_component.is_up_to_date(new_component) {
+                // When a component needs an update, we must first uninstall the old component
+                UpdateStatus::NeedsUpdate
+            } else {
+                UpdateStatus::UpToDate
+            }
+        };
+        if matches!(update_status, UpdateStatus::NeedsUpdate) {
+            match should_skip_component_update(current_component, options, older)? {
+                ComponentUpdateDecision::Abort => return Ok(UpdatePlan::Abort),
+                ComponentUpdateDecision::Keep(preserved_component) => {
+                    // Do not update this component - add it to the set of components to install
+                    // using the current component manifest, but do not add it to the set of
+                    // components to uninstall.
+                    //
+                    // NOTE: This decision only occurs for components installed via path, in cases
+                    // where the user explicitly does not want to install the version defined in
+                    // the upstream manifest
+                    components_to_install
+                        .push(ComponentUpdate::new(preserved_component, update_status));
+                },
+                ComponentUpdateDecision::Update => {
+                    // We need to reinstall this component
+                    components_to_uninstall.push(current_component.clone());
+                    components_to_install
+                        .push(ComponentUpdate::new(new_component.clone(), update_status));
+                },
+            }
+        } else {
+            components_to_install.push(ComponentUpdate::new(new_component.clone(), update_status));
+        }
+    }
+
+    // Handle migrations
+    let migration = MigrationEffects::new(newer, older);
+
+    // We check if an update is actually required. This is used for idempotency.
+    {
+        let all_components_up_to_date = components_to_install
+            .iter()
+            .all(|cu| matches!(cu.motive, UpdateStatus::UpToDate));
+        if all_components_up_to_date && components_to_uninstall.is_empty() && !migration.required()
+        {
+            return Ok(UpdatePlan::Skip);
+        }
+    }
+
+    let channel_to_install = {
+        let components_to_install = components_to_install
+                .into_iter()
+                // We remove the metadata regarding why it needs to be installed,
+                // since we already used it above.
+                .map(|comp_update| comp_update.component)
+                .collect::<Vec<_>>();
+
+        // We clone the older channel as a template in order to get the metadata
+        // from the installed channel (tags, etc).
+        let mut channel_to_install = older.clone();
+
+        channel_to_install.components = components_to_install;
+
+        // If no migration is needed, this will be a no-op
+        migration.migrate_channel(&mut channel_to_install);
+
+        channel_to_install
+    };
+
+    let channel_to_uninstall = migration.channel_to_uninstall();
+
+    let update = Update::new(channel_to_install, components_to_uninstall, channel_to_uninstall);
+
+    Ok(UpdatePlan::Pending(update))
 }
 
-fn display_warnings(
-    components_with_motive: &[(Component, UpdateMotive)],
-    newer: &Channel,
-    options: &UpdateOptions,
-) {
-    let components_with_motive = components_with_motive.iter();
+#[allow(clippy::large_enum_variant)]
+enum ComponentUpdateDecision {
+    /// Abort the update entirely
+    Abort,
+    /// Keep the given version of the component
+    Keep(Component),
+    /// Update the component to the version available in the channel
+    Update,
+}
 
+fn should_skip_component_update(
+    component: &Component,
+    options: &UpdateOptions,
+    local_channel: &Channel,
+) -> anyhow::Result<ComponentUpdateDecision> {
+    let skip_update = match component.get_installed_file() {
+        InstalledFile::Library { .. } => false,
+        InstalledFile::Executable { .. } => match component.version {
+            Authority::Cargo { .. } | Authority::Git { .. } => false,
+            // Since uninstalling a component from the filesystem is potentially
+            // irreversible, we take special precautions before uninstalling them.
+            Authority::Path { .. } => match options.path_update {
+                PathUpdate::Interactive => match handle_path_uninstall_interactive(component)? {
+                    InteractiveResult::Cancel => return Ok(ComponentUpdateDecision::Abort),
+                    InteractiveResult::UpdateComponent => false,
+                    InteractiveResult::DontUpdateComponent => true,
+                },
+                PathUpdate::All => false,
+                PathUpdate::Off => true,
+            },
+        },
+    };
+
+    if skip_update && let Some(old) = local_channel.get_component(&component.name) {
+        Ok(ComponentUpdateDecision::Keep(old.clone()))
+    } else {
+        Ok(ComponentUpdateDecision::Update)
+    }
+}
+
+fn display_warnings(update: &Update, options: &UpdateOptions) {
     // Warning for components installed from a PATH.
     {
-        let components_from_path: Vec<String> = components_with_motive
-            .clone()
-            .filter_map(|(comp, _)| match &comp.version {
+        let components_from_path: Vec<String> = update
+            .channel_to_install
+            .components
+            .iter()
+            .filter_map(|component| match &component.version {
                 Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
                 _ => None,
             })
@@ -398,7 +586,8 @@ fn display_warnings(
             .collect();
         if !components_from_path.is_empty() {
             println!(
-                "{}: The following elements are installed from a specific path in the filesystem.",
+                "\n{}: The following elements are installed from a specific path in the \
+                 filesystem.",
                 "WARNING".yellow().bold(),
             );
 
@@ -418,25 +607,29 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
 
     // Warning for migrated components
     {
-        let migrated_components: Vec<String> = components_with_motive
-            .filter_map(|(component, motive)| match &motive {
-                UpdateMotive::Migrated { strategy } => Some((component, strategy)),
-                _ => None,
-            })
-            .map(|(component, strategy)| match strategy {
-                MigrationStrategy::NameChange { old_channel } => {
-                    format!("- {} from {} into {}", component.name, old_channel, newer)
-                },
-            })
-            .collect();
-        if !migrated_components.is_empty() {
-            println!(
-                "{}: The following elements are going to be migrated.",
-                "WARNING".yellow().bold(),
-            );
+        // A pending channel uninstall can only mean one thing: the channel got
+        // migrated, and every component is going to be carried over.
+        if let Some(old_channel) = &update.channel_to_uninstall {
+            let migrated_components: Vec<String> = update
+                .channel_to_install
+                .components
+                .iter()
+                .map(|component| {
+                    format!(
+                        "- {} from {} into {}",
+                        component.name, old_channel, update.channel_to_install
+                    )
+                })
+                .collect();
+            if !migrated_components.is_empty() {
+                println!(
+                    "{}: The following elements are going to be migrated.",
+                    "WARNING".yellow().bold(),
+                );
 
-            for component_message in migrated_components {
-                println!("{}", component_message);
+                for component_message in migrated_components {
+                    println!("{}", component_message);
+                }
             }
         }
     }

@@ -1,10 +1,11 @@
 {
-  "manifest_version": "1.0",
+  "manifest_version": "1.0.0",
   "date": 1745931671,
   "channels": [
     {
       "name": "0.14.0",
-      "components": [{
+      "components": [
+        {
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.14.0",
@@ -23,13 +24,14 @@
           "package": "miden-vm",
           "version": "0.14.0",
           "features": ["executable", "concurrent"],
-          "installed_file": "miden"
+          "installed_executable": "miden"
         }
       ]
     },
     {
       "name": "0.15.0",
-      "components": [{
+      "components": [
+        {
           "name": "std",
           "package": "miden-stdlib",
           "version": "0.15.0",
@@ -48,7 +50,7 @@
           "package": "miden-vm",
           "version": "0.15.0",
           "features": ["executable", "concurrent"],
-          "installed_file": "miden"
+          "installed_executable": "miden"
         }
       ]
     }

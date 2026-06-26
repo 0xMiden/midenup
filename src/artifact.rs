@@ -1,7 +1,8 @@
+use semver::Version;
 use serde::{Deserialize, Serialize};
 
 /// All the artifacts that the [Component] contains.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 pub struct Artifacts {
     artifacts: Vec<Artifact>,
 }
@@ -11,12 +12,24 @@ impl Artifacts {
     pub fn get_uri_for(&self, target: &TargetTriple) -> Option<String> {
         self.artifacts.iter().find_map(|artifact| artifact.get_uri_for(target))
     }
+
+    /// Replace all occurrances of version string `prev` with `replacement` in all artifact URIs
+    pub fn replace_version(&mut self, prev: &Version, replacement: &Version) {
+        let prev = prev.to_string();
+        let replacement = replacement.to_string();
+        for artifact in self.artifacts.iter_mut() {
+            if artifact.0.contains(&prev) {
+                let modified = artifact.0.replace(&prev, &replacement);
+                artifact.0 = modified;
+            }
+        }
+    }
 }
 
 /// Holds a URI used to fetch an artifact.
 ///
 /// These URIs have the following format: `(https://|file://)<path>/<component name>(-<triplet>|.masp)`
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 struct Artifact(String);
 
 #[derive(Debug, PartialEq)]

@@ -273,11 +273,11 @@ fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand {
 }
 
 pub fn miden_wrapper(
-    argv: Vec<OsString>,
+    argv: &[OsString],
     config: &Config,
     local_manifest: &mut Manifest,
 ) -> anyhow::Result<()> {
-    let matches = build_miden_command().get_matches_from(&argv);
+    let matches = build_miden_command().get_matches_from(argv);
 
     let parsed_subcommand = parse_matches(&matches);
 

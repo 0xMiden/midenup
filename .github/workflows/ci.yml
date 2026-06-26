@@ -94,7 +94,7 @@ jobs:
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
         # error occurs
-        run: cargo check --tests
+        run: make test-build
       - name: Test
         run: make test
 
@@ -112,7 +112,7 @@ jobs:
         run: |
           rustup update --no-self-update
           rustc --version
-      - name: Install all toolchains present in the manifest
+      - name: Install all rustup toolchains present in the manifest
         run: |
           ./.github/auxiliary_scripts/install-toolchains.sh
       - name: Cache Cargo
@@ -127,6 +127,6 @@ jobs:
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
         # error occurs
-        run: cargo check --tests
+        run: make test-build
       - name: Test
         run: make integration-test
