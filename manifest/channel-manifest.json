@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.1",
-  "date": 1749330054,
+  "date": 1782437675,
   "channels": [
     {
       "name": "0.9.0",
@@ -468,28 +468,28 @@
         {
           "name": "core",
           "package": "miden-core-lib",
-          "version": "0.22.1",
+          "version": "0.22.4",
           "installed_library": "core.masp",
           "library_struct": "miden_core_lib::CoreLibrary"
         },
         {
           "name": "protocol",
           "package": "miden-protocol",
-          "version": "0.14.4",
+          "version": "0.14.5",
           "installed_library": "protocol.masp",
           "library_struct": "miden_protocol::ProtocolLib"
         },
         {
           "name": "vm",
           "package": "miden-vm",
-          "version": "0.22.1",
+          "version": "0.22.4",
           "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm"
         },
         {
           "name": "client",
           "package": "miden-client-cli",
-          "version": "0.14.4",
+          "version": "0.14.9",
           "installed_executable": "miden-client",
           "aliases": {
             "account": ["executable", "new-account"],
@@ -507,8 +507,8 @@
             "simulate": ["executable", "exec"]
           },
           "artifacts": [
-            "https://github.com/0xMiden/miden-client/releases/download/v0.14.0/miden-client-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-client/releases/download/v0.14.0/miden-client-x86_64-unknown-linux-gnu"
+            "https://github.com/0xMiden/miden-client/releases/download/v0.14.9/miden-client-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-client/releases/download/v0.14.9/miden-client-x86_64-unknown-linux-gnu"
           ]
         },
         {
@@ -542,7 +542,7 @@
         {
           "name": "node",
           "package": "miden-node",
-          "version": "0.14.9",
+          "version": "0.14.10",
           "installed_executable": "miden-node",
           "aliases": {
             "start-node": [
@@ -560,13 +560,13 @@
         {
           "name": "debug",
           "package": "miden-debug",
-          "version": "0.6.1",
+          "version": "0.7.1",
           "installed_executable": "miden-debug"
         },
         {
           "name": "faucet-client",
           "package": "miden-faucet-client",
-          "version": "0.14.0",
+          "version": "0.14.3",
           "installed_executable": "miden-faucet-client",
           "aliases": {
             "mint": ["executable", "mint"]
