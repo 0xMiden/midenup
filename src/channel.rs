@@ -15,6 +15,7 @@ use sha2::Digest;
 use crate::{
     artifact::{Artifacts, TargetTriple},
     config::Config,
+    profile::Profile,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
     version::{Authority, GitTarget},
@@ -201,14 +202,39 @@ impl Channel {
         current_toolchain: &Toolchain,
         toolchain_justification: &ToolchainJustification,
     ) -> Option<Channel> {
-        if current_toolchain.components.is_empty() {
-            return None;
-        }
+        let profile = current_toolchain.profile.unwrap_or_default();
+        let mut requested_components = Vec::new();
         let mut components_to_install: Vec<Component> = Vec::new();
-
         let mut components_not_found: HashMap<String, Vec<InstallationMotive>> = HashMap::new();
 
-        for component_name in current_toolchain.components.iter() {
+        match profile {
+            Profile::Minimal => {
+                // Select components that are not marked "optional" from the manifest
+                requested_components.extend(
+                    self.components
+                        .iter()
+                        .filter_map(|c| if c.optional { None } else { Some(c.name.as_ref()) }),
+                );
+                for extra_component in current_toolchain.components.iter() {
+                    if !requested_components.contains(&extra_component.as_str()) {
+                        requested_components.push(extra_component.as_str());
+                    }
+                }
+            },
+            Profile::Complete => {
+                // Select all components from the manifest
+                requested_components.extend(self.components.iter().map(|c| c.name.as_ref()));
+                // We add any non-duplicate extra components here so that we can catch invalid
+                // components below
+                for extra_component in current_toolchain.components.iter() {
+                    if !requested_components.contains(&extra_component.as_str()) {
+                        requested_components.push(extra_component.as_str());
+                    }
+                }
+            },
+        }
+
+        for component_name in requested_components {
             let Some(component) = self.get_component(component_name) else {
                 // NOTE: In order to provide more helpful error messages, we collect all the missing
                 // components and return a single error message at the end.
@@ -552,6 +578,10 @@ pub struct Component {
     /// The versioning authority for this component.
     #[serde(flatten)]
     pub version: Authority,
+    /// Indicates that this component is not required for a minimal toolchain
+    #[serde(default)]
+    #[serde(skip_serializing_if = "is_false")]
+    pub optional: bool,
     /// Optional features to enable, if applicable, when installing this component.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -621,11 +651,16 @@ pub struct Component {
     pub artifacts: Option<Artifacts>,
 }
 
+const fn is_false(value: &bool) -> bool {
+    *value
+}
+
 impl Component {
     pub fn new(name: impl Into<Cow<'static, str>>, version: Authority) -> Self {
         Self {
             name: name.into(),
             version,
+            optional: false,
             features: vec![],
             requires: vec![],
             call_format: vec![],
@@ -869,9 +904,10 @@ impl Component {
 /// "stable" 'under the hood' is the lastest available non-nightly channel. If the user passes
 /// [`UserChannel::Stable`] as the target channel, we then handle the mapping from it to the
 /// underlying [Channel] representation.
-#[derive(Serialize, Debug, Clone)]
+#[derive(Serialize, Default, Debug, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum UserChannel {
+    #[default]
     Stable,
     Nightly,
     #[serde(untagged)]

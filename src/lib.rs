@@ -9,6 +9,7 @@ pub mod manifest;
 pub mod miden_wrapper;
 pub mod migration;
 pub mod options;
+pub mod profile;
 mod toolchain;
 pub mod utils;
 pub mod version;

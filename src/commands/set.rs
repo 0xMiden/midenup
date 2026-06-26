@@ -5,7 +5,6 @@ use anyhow::Context;
 use crate::{
     channel::UserChannel,
     config::Config,
-    manifest::Manifest,
     toolchain::{Toolchain, ToolchainFile},
 };
 
@@ -14,35 +13,21 @@ const TOOLCHAIN_FILE_NAME: &str = "miden-toolchain.toml";
 /// This function creates the `miden-toolchain.toml` in the present working directory.
 ///
 /// That file contains the desired toolchain with a list of the components that make it up.
-pub fn set(
-    config: &Config,
-    local_manifest: &Manifest,
-    channel: &UserChannel,
-) -> anyhow::Result<()> {
+pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     let toolchain_file_path =
         config.working_directory.join(TOOLCHAIN_FILE_NAME).with_extension("toml");
 
-    let local_channel = local_manifest.get_channel(channel);
-
-    let components = {
-        if let Some(local_channel) = local_channel {
-            local_channel.components.iter().map(|comp| comp.name.to_string()).collect()
-        } else {
-            Vec::new()
-        }
-    };
-
-    let installed_toolchain = Toolchain::new(channel.clone(), components);
+    let installed_toolchain = Toolchain::new(channel.clone(), None, vec![]);
     let installed_toolchain = ToolchainFile::new(installed_toolchain);
 
     let mut toolchain_file = std::fs::File::create(toolchain_file_path)
-        .context("Failed to create miden-toolchain.toml")?;
+        .context("failed to create miden-toolchain.toml")?;
 
     let toolchain_file_contents = toml::to_string_pretty(&installed_toolchain)
-        .context("Failed to generate miden-toolchain.toml")?;
+        .context("failed to generate miden-toolchain.toml")?;
 
     toolchain_file
         .write_all(&toolchain_file_contents.into_bytes())
-        .context("Failed to write miden-toolchain.toml")?;
+        .context("failed to write miden-toolchain.toml")?;
     Ok(())
 }

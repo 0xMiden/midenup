@@ -6,6 +6,7 @@ use std::{
 };
 
 use anyhow::{Context, bail};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -14,6 +15,7 @@ use crate::{
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
+    profile::Profile,
 };
 
 /// Represents a `miden-toolchain.toml` file.
@@ -24,30 +26,24 @@ pub(crate) struct ToolchainFile {
     toolchain: Toolchain,
 }
 
-/// The actual contents of the toolchain.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Toolchain {
-    pub channel: UserChannel,
-    pub components: Vec<String>,
-}
-
 impl ToolchainFile {
     pub fn new(toolchain: Toolchain) -> Self {
         ToolchainFile { toolchain }
     }
 
-    fn inner_toolchain(self) -> Toolchain {
+    #[inline]
+    fn into_toolchain(self) -> Toolchain {
         self.toolchain
     }
 }
 
-impl Default for Toolchain {
-    fn default() -> Self {
-        Self {
-            channel: UserChannel::Stable,
-            components: vec![],
-        }
-    }
+/// The actual contents of the toolchain.
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct Toolchain {
+    pub channel: UserChannel,
+    pub components: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<Profile>,
 }
 
 /// Used to specify why Midenup believes the current toolchain is what it is.
@@ -62,8 +58,8 @@ pub enum ToolchainJustification {
 }
 
 impl Toolchain {
-    pub fn new(channel: UserChannel, components: Vec<String>) -> Self {
-        Toolchain { channel, components }
+    pub fn new(channel: UserChannel, profile: Option<Profile>, components: Vec<String>) -> Self {
+        Toolchain { channel, components, profile }
     }
 
     /// Returns the current active Toolchain according to the following prescedence:
@@ -73,10 +69,7 @@ impl Toolchain {
     ///    added to the `midenup` directory.
     ///
     /// If none of the previous conditions are met, then `stable` will be used.
-    pub fn current(
-        config: &Config,
-        local_manifest: &Manifest,
-    ) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
+    pub fn current(config: &Config) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
         let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
 
@@ -89,7 +82,7 @@ impl Toolchain {
             let toolchain_file: ToolchainFile =
                 toml::from_str(&toolchain_file_contents).context("invalid toolchain file")?;
 
-            let current_toolchain = toolchain_file.inner_toolchain();
+            let current_toolchain = toolchain_file.into_toolchain();
 
             Ok((
                 current_toolchain,
@@ -99,26 +92,17 @@ impl Toolchain {
             let channel_name = channel_path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .context("Couldn't read channel name from directory")?;
+                .context("unable to read channel name from directory")?;
+
             // NOTE: This has to be a UserChannel because the default channel could be a channel
             // like "stable"
             let user_channel = UserChannel::from_str(channel_name)?;
 
-            // TODO: Maybe as a QoL improvement, we could write down the
-            // components present on the upstream channel.
-            let channel = local_manifest.get_channel(&user_channel);
-
-            let components: Vec<String> = {
-                if let Some(channel) = channel {
-                    channel.components.iter().map(|comp| comp.name.to_string()).collect()
-                } else {
-                    println!(
-                        "WARNING: Non present toolchain was set. Component list will be left empty"
-                    );
-                    Vec::new()
-                }
+            let toolchain = Toolchain {
+                channel: user_channel,
+                components: vec![],
+                profile: None,
             };
-            let toolchain = Toolchain { channel: user_channel, components };
 
             Ok((toolchain, ToolchainJustification::Override))
         } else {
@@ -130,12 +114,12 @@ impl Toolchain {
         config: &Config,
         local_manifest: &mut Manifest,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
-        let (current_toolchain, justification) = Toolchain::current(config, local_manifest)?;
+        let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
         let Some(channel) = config.manifest.get_channel(desired_channel) else {
             bail!(
-                "Channel '{}' is set because {}, however the channel doesn't exist or is \
+                "channel '{}' is set because {}, however the channel doesn't exist or is \
                  unavailable",
                 desired_channel,
                 match justification {
@@ -167,16 +151,25 @@ impl Toolchain {
                 required_components.difference(&installed_components).collect();
 
             if missing_components.is_empty() {
+                println!(
+                    "{}: current toolchain is {desired_channel} and is installed",
+                    "info".white().bold()
+                );
                 return Ok((current_toolchain, justification, partial_channel));
             }
 
-            println!("Found that the current active toolchain is missing some components:");
+            println!(
+                "{}: installing missing components of the current toolchain:",
+                "info".white().bold()
+            );
             for component in missing_components {
-                println!("- {}", component);
+                println!("- {}", component.white().bold());
             }
-            println!("Proceeding to install them");
         } else {
-            println!("Found current toolchain to be {desired_channel}. Now installing it.");
+            println!(
+                "{}: current toolchain is {desired_channel}, but not yet installed",
+                "info".white().bold()
+            );
         }
 
         commands::install(

@@ -176,7 +176,7 @@ impl Commands {
                 update(config, channel.as_ref(), local_manifest, options)
             },
             Self::Show(cmd) => cmd.execute(config, local_manifest),
-            Self::Set { channel } => set(config, local_manifest, channel),
+            Self::Set { channel } => set(config, channel),
             Self::Override { channel } => r#override(config, local_manifest, channel),
         }
     }
@@ -293,7 +293,7 @@ impl Midenup {
             },
             Behavior::Midenup { config: global_args, command: subcommand } => {
                 if global_args.version {
-                    println!("{}", miden_wrapper::display_version(config, &*local_manifest));
+                    println!("{}", miden_wrapper::display_version(config));
                 } else if let Some(subcommand) = subcommand {
                     subcommand.execute(config, local_manifest)?;
                 } else {
@@ -303,10 +303,9 @@ impl Midenup {
         }
 
         // After execution we check if need to update the midenup/opt symlink
-        // This is done *after* execution because some commands change what the
-        // active toolchain (update, set) and some remove the directory entirely
-        // (uninstall)
-        config.update_opt_symlinks(config, &*local_manifest)?;
+        // This is done *after* execution because some commands change what the active toolchain
+        // (update, set) and some remove the directory entirely (uninstall)
+        config.update_opt_symlinks(config)?;
 
         Ok(())
     }

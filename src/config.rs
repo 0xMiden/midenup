@@ -96,12 +96,8 @@ impl Config {
         .context("unable to load local manifest")
     }
 
-    pub fn update_opt_symlinks(
-        &self,
-        config: &Config,
-        local_manifest: &Manifest,
-    ) -> anyhow::Result<()> {
-        let (current_toolchain, _) = Toolchain::current(self, local_manifest)?;
+    pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {
+        let (current_toolchain, _) = Toolchain::current(self)?;
 
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
