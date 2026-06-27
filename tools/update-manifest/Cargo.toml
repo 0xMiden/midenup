@@ -10,6 +10,7 @@ categories.workspace = true
 keywords.workspace = true
 license.workspace = true
 edition.workspace = true
+publish = false
 
 [[bin]]
 name = "update-manifest"
