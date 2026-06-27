@@ -997,6 +997,7 @@
           "package": "miden-node",
           "version": "0.15.0",
           "optional": true,
+          "rustup_channel": "1.95",
           "installed_executable": "miden-node",
           "alias_only": false
         },
@@ -1005,6 +1006,7 @@
           "package": "miden-ntx-builder",
           "version": "0.15.0",
           "optional": true,
+          "rustup_channel": "1.95",
           "installed_executable": "miden-ntx-builder",
           "alias_only": false
         },
@@ -1012,6 +1014,7 @@
           "name": "protocol",
           "package": "miden-protocol",
           "version": "0.15.3",
+          "rustup_channel": "1.95",
           "installed_library": "protocol.masp",
           "library_struct": "miden_protocol::ProtocolLib"
         },
@@ -1020,6 +1023,7 @@
           "package": "miden-remote-prover",
           "version": "0.15.0",
           "optional": true,
+          "rustup_channel": "1.95",
           "installed_executable": "miden-remote-prover",
           "alias_only": false
         },
@@ -1028,6 +1032,7 @@
           "package": "miden-validator",
           "version": "0.15.0",
           "optional": true,
+          "rustup_channel": "1.95",
           "installed_executable": "miden-validator",
           "alias_only": false
         },
