@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     ffi::{OsStr, OsString},
     path::PathBuf,
 };
@@ -6,9 +7,8 @@ use std::{
 use anyhow::{Context, bail};
 
 use crate::{
-    artifact::TargetTriple,
     channel::Channel,
-    manifest::{Manifest, ManifestError},
+    manifest::{Manifest, ManifestError, VersionedManifest},
     toolchain::Toolchain,
     utils,
 };
@@ -51,7 +51,7 @@ pub struct Config {
     /// This is used to determine which artifact to download. If, for whatever reason (which should
     /// be rare), we fail to obtain the system's target triple, then we leave it as `None`. In
     /// those cases, we will simply install everything from source.
-    pub target: TargetTriple,
+    pub target: Cow<'static, str>,
 }
 
 impl Config {
@@ -62,12 +62,9 @@ impl Config {
         manifest_uri: impl AsRef<str>,
         debug: bool,
     ) -> anyhow::Result<Config> {
-        let manifest = Manifest::load_from(manifest_uri)?;
+        let manifest = VersionedManifest::load_from(manifest_uri)?;
 
-        let target = {
-            let target = env!("TARGET");
-            TargetTriple::Custom(target.to_string())
-        };
+        let target = Cow::Borrowed(env!("TARGET"));
 
         let config = Config {
             working_directory,
@@ -81,19 +78,49 @@ impl Config {
         Ok(config)
     }
 
+    #[inline]
+    pub fn target(&self) -> &str {
+        self.target.as_ref()
+    }
+
+    pub fn local_manifest_path(&self) -> PathBuf {
+        self.midenup_home.join("manifest").with_extension("json")
+    }
+
     /// Get the [Manifest] for locally installed toolchains
     pub fn local_manifest(&self) -> anyhow::Result<Manifest> {
-        let local_manifest_path = self.midenup_home.join("manifest").with_extension("json");
+        let local_manifest_path = self.local_manifest_path();
         let local_manifest_uri = format!(
             "file://{}",
             local_manifest_path.to_str().context("Couldn't convert miden directory")?,
         );
-        match Manifest::load_from(local_manifest_uri) {
+        match VersionedManifest::load_from(local_manifest_uri) {
             Ok(manifest) => Ok(manifest),
             Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
             Err(err) => Err(err),
         }
         .context("unable to load local manifest")
+    }
+
+    /// Write `manifest` as the locally-managed `manifest.json` file
+    pub fn write_local_manifest(&self, manifest: &Manifest) -> anyhow::Result<()> {
+        let path = self.local_manifest_path();
+        let tmp_path = path.with_added_extension("tmp");
+        let mut file = std::fs::File::create(&tmp_path).with_context(|| {
+            format!("failed to update local manifest: writing '{}' failed", tmp_path.display())
+        })?;
+        serde_json::to_writer_pretty(&mut file, manifest)
+            .context("failed to update local manifest")?;
+
+        std::fs::rename(&tmp_path, &path).with_context(|| {
+            format!(
+                "failed to update local manifest: renaming '{}' -> '{}' failed",
+                tmp_path.display(),
+                path.display()
+            )
+        })?;
+
+        Ok(())
     }
 
     pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {
@@ -143,6 +170,10 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    pub fn toolchain_dir(&self, channel: &Channel) -> PathBuf {
+        self.midenup_home.join("toolchains").join(channel.name.to_string())
     }
 
     /// Executes a command.

@@ -29,7 +29,7 @@ pub fn test_setup(env: &TestEnvironment, manifest_uri: &str) -> (LocalManifest, 
             local_manifest_path.to_str().expect("Couldn't convert miden directory"),
         );
 
-        match manifest::Manifest::load_from(local_manifest_uri) {
+        match manifest::VersionedManifest::load_from(local_manifest_uri) {
             Ok(manifest) => Ok(manifest),
             Err(manifest::ManifestError::Empty | manifest::ManifestError::Missing(_)) => {
                 Ok(manifest::Manifest::default())

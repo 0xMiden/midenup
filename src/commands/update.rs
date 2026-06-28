@@ -7,13 +7,10 @@ use anyhow::Context;
 use colored::Colorize;
 
 use crate::{
-    channel::{
-        Channel, Component, InstalledFile, MigrationStrategy, UpstreamChannel, UpstreamMatch,
-        UserChannel,
-    },
+    channel::{Channel, MigrationStrategy, UpstreamChannel, UpstreamMatch, UserChannel},
     commands::{self},
     config::Config,
-    manifest::Manifest,
+    manifest::{Component, Manifest},
     options::{InstallationOptions, PathUpdate, UpdateOptions},
     profile::Profile,
     version::Authority,
@@ -36,7 +33,7 @@ midenup install stable
             )?;
             println!(
                 "syncing channel updates for stable (last update was {last_updated} as {})",
-                &local_stable.name
+                local_stable.name
             );
             let upstream_stable = config
                 .manifest
@@ -49,7 +46,7 @@ midenup install stable
 
             println!(
                 "latest stable is version {} (upstream last updated on {})",
-                &upstream_stable.name,
+                upstream_stable.name,
                 config.manifest.last_updated()
             );
 
@@ -99,7 +96,7 @@ midenup install stable
 
             println!(
                 "syncing channel updates for {} (last update was {last_updated})",
-                &local_channel.name
+                local_channel.name
             );
 
             let upstream_counterpart =
@@ -134,7 +131,7 @@ midenup install stable
             for (local_channel, upstream_channel) in channels_to_update {
                 println!(
                     "syncing channel updates for {} (last update was {last_updated})",
-                    &local_channel.name
+                    local_channel.name
                 );
                 println!("upstream last updated on {}", config.manifest.last_updated());
                 update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
@@ -188,7 +185,7 @@ fn update_channel(
 
     display_warnings(&update, options);
 
-    println!("Updating toolchain {}..", &local_channel.name);
+    println!("Updating toolchain {}..", local_channel.name);
 
     let Update {
         channel_to_install,
@@ -197,7 +194,7 @@ fn update_channel(
     } = update;
 
     let install_options = InstallationOptions {
-        profile: Profile::Minimal,
+        profile: Profile::Complete,
         verbose: options.verbose,
         components_to_uninstall,
     };
@@ -546,21 +543,18 @@ fn should_skip_component_update(
     options: &UpdateOptions,
     local_channel: &Channel,
 ) -> anyhow::Result<ComponentUpdateDecision> {
-    let skip_update = match component.get_installed_file() {
-        InstalledFile::Library { .. } => false,
-        InstalledFile::Executable { .. } => match component.version {
-            Authority::Cargo { .. } | Authority::Git { .. } => false,
-            // Since uninstalling a component from the filesystem is potentially
-            // irreversible, we take special precautions before uninstalling them.
-            Authority::Path { .. } => match options.path_update {
-                PathUpdate::Interactive => match handle_path_uninstall_interactive(component)? {
-                    InteractiveResult::Cancel => return Ok(ComponentUpdateDecision::Abort),
-                    InteractiveResult::UpdateComponent => false,
-                    InteractiveResult::DontUpdateComponent => true,
-                },
-                PathUpdate::All => false,
-                PathUpdate::Off => true,
+    let skip_update = match &component.version {
+        Authority::Registry { .. } | Authority::Git { .. } => false,
+        // Since uninstalling a component from the filesystem is potentially
+        // irreversible, we take special precautions before uninstalling them.
+        Authority::Path { .. } => match options.path_update {
+            PathUpdate::Interactive => match handle_path_uninstall_interactive(component)? {
+                InteractiveResult::Cancel => return Ok(ComponentUpdateDecision::Abort),
+                InteractiveResult::UpdateComponent => false,
+                InteractiveResult::DontUpdateComponent => true,
             },
+            PathUpdate::All => false,
+            PathUpdate::Off => true,
         },
     };
 
@@ -579,7 +573,7 @@ fn display_warnings(update: &Update, options: &UpdateOptions) {
             .components
             .iter()
             .filter_map(|component| match &component.version {
-                Authority::Path { path, crate_name, .. } => Some((path, crate_name)),
+                Authority::Path { path, .. } => Some((path, component.crate_name()?)),
                 _ => None,
             })
             .map(|(path, crate_name)| {

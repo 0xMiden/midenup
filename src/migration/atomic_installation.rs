@@ -24,7 +24,7 @@ pub fn migrate_toolchain(config: &Config, local_manifest: &Manifest) -> anyhow::
             continue;
         }
 
-        let install_dir_name = format!("{}-{}", &channel.name, hash);
+        let install_dir_name = format!("{}-{}", channel.name, hash);
         let install_dir = installed_toolchains_dir.join(&install_dir_name);
 
         std::fs::create_dir_all(&install_dir).with_context(|| {

@@ -1,5 +1,6 @@
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Profile {
+    Empty,
     #[default]
     Minimal,
     Complete,
@@ -8,6 +9,7 @@ pub enum Profile {
 impl Profile {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::Empty => "empty",
             Self::Minimal => "minimal",
             Self::Complete => "complete",
         }
@@ -52,6 +54,7 @@ impl core::str::FromStr for Profile {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "empty" => Ok(Self::Empty),
             "minimal" => Ok(Self::Minimal),
             "complete" => Ok(Self::Complete),
             invalid => Err(format!("unrecognized profile '{invalid}'")),

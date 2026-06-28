@@ -1,5 +1,5 @@
 {
-  "manifest_version": "1.0.1",
+  "manifest_version": "2.0.0",
   "date": 1782923717,
   "channels": [
     {
@@ -7,21 +7,36 @@
       "components": [
         {
           "name": "base",
-          "package": "miden-lib",
-          "version": "0.9.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "version": {
+            "kind": "registry",
+            "version": "0.9.0"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-lib",
+            "extractor": "miden_lib::MidenLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "cargo-miden",
-          "version": "0.1.0",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.1.0"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "cargo-miden",
+            "rustup_channel": "nightly-2025-03-20"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-03-20",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "build": [
               "cargo",
@@ -34,75 +49,108 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden"
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "client",
-          "repository_url": "https://github.com/0xMiden/miden-client.git",
-          "crate_name": "miden-client-cli",
-          "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "git",
+            "repository_url": "https://github.com/0xMiden/miden-client.git",
+            "revision": "83df2aa115b2617e211d1d929a1189ffabbd137b"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-client-cli"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "call": [
-              "executable",
+              "%installed-executable",
               "call",
               "--show"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
-          }
+          },
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "midenc",
-          "version": "0.1.0",
+          "version": {
+            "kind": "registry",
+            "version": "0.1.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "midenc",
+            "rustup_channel": "nightly-2025-03-20"
+          },
+          "call-format": [
+            "%installed-executable",
+            "compile",
+            "-L",
+            "%lib"
+          ],
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
           "requires": [
             "base",
             "std"
-          ],
-          "call_format": [
-            "executable",
-            "compile",
-            "-L",
-            "lib_path"
-          ],
-          "rustup_channel": "nightly-2025-03-20"
+          ]
         },
         {
           "name": "node",
-          "package": "miden-node",
-          "version": "0.10.1",
-          "installed_executable": "miden-node",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.10.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-node"
+          },
           "aliases": {
             "start-node": [
-              "executable",
+              "%installed-executable",
               "bundled",
               "start",
               "--data-directory",
@@ -110,25 +158,49 @@
               "--rpc.url",
               "http://0.0.0.0:57291"
             ]
-          }
+          },
+          "installed-executable": "miden-node",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.15.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+          "version": {
+            "kind": "registry",
+            "version": "0.15.0"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-stdlib",
+            "extractor": "miden_stdlib::StdLibrary::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "vm",
-          "package": "miden-vm",
-          "version": "0.15.0",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
-          "installed_executable": "miden",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.15.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-vm",
+            "features": [
+              "executable",
+              "concurrent"
+            ]
+          },
+          "installed-executable": "miden",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         }
       ]
     },
@@ -137,21 +209,36 @@
       "components": [
         {
           "name": "base",
-          "package": "miden-lib",
-          "version": "0.10.0",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "version": {
+            "kind": "registry",
+            "version": "0.10.0"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-lib",
+            "extractor": "miden_lib::MidenLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "cargo-miden",
-          "version": "0.1.0",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.1.0"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "cargo-miden",
+            "rustup_channel": "nightly-2025-03-20"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-03-20",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "build": [
               "cargo",
@@ -164,74 +251,107 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden"
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.10.2",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.10.2"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-client-cli"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "call": [
-              "executable",
+              "%installed-executable",
               "call",
               "--show"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
-          }
+          },
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "midenc",
-          "version": "0.1.0",
+          "version": {
+            "kind": "registry",
+            "version": "0.1.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "midenc",
+            "rustup_channel": "nightly-2025-03-20"
+          },
+          "call-format": [
+            "%installed-executable",
+            "compile",
+            "-L",
+            "%lib"
+          ],
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
           "requires": [
             "base",
             "std"
-          ],
-          "call_format": [
-            "executable",
-            "compile",
-            "-L",
-            "lib_path"
-          ],
-          "rustup_channel": "nightly-2025-03-20"
+          ]
         },
         {
           "name": "node",
-          "package": "miden-node",
-          "version": "0.10.1",
-          "installed_executable": "miden-node",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.10.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-node"
+          },
           "aliases": {
             "start-node": [
-              "executable",
+              "%installed-executable",
               "bundled",
               "start",
               "--data-directory",
@@ -239,25 +359,49 @@
               "--rpc.url",
               "http://0.0.0.0:57291"
             ]
-          }
+          },
+          "installed-executable": "miden-node",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.16.0",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+          "version": {
+            "kind": "registry",
+            "version": "0.16.0"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-stdlib",
+            "extractor": "miden_stdlib::StdLibrary::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "vm",
-          "package": "miden-vm",
-          "version": "0.16.2",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
-          "installed_executable": "miden-vm",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.16.2"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-vm",
+            "features": [
+              "executable",
+              "concurrent"
+            ]
+          },
+          "installed-executable": "miden-vm",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         }
       ]
     },
@@ -266,21 +410,36 @@
       "components": [
         {
           "name": "base",
-          "package": "miden-lib",
-          "version": "0.11.5",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "version": {
+            "kind": "registry",
+            "version": "0.11.5"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-lib",
+            "extractor": "miden_lib::MidenLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "cargo-miden",
-          "version": "0.4.1",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.4.1"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "cargo-miden",
+            "rustup_channel": "nightly-2025-07-20"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-07-20",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "build": [
               "cargo",
@@ -293,103 +452,159 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden"
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.11.8",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.11.8"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-client-cli"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "call": [
-              "executable",
+              "%installed-executable",
               "call",
               "--show"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
-          }
+          },
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "midenc",
-          "version": "0.4.1",
+          "version": {
+            "kind": "registry",
+            "version": "0.4.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "midenc",
+            "rustup_channel": "nightly-2025-07-20"
+          },
+          "call-format": [
+            "%installed-executable",
+            "compile",
+            "-L",
+            "%lib"
+          ],
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
           "requires": [
             "base",
             "std"
-          ],
-          "call_format": [
-            "executable",
-            "compile",
-            "-L",
-            "lib_path"
-          ],
-          "rustup_channel": "nightly-2025-07-20"
+          ]
         },
         {
           "name": "node",
-          "repository_url": "https://github.com/lambdaclass/miden-node.git",
-          "crate_name": "miden-node",
-          "branch": "fabrizioorsi/create-account-data-dirs",
-          "latest_revision": null,
-          "installed_executable": "miden-node",
-          "alias_only": false,
+          "version": {
+            "kind": "git",
+            "repository_url": "https://github.com/lambdaclass/miden-node.git",
+            "branch": "fabrizioorsi/create-account-data-dirs",
+            "latest_revision": null
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-node"
+          },
           "aliases": {
             "start-node": [
-              "executable",
+              "%installed-executable",
               "bundled",
               "start",
               "--data-directory",
-              "var_path",
-              "data",
+              "%var(data)",
               "--rpc.url",
               "http://0.0.0.0:57291"
             ]
-          }
+          },
+          "installed-executable": "miden-node",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.17.2",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+          "version": {
+            "kind": "registry",
+            "version": "0.17.2"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-stdlib",
+            "extractor": "miden_stdlib::StdLibrary::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "vm",
-          "package": "miden-vm",
-          "version": "0.17.2",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
-          "installed_executable": "miden-vm",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.17.2"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-vm",
+            "features": [
+              "executable",
+              "concurrent"
+            ]
+          },
+          "installed-executable": "miden-vm",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         }
       ]
     },
@@ -398,21 +613,36 @@
       "components": [
         {
           "name": "base",
-          "package": "miden-lib",
-          "version": "0.12.4",
-          "installed_library": "base.masp",
-          "library_struct": "miden_lib::MidenLib"
+          "version": {
+            "kind": "registry",
+            "version": "0.12.4"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-lib",
+            "extractor": "miden_lib::MidenLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "cargo-miden",
-          "version": "0.6.0",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.6.0"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "cargo-miden",
+            "rustup_channel": "nightly-2025-07-20"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-07-20",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "build": [
               "cargo",
@@ -425,110 +655,180 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden"
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.12.6",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.12.6"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-client-cli"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "call": [
-              "executable",
+              "%installed-executable",
               "call",
               "--show"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
-          }
-        },
-        {
-          "name": "debug",
-          "package": "miden-debug",
-          "version": "0.4.4",
-          "installed_executable": "miden-debug",
-          "alias_only": false,
-          "artifacts": [
-            "https://github.com/0xMiden/miden-debug/releases/download/v0.4.4/miden-debug-aarch64-apple-darwin"
+          },
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
           ]
         },
         {
-          "name": "midenc",
-          "version": "0.6.0",
-          "requires": [
-            "base",
-            "std"
+          "name": "debug",
+          "version": {
+            "kind": "registry",
+            "version": "0.4.4"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-debug",
+          "hide": false,
+          "profiles": [
+            "minimal"
           ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
-          "rustup_channel": "nightly-2025-07-20"
-        },
-        {
-          "name": "node",
-          "package": "miden-node",
-          "version": "0.12.8",
-          "installed_executable": "miden-node",
-          "alias_only": false,
-          "aliases": {
-            "start-node": [
-              "executable",
-              "bundled",
-              "start",
-              "--data-directory",
-              "var_path",
-              "data",
-              "--rpc.url",
-              "http://0.0.0.0:57291"
-            ]
+          "artifacts": {
+            "miden-debug": {
+              "uri": "https://github.com/0xMiden/miden-debug/releases/download/v%version/miden-debug-%target",
+              "targets": {
+                "aarch64-apple-darwin": {}
+              }
+            }
           }
         },
         {
+          "name": "midenc",
+          "version": {
+            "kind": "registry",
+            "version": "0.6.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "midenc",
+            "rustup_channel": "nightly-2025-07-20"
+          },
+          "call-format": [
+            "%installed-executable",
+            "-L",
+            "%lib"
+          ],
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "requires": [
+            "base",
+            "std"
+          ]
+        },
+        {
+          "name": "node",
+          "version": {
+            "kind": "registry",
+            "version": "0.12.8"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-node"
+          },
+          "aliases": {
+            "start-node": [
+              "%installed-executable",
+              "bundled",
+              "start",
+              "--data-directory",
+              "%var(data)",
+              "--rpc.url",
+              "http://0.0.0.0:57291"
+            ]
+          },
+          "installed-executable": "miden-node",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
+        },
+        {
           "name": "std",
-          "package": "miden-stdlib",
-          "version": "0.19.1",
-          "installed_library": "std.masp",
-          "library_struct": "miden_stdlib::StdLibrary"
+          "version": {
+            "kind": "registry",
+            "version": "0.19.1"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-stdlib",
+            "extractor": "miden_stdlib::StdLibrary::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "vm",
-          "package": "miden-vm",
-          "version": "0.19.1",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
-          "installed_executable": "miden-vm",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.19.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-vm",
+            "features": [
+              "executable",
+              "concurrent"
+            ]
+          },
+          "installed-executable": "miden-vm",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         }
       ]
     },
@@ -544,14 +844,20 @@
       "components": [
         {
           "name": "cargo-miden",
-          "version": "0.7.0",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.7.0"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "cargo-miden",
+            "rustup_channel": "nightly-2025-12-10"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-12-10",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "build": [
               "cargo",
@@ -564,131 +870,220 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden"
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.13.0",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.13.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-client-cli"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "call": [
-              "executable",
+              "%installed-executable",
               "call",
               "--show"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
-          }
-        },
-        {
-          "name": "core",
-          "package": "miden-core-lib",
-          "version": "0.20.3",
-          "installed_library": "core.masp",
-          "library_struct": "miden_core_lib::CoreLibrary"
-        },
-        {
-          "name": "debug",
-          "package": "miden-debug",
-          "version": "0.4.6",
-          "installed_executable": "miden-debug",
-          "alias_only": false,
-          "artifacts": [
-            "https://github.com/0xMiden/miden-debug/releases/download/v0.4.6/miden-debug-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-debug/releases/download/v0.4.6/miden-debug-x86_64-unknown-linux-gnu"
+          },
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
           ]
         },
         {
+          "name": "core",
+          "version": {
+            "kind": "registry",
+            "version": "0.20.3"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-core-lib",
+            "extractor": "miden_core_lib::CoreLibrary::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
+        },
+        {
+          "name": "debug",
+          "version": {
+            "kind": "registry",
+            "version": "0.4.6"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-debug",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "miden-debug": {
+              "uri": "https://github.com/0xMiden/miden-debug/releases/download/v%version/miden-debug-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
+        },
+        {
           "name": "faucet-client",
-          "package": "miden-faucet-client",
-          "version": "0.13.0",
-          "installed_executable": "miden-faucet-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.13.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-faucet-client"
+          },
           "aliases": {
             "mint": [
-              "executable",
+              "%installed-executable",
               "mint"
             ]
-          }
+          },
+          "installed-executable": "miden-faucet-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "midenc",
-          "version": "0.7.0",
-          "requires": [
-            "base",
-            "std"
-          ],
-          "call_format": [
-            "executable",
+          "version": {
+            "kind": "registry",
+            "version": "0.7.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "midenc",
+            "rustup_channel": "nightly-2025-12-10"
+          },
+          "call-format": [
+            "%installed-executable",
             "-L",
-            "lib_path"
+            "%lib"
           ],
-          "rustup_channel": "nightly-2025-12-10"
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "requires": [
+            "protocol",
+            "core"
+          ]
         },
         {
           "name": "node",
-          "package": "miden-node",
-          "version": "0.13.4",
-          "installed_executable": "miden-node",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.13.4"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-node"
+          },
           "aliases": {
             "start-node": [
-              "executable",
+              "%installed-executable",
               "bundled",
               "start",
               "--data-directory",
-              "var_path",
-              "data",
+              "%var(data)",
               "--rpc.url",
               "http://0.0.0.0:57291"
             ]
-          }
+          },
+          "installed-executable": "miden-node",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "protocol",
-          "package": "miden-protocol",
-          "version": "0.13.3",
-          "installed_library": "protocol.masp",
-          "library_struct": "miden_protocol::ProtocolLib"
+          "version": {
+            "kind": "registry",
+            "version": "0.13.3"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-protocol",
+            "extractor": "miden_protocol::ProtocolLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "vm",
-          "package": "miden-vm",
-          "version": "0.20.3",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
-          "installed_executable": "miden-vm",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.20.3"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-vm",
+            "features": [
+              "executable",
+              "concurrent"
+            ]
+          },
+          "installed-executable": "miden-vm",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         }
       ]
     },
@@ -697,14 +1092,18 @@
       "components": [
         {
           "name": "cargo-miden",
-          "version": "0.8.1",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.8.1"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-12-10",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "build": [
               "cargo",
@@ -717,150 +1116,261 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden",
-          "artifacts": [
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/cargo-miden-aarch64-apple-darwin",
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/cargo-miden-x86_64-unknown-linux-gnu"
-          ]
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "cargo-miden": {
+              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/cargo-miden-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.14.9",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.14.9"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "call": [
-              "executable",
+              "%installed-executable",
               "call",
               "--show"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
           },
-          "artifacts": [
-            "https://github.com/0xMiden/miden-client/releases/download/v0.14.9/miden-client-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-client/releases/download/v0.14.9/miden-client-x86_64-unknown-linux-gnu"
-          ]
-        },
-        {
-          "name": "core",
-          "package": "miden-core-lib",
-          "version": "0.22.4",
-          "installed_library": "core.masp",
-          "library_struct": "miden_core_lib::CoreLibrary"
-        },
-        {
-          "name": "debug",
-          "package": "miden-debug",
-          "version": "0.7.1",
-          "installed_executable": "miden-debug",
-          "alias_only": false
-        },
-        {
-          "name": "faucet-client",
-          "package": "miden-faucet-client",
-          "version": "0.14.3",
-          "installed_executable": "miden-faucet-client",
-          "alias_only": false,
-          "aliases": {
-            "mint": [
-              "executable",
-              "mint"
-            ]
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "miden-client": {
+              "uri": "https://github.com/0xMiden/miden-client/releases/download/v%version/miden-client-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
           }
         },
         {
+          "name": "core",
+          "version": {
+            "kind": "registry",
+            "version": "0.22.4"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-core-lib",
+            "extractor": "miden_core_lib::CoreLibrary::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
+        },
+        {
+          "name": "debug",
+          "version": {
+            "kind": "registry",
+            "version": "0.7.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-debug"
+          },
+          "installed-executable": "miden-debug",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
+        },
+        {
+          "name": "faucet-client",
+          "version": {
+            "kind": "registry",
+            "version": "0.14.3"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-faucet-client"
+          },
+          "aliases": {
+            "mint": [
+              "%installed-executable",
+              "mint"
+            ]
+          },
+          "installed-executable": "miden-faucet-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
+        },
+        {
           "name": "midenc",
-          "version": "0.8.1",
+          "version": {
+            "kind": "registry",
+            "version": "0.8.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "call-format": [
+            "%installed-executable",
+            "-L",
+            "%lib"
+          ],
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
           "requires": [
             "core",
             "protocol"
           ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
-          "rustup_channel": "nightly-2025-12-10",
-          "artifacts": [
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
-          ]
-        },
-        {
-          "name": "node",
-          "package": "miden-node",
-          "version": "0.14.10",
-          "installed_executable": "miden-node",
-          "alias_only": false,
-          "aliases": {
-            "start-node": [
-              "executable",
-              "bundled",
-              "start",
-              "--data-directory",
-              "var_path",
-              "data",
-              "--rpc.url",
-              "http://0.0.0.0:57291"
-            ]
+          "artifacts": {
+            "midenc": {
+              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/midenc-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
           }
         },
         {
-          "name": "protocol",
-          "package": "miden-protocol",
-          "version": "0.14.5",
-          "installed_library": "protocol.masp",
-          "library_struct": "miden_protocol::ProtocolLib"
-        },
-        {
-          "name": "verify",
-          "package": "miden-verify",
-          "version": "0.3.0",
-          "installed_executable": "miden-verify",
-          "alias_only": false,
-          "artifacts": [
-            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-aarch64-apple-darwin",
-            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-x86_64-unknown-linux-gnu"
+          "name": "node",
+          "version": {
+            "kind": "registry",
+            "version": "0.14.10"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-node"
+          },
+          "aliases": {
+            "start-node": [
+              "%installed-executable",
+              "bundled",
+              "start",
+              "--data-directory",
+              "%var(data)",
+              "--rpc.url",
+              "http://0.0.0.0:57291"
+            ]
+          },
+          "installed-executable": "miden-node",
+          "hide": false,
+          "profiles": [
+            "minimal"
           ]
         },
         {
-          "name": "vm",
-          "package": "miden-vm",
-          "version": "0.22.4",
-          "features": [
-            "executable",
-            "concurrent"
+          "name": "protocol",
+          "version": {
+            "kind": "registry",
+            "version": "0.14.5"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-protocol",
+            "extractor": "miden_protocol::ProtocolLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
+        },
+        {
+          "name": "verify",
+          "version": {
+            "kind": "registry",
+            "version": "0.3.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-verify",
+          "hide": false,
+          "profiles": [
+            "minimal"
           ],
-          "installed_executable": "miden-vm",
-          "alias_only": false
+          "artifacts": {
+            "miden-verify": {
+              "uri": "https://github.com/walnuthq/miden-verify/releases/download/v%version/miden-verify-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
+        },
+        {
+          "name": "vm",
+          "version": {
+            "kind": "registry",
+            "version": "0.22.4"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-vm",
+            "features": [
+              "executable",
+              "concurrent"
+            ]
+          },
+          "installed-executable": "miden-vm",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ]
         }
       ]
     },
@@ -869,14 +1379,18 @@
       "components": [
         {
           "name": "cargo-miden",
-          "version": "0.9.0",
-          "call_format": [
+          "version": {
+            "kind": "registry",
+            "version": "0.9.0"
+          },
+          "kind": "cargo-extension",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "call-format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2026-04-30",
-          "installed_executable": "cargo-miden",
-          "alias_only": true,
           "aliases": {
             "new": [
               "cargo",
@@ -884,183 +1398,368 @@
               "new"
             ]
           },
-          "symlink_name": "cargo-miden",
-          "artifacts": [
-            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/cargo-miden-aarch64-apple-darwin",
-            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/cargo-miden-x86_64-unknown-linux-gnu"
-          ]
+          "symlink-name": "cargo-miden",
+          "installed-executable": "cargo-miden",
+          "hide": true,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "cargo-miden": {
+              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/cargo-miden-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "client",
-          "package": "miden-client-cli",
-          "version": "0.15.2",
-          "installed_executable": "miden-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.15.2"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
           "aliases": {
             "account": [
-              "executable",
+              "%installed-executable",
               "new-account"
             ],
             "deploy": [
-              "executable",
+              "%installed-executable",
               "-s",
               "public",
               "--account-type",
               "regular-account-immutable-code"
             ],
             "faucet": [
-              "executable",
+              "%installed-executable",
               "mint"
             ],
             "new-wallet": [
-              "executable",
+              "%installed-executable",
               "new-wallet",
               "--deploy"
             ],
             "send": [
-              "executable",
+              "%installed-executable",
               "send"
             ],
             "simulate": [
-              "executable",
+              "%installed-executable",
               "exec"
             ]
           },
-          "artifacts": [
-            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-x86_64-unknown-linux-gnu"
-          ]
+          "installed-executable": "miden-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "miden-client": {
+              "uri": "https://github.com/0xMiden/miden-client/releases/download/v%version/miden-client-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "core",
-          "package": "miden-core-lib",
-          "version": "0.23.4",
-          "installed_library": "core.masp",
-          "library_struct": "miden_core_lib::CoreLibrary",
-          "artifacts": [
-            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/core.masp"
-          ]
+          "version": {
+            "kind": "registry",
+            "version": "0.23.4"
+          },
+          "kind": "package",
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "core.masp": {
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
+            }
+          }
         },
         {
           "name": "debug",
-          "package": "miden-debug",
-          "version": "0.8.1",
-          "installed_executable": "miden-debug",
-          "alias_only": false,
-          "artifacts": [
-            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v0.8.1/miden-debug-x86_64-unknown-linux-gnu"
-          ]
+          "version": {
+            "kind": "registry",
+            "version": "0.8.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-debug",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "miden-debug": {
+              "uri": "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v%version/miden-debug-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "faucet-client",
-          "package": "miden-faucet-client",
-          "version": "0.15.1",
-          "installed_executable": "miden-faucet-client",
-          "alias_only": false,
+          "version": {
+            "kind": "registry",
+            "version": "0.15.1"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
           "aliases": {
             "mint": [
-              "executable",
+              "%installed-executable",
               "mint"
             ]
           },
-          "artifacts": [
-            "https://github.com/0xMiden/miden-faucet/releases/download/v0.15.1/miden-faucet-client-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-faucet/releases/download/v0.15.1/miden-faucet-client-x86_64-unknown-linux-gnu"
-          ]
+          "installed-executable": "miden-faucet-client",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "miden-faucet-client": {
+              "uri": "https://github.com/0xMiden/miden-faucet/releases/download/v%version/miden-faucet-client-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "midenc",
-          "version": "0.9.0",
+          "version": {
+            "kind": "registry",
+            "version": "0.9.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "call-format": [
+            "%installed-executable",
+            "-L",
+            "%lib"
+          ],
+          "aliases": {
+            "build": [
+              "%installed-executable"
+            ]
+          },
+          "installed-executable": "midenc",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
           "requires": [
             "core",
             "protocol"
           ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
-          "rustup_channel": "nightly-2026-04-30",
-          "aliases": {
-            "build": [
-              "executable"
-            ]
-          },
-          "artifacts": [
-            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/midenc-aarch64-apple-darwin",
-            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/midenc-x86_64-unknown-linux-gnu"
-          ]
+          "artifacts": {
+            "midenc": {
+              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/midenc-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "node",
-          "package": "miden-node",
-          "version": "0.15.0",
-          "optional": true,
-          "rustup_channel": "1.95",
-          "installed_executable": "miden-node",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.15.0"
+          },
+          "kind": "command",
+          "subcommands": {
+            "delete": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "-f",
+              "%etc(node/telemetry.yml)",
+              "-f",
+              "%etc(node/monitor.yml)",
+              "down",
+              "-v",
+              "--remove-orphans"
+            ],
+            "down": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "-f",
+              "%etc(node/telemetry.yml)",
+              "-f",
+              "%etc(node/monitor.yml)",
+              "down",
+              "--remove-orphans"
+            ],
+            "logs": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "-f",
+              "%etc(node/telemetry.yml)",
+              "-f",
+              "%etc(node/monitor.yml)",
+              "logs",
+              "-f"
+            ],
+            "up": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "-f",
+              "%etc(node/telemetry.yml)",
+              "-f",
+              "%etc(node/monitor.yml)",
+              "up",
+              "-d"
+            ]
+          },
+          "artifacts": {
+            "docker-compose.yml": {
+              "uri": "https://github.com/0xMiden/node/releases/download/v%version/docker-compose.yml"
+            },
+            "monitor.yml": {
+              "uri": "https://github.com/0xMiden/node/releases/download/v%version/monitor.yml"
+            },
+            "telemetry.yml": {
+              "uri": "https://github.com/0xMiden/node/releases/download/v%version/telemetry.yml"
+            }
+          }
         },
         {
           "name": "ntx-builder",
-          "package": "miden-ntx-builder",
-          "version": "0.15.0",
-          "optional": true,
-          "rustup_channel": "1.95",
-          "installed_executable": "miden-ntx-builder",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.15.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-ntx-builder",
+            "rustup_channel": "1.95"
+          },
+          "installed-executable": "miden-ntx-builder",
+          "hide": false
         },
         {
           "name": "protocol",
-          "package": "miden-protocol",
-          "version": "0.15.3",
-          "rustup_channel": "1.95",
-          "installed_library": "protocol.masp",
-          "library_struct": "miden_protocol::ProtocolLib"
+          "version": {
+            "kind": "registry",
+            "version": "0.15.3"
+          },
+          "kind": "legacy-package",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-protocol",
+            "extractor": "miden_protocol::ProtocolLib::default().as_ref()"
+          },
+          "profiles": [
+            "minimal"
+          ]
         },
         {
           "name": "remote-prover",
-          "package": "miden-remote-prover",
-          "version": "0.15.0",
-          "optional": true,
-          "rustup_channel": "1.95",
-          "installed_executable": "miden-remote-prover",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.15.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-remote-prover",
+            "rustup_channel": "1.95"
+          },
+          "installed-executable": "miden-remote-prover",
+          "hide": false
         },
         {
           "name": "validator",
-          "package": "miden-validator",
-          "version": "0.15.0",
-          "optional": true,
-          "rustup_channel": "1.95",
-          "installed_executable": "miden-validator",
-          "alias_only": false
+          "version": {
+            "kind": "registry",
+            "version": "0.15.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "cargo",
+            "crate_name": "miden-validator",
+            "rustup_channel": "1.95"
+          },
+          "installed-executable": "miden-validator",
+          "hide": false
         },
         {
           "name": "verify",
-          "package": "miden-verify",
-          "version": "0.3.0",
-          "installed_executable": "miden-verify",
-          "alias_only": false,
-          "artifacts": [
-            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-aarch64-apple-darwin",
-            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-x86_64-unknown-linux-gnu"
-          ]
+          "version": {
+            "kind": "registry",
+            "version": "0.3.0"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-verify",
+          "hide": false,
+          "profiles": [
+            "minimal"
+          ],
+          "artifacts": {
+            "miden-verify": {
+              "uri": "https://github.com/walnuthq/miden-verify/releases/download/v%version/miden-verify-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         },
         {
           "name": "vm",
-          "package": "miden-vm",
-          "version": "0.23.4",
-          "features": [
-            "executable",
-            "concurrent"
+          "version": {
+            "kind": "registry",
+            "version": "0.23.4"
+          },
+          "kind": "executable",
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-vm",
+          "hide": false,
+          "profiles": [
+            "minimal"
           ],
-          "installed_executable": "miden-vm",
-          "alias_only": false,
-          "artifacts": [
-            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/miden-vm-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-vm/releases/download/v0.23.4/miden-vm-x86_64-unknown-linux-gnu"
-          ]
+          "artifacts": {
+            "miden-vm": {
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-vm-%target",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              }
+            }
+          }
         }
       ]
     }

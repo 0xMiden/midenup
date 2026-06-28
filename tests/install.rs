@@ -1,11 +1,7 @@
 use std::{ffi::OsString, fs::OpenOptions};
 
 use clap::Parser;
-use midenup::{
-    channel::{self, InstalledFile},
-    commands::Midenup,
-    miden_wrapper, utils, version,
-};
+use midenup::{channel, commands::Midenup, manifest::ComponentKind, miden_wrapper, utils, version};
 
 mod common;
 
@@ -252,25 +248,30 @@ fn integration_test_components_are_runnable() {
 
     // Verify each executable component is accessible and runnable
     for component in &stable_channel.components {
-        let component_type = component.get_installed_file();
-        // Skip libraries
-        if matches!(component_type, InstalledFile::Library { .. }) {
-            continue;
+        match component.kind() {
+            ComponentKind::Executable { installation_method, spec }
+            | ComponentKind::CargoExtension { installation_method, spec }
+                if !spec.is_hidden() =>
+            {
+                let argv: Vec<OsString> =
+                    vec!["miden".into(), "help".into(), component.name.as_ref().into()];
+
+                miden_wrapper::miden_wrapper(&argv, &config, &mut local_manifest).unwrap_or_else(
+                    |err| {
+                        panic!(
+                            "Component '{}' is not runnable through the 'miden' interface: {}",
+                            component.name, err
+                        )
+                    },
+                );
+            },
+            // Skip executables that aren't meant to be executed directly
+            ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
+            // Skip non-executable components, or command aliases
+            ComponentKind::Asset { .. }
+            | ComponentKind::Command { .. }
+            | ComponentKind::Package
+            | ComponentKind::LegacyPackage { .. } => (),
         }
-
-        // Skip components not meant to be executed directly
-        if matches!(component_type, InstalledFile::Executable { alias_only: true, .. }) {
-            continue;
-        }
-
-        let argv: Vec<OsString> =
-            vec!["miden".into(), "help".into(), component.name.as_ref().into()];
-
-        miden_wrapper::miden_wrapper(&argv, &config, &mut local_manifest).unwrap_or_else(|err| {
-            panic!(
-                "Component '{}' is not runnable through the 'miden' interface: {}",
-                component.name, err
-            )
-        });
     }
 }

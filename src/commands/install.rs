@@ -1,21 +1,21 @@
 use std::{
     borrow::Cow,
-    collections::HashSet,
+    collections::{BTreeMap, HashMap},
     io::Write,
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
 use anyhow::{Context, bail};
+use serde::Deserialize;
 
 use crate::{
-    artifact::TargetTriple,
-    channel::{Channel, ChannelAlias, InstalledFile},
+    artifact::ArtifactUri,
+    channel::{Channel, ChannelAlias},
     commands,
     config::Config,
-    manifest::Manifest,
+    manifest::{ComponentKind, InstallationMethod, Manifest, PackageInstallationMethod},
     options::InstallationOptions,
-    profile::Profile,
     utils,
     version::{Authority, GitTarget},
 };
@@ -30,10 +30,10 @@ pub fn install(
     commands::setup_midenup(config, local_manifest)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = toolchains_dir.join(format!("{}", &channel.name));
+    let toolchain_dir = toolchains_dir.join(format!("{}", channel.name));
 
     let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    let install_dir_name = format!("{}-{}", &channel.name, channel.content_hash());
+    let install_dir_name = format!("{}-{}", channel.name, channel.content_hash());
     let install_dir = installed_toolchains_dir.join(&install_dir_name);
 
     // Relative path to the newly installed channel directory.
@@ -64,6 +64,7 @@ pub fn install(
             commands::uninstall::uninstall_components(
                 &install_dir,
                 &options.components_to_uninstall,
+                config,
             )?;
         }
     }
@@ -107,7 +108,7 @@ pub fn install(
         format!("failed to create file for install script at '{}'", install_file_path.display())
     })?;
 
-    let install_script_contents = generate_install_script(config, channel, options, &install_dir);
+    let install_script_contents = generate_install_script(config, channel, options, &install_dir)?;
     install_file.write_all(&install_script_contents.into_bytes()).with_context(|| {
         format!("failed to write install script at '{}'", install_file_path.display())
     })?;
@@ -137,7 +138,7 @@ pub fn install(
         )
     }
 
-    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", &channel.name));
+    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", channel.name));
     if std::fs::symlink_metadata(&temp_symlink).is_ok() {
         std::fs::remove_file(&temp_symlink).with_context(|| {
             format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
@@ -171,7 +172,7 @@ pub fn install(
         if stable_dir.exists() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
-        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
+        let relative_channel_target = PathBuf::from(format!("{}", channel.name));
         utils::fs::symlink(&stable_dir, &relative_channel_target)
             .expect("Couldn't create stable dir");
     }
@@ -188,43 +189,38 @@ pub fn install(
             channel.clone()
         };
 
-        // We determine how the component got installed.
-        // A component could have been installed either by cargo install (i.e. "from
-        // source") or via a pre-compiled miden-provided binary artifact.
+        // Next, we determine how the component got installed.
+        //
+        // A component could have been installed either by cargo install (i.e. "from source") or via
+        // a pre-compiled artifact.
         // We can only *truly* determine how it got installed after the fact.
-        let cargo_installed_binaries = get_installed_cargo_binaries(toolchain_dir)?;
-
         for component in channel_to_save.components.iter_mut() {
             match &component.version {
-                #[allow(clippy::collapsible_match)]
-                Authority::Git { repository_url, crate_name, target } => {
-                    #[allow(clippy::single_match)]
-                    match target {
-                        // If a component was installed with --branch, then
-                        // write down the current commit.  This is used on
-                        // updates to check if any new commits were pushed since
-                        // installation.
-                        GitTarget::Branch { name, latest_revision: _ } => {
-                            // If, for whatever reason, we fail to find the latest hash, we simply
-                            // leave it empty. That does mean that an
-                            // update will be triggered even if the component
-                            // does not need it.
-                            let revision_hash =
-                                utils::git::find_latest_hash(repository_url, name).ok();
+                // If a component was installed with --branch, then write down the current commit.
+                //
+                // This is used on updates to check if any new commits were pushed since
+                // installation.
+                Authority::Git {
+                    repository_url,
+                    subpath,
+                    target: GitTarget::Branch { name, .. },
+                } => {
+                    // If, for whatever reason, we fail to find the latest hash, we simply leave it
+                    // empty. That does mean that an update will be triggered even if the component
+                    // does not need it.
+                    let revision_hash = utils::git::find_latest_hash(repository_url, name).ok();
 
-                            component.version = Authority::Git {
-                                repository_url: repository_url.clone(),
-                                crate_name: crate_name.clone(),
-                                target: GitTarget::Branch {
-                                    name: name.clone(),
-                                    latest_revision: revision_hash,
-                                },
-                            }
+                    component.version = Authority::Git {
+                        repository_url: repository_url.clone(),
+                        subpath: subpath.clone(),
+                        target: GitTarget::Branch {
+                            name: name.clone(),
+                            latest_revision: revision_hash,
                         },
-                        _ => {},
                     }
                 },
-                Authority::Path { path, crate_name, last_modification: _ } => {
+                Authority::Git { .. } => (),
+                Authority::Path { path, .. } => {
                     // If a component was installed with --path, then write down the latest
                     // modification time found inside the directory (or the current time as a
                     // fallback). This is used on updates to check if anything changed.
@@ -239,39 +235,10 @@ pub fn install(
                         .unwrap_or(SystemTime::now());
                     component.version = Authority::Path {
                         path: path.to_path_buf(),
-                        crate_name: crate_name.clone(),
                         last_modification: Some(latest_time),
                     }
                 },
-                Authority::Cargo { package, .. } => {
-                    // If a component is marked with Cargo as an authority and
-                    // also has artifacts listed as available, determine which
-                    // got used for the installation.
-                    //
-                    // Currently, by convention, if a component has an artifacts
-                    // field listed on the *LOCAL* manifest, then that means
-                    // that artifacts were used.
-                    if component.get_artifact_uri(&config.target).is_none() {
-                        continue;
-                    }
-
-                    let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
-
-                    let installed_via_cargo = cargo_installed_binaries.contains(package.as_str());
-
-                    // TODO (fabrio): Unify this in the local manifest, I don't
-                    // believe there really is a need to store both the artifact
-                    // and authority fields.  We could only store the field that
-                    // was actually used.
-                    if installed_via_cargo {
-                        // This means that the component had an artifacts entry,
-                        // yet it was not utilized. While rare, this can happen
-                        // due to a number of factors, such as: no artifact for
-                        // this system's triple or Github being offline (with
-                        // the latter becoming more likely).
-                        component.artifacts = None;
-                    }
-                },
+                Authority::Registry { .. } => (),
             }
         }
 
@@ -306,7 +273,7 @@ fn generate_install_script(
     channel: &Channel,
     options: &InstallationOptions,
     toolchain_directory: &Path,
-) -> String {
+) -> anyhow::Result<String> {
     // Prepare install script template
     let engine = upon::Engine::new();
     let template = engine
@@ -315,10 +282,7 @@ fn generate_install_script(
 ---cargo
 [dependencies]
 {%- for dep in dependencies %}
-{{ dep.package }} = { version = "{{ dep.version }}"
-{%- if dep.git_uri %}, git = "{{ dep.git_uri }}"
-{%- else if dep.path %}, path = "{{ dep.path }}"
-{%- endif %} }
+{{ dep.name }} = { {{ dep.version }}, {{ dep.features }} }
 {%- endfor %}
 colored = "3.0"
 curl = "{{ curl_version }}"
@@ -353,54 +317,76 @@ fn info(msg: impl core::fmt::Display) {
 }
 
 fn main() -> ExitCode {
+    let mut exit_status = ExitCode::SUCCESS;
+
     // MIDEN_SYSROOT is set by `midenup` when invoking this script, and will contain the resolved
     // (and prepared) sysroot path to which this script will install the desired toolchain
     // components.
     let miden_sysroot_dir = Path::new(env!("MIDEN_SYSROOT"));
 
-    // Install system packages
-    let lib_dir = miden_sysroot_dir.join("lib");
-    let mut exit_status = ExitCode::SUCCESS;
+
+    // Create var directory
+    let var_dir = miden_sysroot_dir.join("var");
+    if !std::fs::exists(&var_dir).unwrap_or(false) {
+        std::fs::create_dir(&var_dir).expect("failed to create 'var' subdirectory in sysroot");
+    }
+
+    // Install downloadable components first
     {
-        {% for dep in dependencies %}
-        info(format!("installing {:.<width$}", "{{ dep.name }}".white().bold(), width = {{ max_component_width }}));
+        {% for downloadable in downloadable_components %}
+        info(format!("installing {:.<width$}", "{{ downlodable.component }}".white().bold(), width = {{ max_component_width }}));
+
+        // NOTE: If the file already exists, then we are running an update and we don't need to
+        // update this element. We treat failure to detect existence as non-existence, and in cases
+        // where that is due to permissions or some other issue, we let the actual install fail.
+        let mut already_installed = true;
+        let mut successfully_installed = true;
+        {% for artifact in downloadable.artifacts %}
+        let artifact_path = Path::new("{{ artifact.to }}");
+        if !std::fs::exists(&artifact_path).unwrap_or(false) {
+            already_installed = false;
+            if let Err(err) = install_artifact("{{ artifact.from }}", artifact_path, {{ artifact.is_file }}) {
+                successfully_installed = false;
+                error(format!("failed to fetch artifact: {err}\n"));
+                if !{{ keep_going }} {
+                    return ExitCode::FAILURE;
+                }
+            }
+        }
+        {%- endfor %}
+
+        if !successfully_installed {
+            exit_status = ExitCode::FAILURE;
+        } else if already_installed {
+            println!("already installed");
+        } else {
+            println!("{}", "installed".green().bold());
+        }
+
+        {%- endfor %}
+    }
+
+    // Extract packages from crate dependencies, if applicable
+    {
+        let _lib_dir = miden_sysroot_dir.join("lib");
+        {% for extractable in installable_packages %}
+        info(format!("installing {:.<width$}", "{{ extractable.component }}".white().bold(), width = {{ max_component_width }}));
 
         // Write library to $MIDEN_SYSROOT/lib/dep.masp
-        let lib = {{ dep.exposing_function }};
-        let lib_path = lib_dir.join("{{ dep.name }}").with_extension("masp");
+        let lib_path = _lib_dir.join("{{ extractable.component }}").with_extension("masp");
         // NOTE: If the file already exists, then we are running an update and we don't need to
         // update this element. We treat failure to detect existence as non-existence, and in cases
         // where that is due to permissions or some other issue, we let the actual install fail.
         if !std::fs::exists(&lib_path).unwrap_or(false) {
-            let mut successfully_installed = false;
-            let should_fetch = !"{{ dep.artifact.0 }}".is_empty();
-            let mut should_build = !should_fetch;
-
-            if should_fetch {
-                if let Err(err) = install_artifact("{{ dep.artifact.0 }}", "{{ dep.artifact.1 }}") {
-                    error(format!("failed to fetch artifact: {err}\n"));
-                    should_build = true;
-                } else {
-                    println!("{}", "installed".green().bold());
-                    successfully_installed = true;
+            let result = {{ extractable.extractor }}.write_to_file(&lib_path);
+            if let Err(err) = result {
+                println!("{}: unable to install {{ extractable.component }} from crate: {err}", "failed".red().bold());
+                if !{{ keep_going }} {
+                    return ExitCode::FAILURE;
                 }
-            }
-
-            if should_build {
-                // NOTE(pauls): This needs to be redone after the transition to packages is complete
-                if let Err(err) = lib.as_ref().write_to_file(&lib_path) {
-                    println!("{}: unable to install {{ dep.name }} from source: {err}", "failed".red().bold());
-                    if !{{ keep_going }} {
-                        return ExitCode::FAILURE;
-                    }
-                } else {
-                    println!("{}", "installed".green().bold());
-                    successfully_installed = true;
-                }
-            }
-
-            if !successfully_installed {
                 exit_status = ExitCode::FAILURE;
+            } else {
+                println!("{}", "installed".green().bold());
             }
         } else {
             println!("already installed");
@@ -408,32 +394,17 @@ fn main() -> ExitCode {
         {%- endfor %}
     }
 
-
-    // Install executables
+    // Install executables via Cargo
     let bin_dir = miden_sysroot_dir.join("bin");
-    {% for component in installable_components %}
+    {% for installable in installable_components %}
+    // Install {{ installable.component }}
+    {
+        info(format!("installing {:.<width$}", "{{ installable.component }}".white().bold(), width = {{ max_component_width }}));
 
-    // Install {{ component.name }}
-    info(format!("installing {:.<width$}", "{{ component.name }}".white().bold(), width = {{ max_component_width }}));
-    let bin_path = bin_dir.join("{{ component.installed_file }}");
-    if !std::fs::exists(&bin_path).unwrap_or(false) {
-        let should_fetch = !"{{ component.artifact.0 }}".is_empty();
-        let mut should_build = !should_fetch;
-        let mut successfully_installed = false;
-
-        if should_fetch {
-            if let Err(err) = install_artifact("{{ component.artifact.0 }}", "{{ component.artifact.1 }}") {
-                error(format!("failed to fetch artifact: {err}\n"));
-                should_build = true;
-            } else {
-                println!("{}", "installed".green().bold());
-                successfully_installed = true;
-            }
-        }
-
-        if should_build {
+        let bin_path = bin_dir.join("{{ installable.installed_file }}");
+        if !std::fs::exists(&bin_path).unwrap_or(false) {
             if let Err(err) = install_from_source(
-                "{{ component.required_toolchain_flag }}",
+                "{{ installable.required_toolchain_flag }}",
                 &[
                     {%- for arg in chosen_profile %}
                     "{{ arg }}",
@@ -441,47 +412,39 @@ fn main() -> ExitCode {
                 ],
                 "{{ verbosity.quiet_flag }}",
                 &[
-                    {%- for arg in component.args %}
+                    {%- for arg in installable.args %}
                     "{{ arg }}",
                     {%- endfor %}
                 ],
                 miden_sysroot_dir,
             ) {
-                println!("{}: unable to install {{ component.name }} from source: {err}", "failed".red().bold());
+                println!("{}: unable to install {{ installable.component }} from source: {err}", "failed".red().bold());
                 if !{{ keep_going }} {
                     return ExitCode::FAILURE;
                 }
+                exit_status = ExitCode::FAILURE;
             } else {
                 println!("{}", "installed".green().bold());
-                successfully_installed = true;
             }
+        } else {
+            println!("already installed");
         }
-
-        if !successfully_installed {
-            exit_status = ExitCode::FAILURE;
-        }
-    } else {
-        println!("already installed");
     }
     {% endfor %}
 
-    let opt_dir = miden_sysroot_dir.join("opt");
-
     // We install the 'miden <name>' symlinks
+    let opt_dir = miden_sysroot_dir.join("opt");
+    let symlinks = &[
     {%- for link in symlinks %}
-
-    let new_link = opt_dir.join("{{ link.alias }}");
-    let executable = Path::new("../bin").join("{{ link.binary }}");
-    if std::fs::read_link(&new_link).is_err() {
-         utility::symlink(&new_link, &executable);
-    }
-
+        ("{{ link.alias }}", "{{ link.binary }}")
     {%- endfor %}
-
-    // Create var directory
-    let var_dir = miden_sysroot_dir.join("var");
-    if !std::fs::exists(&var_dir).unwrap_or(false) {
-        std::fs::create_dir(&var_dir).expect("failed to create 'var' subdirectory in sysroot");
+    ];
+    for (alias, binary) in symlinks {
+        let link = opt_dir.join(alias);
+        let bin = Path::new("../bin").join(binary);
+        if std::fs::read_link(&link).is_err() {
+             utility::symlink(&link, &bin);
+        }
     }
 
     exit_status
@@ -491,176 +454,220 @@ fn main() -> ExitCode {
         .unwrap_or_else(|err| panic!("invalid install script template: {err:#}"));
 
     let mut max_component_width = 0usize;
-
     // Prepare install script context with available channel components
     let mut dependencies = Vec::new();
+    // The set of all components with prebuilt artifacts that can simply be downloaded
+    let mut downloadable_components = Vec::new();
+    // The set of components which must be installed with `cargo install`
     let mut installable_components = Vec::new();
-    let minimal_install = matches!(options.profile, Profile::Minimal);
-    for component in channel.components.iter() {
-        if minimal_install && component.optional {
-            continue;
-        }
+    // The set of packages which must be installed by extracting the package from a Cargo dep
+    let mut installable_packages = Vec::new();
+    // List of all the symlinks that need to be installed.
+    //
+    // Currently, these include:
+    //
+    // - A symlink that adds the 'miden ' prefix to the corresponding executable, done in order to
+    //   "trick" clap into displaying midenup compatile messages, for more information, see: https://github.com/0xMiden/midenup/pull/73.
+    let mut symlinks = Vec::new();
+    let components = channel.component_graph(&options.profile)?;
+    for component in components.toposort()? {
         max_component_width = core::cmp::max(max_component_width, component.name.chars().count());
-        match component.get_installed_file() {
-            InstalledFile::Executable { .. } => {
-                let artifact_destination = {
-                    component.get_artifact_uri(&config.target).map(|uri| {
-                        let destination =
-                            component.get_installed_file().get_path_from(toolchain_directory);
-                        (uri, destination)
+        match component.kind() {
+            ComponentKind::Asset { .. } | ComponentKind::Command { .. } => {
+                let artifacts =
+                    component.artifacts.get_artifacts_for_target(config.target(), component)?;
+                if artifacts.is_empty() {
+                    continue;
+                }
+                let artifacts = artifacts
+                    .into_iter()
+                    .map(|uri| {
+                        let (is_file, to) = match &uri {
+                            ArtifactUri::Http(_) => (
+                                false,
+                                toolchain_directory
+                                    .join("etc")
+                                    .join(component.name.as_ref())
+                                    .display()
+                                    .to_string(),
+                            ),
+                            ArtifactUri::File(path) => {
+                                let filename = path.file_name().expect("invalid artifact path");
+                                let to = toolchain_directory
+                                    .join("etc")
+                                    .join(component.name.as_ref())
+                                    .join(filename);
+                                (true, to.display().to_string())
+                            },
+                        };
+                        upon::value! {
+                            is_file: is_file,
+                            from: uri.to_string(),
+                            to: to,
+                        }
                     })
-                };
-                installable_components.push((component, artifact_destination))
+                    .collect::<Vec<_>>();
+                downloadable_components.push(upon::value! {
+                    component: component.name.to_string(),
+                    artifacts: artifacts,
+                });
             },
-            InstalledFile::Library { .. } => {
-                let artifact_destination = {
-                    component.get_artifact_uri(&TargetTriple::MidenVM).map(|uri| {
-                        let destination =
-                            component.get_installed_file().get_path_from(toolchain_directory);
-
-                        (uri, destination)
+            ComponentKind::CargoExtension { installation_method, spec }
+            | ComponentKind::Executable { installation_method, spec } => {
+                let artifacts = component
+                    .artifacts
+                    .get_default_artifacts_for_target(config.target(), component)?;
+                let artifacts = artifacts
+                    .into_iter()
+                    .map(|uri| upon::value! {
+                        is_file: true,
+                        from: uri.to_string(),
+                        to: toolchain_directory.join("bin").join(&spec.installed_executable).display().to_string(),
                     })
-                };
+                    .collect::<Vec<_>>();
+                match installation_method {
+                    InstallationMethod::Prebuilt
+                    | InstallationMethod::PrebuiltWithCargoFallback { .. }
+                        if !artifacts.is_empty() =>
+                    {
+                        downloadable_components.push(upon::value! {
+                            component: component.name.to_string(),
+                            artifacts: artifacts,
+                        });
+                    },
+                    InstallationMethod::Prebuilt => {
+                        bail!(
+                            "unable to install component '{}': unsupported target {}",
+                            component.name,
+                            config.target()
+                        );
+                    },
+                    InstallationMethod::PrebuiltWithCargoFallback {
+                        crate_name,
+                        rustup_channel,
+                        features,
+                    }
+                    | InstallationMethod::Cargo { crate_name, rustup_channel, features } => {
+                        let mut args = vec![];
+                        match &component.version {
+                            Authority::Registry { version } => {
+                                args.push(crate_name.clone());
+                                args.push("--version".to_string());
+                                args.push(version.to_string());
+                            },
+                            Authority::Git { repository_url, target, subpath: _ } => {
+                                args.push("--git".to_string());
+                                args.push(repository_url.clone());
+                                args.extend(target.to_cargo_flag());
+                                args.push(crate_name.clone());
+                            },
+                            Authority::Path { path, .. } => {
+                                args.push("--path".to_string());
+                                args.push(path.display().to_string());
+                            },
+                        }
 
-                dependencies.push((component, artifact_destination))
+                        let required_toolchain_flag =
+                            rustup_channel.as_ref().map(|c| format!("+{c}")).unwrap_or_default();
+
+                        // Enable optional features, if present
+                        if !features.is_empty() {
+                            let features = features.join(",");
+                            args.push("--features".to_string());
+                            args.push(features);
+                        };
+
+                        installable_components.push(upon::value! {
+                            component: component.name.to_string(),
+                            installed_file: spec.installed_executable.clone(),
+                            required_toolchain_flag: required_toolchain_flag,
+                            args: args,
+                        });
+                    },
+                }
+                if let Some(symlink) = spec.symlink_name.as_ref() {
+                    symlinks.push(upon::value! {
+                        alias: symlink.clone(),
+                        binary: spec.installed_executable.clone(),
+                    });
+                }
+            },
+            ComponentKind::Package
+            | ComponentKind::LegacyPackage {
+                installation_method: PackageInstallationMethod::Prebuilt,
+            } => {
+                let artifacts = component
+                    .artifacts
+                    .get_default_artifacts_for_target(config.target(), component)?;
+                if artifacts.is_empty() {
+                    bail!(
+                        "invalid spec for '{}': package components must have at least one artifact",
+                        component.name
+                    );
+                }
+                let artifacts = artifacts
+                    .into_iter()
+                    .map(|uri| {
+                        upon::value! {
+                            is_file: false,
+                            from: uri.to_string(),
+                            to: toolchain_directory.join("lib"),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                downloadable_components.push(upon::value! {
+                    component: component.name.to_string(),
+                    artifacts: artifacts,
+                });
+            },
+            ComponentKind::LegacyPackage {
+                installation_method:
+                    PackageInstallationMethod::Cargo { crate_name, features, extractor },
+            } => {
+                let features = if features.is_empty() {
+                    String::new()
+                } else {
+                    let mut feature_strings = String::new();
+                    for (i, f) in features.iter().enumerate() {
+                        if i > 0 {
+                            feature_strings.push_str(", ");
+                        }
+                        feature_strings.push('"');
+                        feature_strings.push_str(f.as_str());
+                        feature_strings.push('"');
+                    }
+                    format!("default-features = false, features = [{feature_strings}]")
+                };
+                match &component.version {
+                    Authority::Registry { version } => {
+                        dependencies.push(upon::value! {
+                            name: crate_name.clone(),
+                            version: format!("version = \"{version}\""),
+                            features: features,
+                        });
+                    },
+                    Authority::Path { path, .. } => {
+                        dependencies.push(upon::value! {
+                            name: crate_name.clone(),
+                            version: format!("path = \"{}\"", path.display()),
+                            features: features,
+                        });
+                    },
+                    Authority::Git { repository_url, target, .. } => {
+                        dependencies.push(upon::value! {
+                            name: crate_name.clone(),
+                            version: format!("git = \"{repository_url}\", {target}"),
+                            features: features,
+                        });
+                    },
+                }
+                installable_packages.push(upon::value! {
+                    component: component.name.to_string(),
+                    extractor: extractor.clone(),
+                });
             },
         }
     }
-
-    // List of all the symlinks that need to be installed.
-    //
-    // Currently, these includes:
-    //
-    // - A symlink that adds the 'miden ' prefix to the corresponding executable,   done in order to
-    //   "trick" clap into displaying midenup compatile messages, for more information, see: https://github.com/0xMiden/midenup/pull/73.
-    let symlinks = channel
-        .components
-        .iter()
-        .filter(|c| !(minimal_install && c.optional))
-        .flat_map(|component| {
-            let mut executables = Vec::new();
-
-            let exe_name = component.get_installed_file();
-            if let InstalledFile::Executable { ref binary_name, alias_only: _ } = exe_name {
-                let miden_display = component.get_symlink_name();
-                executables.push((miden_display, binary_name.clone()));
-            }
-
-            executables
-        })
-        .map(|(alias, binary)| {
-            upon::value! {
-                alias: alias,
-                binary: binary,
-            }
-        })
-        .collect::<Vec<_>>();
-
-    // The set of cargo dependencies needed for the install script
-    let dependencies = dependencies
-        .into_iter()
-        .map(|(component, artifact)| {
-            let installed_file = component.get_installed_file();
-            let library_struct = installed_file
-                .get_library_struct()
-                .with_context(|| {
-                    format!(
-                        "Component {} is marked as library, however the manifest does not contain \
-                         the associated Library struct from where it will obtain the `.masp` \
-                         file. \nThe manifest should contain a line like the following: \
-                         \nlibrary_struct: \"miden_stdlib::MidenStdLib::default()\"",
-                        component.name
-                    )
-                })
-                .unwrap();
-            let exposing_function = format!("{library_struct}::default()");
-            let artifact = artifact.unwrap_or_default();
-            match &component.version {
-                Authority::Cargo { package, version } => {
-                    let package = package.as_deref().unwrap_or(component.name.as_ref()).to_string();
-                    upon::value! {
-                        name: component.name.to_string(),
-                        package: package,
-                        version: version.to_string(),
-                        git_uri: "",
-                        path: "",
-                        exposing_function: exposing_function,
-                        artifact: artifact,
-                    }
-                },
-                Authority::Git { repository_url, crate_name, target } => {
-                    upon::value! {
-                        name: component.name.to_string(),
-                        package: crate_name,
-                        version: "> 0.0.0",
-                        git_uri: format!("{}\", {target}", repository_url.clone()),
-                        path: "",
-                        exposing_function: exposing_function,
-                        artifact: artifact,
-                    }
-                },
-                Authority::Path { crate_name, path, .. } => {
-                    upon::value! {
-                        name: component.name.to_string(),
-                        package: crate_name,
-                        version: "> 0.0.0",
-                        git_uri: "",
-                        path: path.display().to_string(),
-                        exposing_function: exposing_function,
-                        artifact: artifact,
-                    }
-                },
-            }
-        })
-        .collect::<Vec<_>>();
-
-    // The set of components to be installed with `cargo install`
-    let installable_components = installable_components
-        .into_iter()
-        .map(|(component, artifact)| {
-            let mut args = vec![];
-            match &component.version {
-                Authority::Cargo { package, version } => {
-                    let package = package.as_deref().unwrap_or(component.name.as_ref());
-                    args.push(package.to_string());
-                    args.push("--version".to_string());
-                    args.push(version.to_string());
-                },
-                Authority::Git { repository_url, target, crate_name } => {
-                    args.push("--git".to_string());
-                    args.push(repository_url.clone());
-                    args.extend(target.to_cargo_flag());
-                    args.push(crate_name.clone());
-                },
-                Authority::Path { path, .. } => {
-                    args.push("--path".to_string());
-                    args.push(path.display().to_string());
-                },
-            }
-
-            let required_toolchain =
-                component.rustup_channel.clone().unwrap_or(String::from("stable"));
-
-            let required_toolchain_flag = format!("+{required_toolchain}");
-
-            // Enable optional features, if present
-            if !component.features.is_empty() {
-                let features = component.features.join(",");
-                args.push("--features".to_string());
-                args.push(features);
-            };
-
-            let installed_file = component.get_installed_file().to_string();
-
-            upon::value! {
-                name: component.name.to_string(),
-                installed_file: installed_file,
-                required_toolchain_flag: required_toolchain_flag,
-                args: args,
-                artifact: artifact.unwrap_or_default(),
-            }
-        })
-        .collect::<Vec<_>>();
 
     let chosen_profile = if config.debug {
         ["--profile", "dev"]
@@ -707,8 +714,9 @@ fn main() -> ExitCode {
             upon::value! {
                 max_component_width: max_component_width + 2,
                 dependencies: dependencies,
+                downloadable_components: downloadable_components,
                 installable_components: installable_components,
-                channel_json : serde_json::to_string_pretty(channel).unwrap(),
+                installable_packages: installable_packages,
                 symlinks: symlinks,
                 chosen_profile: chosen_profile,
                 verbosity: verbosity,
@@ -718,45 +726,103 @@ fn main() -> ExitCode {
             },
         )
         .to_string()
-        .unwrap_or_else(|err| panic!("install script rendering failed: {err}"))
+        .context("install script rendering failed")
 }
 
-type InstalledBinary = String;
+#[allow(unused)]
+pub struct InstalledBinary {
+    pub version: semver::Version,
+    pub location: Authority,
+    pub bins: Vec<String>,
+    pub features: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct CargoInstalls {
+    #[serde(default)]
+    installs: BTreeMap<String, InstalledCrateInfo>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum InstalledCrateInfo {
+    Info {
+        #[serde(default)]
+        bins: Vec<String>,
+        #[serde(default)]
+        features: Vec<String>,
+    },
+    UnknownFormat,
+}
 
 /// Returns the names of all packages installed via cargo at the given root.
 ///
 /// Runs `cargo install --list --root <root>` and parses each package header line.
-pub fn get_installed_cargo_binaries(root_dir: PathBuf) -> anyhow::Result<HashSet<InstalledBinary>> {
-    let output = std::process::Command::new("cargo")
-        .arg("install")
-        .arg("--root")
-        .arg(&root_dir)
-        .arg("--list")
-        .output()
-        .with_context(|| "Failed to obtain binaries intalled via cargo")?;
+#[allow(unused)]
+pub fn get_installed_cargo_binaries(
+    root_dir: PathBuf,
+) -> anyhow::Result<HashMap<String, InstalledBinary>> {
+    let crates2_json = root_dir.join(".crates2.json");
+    if !crates2_json.exists() {
+        return Ok(HashMap::new());
+    }
+    let crates2_json_file = std::fs::File::open(&crates2_json).with_context(|| {
+        format!(
+            "failed to obtain binaries installed via Cargo from '{}'",
+            crates2_json.display()
+        )
+    })?;
+    let installs =
+        serde_json::from_reader::<_, CargoInstalls>(crates2_json_file).with_context(|| {
+            format!("failed to deserialize Cargo's install manifest '{}'", crates2_json.display())
+        })?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        bail!("Failed to obtain binaries installed via cargo {stderr}");
+    let mut installed = HashMap::new();
+
+    for (crate_id, info) in installs.installs {
+        let InstalledCrateInfo::Info { bins, features } = info else {
+            continue;
+        };
+        if bins.is_empty() {
+            continue;
+        }
+        let Some((crate_name, rest)) = crate_id.split_once(' ') else {
+            continue;
+        };
+        let Some((crate_version, source)) = rest.split_once(' ') else {
+            continue;
+        };
+        let crate_name = crate_name.trim();
+        let Ok(crate_version) = semver::Version::parse(crate_version.trim()) else {
+            continue;
+        };
+        let source = source.trim().trim_matches(['(', ')']);
+        if let Some(path) = source.strip_prefix("path+") {
+            installed.insert(
+                crate_name.to_string(),
+                InstalledBinary {
+                    version: crate_version,
+                    location: Authority::Path {
+                        path: PathBuf::from(path.to_string()),
+                        last_modification: None,
+                    },
+                    bins,
+                    features,
+                },
+            );
+        } else if source.starts_with("registry+") {
+            let version = crate_version.clone();
+            installed.insert(
+                crate_name.to_string(),
+                InstalledBinary {
+                    version: crate_version,
+                    location: Authority::Registry { version },
+                    bins,
+                    features,
+                },
+            );
+        }
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let programs = stdout
-        .lines()
-        // The format of cargo install --list is as follows:
-        // <crate> <version>
-        //     <binary>
-        //
-        // e.g.:
-        // ripgrep v15.1.0:
-        //     rg
-        // sccache v0.10.0:
-        //     sccache
-        .filter(|line| !line.is_empty() && !line.starts_with(char::is_whitespace))
-        // The first item is the name of the crate that we have installed.
-        .filter_map(|line| line.split_whitespace().next())
-        .map(String::from)
-        .collect();
-
-    Ok(programs)
+    Ok(installed)
 }

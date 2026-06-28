@@ -6,8 +6,9 @@ use std::{
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
-    channel::{self, Component, UserChannel},
-    manifest::Manifest,
+    channel::{self, UserChannel},
+    manifest::{Component, ComponentKind, Manifest, VersionedManifest},
+    profile::Profile,
     version::Authority,
 };
 
@@ -31,7 +32,11 @@ enum Command {
     /// Check that the manifest is valid
     Check,
     /// Format the manifest
-    Format,
+    Format {
+        /// Writes the formatted manifest to stdout, rather than rewriting the file
+        #[arg(long, default_value_t = false)]
+        stdout: bool,
+    },
     /// Updates the timestamp of the manifest to the current time in UTC
     Touch,
     /// Clone the a toolchain to a new toolchain for further modification
@@ -54,15 +59,12 @@ enum Command {
         /// The version/authority of the new component
         #[arg(long, value_name = "SPEC", value_parser)]
         authority: Authority,
-        /// If provided, sets the rustup channel required by this component
-        #[arg(long, value_name = "VERSION")]
-        rustup_channel: Option<String>,
-        /// The set of other components implicitly required by this component
+        /// The component kind and associated metadata
+        #[arg(long, value_name = "SPEC", value_parser)]
+        kind: ComponentKind,
+        /// Specify other components this component implicitly requires
         #[arg(long, value_delimiter = ',', value_name = "VERSION")]
         requires: Vec<String>,
-        /// The set of Cargo features required to build/install this component
-        #[arg(long, value_delimiter = ',', value_name = "VERSION")]
-        features: Vec<String>,
     },
     /// Remove a component from a toolchain
     RemoveComponent {
@@ -83,9 +85,19 @@ enum Command {
         /// Updates the version/authority of the component
         #[arg(long, value_name = "SPEC", value_parser)]
         authority: Authority,
-        /// Marks this component as optional
+        /// The component kind and associated metadata
         #[arg(long, value_name = "SPEC", value_parser)]
-        optional: Option<bool>,
+        kind: Option<serde_json::Value>,
+        /// Adds profiles that should include this component by default
+        #[arg(long, value_name = "SPEC", value_parser)]
+        profiles: Vec<Profile>,
+        #[arg(
+            hide(true),
+            long,
+            default_value = "true",
+            default_value_if("profiles", ArgPredicate::IsPresent, Some("false"))
+        )]
+        keep_existing_profiles: bool,
         /// Adds other components as implicitly required by this component
         #[arg(long, value_delimiter = ',', value_name = "VERSION")]
         requires: Vec<String>,
@@ -96,16 +108,6 @@ enum Command {
             default_value_if("requires", ArgPredicate::IsPresent, Some("false"))
         )]
         keep_existing_requires: bool,
-        /// Adds Cargo features required to build/install this component
-        #[arg(long, value_delimiter = ',', value_name = "VERSION")]
-        features: Vec<String>,
-        #[arg(
-            hide(true),
-            long,
-            default_value = "true",
-            default_value_if("features", ArgPredicate::IsPresent, Some("false"))
-        )]
-        keep_existing_features: bool,
     },
 }
 
@@ -127,10 +129,17 @@ fn main() -> ExitCode {
 
 impl Cli {
     fn execute(&self) -> anyhow::Result<()> {
-        let mut manifest = Manifest::load_from_file(&self.manifest_path)?;
+        let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
         match &self.command {
-            Command::Check => Ok(()),
-            Command::Format => write_manifest(&manifest, &self.manifest_path),
+            Command::Check => {
+                // Verify that we can construct the full component graph for each channel
+                for channel in manifest.get_channels() {
+                    let _graph = channel.component_graph(&Profile::Complete)?;
+                }
+                Ok(())
+            },
+            Command::Format { stdout: false } => write_manifest(&manifest, &self.manifest_path),
+            Command::Format { stdout: true } => write_manifest_to_stdout(&manifest),
             Command::Touch => {
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
@@ -159,14 +168,7 @@ impl Cli {
 
                 write_manifest(&manifest, &self.manifest_path)
             },
-            Command::AddComponent {
-                channel,
-                name,
-                authority,
-                rustup_channel,
-                requires,
-                features,
-            } => {
+            Command::AddComponent { channel, name, authority, kind, requires } => {
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
                 };
@@ -174,22 +176,25 @@ impl Cli {
                     bail!(
                         "component '{name}' already exists for toolchain '{}' - use \
                          update-component to modify it",
-                        &channel.name
+                        channel.name
                     );
                 }
-                let mut component = Component::new(name.clone(), authority.clone());
-                component.rustup_channel = rustup_channel.clone();
-                component.optional = true;
-                component.features = features.clone();
+                let component = Component {
+                    name: name.clone().into(),
+                    version: authority.clone(),
+                    kind: kind.clone(),
+                    profiles: vec![],
+                    requires: requires.clone(),
+                    artifacts: Default::default(),
+                };
                 for required in requires {
                     if channel.get_component(required).is_none() {
                         bail!(
                             "cannot require componennt '{required}': unknown component for \
                              toolchain '{}'",
-                            &channel.name
+                            channel.name
                         );
                     }
-                    component.requires.push(required.clone());
                 }
                 channel.components.push(component);
                 manifest.update_last_modified();
@@ -200,7 +205,7 @@ impl Cli {
                     bail!("unknown toolchain '{channel}'")
                 };
                 if channel.get_component(name.as_str()).is_none() {
-                    bail!("unknown component '{name}' for toolchain '{}'", &channel.name);
+                    bail!("unknown component '{name}' for toolchain '{}'", channel.name);
                 }
                 channel.components.retain_mut(|c| c.name != name.as_str());
                 manifest.update_last_modified();
@@ -210,11 +215,11 @@ impl Cli {
                 channel,
                 name,
                 authority,
-                optional,
+                kind,
+                profiles,
+                keep_existing_profiles,
                 requires,
-                features,
                 keep_existing_requires,
-                keep_existing_features,
             } => {
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
@@ -224,7 +229,7 @@ impl Cli {
                         bail!(
                             "cannot require componennt '{required}': unknown component for \
                              toolchain '{}'",
-                            &channel.name
+                            channel.name
                         );
                     }
                 }
@@ -232,34 +237,29 @@ impl Cli {
                     bail!(
                         "unknown component '{name}' for toolchain '{}' - use add-component to \
                          create it",
-                        &channel.name
+                        channel.name
                     );
                 };
-                let prev_version = match &component.version {
-                    Authority::Cargo { version, .. } => Some(version.clone()),
-                    _ => None,
-                };
-                let version = match authority {
-                    Authority::Cargo { version, .. } => Some(version.clone()),
-                    _ => None,
-                };
                 component.version = authority.clone();
-                if let Some(prev_version) = prev_version.as_ref()
-                    && let Some(version) = version.as_ref()
-                    && let Some(artifacts) = component.artifacts.as_mut()
-                {
-                    artifacts.replace_version(prev_version, version);
-                } else if prev_version.is_some() {
-                    component.artifacts = None;
-                }
-                if let Some(optional) = *optional {
-                    component.optional = optional;
-                }
-                if !*keep_existing_features {
-                    component.features = features.clone();
+                if !*keep_existing_profiles {
+                    component.profiles = profiles.clone();
                 }
                 if !*keep_existing_requires {
                     component.requires = requires.clone();
+                }
+                if let Some(mut kind) = kind.clone() {
+                    let prev = serde_json::to_value(component.kind.clone())?;
+                    json_patch::merge(&mut kind, &prev);
+                    match serde_json::from_value::<ComponentKind>(kind) {
+                        Ok(merged) => {
+                            component.kind = merged;
+                        },
+                        Err(err) => {
+                            bail!(
+                                "invalid component update: modified json failed to parse with: {err}"
+                            );
+                        },
+                    }
                 }
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
@@ -271,4 +271,9 @@ impl Cli {
 fn write_manifest(manifest: &Manifest, manifest_path: &Path) -> anyhow::Result<()> {
     let formatted = serde_json::to_vec_pretty(manifest).context("failed to format manifest")?;
     std::fs::write(manifest_path, formatted).context("failed to write manifest")
+}
+
+fn write_manifest_to_stdout(manifest: &Manifest) -> anyhow::Result<()> {
+    let mut stdout = std::io::stdout();
+    serde_json::to_writer_pretty(&mut stdout, manifest).context("failed to format manifest")
 }

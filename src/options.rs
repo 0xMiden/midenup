@@ -1,6 +1,6 @@
 use clap::{Parser, ValueEnum};
 
-use crate::{channel::Component, profile::Profile};
+use crate::{manifest::Component, profile::Profile};
 
 pub const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 

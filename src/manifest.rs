@@ -1,82 +1,107 @@
+pub(crate) mod v1;
+pub(crate) mod v2;
+
+pub use self::v2::*;
+
 use std::path::Path;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use thiserror::Error;
 
-use crate::channel::{Channel, ChannelAlias, UserChannel};
+use crate::channel::{ChannelAlias, UserChannel};
 
-const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 1);
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
-/// The global manifest of all known channels and their toolchains
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-pub struct Manifest {
-    #[serde(flatten)]
-    header: ManifestHeader,
-    /// The channels described in this manifest
-    channels: Vec<Channel>,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-struct ManifestHeader {
-    /// This version is used to handle breaking changes in the manifest format itself
-    pub manifest_version: semver::Version,
-    /// The UTC timestamp at which this manifest was generated
-    date: i64,
-}
-
-impl Default for ManifestHeader {
-    fn default() -> Self {
-        let date = chrono::Utc::now().timestamp();
-        Self { manifest_version: MANIFEST_VERSION, date }
-    }
-}
+pub type Alias = String;
 
 #[derive(Error, Debug)]
 pub enum ManifestError {
-    #[error("Manifest file is empty")]
+    #[error("manifest file is empty")]
     Empty,
-    #[error("Webpage {0} is empty")]
-    EmptyWebpage(String),
-    #[error("Webpage returned error. Does {0} exist?")]
-    WebpageError(String),
-    #[error("Manifest file is not present in `{0}`")]
+    #[error("content downloaded from '{0}' is empty")]
+    EmptyDownload(String),
+    #[error("request for manifest from '{uri}' failed with status {code}")]
+    DownloadError { uri: String, code: u32 },
+    #[error("unable to execute request for '{uri}' with curl: {err}")]
+    InternalCurlError { uri: String, err: String },
+    #[error("manifest file is not present in `{0}`")]
     Missing(String),
-    #[error("Invalid channel manifest in URI: `{0}`")]
+    #[error("invalid channel manifest `{0}`")]
     Invalid(String),
-    #[error("Couldn't reach webpage: `{0}`")]
-    InternalCurlError(String),
     #[error("unsupported channel manifest URI: `{0}`")]
     Unsupported(String),
     #[error("unsupported/unknown channel manifest version `{0}`, expected {MANIFEST_VERSION}")]
     UnsupportedVersion(semver::Version),
     #[error("channel manifest v{0} requires a newer version of midenup")]
     OutdatedMidenup(semver::Version),
+    #[error(
+        "conflicting alias '{alias}': defined by both '{component}' and '{prev_component}' components"
+    )]
+    ConflictingAlias {
+        prev_component: String,
+        component: String,
+        alias: String,
+    },
 }
 
-impl Manifest {
+/// Represents a manifest which has been deserialized
+///
+/// A variant should be defined for each backwards-incompatible manifest version that needs to be
+/// migrated by midenup (by deserializing from an earlier variant, and migrating forward).
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "manifest_version")]
+pub enum VersionedManifest {
+    /// The original v1 manifest
+    #[serde(rename(deserialize = "1.0.1"))]
+    V1(v1::Manifest),
+    /// The v2 manifest schema made several breaking changes to make the structure cleaner and to
+    /// better handle future schema changes:
+    ///
+    /// * Components are categorized by kind
+    /// * Component authority is now serialized to a single `version` field, rather than flattened
+    /// * Support for `Library` is removed, and only `Package` is allowed moving forward
+    #[serde(rename(deserialize = "2.0.0"))]
+    V2(v2::Manifest),
+    /// This variant is the fallback when an unknown manifest version is deserialized
+    #[serde(untagged)]
+    Unknown {
+        /// This version is used to handle breaking changes in the manifest format itself
+        manifest_version: semver::Version,
+        /// The UTC timestamp at which this manifest was generated
+        date: i64,
+    },
+}
+
+impl VersionedManifest {
     pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
 
-    /// Parses a [Manifest] from `content`, and returns it in canonical form
+    /// Parses a [VersionedManifest] from `content`, and returns it in canonical form
     pub fn parse_str(content: &str) -> Result<Manifest, ManifestError> {
-        let mut manifest = serde_json::from_str::<Manifest>(content).map_err(|err| {
-            if let Ok(header) = serde_json::from_str::<ManifestHeader>(content) {
-                if header.manifest_version > MANIFEST_VERSION {
-                    ManifestError::OutdatedMidenup(header.manifest_version)
+        let manifest = serde_json::from_str::<VersionedManifest>(content)
+            .map_err(|err| ManifestError::Invalid(format!("failed to parse manifest: {err}")))?;
+
+        let mut manifest = match manifest {
+            VersionedManifest::V1(v1) => Manifest::try_from(v1)?,
+            VersionedManifest::V2(v2) => v2,
+            VersionedManifest::Unknown { manifest_version, .. } => {
+                if manifest_version > v2::MANIFEST_VERSION {
+                    return Err(ManifestError::OutdatedMidenup(manifest_version));
+                } else if manifest_version == v2::MANIFEST_VERSION {
+                    return Err(
+                        v2::Manifest::parse_str(content).expect_err("expected re-parsing to fail")
+                    );
                 } else {
-                    ManifestError::UnsupportedVersion(header.manifest_version)
+                    return Err(ManifestError::UnsupportedVersion(manifest_version));
                 }
-            } else {
-                ManifestError::Invalid(format!("failed to parse manifest: {err}"))
-            }
-        })?;
+            },
+        };
 
         // Sort channels by version, in ascending order
         if !manifest.channels.is_sorted_by_key(|channel| &channel.name) {
             manifest.channels.sort_by_key(|channel| channel.name.clone());
-        }
+        };
 
         // Sort the components of each channel by name
         for channel in manifest.channels.iter_mut() {
@@ -118,16 +143,20 @@ impl Manifest {
         handle.url(uri).map_err(|error| {
             let mut err = format!("Error code {}: ", error.code());
             err.push_str(error.description());
-            ManifestError::InternalCurlError(err)
+            ManifestError::InternalCurlError { uri: uri.to_string(), err }
         })?;
         {
-            let response_code = handle.response_code().map_err(|_| {
-                ManifestError::InternalCurlError(String::from(
-                    "Failed to get response code; despite HTTP protocol supporting it.",
-                ))
-            })?;
+            let response_code =
+                handle.response_code().map_err(|_| ManifestError::InternalCurlError {
+                    uri: uri.to_string(),
+                    err: "failed to get response code; despite HTTP protocol supporting it"
+                        .to_string(),
+                })?;
             if HTTP_ERROR_CODES.contains(&response_code) {
-                return Err(ManifestError::WebpageError(uri.to_string()));
+                return Err(ManifestError::DownloadError {
+                    uri: uri.to_string(),
+                    code: response_code,
+                });
             }
 
             let mut transfer = handle.transfer();
@@ -140,11 +169,11 @@ impl Manifest {
             transfer.perform().map_err(|error| {
                 let mut err = format!("Error code {}: ", error.code());
                 err.push_str(error.description());
-                ManifestError::InternalCurlError(err)
+                ManifestError::InternalCurlError { uri: uri.to_string(), err }
             })?
         }
         if data.is_empty() {
-            return Err(ManifestError::EmptyWebpage(uri.to_string()));
+            return Err(ManifestError::EmptyDownload(uri.to_string()));
         }
         let manifest_data = core::str::from_utf8(&data).map_err(|err| {
             ManifestError::Invalid(format!("manifest contains invalid utf8 data: {err}"))
@@ -152,19 +181,16 @@ impl Manifest {
 
         Self::parse_str(manifest_data)
     }
+}
 
-    pub fn manifest_version(&self) -> &semver::Version {
-        &self.header.manifest_version
-    }
-
+impl Manifest {
     pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(self.header.date, 0)
-            .expect("manifest has invalid timestamp")
+        chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
     }
 
     /// Sets the timestamp of this manifest to now in UTC seconds
     pub fn update_last_modified(&mut self) {
-        self.header.date = chrono::Utc::now().timestamp();
+        self.date = chrono::Utc::now().timestamp();
     }
 
     pub fn remove_channel(&mut self, channel_name: semver::Version) {
@@ -311,13 +337,13 @@ impl Manifest {
 mod tests {
     use std::borrow::Cow;
 
-    use super::Manifest;
+    use super::VersionedManifest;
     use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
 
     /// Validates that the current channel manifest is parseable.
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = Manifest::load_from("file://manifest/channel-manifest.json")
+        let manifest = VersionedManifest::load_from("file://manifest/channel-manifest.json")
             .expect("Couldn't load manifest");
 
         let _stable = manifest
@@ -329,7 +355,7 @@ mod tests {
     /// NOTE: This test is mainly intended for backwards compatibilty reasons.
     #[test]
     fn validate_published_channel_manifest() {
-        let manifest = Manifest::load_from(Manifest::PUBLISHED_MANIFEST_URI)
+        let manifest = VersionedManifest::load_from(VersionedManifest::PUBLISHED_MANIFEST_URI)
             .expect("Failed to parse upstream manifest.");
 
         let _ = manifest
@@ -345,7 +371,7 @@ mod tests {
     fn unit_test_manifest_additional() {
         const FILE: &str =
             "file://tests/data/unit_test_manifest_additional/manifest-non-stable.json";
-        let manifest = Manifest::load_from(FILE).unwrap();
+        let manifest = VersionedManifest::load_from(FILE).unwrap();
         {
             let custom_build = manifest
                 .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))

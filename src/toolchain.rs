@@ -10,7 +10,7 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::{Channel, UserChannel},
+    channel::{Channel, Tags, UserChannel},
     commands,
     config::Config,
     manifest::Manifest,
@@ -172,12 +172,20 @@ impl Toolchain {
             );
         }
 
-        commands::install(
-            config,
-            channel_to_install,
-            local_manifest,
-            &InstallationOptions::default(),
-        )?;
+        let is_partial = channel_to_install.tags.iter().any(|tag| matches!(tag, Tags::Partial));
+        let implied_profile = if is_partial {
+            // Partial toolchains install everything (as they are filtered by definition)
+            Profile::Complete
+        } else {
+            // Non-partial toolchains get the default/minimal profile if one is not specified
+            current_toolchain.profile.unwrap_or_default()
+        };
+        let options = InstallationOptions {
+            profile: implied_profile,
+            ..Default::default()
+        };
+
+        commands::install(config, channel_to_install, local_manifest, &options)?;
 
         // Now installed
         Ok((current_toolchain, justification, partial_channel))

@@ -69,7 +69,7 @@ struct GlobalArgs {
         hide(true),
         value_name = "FILE",
         env = MIDENUP_MANIFEST_URI_ENV,
-        default_value = manifest::Manifest::PUBLISHED_MANIFEST_URI
+        default_value = manifest::VersionedManifest::PUBLISHED_MANIFEST_URI
     )]
     pub manifest_uri: String,
     /// Determines wether the components are installed in debug mode. Useful for
@@ -217,7 +217,7 @@ impl Midenup {
                     })?;
 
                 let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
-                    .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
+                    .unwrap_or(manifest::VersionedManifest::PUBLISHED_MANIFEST_URI.to_string());
                 config::Config::init(
                     working_directory,
                     midenup_home,
@@ -274,6 +274,11 @@ impl Midenup {
     /// Execute this session with the provided configuration.
     pub fn execute(&self, config: &config::Config) -> anyhow::Result<()> {
         let mut local_manifest = config.local_manifest()?;
+
+        // Update the local manifest file if it is using an older schema
+        if local_manifest.manifest_version() < &crate::manifest::MANIFEST_VERSION {
+            config.write_local_manifest(&local_manifest)?;
+        }
 
         self.execute_with_manifest(config, &mut local_manifest)
     }

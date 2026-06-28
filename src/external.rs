@@ -8,13 +8,40 @@
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 #[allow(dead_code)]
-pub fn install_artifact(uri: &str, to: impl AsRef<std::path::Path>) -> Result<(), String> {
-    use std::io::Write;
+pub fn install_artifact(
+    uri: &str,
+    to: impl AsRef<std::path::Path>,
+    target_is_file: bool,
+) -> Result<(), String> {
+    use std::{io::Write, path::Path};
 
     let to = to.as_ref();
+
+    if target_is_file {
+        let to_dir = to.parent().unwrap();
+        std::fs::create_dir_all(to_dir).map_err(|error| {
+            format!("failed to create parent directory for artifact '{}': {error}", to.display())
+        })?;
+    } else {
+        std::fs::create_dir_all(to).map_err(|error| {
+            format!("failed to create target directory for artifact '{}': {error}", to.display())
+        })?;
+    }
+
     if let Some(binary_path) = uri.strip_prefix("file://") {
-        std::fs::copy(binary_path, to)
-            .map_err(|err| format!("failed to copy {binary_path} -> {}: {err}", to.display()))?;
+        let target_path = if target_is_file {
+            to.to_path_buf()
+        } else {
+            let binary_path = Path::new(binary_path);
+            let file_name = binary_path
+                .file_name()
+                .map(Path::new)
+                .expect("expected source path to have file name");
+            to.join(file_name)
+        };
+        std::fs::copy(binary_path, &target_path).map_err(|err| {
+            format!("failed to copy {binary_path} -> {}: {err}", target_path.display())
+        })?;
     } else if uri.starts_with("https://") {
         let mut data = Vec::new();
         {
@@ -44,6 +71,13 @@ pub fn install_artifact(uri: &str, to: impl AsRef<std::path::Path>) -> Result<()
         if data.is_empty() {
             return Err(format!("invalid artifact: content downloaded from '{uri}' is empty"));
         }
+        let to = if target_is_file {
+            to.to_path_buf()
+        } else {
+            let (file_name, _) =
+                uri.rsplit_once('/').expect("expected source uri to have a file component");
+            to.join(file_name)
+        };
         let tmp = to.with_extension("tmp");
         let mut file = std::fs::File::create(&tmp).map_err(|error| {
             format!("failed to create temporary file '{}' for artifact: {error}", to.display())
@@ -55,7 +89,7 @@ pub fn install_artifact(uri: &str, to: impl AsRef<std::path::Path>) -> Result<()
         .map_err(|error| format!("failed to set permissions on '{}': {error}", to.display()))?;
         file.write_all(&data)
             .map_err(|error| format!("failed to write artifact to '{}': {error}", to.display()))?;
-        std::fs::rename(&tmp, to).map_err(|error| {
+        std::fs::rename(&tmp, &to).map_err(|error| {
             format!("failed to rename {} -> {}: {error}", tmp.display(), to.display())
         })?;
     } else {
@@ -75,8 +109,10 @@ pub fn install_from_source(
 ) -> Result<(), String> {
     let root_directory = root_directory.as_ref();
     let mut command = std::process::Command::new("cargo");
+    if !toolchain_flag.is_empty() {
+        command.arg(toolchain_flag);
+    }
     command
-                .arg(toolchain_flag)
                 .arg("install")
                 .arg("--locked")
                 .args(chosen_profile)

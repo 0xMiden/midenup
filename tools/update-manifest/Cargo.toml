@@ -21,6 +21,7 @@ anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 colored.workspace = true
+json-patch = "4.2"
 midenup.workspace = true
 serde.workspace = true
 serde_json.workspace = true
