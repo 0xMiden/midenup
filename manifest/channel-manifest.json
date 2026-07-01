@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.1",
-  "date": 1782514430,
+  "date": 1782923717,
   "channels": [
     {
       "name": "0.9.0",
@@ -869,12 +869,12 @@
       "components": [
         {
           "name": "cargo-miden",
-          "version": "0.8.1",
+          "version": "0.9.0",
           "call_format": [
             "cargo",
             "miden"
           ],
-          "rustup_channel": "nightly-2025-12-10",
+          "rustup_channel": "nightly-2026-04-30",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
@@ -886,8 +886,8 @@
           },
           "symlink_name": "cargo-miden",
           "artifacts": [
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/cargo-miden-aarch64-apple-darwin",
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/cargo-miden-x86_64-unknown-linux-gnu"
+            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/cargo-miden-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/cargo-miden-x86_64-unknown-linux-gnu"
           ]
         },
         {
@@ -971,7 +971,7 @@
         },
         {
           "name": "midenc",
-          "version": "0.8.1",
+          "version": "0.9.0",
           "requires": [
             "core",
             "protocol"
@@ -981,15 +981,15 @@
             "-L",
             "lib_path"
           ],
-          "rustup_channel": "nightly-2025-12-10",
+          "rustup_channel": "nightly-2026-04-30",
           "aliases": {
             "build": [
               "executable"
             ]
           },
           "artifacts": [
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
-            "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-x86_64-unknown-linux-gnu"
+            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/midenc-aarch64-apple-darwin",
+            "https://github.com/0xMiden/compiler/releases/download/v0.9.0/midenc-x86_64-unknown-linux-gnu"
           ]
         },
         {
