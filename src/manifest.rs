@@ -9,24 +9,26 @@ const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 1);
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
 
 /// The global manifest of all known channels and their toolchains
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Manifest {
-    /// This version is used to handle breaking changes in the manifest format itself
-    pub manifest_version: semver::Version,
-    /// The UTC timestamp at which this manifest was generated
-    date: i64,
+    #[serde(flatten)]
+    header: ManifestHeader,
     /// The channels described in this manifest
     channels: Vec<Channel>,
 }
 
-impl Default for Manifest {
+#[derive(Serialize, Deserialize, Debug, Clone)]
+struct ManifestHeader {
+    /// This version is used to handle breaking changes in the manifest format itself
+    pub manifest_version: semver::Version,
+    /// The UTC timestamp at which this manifest was generated
+    date: i64,
+}
+
+impl Default for ManifestHeader {
     fn default() -> Self {
         let date = chrono::Utc::now().timestamp();
-        Self {
-            manifest_version: MANIFEST_VERSION,
-            date,
-            channels: vec![],
-        }
+        Self { manifest_version: MANIFEST_VERSION, date }
     }
 }
 
@@ -46,6 +48,10 @@ pub enum ManifestError {
     InternalCurlError(String),
     #[error("unsupported channel manifest URI: `{0}`")]
     Unsupported(String),
+    #[error("unsupported/unknown channel manifest version `{0}`, expected {MANIFEST_VERSION}")]
+    UnsupportedVersion(semver::Version),
+    #[error("channel manifest v{0} requires a newer version of midenup")]
+    OutdatedMidenup(semver::Version),
 }
 
 impl Manifest {
@@ -55,8 +61,17 @@ impl Manifest {
 
     /// Parses a [Manifest] from `content`, and returns it in canonical form
     pub fn parse_str(content: &str) -> Result<Manifest, ManifestError> {
-        let mut manifest = serde_json::from_str::<Manifest>(content)
-            .map_err(|err| ManifestError::Invalid(format!("failed to parse manifest: {err}")))?;
+        let mut manifest = serde_json::from_str::<Manifest>(content).map_err(|err| {
+            if let Ok(header) = serde_json::from_str::<ManifestHeader>(content) {
+                if header.manifest_version > MANIFEST_VERSION {
+                    ManifestError::OutdatedMidenup(header.manifest_version)
+                } else {
+                    ManifestError::UnsupportedVersion(header.manifest_version)
+                }
+            } else {
+                ManifestError::Invalid(format!("failed to parse manifest: {err}"))
+            }
+        })?;
 
         // Sort channels by version, in ascending order
         if !manifest.channels.is_sorted_by_key(|channel| &channel.name) {
@@ -138,13 +153,18 @@ impl Manifest {
         Self::parse_str(manifest_data)
     }
 
+    pub fn manifest_version(&self) -> &semver::Version {
+        &self.header.manifest_version
+    }
+
     pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
+        chrono::DateTime::from_timestamp(self.header.date, 0)
+            .expect("manifest has invalid timestamp")
     }
 
     /// Sets the timestamp of this manifest to now in UTC seconds
     pub fn update_last_modified(&mut self) {
-        self.date = chrono::Utc::now().timestamp();
+        self.header.date = chrono::Utc::now().timestamp();
     }
 
     pub fn remove_channel(&mut self, channel_name: semver::Version) {
