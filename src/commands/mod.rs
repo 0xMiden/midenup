@@ -218,10 +218,16 @@ impl Midenup {
             std::env::current_dir().context("unable to read current directory")?;
         match &self.behavior {
             Behavior::Miden(_) => {
-                // Always respect XDG dirs if set
-                let midenup_home = std::env::var_os("XDG_DATA_HOME")
+                // Respect an explicit MIDENUP_HOME override first - `midenup` itself honors it
+                // (and exports it to child processes), so `miden` must resolve to the same home -
+                // then fall back to the XDG dirs.
+                let midenup_home = std::env::var_os("MIDENUP_HOME")
                     .map(PathBuf::from)
-                    .map(|dir| dir.join("midenup"))
+                    .or_else(|| {
+                        std::env::var_os("XDG_DATA_HOME")
+                            .map(PathBuf::from)
+                            .map(|dir| dir.join("midenup"))
+                    })
                     .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
                     // If for whatever reason, we can't access the data dir, we fall
                     // back to .local/share
