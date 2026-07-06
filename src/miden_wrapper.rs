@@ -401,7 +401,7 @@ pub fn miden_wrapper(
         _ => false,
     };
 
-    // We obtain the target executable and prefixes that are associated with the passed subcommand.
+    // We obtain the target executable and arguments associated with the passed subcommand.
     let (target_exe, args, active_channel) = match parsed_subcommand {
         MidenSubcommand::Version
         | MidenSubcommand::Help(HelpMessage::Default)
@@ -433,6 +433,23 @@ pub fn miden_wrapper(
                         args
                     };
 
+                    let project_aware_debug = !requested_help
+                        && match &environment.argument {
+                            MidenArgument::Subcommand { component, .. }
+                            | MidenArgument::Command { component, .. }
+                            | MidenArgument::Alias { component, .. }
+                            | MidenArgument::Component { component, .. } => {
+                                component.name.as_ref() == "debug"
+                            },
+                        };
+                    let augment_user_args = |args| {
+                        if project_aware_debug {
+                            augment_debug_invocation(args, &toolchain_environment, config)
+                        } else {
+                            Ok(args)
+                        }
+                    };
+
                     let argv = match environment.argument {
                         MidenArgument::Subcommand { component, format, executable, rest } => {
                             let mut args: Vec<OsString> = requested_help
@@ -440,23 +457,22 @@ pub fn miden_wrapper(
                                 .into_iter()
                                 .collect();
                             args.extend(rest);
+                            let args = augment_user_args(args)?;
 
                             exec::compose(component, format, Some(executable), args, &resolver)?
                         },
                         MidenArgument::Command { component, executable, matches }
-                        | MidenArgument::Alias { component, executable, matches } => exec::compose(
-                            component,
-                            executable,
-                            None,
-                            user_args(matches),
-                            &resolver,
-                        )?,
+                        | MidenArgument::Alias { component, executable, matches } => {
+                            let args = augment_user_args(user_args(matches))?;
+                            exec::compose(component, executable, None, args, &resolver)?
+                        },
                         MidenArgument::Component { component, spec, matches } => {
                             let format = spec
                                 .call_format
                                 .clone()
                                 .unwrap_or_else(Executable::default_call_format);
-                            exec::compose(component, &format, None, user_args(matches), &resolver)?
+                            let args = augment_user_args(user_args(matches))?;
+                            exec::compose(component, &format, None, args, &resolver)?
                         },
                     };
 
@@ -772,4 +788,212 @@ enum FallbackMotive {
     NoActiveChannel,
     /// There is an active channel, yet the argument wasn't found.
     ArgumentNotInActiveChannel,
+}
+
+// `miden debug` PROJECT DISCOVERY
+// ================================================================================================
+
+/// Ascend from `start` to the nearest directory that looks like a Miden project root, i.e. one
+/// containing a `miden-project.toml` or a `Cargo.toml`.
+fn find_project_root(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    start
+        .ancestors()
+        .find(|dir| dir.join("miden-project.toml").is_file() || dir.join("Cargo.toml").is_file())
+        .map(|dir| dir.to_path_buf())
+}
+
+/// Find the most recently written `.masp` package artifact under the project's build output
+/// directories.
+///
+/// Both output layouts produced by the toolchain are searched — `target/miden/<profile>/` and
+/// the older `target/midenc/miden/<profile>/` — across all profiles, and the newest artifact
+/// wins: it is the one belonging to the most recent build.
+fn find_newest_package(project_root: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut candidates: Vec<(std::time::SystemTime, std::path::PathBuf)> = Vec::new();
+
+    for base in [
+        project_root.join("target").join("miden"),
+        project_root.join("target").join("midenc").join("miden"),
+    ] {
+        let Ok(profiles) = std::fs::read_dir(&base) else {
+            continue;
+        };
+        for profile in profiles.flatten() {
+            let profile_dir = profile.path();
+            if !profile_dir.is_dir() {
+                continue;
+            }
+            let Ok(entries) = std::fs::read_dir(&profile_dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("masp"))
+                    && let Ok(modified) = entry.metadata().and_then(|meta| meta.modified())
+                {
+                    candidates.push((modified, path));
+                }
+            }
+        }
+    }
+
+    candidates
+        .into_iter()
+        .max_by_key(|(modified, _)| *modified)
+        .map(|(_, path)| path)
+}
+
+/// Returns true when the user's arguments already carry an input artifact, i.e. a positional
+/// `.masp`/`.masm` path or `-` (stdin), in which case nothing should be injected.
+fn debug_args_carry_input(args: &[OsString]) -> bool {
+    args.iter().any(|arg| {
+        let arg = arg.to_string_lossy();
+        arg == "-"
+            || std::path::Path::new(arg.as_ref()).extension().is_some_and(|ext| {
+                ext.eq_ignore_ascii_case("masp") || ext.eq_ignore_ascii_case("masm")
+            })
+    })
+}
+
+/// Compute the effective `miden debug` arguments for the current working directory.
+///
+/// When the user did not name an input artifact and the working directory is inside a Miden
+/// project, the project's compiled package is discovered — building the project first (plain
+/// `miden build` semantics) when no artifact exists yet — and prepended as the debugger input,
+/// along with `--inputs <project>/inputs.toml` when that file exists and the flag was not given.
+/// In every other situation the arguments pass through untouched.
+fn augment_debug_invocation(
+    remaining_args: Vec<OsString>,
+    toolchain_environment: &ToolchainEnvironment<'_>,
+    config: &Config,
+) -> anyhow::Result<Vec<OsString>> {
+    if debug_args_carry_input(&remaining_args) {
+        return Ok(remaining_args);
+    }
+
+    let Some(project_root) = find_project_root(&config.working_directory) else {
+        return Ok(remaining_args);
+    };
+
+    let package = match find_newest_package(&project_root) {
+        Some(package) => package,
+        None => {
+            println!(
+                "{}: no compiled package found under '{}'; running `miden build` first...",
+                "NOTE".cyan().bold(),
+                project_root.display()
+            );
+            run_project_build(toolchain_environment, config)?;
+            find_newest_package(&project_root).ok_or_else(|| {
+                anyhow!(
+                    "`miden build` completed, but no package artifact was found under '{}'",
+                    project_root.join("target").display()
+                )
+            })?
+        },
+    };
+
+    println!("{}: debugging '{}'", "NOTE".cyan().bold(), package.display());
+
+    let mut args = vec![package.into_os_string()];
+
+    let inputs = project_root.join("inputs.toml");
+    let inputs_given = remaining_args.iter().any(|arg| {
+        let arg = arg.to_string_lossy();
+        arg == "--inputs" || arg.starts_with("--inputs=")
+    });
+    if inputs.is_file() && !inputs_given {
+        args.push(OsString::from("--inputs"));
+        args.push(inputs.into_os_string());
+    }
+
+    args.extend(remaining_args);
+    Ok(args)
+}
+
+/// Build the project in the current working directory, exactly as `miden build` would.
+fn run_project_build(
+    toolchain_environment: &ToolchainEnvironment<'_>,
+    config: &Config,
+) -> anyhow::Result<()> {
+    let matches = build_miden_command()
+        .try_get_matches_from(["miden", "build"])
+        .context("failed to parse automatic `miden build` invocation")?;
+    let (_, build_matches) = matches
+        .subcommand()
+        .ok_or_else(|| anyhow!("automatic `miden build` invocation has no subcommand"))?;
+    let ExecutionEnvironment { argument, active_channel } = toolchain_environment
+        .resolve("build", build_matches)
+        .map_err(|err| anyhow!("cannot build the project automatically: {err}"))?;
+    let resolver = resolver_for(config, active_channel);
+
+    let argv = match argument {
+        MidenArgument::Subcommand { component, format, executable, rest } => {
+            exec::compose(component, format, Some(executable), rest, &resolver)?
+        },
+        MidenArgument::Command { component, executable, .. }
+        | MidenArgument::Alias { component, executable, .. } => {
+            exec::compose(component, executable, None, Vec::new(), &resolver)?
+        },
+        MidenArgument::Component { component, spec, .. } => {
+            let format = spec.call_format.clone().unwrap_or_else(Executable::default_call_format);
+            exec::compose(component, &format, None, Vec::new(), &resolver)?
+        },
+    };
+
+    let mut argv = VecDeque::from(argv);
+    let target_exe = argv
+        .pop_front()
+        .ok_or_else(|| anyhow!("`build` resolved to an empty command"))?;
+    let args = Vec::from(argv);
+
+    let mut child = config
+        .execute_command(active_channel, &target_exe, &args)
+        .context("failed to run `miden build`")?;
+    let status = child.wait().context("error while waiting for `miden build` to finish")?;
+    if !status.success() {
+        bail!("`miden build` failed with status {}", status.code().unwrap_or(1));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod debug_invocation_tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn finds_the_newest_package_across_output_layouts() {
+        let dir = std::env::temp_dir().join(format!("midenup-debug-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("target/midenc/miden/dev")).unwrap();
+        fs::create_dir_all(dir.join("target/miden/release")).unwrap();
+        fs::write(dir.join("Cargo.toml"), "[package]\n").unwrap();
+
+        let old = dir.join("target/midenc/miden/dev/app:app.masp");
+        fs::write(&old, b"old").unwrap();
+        // Ensure a strictly newer timestamp for the second artifact.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let new = dir.join("target/miden/release/app.masp");
+        fs::write(&new, b"new").unwrap();
+
+        assert_eq!(find_project_root(&dir.join("target")), Some(dir.clone()));
+        assert_eq!(find_newest_package(&dir), Some(new));
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn user_supplied_inputs_are_left_untouched() {
+        assert!(debug_args_carry_input(&[OsString::from("path/to/app.masp")]));
+        assert!(debug_args_carry_input(&[OsString::from("program.masm")]));
+        assert!(debug_args_carry_input(&[OsString::from("-")]));
+        assert!(!debug_args_carry_input(&[OsString::from("--repl")]));
+        assert!(!debug_args_carry_input(&[
+            OsString::from("--inputs"),
+            OsString::from("inputs.toml")
+        ]));
+    }
 }
