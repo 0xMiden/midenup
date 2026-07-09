@@ -893,13 +893,17 @@
         {
           "name": "client",
           "package": "miden-client-cli",
-          "version": "0.15.2",
+          "version": "0.15.3",
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
             "account": [
               "executable",
               "new-account"
+            ],
+            "call": [
+              "executable",
+              "call"
             ],
             "deploy": [
               "executable",
@@ -927,8 +931,8 @@
             ]
           },
           "artifacts": [
-            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-aarch64-apple-darwin",
-            "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-x86_64-unknown-linux-gnu"
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.3/miden-client-aarch64-apple-darwin",
+            "https://github.com/0xMiden/miden-client/releases/download/v0.15.3/miden-client-x86_64-unknown-linux-gnu"
           ]
         },
         {
