@@ -174,7 +174,7 @@ impl Cli {
                     bail!(
                         "component '{name}' already exists for toolchain '{}' - use \
                          update-component to modify it",
-                        &channel.name
+                        channel.name
                     );
                 }
                 let mut component = Component::new(name.clone(), authority.clone());
@@ -186,7 +186,7 @@ impl Cli {
                         bail!(
                             "cannot require componennt '{required}': unknown component for \
                              toolchain '{}'",
-                            &channel.name
+                            channel.name
                         );
                     }
                     component.requires.push(required.clone());
@@ -200,7 +200,7 @@ impl Cli {
                     bail!("unknown toolchain '{channel}'")
                 };
                 if channel.get_component(name.as_str()).is_none() {
-                    bail!("unknown component '{name}' for toolchain '{}'", &channel.name);
+                    bail!("unknown component '{name}' for toolchain '{}'", channel.name);
                 }
                 channel.components.retain_mut(|c| c.name != name.as_str());
                 manifest.update_last_modified();
@@ -224,7 +224,7 @@ impl Cli {
                         bail!(
                             "cannot require componennt '{required}': unknown component for \
                              toolchain '{}'",
-                            &channel.name
+                            channel.name
                         );
                     }
                 }
@@ -232,7 +232,7 @@ impl Cli {
                     bail!(
                         "unknown component '{name}' for toolchain '{}' - use add-component to \
                          create it",
-                        &channel.name
+                        channel.name
                     );
                 };
                 let prev_version = match &component.version {

@@ -28,7 +28,7 @@ impl ShowCommand {
                 let (toolchain, justification) = Toolchain::current(config)?;
 
                 if !verbose {
-                    println!("{}", &toolchain.channel);
+                    println!("{}", toolchain.channel);
                 } else {
                     match justification {
                         ToolchainJustification::MidenToolchainFile { path } => {
@@ -51,7 +51,7 @@ impl ShowCommand {
                             );
                         },
                     }
-                    println!("The current active toolchain is {}", &toolchain.channel);
+                    println!("The current active toolchain is {}", toolchain.channel);
                 }
 
                 Ok(())

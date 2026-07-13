@@ -44,7 +44,7 @@ pub fn uninstall(
     };
 
     let toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_symlink = toolchains_dir.join(format!("{}", &local_channel.name));
+    let toolchain_symlink = toolchains_dir.join(format!("{}", local_channel.name));
 
     let installed_channel_dir = toolchain_symlink.canonicalize();
 
@@ -126,7 +126,7 @@ pub fn uninstall_components(
             .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
 
     for lib in installed_libraries {
-        println!("removing previous version of component {}", &lib.name);
+        println!("removing previous version of component {}", lib.name);
         let lib_path = install_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
         // Only remove the file if it exists - treat inability to determine existence as
         // non-existent
@@ -137,7 +137,7 @@ pub fn uninstall_components(
     }
 
     for exe in installed_executables {
-        println!("removing previous version of component {}", &exe.name);
+        println!("removing previous version of component {}", exe.name);
         let opt_path = install_dir.join("opt").join(exe.get_symlink_name());
         let _ = std::fs::remove_file(&opt_path);
 

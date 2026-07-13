@@ -36,7 +36,7 @@ midenup install stable
             )?;
             println!(
                 "syncing channel updates for stable (last update was {last_updated} as {})",
-                &local_stable.name
+                local_stable.name
             );
             let upstream_stable = config
                 .manifest
@@ -49,7 +49,7 @@ midenup install stable
 
             println!(
                 "latest stable is version {} (upstream last updated on {})",
-                &upstream_stable.name,
+                upstream_stable.name,
                 config.manifest.last_updated()
             );
 
@@ -99,7 +99,7 @@ midenup install stable
 
             println!(
                 "syncing channel updates for {} (last update was {last_updated})",
-                &local_channel.name
+                local_channel.name
             );
 
             let upstream_counterpart =
@@ -134,7 +134,7 @@ midenup install stable
             for (local_channel, upstream_channel) in channels_to_update {
                 println!(
                     "syncing channel updates for {} (last update was {last_updated})",
-                    &local_channel.name
+                    local_channel.name
                 );
                 println!("upstream last updated on {}", config.manifest.last_updated());
                 update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
@@ -188,7 +188,7 @@ fn update_channel(
 
     display_warnings(&update, options);
 
-    println!("Updating toolchain {}..", &local_channel.name);
+    println!("Updating toolchain {}..", local_channel.name);
 
     let Update {
         channel_to_install,
