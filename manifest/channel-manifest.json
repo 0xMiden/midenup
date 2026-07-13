@@ -15,24 +15,13 @@
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2025-03-20",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "build": ["cargo", "miden", "build"],
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden"
         },
@@ -44,15 +33,8 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
-            "call": [
-              "executable",
-              "call",
-              "--show"
-            ],
+            "account": ["executable", "new-account"],
+            "call": ["executable", "call", "--show"],
             "deploy": [
               "executable",
               "-s",
@@ -60,38 +42,17 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           }
         },
         {
           "name": "midenc",
           "version": "0.1.0",
-          "requires": [
-            "base",
-            "std"
-          ],
-          "call_format": [
-            "executable",
-            "compile",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["base", "std"],
+          "call_format": ["executable", "compile", "-L", "lib_path"],
           "rustup_channel": "nightly-2025-03-20"
         },
         {
@@ -123,10 +84,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.15.0",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden",
           "alias_only": false
         }
@@ -145,24 +103,13 @@
         {
           "name": "cargo-miden",
           "version": "0.1.0",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2025-03-20",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "build": ["cargo", "miden", "build"],
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden"
         },
@@ -173,15 +120,8 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
-            "call": [
-              "executable",
-              "call",
-              "--show"
-            ],
+            "account": ["executable", "new-account"],
+            "call": ["executable", "call", "--show"],
             "deploy": [
               "executable",
               "-s",
@@ -189,38 +129,17 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           }
         },
         {
           "name": "midenc",
           "version": "0.1.0",
-          "requires": [
-            "base",
-            "std"
-          ],
-          "call_format": [
-            "executable",
-            "compile",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["base", "std"],
+          "call_format": ["executable", "compile", "-L", "lib_path"],
           "rustup_channel": "nightly-2025-03-20"
         },
         {
@@ -252,10 +171,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.16.2",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm",
           "alias_only": false
         }
@@ -274,24 +190,13 @@
         {
           "name": "cargo-miden",
           "version": "0.4.1",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2025-07-20",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "build": ["cargo", "miden", "build"],
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden"
         },
@@ -302,15 +207,8 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
-            "call": [
-              "executable",
-              "call",
-              "--show"
-            ],
+            "account": ["executable", "new-account"],
+            "call": ["executable", "call", "--show"],
             "deploy": [
               "executable",
               "-s",
@@ -318,38 +216,17 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           }
         },
         {
           "name": "midenc",
           "version": "0.4.1",
-          "requires": [
-            "base",
-            "std"
-          ],
-          "call_format": [
-            "executable",
-            "compile",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["base", "std"],
+          "call_format": ["executable", "compile", "-L", "lib_path"],
           "rustup_channel": "nightly-2025-07-20"
         },
         {
@@ -384,10 +261,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.17.2",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm",
           "alias_only": false
         }
@@ -406,24 +280,13 @@
         {
           "name": "cargo-miden",
           "version": "0.6.0",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2025-07-20",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "build": ["cargo", "miden", "build"],
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden"
         },
@@ -434,15 +297,8 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
-            "call": [
-              "executable",
-              "call",
-              "--show"
-            ],
+            "account": ["executable", "new-account"],
+            "call": ["executable", "call", "--show"],
             "deploy": [
               "executable",
               "-s",
@@ -450,23 +306,10 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           }
         },
         {
@@ -482,15 +325,8 @@
         {
           "name": "midenc",
           "version": "0.6.0",
-          "requires": [
-            "base",
-            "std"
-          ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["base", "std"],
+          "call_format": ["executable", "-L", "lib_path"],
           "rustup_channel": "nightly-2025-07-20"
         },
         {
@@ -523,10 +359,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.19.1",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm",
           "alias_only": false
         }
@@ -545,24 +378,13 @@
         {
           "name": "cargo-miden",
           "version": "0.7.0",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2025-12-10",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "build": ["cargo", "miden", "build"],
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden"
         },
@@ -573,15 +395,8 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
-            "call": [
-              "executable",
-              "call",
-              "--show"
-            ],
+            "account": ["executable", "new-account"],
+            "call": ["executable", "call", "--show"],
             "deploy": [
               "executable",
               "-s",
@@ -589,23 +404,10 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           }
         },
         {
@@ -633,24 +435,14 @@
           "installed_executable": "miden-faucet-client",
           "alias_only": false,
           "aliases": {
-            "mint": [
-              "executable",
-              "mint"
-            ]
+            "mint": ["executable", "mint"]
           }
         },
         {
           "name": "midenc",
           "version": "0.7.0",
-          "requires": [
-            "base",
-            "std"
-          ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["base", "std"],
+          "call_format": ["executable", "-L", "lib_path"],
           "rustup_channel": "nightly-2025-12-10"
         },
         {
@@ -683,10 +475,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.20.3",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm",
           "alias_only": false
         }
@@ -698,24 +487,13 @@
         {
           "name": "cargo-miden",
           "version": "0.8.1",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2025-12-10",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "build": [
-              "cargo",
-              "miden",
-              "build"
-            ],
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "build": ["cargo", "miden", "build"],
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden",
           "artifacts": [
@@ -730,15 +508,8 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
-            "call": [
-              "executable",
-              "call",
-              "--show"
-            ],
+            "account": ["executable", "new-account"],
+            "call": ["executable", "call", "--show"],
             "deploy": [
               "executable",
               "-s",
@@ -746,23 +517,10 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           },
           "artifacts": [
             "https://github.com/0xMiden/miden-client/releases/download/v0.14.9/miden-client-aarch64-apple-darwin",
@@ -790,24 +548,14 @@
           "installed_executable": "miden-faucet-client",
           "alias_only": false,
           "aliases": {
-            "mint": [
-              "executable",
-              "mint"
-            ]
+            "mint": ["executable", "mint"]
           }
         },
         {
           "name": "midenc",
           "version": "0.8.1",
-          "requires": [
-            "core",
-            "protocol"
-          ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["core", "protocol"],
+          "call_format": ["executable", "-L", "lib_path"],
           "rustup_channel": "nightly-2025-12-10",
           "artifacts": [
             "https://github.com/0xMiden/compiler/releases/download/v0.8.1/midenc-aarch64-apple-darwin",
@@ -855,10 +603,7 @@
           "name": "vm",
           "package": "miden-vm",
           "version": "0.22.4",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm",
           "alias_only": false
         }
@@ -870,19 +615,12 @@
         {
           "name": "cargo-miden",
           "version": "0.9.0",
-          "call_format": [
-            "cargo",
-            "miden"
-          ],
+          "call_format": ["cargo", "miden"],
           "rustup_channel": "nightly-2026-04-30",
           "installed_executable": "cargo-miden",
           "alias_only": true,
           "aliases": {
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
+            "new": ["cargo", "miden", "new"]
           },
           "symlink_name": "cargo-miden",
           "artifacts": [
@@ -897,10 +635,7 @@
           "installed_executable": "miden-client",
           "alias_only": false,
           "aliases": {
-            "account": [
-              "executable",
-              "new-account"
-            ],
+            "account": ["executable", "new-account"],
             "deploy": [
               "executable",
               "-s",
@@ -908,23 +643,10 @@
               "--account-type",
               "regular-account-immutable-code"
             ],
-            "faucet": [
-              "executable",
-              "mint"
-            ],
-            "new-wallet": [
-              "executable",
-              "new-wallet",
-              "--deploy"
-            ],
-            "send": [
-              "executable",
-              "send"
-            ],
-            "simulate": [
-              "executable",
-              "exec"
-            ]
+            "faucet": ["executable", "mint"],
+            "new-wallet": ["executable", "new-wallet", "--deploy"],
+            "send": ["executable", "send"],
+            "simulate": ["executable", "exec"]
           },
           "artifacts": [
             "https://github.com/0xMiden/miden-client/releases/download/v0.15.2/miden-client-aarch64-apple-darwin",
@@ -959,10 +681,7 @@
           "installed_executable": "miden-faucet-client",
           "alias_only": false,
           "aliases": {
-            "mint": [
-              "executable",
-              "mint"
-            ]
+            "mint": ["executable", "mint"]
           },
           "artifacts": [
             "https://github.com/0xMiden/miden-faucet/releases/download/v0.15.1/miden-faucet-client-aarch64-apple-darwin",
@@ -972,20 +691,11 @@
         {
           "name": "midenc",
           "version": "0.9.0",
-          "requires": [
-            "core",
-            "protocol"
-          ],
-          "call_format": [
-            "executable",
-            "-L",
-            "lib_path"
-          ],
+          "requires": ["core", "protocol"],
+          "call_format": ["executable", "-L", "lib_path"],
           "rustup_channel": "nightly-2026-04-30",
           "aliases": {
-            "build": [
-              "executable"
-            ]
+            "build": ["executable"]
           },
           "artifacts": [
             "https://github.com/0xMiden/compiler/releases/download/v0.9.0/midenc-aarch64-apple-darwin",
@@ -1039,22 +749,19 @@
         {
           "name": "verify",
           "package": "miden-verify",
-          "version": "0.3.0",
+          "version": "0.5.0",
           "installed_executable": "miden-verify",
           "alias_only": false,
           "artifacts": [
-            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-aarch64-apple-darwin",
-            "https://github.com/walnuthq/miden-verify/releases/download/v0.3.0/miden-verify-x86_64-unknown-linux-gnu"
+            "https://github.com/walnuthq/miden-verify/releases/download/v0.5.0/miden-verify-aarch64-apple-darwin",
+            "https://github.com/walnuthq/miden-verify/releases/download/v0.5.0/miden-verify-x86_64-unknown-linux-gnu"
           ]
         },
         {
           "name": "vm",
           "package": "miden-vm",
           "version": "0.23.4",
-          "features": [
-            "executable",
-            "concurrent"
-          ],
+          "features": ["executable", "concurrent"],
           "installed_executable": "miden-vm",
           "alias_only": false,
           "artifacts": [
