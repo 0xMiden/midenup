@@ -18,3 +18,5 @@ build/
 
 # MacOS generated files
 **/.DS_Store
+
+bin/update-manifest

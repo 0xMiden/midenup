@@ -1,6 +1,12 @@
-use std::{borrow::Cow, collections::HashSet, path::PathBuf, str::FromStr};
+use std::{
+    borrow::Cow,
+    collections::HashSet,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use anyhow::{Context, bail};
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
@@ -9,6 +15,7 @@ use crate::{
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
+    profile::Profile,
 };
 
 /// Represents a `miden-toolchain.toml` file.
@@ -19,30 +26,24 @@ pub(crate) struct ToolchainFile {
     toolchain: Toolchain,
 }
 
-/// The actual contents of the toolchain.
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Toolchain {
-    pub channel: UserChannel,
-    pub components: Vec<String>,
-}
-
 impl ToolchainFile {
     pub fn new(toolchain: Toolchain) -> Self {
         ToolchainFile { toolchain }
     }
 
-    fn inner_toolchain(self) -> Toolchain {
+    #[inline]
+    fn into_toolchain(self) -> Toolchain {
         self.toolchain
     }
 }
 
-impl Default for Toolchain {
-    fn default() -> Self {
-        Self {
-            channel: UserChannel::Stable,
-            components: vec![],
-        }
-    }
+/// The actual contents of the toolchain.
+#[derive(Serialize, Deserialize, Default, Debug)]
+pub struct Toolchain {
+    pub channel: UserChannel,
+    pub components: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<Profile>,
 }
 
 /// Used to specify why Midenup believes the current toolchain is what it is.
@@ -57,31 +58,8 @@ pub enum ToolchainJustification {
 }
 
 impl Toolchain {
-    pub fn new(channel: UserChannel, components: Vec<String>) -> Self {
-        Toolchain { channel, components }
-    }
-
-    /// Returns the `miden-toolchain.toml` file, if it exists.
-    ///
-    /// It looks for the file from the present working directory upwards, until the root directory
-    /// is reached.
-    fn toolchain_file() -> anyhow::Result<Option<PathBuf>> {
-        // Check for a `miden-toolchain.toml` file in $CWD and recursively upwards.
-        let present_working_dir =
-            std::env::current_dir().context("unable to read current working directory")?;
-
-        let mut current_dir = Some(present_working_dir.as_path());
-        let mut toolchain_file = None;
-        while let Some(current_path) = current_dir {
-            let current_file = current_path.join("miden-toolchain").with_extension("toml");
-            if current_file.exists() {
-                toolchain_file = Some(current_file);
-                break;
-            }
-            current_dir = current_path.parent();
-        }
-
-        Ok(toolchain_file)
+    pub fn new(channel: UserChannel, profile: Option<Profile>, components: Vec<String>) -> Self {
+        Toolchain { channel, components, profile }
     }
 
     /// Returns the current active Toolchain according to the following prescedence:
@@ -92,7 +70,7 @@ impl Toolchain {
     ///
     /// If none of the previous conditions are met, then `stable` will be used.
     pub fn current(config: &Config) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
-        let local_toolchain = Self::toolchain_file()?;
+        let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
 
         if let Some(local_toolchain) = local_toolchain {
@@ -104,7 +82,7 @@ impl Toolchain {
             let toolchain_file: ToolchainFile =
                 toml::from_str(&toolchain_file_contents).context("invalid toolchain file")?;
 
-            let current_toolchain = toolchain_file.inner_toolchain();
+            let current_toolchain = toolchain_file.into_toolchain();
 
             Ok((
                 current_toolchain,
@@ -114,33 +92,17 @@ impl Toolchain {
             let channel_name = channel_path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .context("Couldn't read channel name from directory")?;
+                .context("unable to read channel name from directory")?;
+
             // NOTE: This has to be a UserChannel because the default channel could be a channel
             // like "stable"
-            let channel = UserChannel::from_str(channel_name)?;
+            let user_channel = UserChannel::from_str(channel_name)?;
 
-            let installed_components_file = {
-                let possible_log_files = ["installation-successful", ".installation-in-progress"];
-
-                possible_log_files
-                    .iter()
-                    .map(|file| channel_path.join(file))
-                    .find(|log_file| log_file.exists())
+            let toolchain = Toolchain {
+                channel: user_channel,
+                components: vec![],
+                profile: None,
             };
-
-            let components: Vec<String> = {
-                if let Some(installed_components_file) = installed_components_file {
-                    let components_file = global_toolchain.join(installed_components_file);
-
-                    std::fs::read_to_string(components_file)?.lines().map(String::from).collect()
-                } else {
-                    println!(
-                        "WARNING: Non present toolchain was set. Component list will be left empty"
-                    );
-                    Vec::new()
-                }
-            };
-            let toolchain = Toolchain { channel, components };
 
             Ok((toolchain, ToolchainJustification::Override))
         } else {
@@ -157,7 +119,7 @@ impl Toolchain {
 
         let Some(upstream_channel) = config.manifest.get_channel(desired_channel) else {
             bail!(
-                "Channel '{}' is set because {}, however the channel doesn't exist or is \
+                "channel '{}' is set because {}, however the channel doesn't exist or is \
                  unavailable",
                 desired_channel,
                 match justification {
@@ -183,16 +145,48 @@ impl Toolchain {
                 // If the installed channel is fully installed, then we there's
                 // nothing missing to install.
                 if installed_channel.is_partially_installed() {
-                    let required_components: HashSet<&Component> =
-                        HashSet::from_iter(partial_channel.components.iter());
+                    // NOTE: Components are compared by name; versions may differ.
+                    let installed_components: HashSet<&str> = installed_channel
+                        .components
+                        .iter()
+                        .map(|component| component.name.as_ref())
+                        .collect();
 
-                    let installed_components: HashSet<&Component> =
-                        HashSet::from_iter(installed_channel.components.iter());
+                    // The installed channel is explicitly partial (e.g. it was created via an
+                    // interactive install), so it is considered valid as-is: we only complete
+                    // components the toolchain explicitly requests, either through a profile or
+                    // through the component list of a `miden-toolchain.toml` file, along with their
+                    // dependencies.
+                    let required_components: Vec<&Component> =
+                        if current_toolchain.profile.is_some() {
+                            partial_channel.components.iter().collect()
+                        } else {
+                            current_toolchain
+                                .components
+                                .iter()
+                                .filter_map(|name| upstream_channel.get_component(name))
+                                .flat_map(|component| {
+                                    std::iter::once(component).chain(
+                                        component.requires.iter().filter_map(|dependency| {
+                                            upstream_channel.get_component(dependency)
+                                        }),
+                                    )
+                                })
+                                .collect()
+                        };
 
-                    let missing_components: Vec<_> =
-                        required_components.difference(&installed_components).collect();
+                    let mut seen = HashSet::new();
+                    let missing_components: Vec<&Component> = required_components
+                        .into_iter()
+                        .filter(|component| !installed_components.contains(component.name.as_ref()))
+                        .filter(|component| seen.insert(component.name.clone()))
+                        .collect();
 
                     if missing_components.is_empty() {
+                        println!(
+                            "{}: current toolchain is {desired_channel} and is installed",
+                            "info".white().bold()
+                        );
                         return Ok((
                             current_toolchain,
                             justification,
@@ -200,16 +194,18 @@ impl Toolchain {
                         ));
                     }
 
-                    println!("Found that the current active toolchain is missing some components:");
+                    println!(
+                        "{}: installing missing components of the current toolchain:",
+                        "info".white().bold()
+                    );
                     for component in &missing_components {
-                        println!("- {}", component.name);
+                        println!("- {}", component.name.white().bold());
                     }
-                    println!("Proceeding to install them");
 
                     // We add the missing components.
                     let mut new_channel = installed_channel.clone();
                     for component in missing_components {
-                        new_channel.components.push((*component).clone());
+                        new_channel.components.push(component.clone());
                     }
                     new_channel
                 } else {
@@ -221,11 +217,17 @@ impl Toolchain {
                 return Ok((current_toolchain, justification, None));
             },
             (None, Some(partial_channel)) => {
-                println!("Found current toolchain to be {desired_channel}. Now installing it.");
+                println!(
+                    "{}: current toolchain is {desired_channel}, but not yet installed",
+                    "info".white().bold()
+                );
                 partial_channel.clone()
             },
             (None, None) => {
-                println!("Found current toolchain to be {desired_channel}. Now installing it.");
+                println!(
+                    "{}: current toolchain is {desired_channel}, but not yet installed",
+                    "info".white().bold()
+                );
                 upstream_channel.clone()
             },
         };
@@ -239,5 +241,25 @@ impl Toolchain {
 
         // Now installed
         Ok((current_toolchain, justification, partial_channel))
+    }
+
+    /// Returns the `miden-toolchain.toml` file, if it exists.
+    ///
+    /// It looks for the file from the present working directory upwards, until the root directory
+    /// is reached.
+    fn toolchain_file(working_directory: &Path) -> Option<PathBuf> {
+        // Check for a `miden-toolchain.toml` file in $CWD and recursively upwards.
+        let mut current_dir = Some(working_directory);
+        let mut toolchain_file = None;
+        while let Some(current_path) = current_dir {
+            let current_file = current_path.join("miden-toolchain").with_extension("toml");
+            if current_file.exists() {
+                toolchain_file = Some(current_file);
+                break;
+            }
+            current_dir = current_path.parent();
+        }
+
+        toolchain_file
     }
 }

@@ -5,6 +5,7 @@ use crate::{
     channel::UserChannel,
     commands,
     config::Config,
+    manifest::Manifest,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
 };
@@ -14,8 +15,12 @@ use crate::{
 /// directory.
 // This function requires raw identifier syntax because "override" is a reserved keyword.
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
-pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
-    commands::setup_midenup(config)?;
+pub fn r#override(
+    config: &Config,
+    local_manifest: &Manifest,
+    channel: &UserChannel,
+) -> anyhow::Result<()> {
+    commands::setup_midenup(config, local_manifest)?;
 
     // We check which toolchain is active in order to inform the user in case the `override` command
     // won't take effect.
@@ -29,7 +34,7 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
         UserChannel::Stable => toolchains_dir.join("stable"),
         _ => {
             let inner_channel = config.manifest.get_channel(channel).context(
-                "Failed to set {channel} as the system default. Try installing it:
+                "failed to set {channel} as the system default. Try installing it:
         midenup install {channel}",
             )?;
             inner_channel.get_channel_dir(config)
@@ -38,16 +43,17 @@ pub fn r#override(config: &Config, channel: &UserChannel) -> anyhow::Result<()> 
 
     let default_path = toolchains_dir.join("default");
     if default_path.exists() {
-        std::fs::remove_file(&default_path).context("Couldn't remove 'default' symlink")?;
+        std::fs::remove_file(&default_path)
+            .context("failed to remove 'default' toolchain symlink")?;
     }
 
-    println!("Setting {channel} as the new default toolchain\n");
+    println!("{}: setting {channel} as the new default toolchain\n", "info".white().bold());
     if let ToolchainJustification::MidenToolchainFile { path } = justification {
         println!(
-            "{}: There is a toolchain file present in {}, which sets the current active toolchain \
+            "{}: there is a toolchain file present in {}, which sets the current active toolchain \
              to be {}.
 This will take prescedence over the configuration done by `midenup override`.",
-            "WARNING".yellow(),
+            "warn".yellow(),
             path.display(),
             active.channel
         );

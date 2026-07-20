@@ -1,7 +1,7 @@
 //! This module contains some general purpose functions.
 
 pub mod git {
-    use std::{path::PathBuf, string::FromUtf8Error};
+    use std::{path::Path, string::FromUtf8Error};
 
     use thiserror::Error;
 
@@ -14,9 +14,6 @@ pub mod git {
             "failed to format latest git rev-hash from branch {branch}, does the branch exist?"
         )]
         InvalidRevHash { branch: String, source: FromUtf8Error },
-
-        #[error("failed to create directory: '{}'", path.display())]
-        CreateDirectory { path: PathBuf, source: std::io::Error },
 
         #[error("failed to spawn shell for git command")]
         SpawnFailed { source: std::io::Error },
@@ -55,52 +52,25 @@ pub mod git {
     pub fn clone_specific_revision(
         repository_url: &str,
         revision: &str,
-        dir: &PathBuf,
+        dir: &Path,
     ) -> Result<(), GitError> {
-        std::fs::create_dir(dir)
-            .map_err(|source| GitError::CreateDirectory { path: dir.clone(), source })?;
-
         std::process::Command::new("git")
-            .args(["-C", dir.to_str().unwrap()])
-            .arg("init")
+            .arg("clone")
+            .args(["--revision", revision])
+            .arg("--depth=1")
+            .arg("--")
+            .arg(repository_url)
+            .arg(dir)
             .stderr(std::process::Stdio::inherit())
-            .stdout(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::inherit())
             .spawn()
             .map_err(|source| GitError::SpawnFailed { source })?
             .wait()
             .map_err(|source| GitError::CommandFailed {
-                message: "failed to run git init command".to_string(),
-                source,
-            })?;
-        std::process::Command::new("git")
-            .args(["-C", dir.to_str().unwrap()])
-            .args(["remote", "add", "origin", repository_url])
-            .spawn()
-            .map_err(|source| GitError::SpawnFailed { source })?
-            .wait()
-            .map_err(|source| GitError::CommandFailed {
-                message: format!("failed to set {repository_url} as remote"),
-                source,
-            })?;
-        std::process::Command::new("git")
-            .args(["-C", dir.to_str().unwrap()])
-            .args(["fetch", "origin", "--depth=1"])
-            .arg(revision)
-            .spawn()
-            .map_err(|source| GitError::SpawnFailed { source })?
-            .wait()
-            .map_err(|source| GitError::CommandFailed {
-                message: format!("failed to fetch {revision} from {repository_url}"),
-                source,
-            })?;
-        std::process::Command::new("git")
-            .args(["-C", dir.to_str().unwrap()])
-            .args(["reset", "--hard", "FETCH_HEAD"])
-            .spawn()
-            .map_err(|source| GitError::SpawnFailed { source })?
-            .wait()
-            .map_err(|source| GitError::CommandFailed {
-                message: format!("failed to reset {} to {revision}", dir.display()),
+                message: format!(
+                    "failed to clone {revision} of {repository_url} to {}",
+                    dir.display()
+                ),
                 source,
             })?;
         Ok(())
@@ -108,8 +78,13 @@ pub mod git {
 }
 
 pub mod fs {
-    use std::{fs, path::PathBuf, time::SystemTime};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+        time::SystemTime,
+    };
 
+    use anyhow::Context;
     use thiserror::Error;
 
     #[derive(Error, Debug)]
@@ -140,9 +115,9 @@ pub mod fs {
     /// This is intended as a "best effort" approximation, if it encounters any errors while reading
     /// an entry, it simply skips it. Additionally, as a safety net, the `ENTRY_LIMIT` sets an upper
     /// bound on the number of entries the function can check before returning.
-    pub fn latest_modification(dir: &PathBuf) -> Result<(SystemTime, PathBuf), FsError> {
+    pub fn latest_modification(dir: &Path) -> Result<(SystemTime, PathBuf), FsError> {
         fn traverse_directories(
-            dir: &PathBuf,
+            dir: &Path,
             latest: Option<(SystemTime, PathBuf)>,
             current_entry: u32,
         ) -> (Option<(SystemTime, PathBuf)>, u32) {
@@ -199,7 +174,7 @@ pub mod fs {
         let directory_last_modification = dir
             .metadata()
             .and_then(|file| file.modified())
-            .map(|metadata| (metadata, dir.clone()))
+            .map(|metadata| (metadata, dir.to_path_buf()))
             .ok();
 
         let (latest_found_modification, _) =
@@ -208,5 +183,47 @@ pub mod fs {
         // This should only be an error if every single metadata read failed, which should be
         // unlikely.
         latest_found_modification.ok_or(FsError::NoModificationFound)
+    }
+
+    /// Recursively copy every entry from `src` into `dst`, preserving the directory layout and
+    /// recreating symlinks. Entries whose file name appears in `skip` are not copied. `dst` is
+    /// expected to already exist.
+    pub fn copy_dir_recursive(src: &Path, dst: &Path, skip: &[&str]) -> anyhow::Result<()> {
+        for entry in fs::read_dir(src)
+            .with_context(|| format!("failed to read directory '{}'", src.display()))?
+        {
+            let entry =
+                entry.with_context(|| format!("failed to read entry in '{}'", src.display()))?;
+            let file_name = entry.file_name();
+            if file_name.to_str().is_some_and(|name| skip.contains(&name)) {
+                continue;
+            }
+            let file_type = entry
+                .file_type()
+                .with_context(|| format!("failed to stat entry '{}'", entry.path().display()))?;
+            let target = dst.join(&file_name);
+            if file_type.is_symlink() {
+                let link_target = fs::read_link(entry.path()).with_context(|| {
+                    format!("failed to read symlink '{}'", entry.path().display())
+                })?;
+                symlink(&target, &link_target).with_context(|| {
+                    format!(
+                        "failed to recreate symlink '{}' -> '{}'",
+                        target.display(),
+                        link_target.display()
+                    )
+                })?;
+            } else if file_type.is_dir() {
+                fs::create_dir_all(&target).with_context(|| {
+                    format!("failed to create directory '{}'", target.display())
+                })?;
+                copy_dir_recursive(&entry.path(), &target, skip)?;
+            } else {
+                fs::copy(entry.path(), &target).with_context(|| {
+                    format!("failed to copy '{}' to '{}'", entry.path().display(), target.display())
+                })?;
+            }
+        }
+        Ok(())
     }
 }
