@@ -33,20 +33,29 @@ fn integration_interactive_test() {
     // client, faucet-client, midenc, node, std, vm.
     let stable_channel = config.manifest.get_latest_stable().unwrap();
 
+    // Interactive installs go through `midenup install --interactive`, so the
+    // installation options carry the interactive flag.
+    let interactive_options =
+        options::InstallationOptions { interactive: true, ..Default::default() };
+
     let choices = "ynnynnyn".chars().map(|c| format!("{c}\n")).collect::<String>();
     let mut input = Cursor::new(choices.as_str());
     let partial = choose_interactive(stable_channel, None, &mut input);
-    commands::install(
-        &config,
-        &partial,
-        &mut local_manifest,
-        &options::InstallationOptions::default(),
-    )
-    .unwrap();
+    commands::install(&config, &partial, &mut local_manifest, &interactive_options).unwrap();
 
     let installed = local_manifest.get_channel_by_name(&channel_version).unwrap();
     assert_eq!(installed.components.len(), 3, "Expected 3 components: std, base, faucet-client");
     assert!(installed.is_partially_installed());
+
+    // The node component is optional and was not selected, so it must not be
+    // installed at this point.
+    let node_binary = test_env
+        .midenup_home
+        .join("toolchains")
+        .join("0.10.0")
+        .join("bin")
+        .join("miden-node");
+    assert!(!node_binary.exists(), "node was not selected and should not be installed");
 
     // After running miden help toolchain, no install should be triggered
     // since an explicit partial channel is considered valid.
@@ -98,19 +107,21 @@ fn integration_interactive_test() {
     let choices = "nnyn".chars().map(|c| format!("{c}\n")).collect::<String>();
     let mut input = Cursor::new(choices.as_str());
     let partial = choose_interactive(channel, installed_channel, &mut input);
-    commands::install(
-        &config,
-        &partial,
-        &mut local_manifest,
-        &options::InstallationOptions::default(),
-    )
-    .unwrap();
+    commands::install(&config, &partial, &mut local_manifest, &interactive_options).unwrap();
 
     let installed = local_manifest.get_channel_by_name(&channel_version).unwrap();
     assert_eq!(
         installed.components.len(),
         5,
         "Expected 5 components: std, base, faucet-client, client, node"
+    );
+
+    // node is marked optional in the manifest, but the user explicitly selected
+    // it, so it must be installed even though the profile is minimal.
+    assert!(
+        node_binary.exists(),
+        "node was explicitly selected interactively and should be installed despite being an \
+         optional component under the minimal profile"
     );
 
     let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();

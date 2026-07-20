@@ -557,7 +557,9 @@ fn main() -> ExitCode {
     // Prepare install script context with available channel components
     let mut dependencies = Vec::new();
     let mut installable_components = Vec::new();
-    let minimal_install = matches!(options.profile, Profile::Minimal);
+    // An interactive install's channel contains exactly the components the user confirmed, so the
+    // profile must not filter out optional selections.
+    let minimal_install = matches!(options.profile, Profile::Minimal) && !options.interactive;
     for component in channel.components.iter() {
         if minimal_install && component.optional {
             continue;

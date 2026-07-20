@@ -50,7 +50,8 @@
           "name": "node",
           "package": "miden-node",
           "version": "0.10.1",
-          "installed_executable": "miden-node"
+          "installed_executable": "miden-node",
+          "optional": true
         },
         {
           "name": "faucet-client",
