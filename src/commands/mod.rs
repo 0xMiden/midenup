@@ -321,7 +321,8 @@ impl Midenup {
 
 /// Interactively prompts the user to confirm each component in the channel.
 ///
-/// Returns a partial channel containing only the components the user confirmed.
+/// Returns a partial channel containing only the components the user confirmed, or the full
+/// channel if every component was confirmed.
 pub fn choose_interactive<T>(
     channel: &channel::Channel,
     installed_channel: Option<&channel::Channel>,
@@ -355,15 +356,41 @@ where
         std::io::stdout().flush().unwrap_or(());
 
         let mut line = String::new();
-        input.read_line(&mut line).unwrap_or(0);
-        let line = line.trim().to_ascii_lowercase();
+        // Installing a component requires an explicit confirmation: on EOF or a
+        // read error we decline it instead of silently accepting the rest.
+        let selected = match input.read_line(&mut line) {
+            Ok(0) | Err(_) => false,
+            Ok(_) => {
+                let line = line.trim().to_ascii_lowercase();
+                line.is_empty() || line == "y" || line == "yes"
+            },
+        };
 
-        if line.is_empty() || line == "y" {
+        if selected {
             selected_components.push(component.clone());
             println!("    '{}' added.", component.name);
         } else {
             println!("    Skipping '{}'", component.name);
         }
+    }
+
+    // Selected components cannot work without their dependencies, so those are included even
+    // when declined.
+    let mut index = 0;
+    while index < selected_components.len() {
+        for dependency_name in selected_components[index].requires.clone() {
+            if selected_components.iter().any(|c| c.name == dependency_name) {
+                continue;
+            }
+            if let Some(dependency) = channel.get_component(&dependency_name) {
+                println!(
+                    "  Including '{}', required by '{}'.",
+                    dependency.name, selected_components[index].name
+                );
+                selected_components.push(dependency.clone());
+            }
+        }
+        index += 1;
     }
 
     if selected_components.len() == channel.components.len() {

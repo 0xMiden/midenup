@@ -10,13 +10,83 @@ mod common;
 
 use common::*;
 
+/// EOF or truncated input must decline the remaining components instead of
+/// silently accepting them.
+#[test]
+fn interactive_eof_declines_remaining_components() {
+    let test_env = environment_setup("interactive_eof_test");
+
+    const FILE: &str =
+        full_path_manifest!("tests/data/integration_interactive_test/channel-manifest.json");
+    let (_, config) = test_setup(&test_env, FILE);
+
+    let channel = config.manifest.get_latest_stable().unwrap();
+
+    // Only the first prompt (base) is answered; the remaining ones hit EOF.
+    let mut input = Cursor::new("y\n");
+    let partial = choose_interactive(channel, None, &mut input);
+
+    assert_eq!(
+        partial.components.len(),
+        1,
+        "components without an explicit confirmation should not be selected"
+    );
+    assert_eq!(partial.components[0].name, "base");
+}
+
+/// Dependencies of a selected component are included even when declined:
+/// accepting only `midenc` must pull in `base` and `std`.
+#[test]
+fn interactive_selection_includes_dependencies() {
+    let test_env = environment_setup("interactive_dependencies");
+
+    const FILE: &str =
+        full_path_manifest!("tests/data/integration_interactive_test/channel-manifest.json");
+    let (_, config) = test_setup(&test_env, FILE);
+
+    let channel = config.manifest.get_latest_stable().unwrap();
+
+    // Prompt order is alphabetical: base, cargo-miden, client, faucet-client,
+    // midenc, node, std, vm. Only midenc is accepted.
+    let mut input = Cursor::new("n\nn\nn\nn\ny\nn\nn\nn\n");
+    let partial = choose_interactive(channel, None, &mut input);
+
+    let mut names: Vec<&str> =
+        partial.components.iter().map(|component| component.name.as_ref()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["base", "midenc", "std"]);
+}
+
+/// Installing a channel with no selected components must fail instead of
+/// registering an empty toolchain.
+#[test]
+fn interactive_empty_selection_is_rejected() {
+    let test_env = environment_setup("interactive_empty_selection");
+
+    const FILE: &str =
+        full_path_manifest!("tests/data/integration_interactive_test/channel-manifest.json");
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
+
+    let channel = config.manifest.get_latest_stable().unwrap();
+
+    let choices = "n\n".repeat(channel.components.len());
+    let mut input = Cursor::new(choices.as_str());
+    let partial = choose_interactive(channel, None, &mut input);
+    assert!(partial.components.is_empty());
+
+    let interactive_options =
+        options::InstallationOptions { interactive: true, ..Default::default() };
+    let result = commands::install(&config, &partial, &mut local_manifest, &interactive_options);
+    assert!(result.is_err(), "installing a channel with no components must fail");
+}
+
 /// Tests the full interactive installation flow:
 ///
 /// 1. Install a channel interactively, selecting only libraries and faucet-client
 /// 2. Run `miden help toolchain` and verify nothing extra gets installed
 /// 3. Update `miden-toolchain.toml` to add `client`, verify it gets installed
 /// 4. Run interactive install again to also install `node`
-/// 5. Run `midenup update stable` and verify only installed components are updated
+/// 5. Run `midenup update` and verify only installed components are updated
 #[test]
 fn integration_interactive_test() {
     let test_name = "integration_interactive_test";

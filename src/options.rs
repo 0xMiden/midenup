@@ -58,7 +58,7 @@ impl From<InstallationOptions> for UpdateOptions {
 impl From<UpdateOptions> for InstallationOptions {
     fn from(value: UpdateOptions) -> Self {
         InstallationOptions {
-            profile: Profile::Minimal,
+            profile: Profile::Complete,
             verbose: value.verbose,
             interactive: false,
             components_to_uninstall: Vec::new(),

@@ -36,7 +36,7 @@ midenup install stable
             )?;
             println!(
                 "syncing channel updates for stable (last update was {last_updated} as {})",
-                &local_stable.name
+                local_stable.name
             );
             let upstream_stable = config
                 .manifest
@@ -49,29 +49,23 @@ midenup install stable
 
             println!(
                 "latest stable is version {} (upstream last updated on {})",
-                &upstream_stable.name,
+                upstream_stable.name,
                 config.manifest.last_updated()
             );
 
             if upstream_stable.name > local_stable.name {
-                let component_subset: Option<HashSet<_>> = if local_stable.is_partially_installed()
-                {
-                    Some(local_stable.components.iter().map(|comp| comp.name.clone()).collect())
-                } else {
-                    None
-                };
-
                 let channel_to_install = {
+                    // Filter the upsteam components because if we have a partial toolchain we only
+                    // care about the component subset.
                     let components = upstream_stable
                         .components
                         .clone()
                         .into_iter()
                         .filter(|comp| {
-                            if let Some(component_subset) = &component_subset {
-                                let name = &comp.name;
-                                component_subset.contains(name)
+                            if local_stable.is_partially_installed() {
+                                local_stable.get_component(&comp.name).is_some()
                             } else {
-                                true
+                                !comp.optional || local_stable.get_component(&comp.name).is_some()
                             }
                         })
                         .collect();
@@ -99,7 +93,7 @@ midenup install stable
 
             println!(
                 "syncing channel updates for {} (last update was {last_updated})",
-                &local_channel.name
+                local_channel.name
             );
 
             let upstream_counterpart =
@@ -134,7 +128,7 @@ midenup install stable
             for (local_channel, upstream_channel) in channels_to_update {
                 println!(
                     "syncing channel updates for {} (last update was {last_updated})",
-                    &local_channel.name
+                    local_channel.name
                 );
                 println!("upstream last updated on {}", config.manifest.last_updated());
                 update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
@@ -188,7 +182,7 @@ fn update_channel(
 
     display_warnings(&update, options);
 
-    println!("Updating toolchain {}..", &local_channel.name);
+    println!("Updating toolchain {}..", local_channel.name);
 
     let Update {
         channel_to_install,
@@ -196,8 +190,11 @@ fn update_channel(
         channel_to_uninstall,
     } = update;
 
+    // `channel_to_install` contains exactly the components that need to be installed
+    // (optional ones included only if already installed), so no profile-based filtering
+    // must be applied on top of it.
     let install_options = InstallationOptions {
-        profile: Profile::Minimal,
+        profile: Profile::Complete,
         verbose: options.verbose,
         interactive: false,
         components_to_uninstall,
@@ -433,8 +430,11 @@ fn compute_update(
     // Extract the set of components to add (present in the new channel, not in the old)
     let new_components = new_channel
         .difference(&current)
-        // If the channel is partially installed, then we explicitely don't want new components.
+        // Partial channels never grow automatically.
         .filter(|_| !older.is_partially_installed())
+        // Optional components are never adopted automatically; they are only installed when
+        // explicitly requested (interactively, via a toolchain file, or a complete profile).
+        .filter(|ComponentByName(comp)| !comp.optional)
         .map(|&ComponentByName(comp)| ComponentUpdate::new(comp.clone(), UpdateStatus::Added));
 
     // Extract the set of components to remove (present in the old channel, not in the new)

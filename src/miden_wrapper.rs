@@ -77,83 +77,56 @@ struct ToolchainEnvironment<'a> {
     ///
     /// This *might* differ slightly from the original upstream channel equivalent in some
     /// scenarios, e.g. the user only selected a subset of components for downloads.
-    active_channel: Option<Channel>,
+    active_channel: Channel,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum ChannelType {
-    Installed,
-    Active,
-}
 impl<'a> ToolchainEnvironment<'a> {
-    fn new(installed_channel: &'a Channel, active_channel: Option<Channel>) -> Self {
+    fn new(installed_channel: &'a Channel, active_channel: Channel) -> Self {
         ToolchainEnvironment { installed_channel, active_channel }
-    }
-
-    /// This is the channel that is currently active.
-    ///
-    /// This *might* differ slightly from the original upstream channel equivalent in some
-    /// scenarios, e.g. the user only selected a subset of components for downloads.
-    fn get_active_channel(&self) -> (&Channel, ChannelType) {
-        if let Some(active_channel) = self.active_channel.as_ref() {
-            (active_channel, ChannelType::Active)
-        } else {
-            (self.installed_channel, ChannelType::Installed)
-        }
     }
 
     /// Parses the user's input and returns the required [ExecutionEnvironment] to execute the
     /// requested command.
     fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
-        // Local function that tries to parse an argument given a channel's state.
-        let fallback_motive = if let Some(active_channel) = self.active_channel.as_ref() {
-            match resolve_argument(active_channel, &argument) {
-                Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
-                Err(EnvironmentError::UnknownArgument(_)) => {
-                    FallbackMotive::ArgumentNotInActiveChannel
-                },
-                Err(e) => return Err(e),
-            }
-        } else {
-            FallbackMotive::NoActiveChannel
-        };
-
-        // We know try to resolve the argument with the installed channel.
-        {
-            let miden_argument = resolve_argument(self.installed_channel, &argument)?;
-
-            let not_found_in_active =
-                matches!(fallback_motive, FallbackMotive::ArgumentNotInActiveChannel);
-
-            let warning_message = match (&miden_argument, not_found_in_active) {
-                (MidenArgument::Alias(comp, _), true) => Some(format!(
-                    "{}: {} is an alias from component {}, which is installed but is not part of \
-                     the current active toolchain.",
-                    "WARNING".yellow().bold(),
-                    argument,
-                    comp.name,
-                )),
-                (MidenArgument::Component(comp), true) => Some(format!(
-                    "{}: {} is installed, but it is not part of the current active toolchain.",
-                    "WARNING".yellow().bold(),
-                    comp.name,
-                )),
-                _ => None,
-            };
-            if let Some(warning) = warning_message {
-                println!("{warning}")
-            };
-
-            Ok(ExecutionEnvironment {
-                argument: miden_argument,
-                active_channel: self.installed_channel,
-            })
+        match resolve_argument(&self.active_channel, &argument) {
+            Ok(arg) => {
+                return Ok(ExecutionEnvironment {
+                    argument: arg,
+                    active_channel: &self.active_channel,
+                });
+            },
+            // The argument is not part of the active channel: fall back to the
+            // installed channel below, warning the user.
+            Err(EnvironmentError::UnknownArgument(_)) => (),
+            Err(e) => return Err(e),
         }
+
+        let miden_argument = resolve_argument(self.installed_channel, &argument)?;
+
+        let warning_message = match &miden_argument {
+            MidenArgument::Alias(comp, _) => format!(
+                "{}: {} is an alias from component {}, which is installed but is not part of the \
+                 current active toolchain.",
+                "WARNING".yellow().bold(),
+                argument,
+                comp.name,
+            ),
+            MidenArgument::Component(comp) => format!(
+                "{}: {} is installed, but it is not part of the current active toolchain.",
+                "WARNING".yellow().bold(),
+                comp.name,
+            ),
+        };
+        println!("{warning_message}");
+
+        Ok(ExecutionEnvironment {
+            argument: miden_argument,
+            active_channel: self.installed_channel,
+        })
     }
 
     fn get_executables_display(&self) -> String {
-        self.get_active_channel()
-            .0
+        self.active_channel
             .components
             .iter()
             .filter(|c| {
@@ -167,8 +140,7 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_libraries_display(&self) -> String {
-        self.get_active_channel()
-            .0
+        self.active_channel
             .components
             .iter()
             .filter_map(|comp| match comp.get_installed_file() {
@@ -182,7 +154,7 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_aliases_display(&self) -> String {
-        let aliases = self.get_active_channel().0.get_aliases();
+        let aliases = self.active_channel.get_aliases();
         let mut keys: Vec<_> = aliases.keys().collect();
         keys.sort();
         keys.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
@@ -586,12 +558,4 @@ fn resolve_argument(channel: &Channel, argument: &str) -> Result<MidenArgument, 
     }
 
     resolution
-}
-
-/// Why the active channel falls back on the installed channel.
-enum FallbackMotive {
-    /// There simply is no active channel.
-    NoActiveChannel,
-    /// There is an active channel, yet the argument wasn't found.
-    ArgumentNotInActiveChannel,
 }

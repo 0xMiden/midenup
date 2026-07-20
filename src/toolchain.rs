@@ -10,7 +10,7 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::{Channel, Component, UserChannel},
+    channel::{Channel, Component, Tags, UserChannel},
     commands,
     config::Config,
     manifest::Manifest,
@@ -60,6 +60,12 @@ pub enum ToolchainJustification {
 impl Toolchain {
     pub fn new(channel: UserChannel, profile: Option<Profile>, components: Vec<String>) -> Self {
         Toolchain { channel, components, profile }
+    }
+
+    /// Whether this toolchain requests a subset of its channel's components, either by listing
+    /// components explicitly or through a profile that filters out optional ones.
+    pub fn requests_subset(&self) -> bool {
+        !self.components.is_empty() || matches!(self.profile.unwrap_or_default(), Profile::Minimal)
     }
 
     /// Returns the current active Toolchain according to the following prescedence:
@@ -113,7 +119,7 @@ impl Toolchain {
     pub fn ensure_current_is_installed(
         config: &Config,
         local_manifest: &mut Manifest,
-    ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
+    ) -> anyhow::Result<(Self, ToolchainJustification, Channel)> {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
@@ -135,112 +141,69 @@ impl Toolchain {
 
         let installed_channel = local_manifest.get_channel_by_name(&upstream_channel.name);
 
-        // We calculate if there's a partial channel
-        let partial_channel = upstream_channel.create_subset(&current_toolchain, &justification);
+        // The subset of the channel that the current toolchain requests. A toolchain with a
+        // complete profile and no explicit component list requests the whole channel; upstream
+        // tags are not carried over, since local channels manage their own.
+        let partial_channel = if current_toolchain.requests_subset() {
+            upstream_channel.create_subset(&current_toolchain, &justification)
+        } else {
+            Channel {
+                tags: Vec::new(),
+                ..upstream_channel.clone()
+            }
+        };
 
-        let channel_to_install = match (installed_channel, partial_channel.as_ref()) {
-            (Some(installed_channel), Some(partial_channel)) => {
-                // If both channels are partially installed, then we're only
-                // interested in installing the missing components.
-                // If the installed channel is fully installed, then we there's
-                // nothing missing to install.
-                if installed_channel.is_partially_installed() {
-                    // NOTE: Components are compared by name; versions may differ.
-                    let installed_components: HashSet<&str> = installed_channel
-                        .components
-                        .iter()
-                        .map(|component| component.name.as_ref())
-                        .collect();
-
-                    // The installed channel is explicitly partial (e.g. it was created via an
-                    // interactive install), so it is considered valid as-is: we only complete
-                    // components the toolchain explicitly requests, either through a profile or
-                    // through the component list of a `miden-toolchain.toml` file, along with their
-                    // dependencies.
-                    let required_components: Vec<&Component> =
-                        if current_toolchain.profile.is_some() {
-                            partial_channel.components.iter().collect()
-                        } else {
-                            current_toolchain
-                                .components
-                                .iter()
-                                .filter_map(|name| upstream_channel.get_component(name))
-                                .flat_map(|component| {
-                                    std::iter::once(component).chain(
-                                        component.requires.iter().filter_map(|dependency| {
-                                            upstream_channel.get_component(dependency)
-                                        }),
-                                    )
-                                })
-                                .collect()
-                        };
-
-                    let mut seen = HashSet::new();
-                    let missing_components: Vec<&Component> = required_components
-                        .into_iter()
-                        .filter(|component| !installed_components.contains(component.name.as_ref()))
-                        .filter(|component| seen.insert(component.name.clone()))
-                        .collect();
-
-                    if missing_components.is_empty() {
-                        println!(
-                            "{}: current toolchain is {desired_channel} and is installed",
-                            "info".white().bold()
-                        );
-                        return Ok((
-                            current_toolchain,
-                            justification,
-                            Some(partial_channel.clone()),
-                        ));
-                    }
-
+        let channel_to_install = match installed_channel {
+            Some(installed_channel) => {
+                // The channel is already installed, so we compute the missing components.
+                let Some(new_channel) = complete_channel(
+                    &current_toolchain,
+                    upstream_channel,
+                    installed_channel,
+                    &partial_channel,
+                ) else {
                     println!(
-                        "{}: installing missing components of the current toolchain:",
+                        "{}: current toolchain is {desired_channel} and is installed",
                         "info".white().bold()
                     );
-                    for component in &missing_components {
-                        println!("- {}", component.name.white().bold());
-                    }
+                    // A partial channel may contain fewer components than the toolchain's
+                    // request spans, so the installed subset is the active one.
+                    let active_channel = if installed_channel.is_partially_installed() {
+                        installed_channel.clone()
+                    } else {
+                        partial_channel
+                    };
+                    return Ok((current_toolchain, justification, active_channel));
+                };
 
-                    // We add the missing components.
-                    let mut new_channel = installed_channel.clone();
-                    for component in missing_components {
-                        new_channel.components.push(component.clone());
-                    }
-                    new_channel
-                } else {
-                    return Ok((current_toolchain, justification, Some(partial_channel.clone())));
-                }
+                new_channel
             },
-            (Some(_installed_channel), None) => {
-                // There's no partial channel
-                return Ok((current_toolchain, justification, None));
-            },
-            (None, Some(partial_channel)) => {
+            None => {
                 println!(
                     "{}: current toolchain is {desired_channel}, but not yet installed",
                     "info".white().bold()
                 );
                 partial_channel.clone()
             },
-            (None, None) => {
-                println!(
-                    "{}: current toolchain is {desired_channel}, but not yet installed",
-                    "info".white().bold()
-                );
-                upstream_channel.clone()
-            },
         };
 
-        commands::install(
-            config,
-            &channel_to_install,
-            local_manifest,
-            &InstallationOptions::default(),
-        )?;
+        // The channel computed above contains exactly the components that need
+        // to be installed, so no profile-based filtering must be applied on
+        // top of it (optional components in it were explicitly requested).
+        let install_options = InstallationOptions {
+            profile: Profile::Complete,
+            ..Default::default()
+        };
+        commands::install(config, &channel_to_install, local_manifest, &install_options)?;
 
-        // Now installed
-        Ok((current_toolchain, justification, partial_channel))
+        // Now installed. A partial channel may contain fewer components than the toolchain's
+        // request spans, so the installed subset is the active one.
+        let active_channel = if channel_to_install.is_partially_installed() {
+            channel_to_install
+        } else {
+            partial_channel
+        };
+        Ok((current_toolchain, justification, active_channel))
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.
@@ -261,5 +224,205 @@ impl Toolchain {
         }
 
         toolchain_file
+    }
+}
+
+/// Computes the channel required to complete an installed channel.
+///
+/// A channel tagged as Partial is considered valid, since the components are explicitly required.
+/// Otherwise, detects missing components, e.g. ones added upstream after the channel was installed.
+///
+/// The resulting channel keeps the `Partial` tag while it remains a strict subset of the
+/// upstream channel and either the installed channel or the request was partial; completing the
+/// full span drops the tag.
+///
+/// Returns `None` when no components are missing.
+fn complete_channel(
+    current_toolchain: &Toolchain,
+    upstream_channel: &Channel,
+    installed_channel: &Channel,
+    partial_channel: &Channel,
+) -> Option<Channel> {
+    // NOTE: Components are compared by name; versions may differ.
+    let installed_components: HashSet<&str> = installed_channel
+        .components
+        .iter()
+        .map(|component| component.name.as_ref())
+        .collect();
+
+    let partially_installed = installed_channel.is_partially_installed();
+    let required_components: Vec<&Component> =
+        if partially_installed && current_toolchain.requests_subset() {
+            current_toolchain
+                .components
+                .iter()
+                .filter_map(|name| upstream_channel.get_component(name))
+                .flat_map(|component| {
+                    std::iter::once(component).chain(
+                        component
+                            .requires
+                            .iter()
+                            .filter_map(|dependency| upstream_channel.get_component(dependency)),
+                    )
+                })
+                .collect()
+        } else {
+            partial_channel.components.iter().collect()
+        };
+
+    let mut seen = HashSet::new();
+    let missing_components: Vec<&Component> = required_components
+        .into_iter()
+        .filter(|component| !installed_components.contains(component.name.as_ref()))
+        .filter(|component| seen.insert(component.name.clone()))
+        .collect();
+
+    if missing_components.is_empty() {
+        return None;
+    }
+
+    println!(
+        "{}: installing missing components of the current toolchain:",
+        "info".white().bold()
+    );
+    for component in &missing_components {
+        println!("- {}", component.name.white().bold());
+    }
+
+    // We add the missing components.
+    let mut new_channel = installed_channel.clone();
+    for component in missing_components {
+        new_channel.components.push(component.clone());
+    }
+
+    // The channel stays tagges as partial while it remains a strict subset of the upstream channel
+    // and either the installed channel or the request hand-picked its components; completing the
+    // full span drops the tag so future updates track upstream again.
+    let spans_upstream = upstream_channel
+        .components
+        .iter()
+        .all(|component| new_channel.get_component(&component.name).is_some());
+    new_channel.tags.retain(|tag| !matches!(tag, Tags::Partial));
+    if !spans_upstream && (partially_installed || partial_channel.is_partially_installed()) {
+        new_channel.tags.push(Tags::Partial);
+    }
+
+    Some(new_channel)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::version::Authority;
+
+    fn component(name: &'static str) -> Component {
+        Component::new(
+            name,
+            Authority::Cargo {
+                package: None,
+                version: semver::Version::new(1, 0, 0),
+            },
+        )
+    }
+
+    fn channel(components: &[&'static str], partial: bool) -> Channel {
+        Channel {
+            name: semver::Version::new(0, 1, 0),
+            alias: None,
+            tags: if partial { vec![Tags::Partial] } else { vec![] },
+            components: components.iter().map(|name| component(name)).collect(),
+        }
+    }
+
+    fn toolchain(profile: Option<Profile>, components: &[&str]) -> Toolchain {
+        Toolchain::new(
+            UserChannel::default(),
+            profile,
+            components.iter().map(|name| name.to_string()).collect(),
+        )
+    }
+
+    /// A partial channel is valid as-is: without explicit component requests nothing gets
+    /// installed, whether the minimal profile is implied or explicit.
+    #[test]
+    fn partial_channel_without_explicit_requests_is_left_alone() {
+        let upstream = channel(&["base", "client", "std"], false);
+        let installed = channel(&["base"], true);
+        // Subset derived from the minimal profile.
+        let partial = channel(&["base", "client", "std"], false);
+
+        for profile in [None, Some(Profile::Minimal)] {
+            let result =
+                complete_channel(&toolchain(profile, &[]), &upstream, &installed, &partial);
+            assert!(result.is_none(), "profile {profile:?} must leave the partial channel alone");
+        }
+    }
+
+    /// Explicitly requested components and their dependencies (and nothing else) complete the
+    /// channel. The result remains a strict subset, so it is tagged as partial, whether the pin
+    /// comes from the installed channel (case 1) or from the request (case 2).
+    #[test]
+    fn requested_components_are_added_and_pin_the_channel_as_partial() {
+        let mut upstream = channel(&["base", "client", "std", "vm"], false);
+        upstream.get_component_mut("client").unwrap().requires = vec!["std".to_string()];
+
+        // Case 1: the pin comes from the installed channel; the request spans the whole channel
+        // (every component is mandatory), so it is untagged.
+        let installed = channel(&["base"], true);
+        let request = channel(&["base", "client", "std", "vm"], false);
+
+        let completed =
+            complete_channel(&toolchain(None, &["client"]), &upstream, &installed, &request)
+                .expect("client should be missing");
+
+        assert!(completed.get_component("client").is_some());
+        // client's dependency gets pulled in as well
+        assert!(completed.get_component("std").is_some());
+        // vm is in the request's span but was never explicitly requested
+        assert!(completed.get_component("vm").is_none());
+        assert!(completed.is_partially_installed());
+
+        // Case 2: the pin comes from the request; with vm optional, the minimal span plus the
+        // explicit list is a strict subset.
+        upstream.get_component_mut("vm").unwrap().optional = true;
+        let installed = channel(&["base"], false);
+        let request = channel(&["base", "client", "std"], true);
+
+        let completed =
+            complete_channel(&toolchain(None, &["client"]), &upstream, &installed, &request)
+                .expect("client and std should be missing");
+
+        assert!(completed.get_component("client").is_some());
+        assert!(completed.get_component("std").is_some());
+        assert!(completed.get_component("vm").is_none());
+        assert!(
+            completed.is_partially_installed(),
+            "a channel shaped by an explicit component list must be tagged as partial"
+        );
+    }
+
+    /// Completing the full upstream span never tags the channel: a complete profile drops the
+    /// pin (case 1), and an untagged channel adopts new upstream components and stays untagged
+    /// (case 2).
+    #[test]
+    fn completing_the_full_span_leaves_the_channel_untagged() {
+        let upstream = channel(&["base", "client"], false);
+        // Both profiles' subsets span the whole channel, so the request is untagged.
+        let request = channel(&["base", "client"], false);
+
+        for (installed, profile) in [
+            (channel(&["base"], true), Some(Profile::Complete)),
+            (channel(&["base"], false), None),
+        ] {
+            let completed =
+                complete_channel(&toolchain(profile, &[]), &upstream, &installed, &request)
+                    .expect("client should be missing");
+
+            assert_eq!(completed.components.len(), 2);
+            assert!(
+                !completed.is_partially_installed(),
+                "profile {profile:?} must complete the full span untagged"
+            );
+        }
     }
 }

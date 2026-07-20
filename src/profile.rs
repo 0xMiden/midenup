@@ -1,7 +1,14 @@
+/// Selects which of a channel's components get installed.
+///
+/// A profile can be requested on the command line (`--profile`) or in a `miden-toolchain.toml`
+/// file. Explicitly listed components are installed regardless of the profile.
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Profile {
+    /// Installs only the components not marked as optional in the channel manifest. This is the
+    /// default profile.
     #[default]
     Minimal,
+    /// Installs every component in the channel, including optional ones.
     Complete,
 }
 

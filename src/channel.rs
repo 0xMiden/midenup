@@ -147,7 +147,8 @@ impl Channel {
     }
 
     /// Determines if the current toolchain was installed "partially", i.e., containing only a
-    /// subset of all the available components. This can be the case with `miden-toolchain.toml`.
+    /// subset of all the available components. This can be the case with `miden-toolchain.toml`
+    /// or interactive installation.
     pub fn is_partially_installed(&self) -> bool {
         self.tags.iter().any(|tag| matches!(tag, Tags::Partial))
     }
@@ -194,14 +195,17 @@ impl Channel {
         })
     }
 
-    /// Creates a "partial channel" from the original channel, given a toolchain "Partial" in this
-    /// context refers to the fact that the channel will not install all the available components,
-    /// but rather a subset.
+    /// Creates a subset of the original channel with the components the given toolchain
+    /// requests (through its profile or its explicit component list, plus their dependencies).
+    ///
+    /// The returned subset is tagged [`Tags::Partial`] only when the toolchain explicitly lists
+    /// components and those don't span the entire channel; profile-derived subsets are left
+    /// untagged so they keep tracking upstream as the channel evolves.
     pub fn create_subset(
         &self,
         current_toolchain: &Toolchain,
         toolchain_justification: &ToolchainJustification,
-    ) -> Option<Channel> {
+    ) -> Channel {
         let profile = current_toolchain.profile.unwrap_or_default();
         let mut requested_components = Vec::new();
         let mut components_to_install: Vec<Component> = Vec::new();
@@ -247,9 +251,9 @@ impl Channel {
             };
             components_to_install.push(component.clone());
 
-            for depenency_name in &component.requires {
-                let Some(dependency) = self.get_component(depenency_name) else {
-                    components_not_found.entry(depenency_name.to_string()).or_default().push(
+            for dependency_name in &component.requires {
+                let Some(dependency) = self.get_component(dependency_name) else {
+                    components_not_found.entry(dependency_name.to_string()).or_default().push(
                         InstallationMotive::Dependency { comp_name: component_name.to_string() },
                     );
                     continue;
@@ -296,14 +300,25 @@ impl Channel {
             }
         }
 
-        let partial_channel = Channel {
-            name: self.name.clone(),
-            alias: self.alias.clone(),
-            tags: vec![Tags::Partial],
-            components: components_to_install,
+        // The subset is tagged as partial when the toolchain explicitly lists components and
+        // those do not span the entire channel. Profile-derived (or channel-spanning) subsets
+        // are left untagged, so they keep tracking upstream as the channel evolves.
+        let explicitly_requested = !current_toolchain.components.is_empty();
+        let is_strict_subset = self.components.iter().any(|component| {
+            !components_to_install.iter().any(|selected| selected.name == component.name)
+        });
+        let tags = if explicitly_requested && is_strict_subset {
+            vec![Tags::Partial]
+        } else {
+            vec![]
         };
 
-        Some(partial_channel)
+        Channel {
+            name: self.name.clone(),
+            alias: self.alias.clone(),
+            tags,
+            components: components_to_install,
+        }
     }
 
     /// Checks wheter the channel [other] is Self's upstream counterpart.

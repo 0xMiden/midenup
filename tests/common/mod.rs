@@ -70,7 +70,8 @@ pub struct TestEnvironment {
 
 /// Simple auxiliary function to setup a midneup directory environment in tests.
 ///
-/// Additionally, it changes the PWD to a new temp dir to isolate test execution.
+/// Test execution is isolated through the returned paths, which all live under a new temp dir
+/// and are passed explicitly to `Config`; the process' PWD is never changed.
 pub fn environment_setup(test_name: &str) -> TestEnvironment {
     let tmp_dir =
         tempdir::TempDir::new(&format!("midenup-{test_name}")).expect("Couldn't create temp-dir");

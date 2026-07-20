@@ -13,7 +13,6 @@ use crate::{
     artifact::TargetTriple,
     channel::{Channel, ChannelAlias, InstalledFile},
     commands,
-    commands::init::InitializationError,
     config::Config,
     manifest::Manifest,
     options::InstallationOptions,
@@ -45,12 +44,6 @@ pub enum InstallationError {
     #[error("midenup failed to install toolchain from channel {channel} with status {status}")]
     InstallFailed { channel: String, status: i32 },
 
-    #[error("failed to set up midenup")]
-    SetupFailed {
-        #[from]
-        source: InitializationError,
-    },
-
     #[error("couldn't remove stable symlink")]
     RemoveSymlink { source: std::io::Error },
 
@@ -74,13 +67,17 @@ pub fn install(
     local_manifest: &mut Manifest,
     options: &InstallationOptions,
 ) -> anyhow::Result<()> {
+    if channel.components.is_empty() {
+        bail!("cannot install channel '{}': no components selected", channel.name);
+    }
+
     commands::setup_midenup(config, local_manifest)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = toolchains_dir.join(format!("{}", &channel.name));
+    let toolchain_dir = toolchains_dir.join(format!("{}", channel.name));
 
     let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    let install_dir_name = format!("{}-{}", &channel.name, channel.content_hash());
+    let install_dir_name = format!("{}-{}", channel.name, channel.content_hash());
     let install_dir = installed_toolchains_dir.join(&install_dir_name);
 
     // Relative path to the newly installed channel directory.
@@ -197,7 +194,7 @@ pub fn install(
         .into());
     }
 
-    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", &channel.name));
+    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", channel.name));
     if std::fs::symlink_metadata(&temp_symlink).is_ok() {
         std::fs::remove_file(&temp_symlink).with_context(|| {
             format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
@@ -232,7 +229,7 @@ pub fn install(
             std::fs::remove_file(&stable_dir)
                 .map_err(|source| InstallationError::RemoveSymlink { source })?;
         }
-        let relative_channel_target = PathBuf::from(format!("{}", &channel.name));
+        let relative_channel_target = PathBuf::from(format!("{}", channel.name));
         utils::fs::symlink(&stable_dir, &relative_channel_target)
             .map_err(|source| InstallationError::CreateSymlink { source })?;
     }
