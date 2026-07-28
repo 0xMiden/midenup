@@ -129,6 +129,36 @@ pub mod fs {
         std::os::windows::fs::symlink_file(to, from).context("could not create symlink")
     }
 
+    /// Points `link` at `target`, atomically, whether or not `link` already exists.
+    ///
+    /// The link is built under a unique temporary name and `rename`d into place, so there is no
+    /// window in which it is missing and no way for two processes to collide on creating it. The
+    /// obvious alternative -- remove, then create -- has both problems: a reader in between sees no
+    /// link at all, and two writers racing produce `EEXIST` for whichever loses.
+    ///
+    /// The temporary lives in the same directory, so the rename stays within one filesystem.
+    pub fn replace_symlink(link: &Path, target: &Path) -> anyhow::Result<()> {
+        let parent = link
+            .parent()
+            .with_context(|| format!("'{}' has no parent directory", link.display()))?;
+        let name = link
+            .file_name()
+            .and_then(|name| name.to_str())
+            .with_context(|| format!("'{}' has no file name", link.display()))?;
+
+        let temporary = parent.join(format!(".{name}.{}.link", std::process::id()));
+        let _ = fs::remove_file(&temporary);
+
+        symlink(&temporary, target)?;
+        fs::rename(&temporary, link)
+            .inspect_err(|_| {
+                let _ = fs::remove_file(&temporary);
+            })
+            .with_context(|| {
+                format!("failed to point '{}' at '{}'", link.display(), target.display())
+            })
+    }
+
     const ENTRY_LIMIT: u32 = u32::MAX;
 
     /// Returns the latest registered modification time inside a directory, including its

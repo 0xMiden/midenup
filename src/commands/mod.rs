@@ -148,6 +148,24 @@ enum Commands {
 }
 
 impl Commands {
+    /// Whether this subcommand writes to `$MIDENUP_HOME`.
+    ///
+    /// Only mutating operations take the advisory lock (spec section 9.9). Making `list` or `show`
+    /// wait behind a long install would be a regression in a tool people run to find out *why*
+    /// something is taking so long.
+    fn is_mutating(&self) -> bool {
+        match self {
+            Self::Init | Self::Install { .. } | Self::Uninstall { .. } | Self::Update { .. } => {
+                true
+            },
+            // Writes `toolchains/default`.
+            Self::Override { .. } => true,
+            // Writes `miden-toolchain.toml` in the working directory, not `$MIDENUP_HOME`.
+            Self::Set { .. } => false,
+            Self::List | Self::Show(_) => false,
+        }
+    }
+
     /// Execute the requested subcommand
     pub fn execute(
         &self,
@@ -290,6 +308,8 @@ impl Midenup {
 
         match &self.behavior {
             Behavior::Miden(argv) => {
+                // No lock: dispatch is read-only until it discovers the toolchain is missing, and
+                // it takes the lock itself at that point (`ensure_current_is_installed`).
                 miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
             },
@@ -297,6 +317,16 @@ impl Midenup {
                 if global_args.version {
                     println!("{}", miden_wrapper::display_version(config));
                 } else if let Some(subcommand) = subcommand {
+                    let _lock = if subcommand.is_mutating() {
+                        let lock = crate::lock::acquire(&config.midenup_home)?;
+                        // Whoever held the lock may have changed what is installed, so nothing may
+                        // be planned against the state read before waiting for it.
+                        *state = config.local_state()?;
+                        Some(lock)
+                    } else {
+                        None
+                    };
+
                     subcommand.execute(config, state)?;
                 } else {
                     bail!("no subcommand provided. Run `midenup --help` for usage information.")
@@ -325,6 +355,19 @@ impl Midenup {
 /// the missing files fails on its own terms.
 fn recover(config: &config::Config, state: &mut crate::state::LocalState) -> anyhow::Result<()> {
     use colored::Colorize;
+
+    // Recovery mutates, so it takes the lock -- but only when there is something to recover.
+    // Taking it unconditionally would put every `miden` invocation behind it, and the read-only
+    // dispatch path is required to stay lock-free.
+    let _lock = match crate::publish::journal::read(&config.midenup_home)? {
+        Some(_) => {
+            let lock = crate::lock::acquire(&config.midenup_home)?;
+            // Whoever held the lock may already have completed this recovery.
+            *state = config.local_state()?;
+            Some(lock)
+        },
+        None => None,
+    };
 
     match crate::publish::journal::recover(&config.midenup_home, state) {
         Ok(None) => {},

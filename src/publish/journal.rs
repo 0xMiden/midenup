@@ -160,19 +160,9 @@ pub fn commit_symlink(home: &Path, entry: &JournalEntry) -> Result<(), PublishEr
         },
     };
 
-    let temporary = paths::toolchains_dir(home).join(format!(".{}.commit", entry.channel));
-    if std::fs::symlink_metadata(&temporary).is_ok() {
-        std::fs::remove_file(&temporary)
-            .map_err(|source| PublishError::Commit { path: temporary.clone(), source })?;
-    }
-    utils::fs::symlink(&temporary, &target).map_err(|err| PublishError::Commit {
-        path: temporary.clone(),
+    utils::fs::replace_symlink(&link, &target).map_err(|err| PublishError::Commit {
+        path: link,
         source: std::io::Error::other(err.to_string()),
-    })?;
-
-    std::fs::rename(&temporary, &link).map_err(|source| {
-        let _ = std::fs::remove_file(&temporary);
-        PublishError::Commit { path: link, source }
     })
 }
 

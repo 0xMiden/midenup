@@ -7,6 +7,7 @@ pub mod config;
 pub mod exec;
 pub mod fault;
 pub mod install;
+pub mod lock;
 pub mod manifest;
 pub mod miden_wrapper;
 pub mod options;

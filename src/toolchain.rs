@@ -189,6 +189,24 @@ impl Toolchain {
             );
         }
 
+        // Dispatch has decided it must install, which makes it a writer. It takes the lock here,
+        // for the install only, and releases it before exec'ing the component: two `miden`
+        // invocations in two project directories are otherwise two concurrent writers against one
+        // MIDENUP_HOME, with no user involved in making that happen.
+        let _lock = crate::lock::acquire(&config.midenup_home)?;
+
+        // Another invocation may have installed it while we waited. Re-read rather than plan
+        // against what was true before the wait.
+        *state = config.local_state()?;
+        if let Some(installed) = state.get(&channel_to_install.name)
+            && channel_to_install
+                .components
+                .iter()
+                .all(|component| installed.components.iter().any(|c| c.name == component.name))
+        {
+            return Ok((current_toolchain, justification, partial_channel));
+        }
+
         let is_partial = channel_to_install.tags.iter().any(|tag| matches!(tag, Tags::Partial));
         let implied_profile = if is_partial {
             // Partial toolchains install everything (as they are filtered by definition)

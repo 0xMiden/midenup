@@ -125,12 +125,9 @@ pub fn install(
     // names.
     if config.manifest.is_latest_stable(channel) {
         let stable_dir = toolchains_dir.join("stable");
-        if std::fs::symlink_metadata(&stable_dir).is_ok() {
-            std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
-        }
         let relative_channel_target = PathBuf::from(format!("{}", channel.name));
-        utils::fs::symlink(&stable_dir, &relative_channel_target)
-            .expect("Couldn't create stable dir");
+        utils::fs::replace_symlink(&stable_dir, &relative_channel_target)
+            .context("failed to point 'stable' at the newly installed channel")?;
     }
     fault::fail_at(fault::FaultPoint::PostDerive)?;
 

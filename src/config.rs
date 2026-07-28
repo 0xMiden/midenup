@@ -132,11 +132,11 @@ impl Config {
         };
 
         if update {
-            if std::fs::read_link(&opt_dir).is_ok() {
-                std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
-            }
+            // Atomically, because this runs at the end of *every* command, including ones that
+            // take no lock: two `miden` invocations would otherwise race to create it and one
+            // would fail with `EEXIST`.
             let opt_path = active_channel.get_channel_dir(self).join("opt");
-            utils::fs::symlink(&opt_dir, &opt_path).with_context(|| {
+            utils::fs::replace_symlink(&opt_dir, &opt_path).with_context(|| {
                 format!(
                     "Failed to create opt/ symlink from {} to {}",
                     opt_dir.display(),

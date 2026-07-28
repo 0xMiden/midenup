@@ -60,6 +60,8 @@ clap.workspace = true
 colored.workspace = true
 curl = "0.4"
 dirs = "6.0"
+# Advisory file locking (`flock`), for the $MIDENUP_HOME lock.
+fs4 = { version = "1.1", default-features = false, features = ["sync"] }
 heck = "0.5"
 petgraph = { version = "0.8", default-features = false, features = ["std", "graphmap"] }
 semver = { version = "1.0", features = ["serde"] }
