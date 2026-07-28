@@ -258,6 +258,55 @@ fn integration_install_stable_installs_packages() {
     );
 }
 
+/// Executable components must get their `opt/` shims.
+///
+/// `opt/` serves two distinct purposes, and both are covered here:
+///
+/// 1. The clap `argv[0]` trick: a shim named `miden <component>` makes help text render as
+///    `miden vm ...` rather than `miden-vm ...`.
+/// 2. PATH discoverability: `opt/` is the only toolchain directory on `PATH` (see
+///    `Config::execute_command`), so a binary invoked by an external tool -- `cargo miden`, which
+///    backs the `miden new` alias -- resolves only if it has a shim.
+///
+/// So `hide` governs direct `miden <name>` invocation, not shim creation: a hidden component with
+/// an explicit `symlink-name` still needs its shim.
+///
+/// Regression test: shims were emitted only when `symlink-name` was set explicitly, so the 0.15.0
+/// install produced exactly one shim (`cargo-miden`) and none for the nine callable components.
+#[test]
+fn integration_install_creates_default_symlinks() {
+    let test_env = environment_setup("integration_install_creates_default_symlinks");
+
+    const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
+
+    Midenup::try_parse_from(["midenup", "install", "stable"])
+        .unwrap()
+        .execute_with_manifest(&config, &mut local_manifest)
+        .expect("failed to install stable");
+
+    let opt = test_env.midenup_home.join("toolchains").join("stable").join("opt");
+
+    // `vm` is a visible executable with no explicit symlink-name: it gets the default shim.
+    assert!(
+        opt.join("miden vm").symlink_metadata().is_ok(),
+        "missing default shim for 'vm' in {}",
+        opt.display()
+    );
+
+    // `cargo-miden` is hidden but declares `symlink-name`, which is how `cargo miden` finds it
+    // on PATH. It must get exactly that shim...
+    assert!(
+        opt.join("cargo-miden").symlink_metadata().is_ok(),
+        "hidden component with an explicit symlink-name still needs its PATH shim"
+    );
+    // ...and must NOT get a `miden <name>` shim, since it is not directly callable.
+    assert!(
+        opt.join("miden cargo-miden").symlink_metadata().is_err(),
+        "hidden component must not be directly callable as 'miden cargo-miden'"
+    );
+}
+
 ///
 /// [See here for details](https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag)
 #[test]

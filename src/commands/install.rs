@@ -573,9 +573,12 @@ fn main() -> ExitCode {
                         });
                     },
                 }
-                if let Some(symlink) = spec.symlink_name.as_ref() {
+                // `get_symlink_name` applies the documented default (`miden <component>`) when
+                // `symlink-name` is absent, and returns `None` for hidden components -- which is
+                // exactly the rule, so no separate `hide` check is needed here.
+                if let Some(symlink) = component.get_symlink_name() {
                     symlinks.push(upon::value! {
-                        alias: symlink.clone(),
+                        alias: symlink,
                         binary: spec.installed_executable.clone(),
                     });
                 }
