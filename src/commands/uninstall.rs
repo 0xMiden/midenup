@@ -1,4 +1,4 @@
-use anyhow::bail;
+use anyhow::{Context, bail};
 
 use crate::{
     channel::Channel,
@@ -18,10 +18,15 @@ use crate::{
 /// The publication is removed wholesale. There is no per-component removal pass: the publication
 /// directory contains exactly what its receipt says it does and nothing else, so walking components
 /// to delete their files individually could only ever remove less than the directory itself.
+///
+/// `var/<channel>` is **kept** unless `purge` is given. It is the user's data -- the client's
+/// database lives there -- and removing a toolchain is not a request to delete it. The user is told
+/// where it was left.
 pub fn uninstall(
     config: &Config,
     upstream_channel: &Channel,
     state: &mut LocalState,
+    purge: bool,
 ) -> anyhow::Result<()> {
     let Some(installation) = state.get(&upstream_channel.name) else {
         bail!("channel {} is not installed, nothing to uninstall", upstream_channel.name);
@@ -65,6 +70,22 @@ pub fn uninstall(
     // Removes the state record, reclaims the publication, clears the tombstone, deletes the
     // journal.
     crate::publish::journal::finish(home, &entry, state)?;
+
+    // Only now, and only if asked. Deliberately after the commit: this is the one part of an
+    // uninstall that cannot be undone by reinstalling.
+    let var = paths::var_dir(home, &channel);
+    if var.is_dir() {
+        if purge {
+            std::fs::remove_dir_all(&var)
+                .with_context(|| format!("failed to remove '{}'", var.display()))?;
+        } else {
+            println!(
+                "kept your data for {channel} at {}; remove it with `midenup uninstall {channel} \
+                 --purge`",
+                var.display()
+            );
+        }
+    }
 
     Ok(())
 }

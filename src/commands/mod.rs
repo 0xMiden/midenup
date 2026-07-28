@@ -111,6 +111,11 @@ enum Commands {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
+
+        /// Also delete this channel's mutable data (`var/<channel>`), such as the client's
+        /// database. Without this flag it is kept, and you are told where it lives.
+        #[arg(long, action, default_value_t = false)]
+        purge: bool,
     },
     /// Show information about the local midenup environment.
     #[command(subcommand)]
@@ -187,11 +192,11 @@ impl Commands {
                 };
                 install(config, channel, state, options)
             },
-            Self::Uninstall { channel, .. } => {
+            Self::Uninstall { channel, purge } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                uninstall(config, channel, state)
+                uninstall(config, channel, state, *purge)
             },
             Self::Update { channel, options } => update(config, channel.as_ref(), state, options),
             Self::Show(cmd) => cmd.execute(config, state),

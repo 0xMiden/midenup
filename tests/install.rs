@@ -169,8 +169,8 @@ fn integration_install_publishes_into_an_opaque_publication_with_a_receipt() {
 }
 
 /// Adding a component publishes a *new* publication, seeded from the old one's receipt. The
-/// previous publication is never modified in place: it is replaced, and then reclaimed as the
-/// journal's final step.
+/// previous publication is never modified in place, and is not deleted either: another process may
+/// still be executing out of it, so it is left unreferenced for `midenup gc`.
 #[test]
 fn integration_install_republishes_rather_than_mutating() {
     let _guard = common::harness::mutating_test_guard();
@@ -203,8 +203,9 @@ fn integration_install_republishes_rather_than_mutating() {
 
     assert_ne!(first, second, "a changed installed set must produce a new publication");
     assert!(
-        !first.exists(),
-        "the publication it replaced must be reclaimed once the new state record is committed"
+        first.is_dir(),
+        "the publication it replaced must be left intact for gc, not deleted underneath whatever \
+         may still be running from it"
     );
     assert!(
         second.join("lib").join("core.masp").exists(),
@@ -214,6 +215,49 @@ fn integration_install_republishes_rather_than_mutating() {
         second.join("etc").join("assets").join("config.yml").exists(),
         "the added component must be installed"
     );
+}
+
+/// `%var(data)` holds the Miden client's database. With `var/` inside the publication -- which is
+/// replaced wholesale on every change -- a toolchain update destroyed it.
+#[test]
+fn integration_var_survives_update_and_republication() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_var_survives");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let channel = semver::Version::new(0, 15, 0);
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    // Stand in for whatever the client would have written under `%var(data)`.
+    let var = midenup::paths::var_dir(&test_env.midenup_home, &channel);
+    std::fs::create_dir_all(&var).unwrap();
+    std::fs::write(var.join("data"), b"user-database").unwrap();
+
+    // Republish with a different component set, which produces a whole new publication.
+    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to republish");
+
+    assert_eq!(
+        std::fs::read(var.join("data")).unwrap(),
+        b"user-database",
+        "user data must survive republication"
+    );
+
+    // And it must live outside the publication, which is *why* it survives.
+    let midenup::state::PublicationRef::Managed { id, .. } =
+        &state.get(&channel).unwrap().publication
+    else {
+        panic!("expected a managed publication");
+    };
+    let publication = midenup::paths::publication_dir(&test_env.midenup_home, &channel, id);
+    assert!(!publication.join("var").exists(), "no publication may contain var/");
 }
 
 /// Spec section 9.3: when a `prebuilt-with-cargo-fallback` component's artifact cannot be

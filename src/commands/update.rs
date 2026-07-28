@@ -198,14 +198,51 @@ fn update_channel(
 
     commands::install(config, &channel_to_install, state, &install_options)?;
 
-    if let Some(channel_to_install) = channel_to_uninstall {
+    if let Some(old_channel) = channel_to_uninstall {
+        // Migration is the sole exception to "nothing touches `var/`": the user's data follows the
+        // toolchain it belongs to, rather than being stranded under a channel name that no longer
+        // exists. A rename, so it is atomic and cannot half-happen.
+        carry_var_to(config, &old_channel.name, &channel_to_install.name)?;
+
         // If the update were to be interrupted before the uninstall finishes,
         // re-running `midenup update` would finish the process.
         // This does mean that channel migration is a non-atomic operation.
-        commands::uninstall(config, &channel_to_install, state)?;
+        //
+        // Not purged: the data has already been renamed to the new channel, and purging would
+        // delete a directory that no longer belongs to the channel being removed.
+        commands::uninstall(config, &old_channel, state, false)?;
     };
 
     Ok(())
+}
+
+/// Moves `var/<from>` to `var/<to>`, so client data follows a migrated channel.
+///
+/// A no-op when there is nothing to move. An existing destination is left alone: that means the new
+/// channel already has data of its own, and silently merging or replacing it would be worse than
+/// leaving the old directory where a user can find it.
+fn carry_var_to(
+    config: &Config,
+    from: &semver::Version,
+    to: &semver::Version,
+) -> anyhow::Result<()> {
+    if from == to {
+        return Ok(());
+    }
+
+    let source = crate::paths::var_dir(&config.midenup_home, from);
+    let destination = crate::paths::var_dir(&config.midenup_home, to);
+    if !source.is_dir() || destination.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = destination.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create '{}'", parent.display()))?;
+    }
+    std::fs::rename(&source, &destination).with_context(|| {
+        format!("failed to move '{}' to '{}'", source.display(), destination.display())
+    })
 }
 
 enum InteractiveResult {

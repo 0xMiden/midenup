@@ -120,28 +120,9 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
             .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
     }
 
-    carry_var_forward(from.publication, into)
-}
-
-/// Carries `var/` from the previous publication into the new one.
-///
-/// `var/` holds mutable component-owned state -- most importantly the Miden client's database,
-/// reached as `%var(data)` -- and it lives *inside* the publication, so a publication swap would
-/// otherwise strand it. This is an interim measure: M5-T5 moves `var/` to
-/// `$MIDENUP_HOME/var/<channel>`, where it is outside the publication entirely and neither copying
-/// nor stranding is possible. Until then, copying is the only option that does not lose data.
-fn carry_var_forward(previous: &Path, into: &Path) -> Result<(), StageError> {
-    let src = previous.join("var");
-    if !src.is_dir() {
-        return Ok(());
-    }
-    let dest = into.join("var");
-    std::fs::create_dir_all(&dest)
-        .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
-    utils::fs::copy_dir_recursive(&src, &dest, &[]).map_err(|err| StageError::Seed {
-        path: dest,
-        source: std::io::Error::other(err.to_string()),
-    })
+    // Note what is *not* here: `var/`. It lives at `$MIDENUP_HOME/var/<channel>`, outside every
+    // publication, so there is nothing to carry forward and no way for staging to disturb it.
+    Ok(())
 }
 
 /// Runs every step of `plan` into `staging_root`, then creates the `opt/` shims.
@@ -642,16 +623,14 @@ mod tests {
         );
     }
 
-    /// `%var(data)` is the Miden client's database. Until it moves outside publications (M5-T5),
-    /// seeding has to carry it, or the first update would delete it.
+    /// Staging must never create `var/` inside a publication. It lives outside, keyed by channel,
+    /// precisely so that replacing a publication cannot touch it.
     #[test]
-    fn var_is_carried_forward_across_publications() {
-        let temp = tempdir::TempDir::new("stage-seed-var").unwrap();
+    fn staging_never_creates_var_inside_a_publication() {
+        let temp = tempdir::TempDir::new("stage-no-var").unwrap();
         let (previous, receipt) = previous_publication(temp.path());
-        std::fs::create_dir_all(previous.join("var").join("data")).unwrap();
-        std::fs::write(previous.join("var").join("data").join("db"), b"user-database").unwrap();
-
         let (plan, staging) = staged(temp.path());
+
         prepare(&staging).unwrap();
         seed(
             &plan,
@@ -663,11 +642,9 @@ mod tests {
             },
         )
         .unwrap();
+        execute(&plan, &staging, false, true).unwrap();
 
-        assert_eq!(
-            std::fs::read(staging.join("var").join("data").join("db")).unwrap(),
-            b"user-database"
-        );
+        assert!(!staging.join("var").exists());
     }
 
     /// Every destination the run produced is reported, so the receipt can record how each file was

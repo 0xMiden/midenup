@@ -12,7 +12,7 @@
 //! 4. COMMIT    repoint toolchains/<channel>          <- THE COMMIT POINT
 //! 5. RECORD    commit state.json
 //! 6. DERIVE    rebuild toolchains/stable and opt
-//! 7. CLEAN     remove the old publication; delete the journal
+//! 7. CLEAN     release the old publication; delete the journal
 //! ```
 //!
 //! Before step 4 the operation never happened: the staged publication is discarded and prior state
@@ -190,14 +190,26 @@ pub fn record(
         .map_err(|err| PublishError::Record { reason: err.to_string() })
 }
 
-/// Step 7: reclaims the publication this operation replaced, and deletes the journal.
+/// Step 7: releases the publication this operation replaced, and deletes the journal.
 ///
-/// Everything here is best effort *except* deleting the journal. A publication that is already
-/// gone is not a failure, and a state record that is already committed must not be undone because
-/// a directory could not be removed -- anything left behind is reclaimable by `midenup gc`. The
-/// journal is different: while it exists, recovery will run this operation again.
+/// **A publication that was merely *replaced* is not deleted here.** Another process may be
+/// executing a component out of it right now -- `miden vm ...` in one terminal while the other
+/// installs -- and pulling the directory out from under a running program is fatal: macOS kills it
+/// with SIGKILL, and on Linux the interpreter of a shell script fails to open it. Since the
+/// toolchain link now points at the new publication, nothing can *start* using the old one, so it
+/// is simply unreferenced, and unreferenced publications are what `midenup gc` reclaims (spec
+/// section 11.6). This was observed, not theorized: a concurrent activation test failed roughly one
+/// run in five with `Killed: 9`.
+///
+/// An *uninstall* does delete it, because that is what was asked for.
+///
+/// Everything here is best effort except deleting the journal. A state record that is already
+/// committed must not be undone because a directory could not be removed. The journal is
+/// different: while it exists, recovery will run this operation again.
 pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
-    if let Some(old) = &entry.old_publication {
+    if let Some(old) = &entry.old_publication
+        && matches!(entry.kind, OperationKind::Uninstall)
+    {
         let _ = std::fs::remove_dir_all(paths::publication_dir(home, &entry.channel, old));
     }
 
@@ -441,9 +453,11 @@ mod tests {
         assert!(env.journal_is_empty());
     }
 
-    /// The old publication is reclaimed only once the new state record is committed.
+    /// A publication that was replaced is left for `midenup gc`, not deleted here: another
+    /// process may be executing a component out of it, and removing it under a running program is
+    /// fatal.
     #[test]
-    fn rolling_forward_removes_the_publication_it_replaced() {
+    fn a_replaced_publication_is_left_for_gc() {
         let (env, old) = Env::with_installed("0.15.0");
         let new = PublicationId::generate();
         let entry = JournalEntry::install(
@@ -460,7 +474,11 @@ mod tests {
         let mut state = env.state();
         recover(&env.home, &mut state).unwrap();
 
-        assert!(!paths::publication_dir(&env.home, &v("0.15.0"), &old).exists());
+        assert!(
+            paths::publication_dir(&env.home, &v("0.15.0"), &old).exists(),
+            "the replaced publication must survive; nothing may be pulled out from under a \
+             running process"
+        );
         assert!(paths::publication_dir(&env.home, &v("0.15.0"), &new).exists());
     }
 

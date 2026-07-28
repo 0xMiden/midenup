@@ -28,6 +28,10 @@ fn spawn_miden(
         .env("XDG_DATA_HOME", env.tmp_dir.path())
         .env("CARGO_HOME", &env.cargo_home)
         .env("MIDENUP_MANIFEST_URI", manifest_uri)
+        // Piped so that a failure reports what the child said, including anything the component it
+        // spawned wrote -- `execute_command` gives the component these same descriptors.
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .expect("failed to spawn miden")
 }
@@ -78,8 +82,16 @@ fn integration_concurrent_activations_converge_on_a_superset() {
     for output in &outputs {
         assert!(
             output.status.success(),
-            "both invocations must succeed: {}",
-            String::from_utf8_lossy(&output.stderr)
+            "both invocations must succeed.\nstdout:\n{}\nstderr:\n{}\ntree:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(
+                &Command::new("find")
+                    .arg(env.tmp_dir.path())
+                    .output()
+                    .map(|o| o.stdout)
+                    .unwrap_or_default()
+            )
         );
     }
 
@@ -105,15 +117,14 @@ fn integration_concurrent_activations_converge_on_a_superset() {
     assert!(toolchain.join("bin").join("miden-vm").exists());
     assert!(toolchain.join("etc").join("assets").join("config.yml").exists());
 
-    // Exactly one publication survives: the one the state record names.
+    // The publication the state record names is the one on disk. The one it replaced is left
+    // behind for `midenup gc` -- deleting it here would pull the directory out from under whichever
+    // process is executing a component from it, which is fatal.
     let midenup::state::PublicationRef::Managed { id, .. } = &installation.publication else {
         panic!("expected a managed publication");
     };
-    let publications: Vec<_> =
-        std::fs::read_dir(midenup::paths::publications_dir(&env.midenup_home))
-            .unwrap()
-            .flatten()
-            .map(|entry| entry.file_name().to_string_lossy().into_owned())
-            .collect();
-    assert_eq!(publications, vec![format!("0.15.0-{id}")]);
+    assert!(
+        midenup::paths::publication_dir(&env.midenup_home, &channel, id).is_dir(),
+        "the recorded publication must exist"
+    );
 }

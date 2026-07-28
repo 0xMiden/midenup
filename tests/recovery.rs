@@ -142,9 +142,12 @@ fn integration_recovery_is_deterministic_at_every_publication_step() {
     }
 }
 
-/// A second attempt after an abort must succeed, and must leave exactly one publication behind.
+/// A second attempt after an abort must succeed, and must leave nothing of the abandoned attempt
+/// behind.
 ///
-/// This is the case a user actually hits: the install failed, so they run it again.
+/// This is the case a user actually hits: the install failed, so they run it again. A discarded
+/// staging tree is deleted immediately -- unlike a *replaced* publication, nothing can ever have
+/// been executing out of one that was never published.
 #[test]
 fn integration_recovery_allows_the_operation_to_be_retried() {
     let _guard = common::harness::mutating_test_guard();
@@ -170,10 +173,23 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
             .flatten()
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
+        assert!(
+            publications.contains(&format!("0.15.0-{id}")),
+            "{point}: the recorded publication must be on disk; found {publications:?}"
+        );
+
+        // How many are left says which side of the commit point the abort was on. A staging tree
+        // that was never published is discarded outright -- nothing can have been running from it.
+        // One that *was* published is replaced by the retry and left for `midenup gc`, because
+        // another process may still be executing out of it.
+        let expected = match point {
+            FaultPoint::PostPrepare | FaultPoint::PostStage | FaultPoint::PostVerify => 1,
+            FaultPoint::PostCommit | FaultPoint::PostRecord | FaultPoint::PostDerive => 2,
+        };
         assert_eq!(
-            publications,
-            vec![format!("0.15.0-{id}")],
-            "{point}: exactly the recorded publication must remain"
+            publications.len(),
+            expected,
+            "{point}: unexpected publications on disk: {publications:?}"
         );
     }
 }

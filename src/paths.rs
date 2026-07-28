@@ -45,6 +45,18 @@ pub fn publications_dir(home: &Path) -> PathBuf {
     home.join("publications")
 }
 
+/// Mutable, component-owned state for a channel: `%var`.
+///
+/// Outside the publication, and keyed by channel rather than by publication, because a publication
+/// is replaced wholesale on every change. The Miden client's database lives here (`%var(data)`);
+/// with `var/` inside the publication, every toolchain update destroyed it.
+///
+/// Install, update and republication never read, write, move or delete this. The only exception is
+/// channel migration, which renames it so client data follows the toolchain.
+pub fn var_dir(home: &Path, channel: &semver::Version) -> PathBuf {
+    home.join("var").join(channel.to_string())
+}
+
 /// Where an in-flight physical operation records its intent.
 ///
 /// Holds at most one entry, and only while an operation is running: its presence at startup means

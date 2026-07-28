@@ -236,18 +236,17 @@ impl Executable {
                     if argv.is_empty() {
                         return Err(InvalidExecutable::NotExecutable);
                     }
-                    argv.push(toolchain_dir.join("var").into_os_string());
+                    argv.push(var_dir(channel, config)?.into_os_string());
                 },
                 Expr::VarPath(Some(file)) => {
                     if argv.is_empty() {
                         return Err(InvalidExecutable::NotExecutable);
                     }
-                    let path = toolchain_dir.join("var").join(file);
-                    if path.try_exists().is_ok_and(|exists| exists) {
-                        argv.push(path.into_os_string());
-                    } else {
-                        return Err(InvalidExecutable::InvalidFile(path));
-                    }
+                    // Deliberately not checked for existence. `%var` names *mutable* state that
+                    // the component owns and creates -- `%var(data)` is the client's database
+                    // directory, which does not exist until the client makes it. Requiring it
+                    // here made `miden start-node` fail on every fresh installation.
+                    argv.push(var_dir(channel, config)?.join(file).into_os_string());
                 },
                 Expr::EtcPath(file) => {
                     let path = toolchain_dir.join("etc").join(file);
@@ -268,5 +267,35 @@ impl Executable {
         } else {
             Ok(argv)
         }
+    }
+}
+
+/// The channel's `var/` directory, created on demand.
+///
+/// It lives outside the publication (`$MIDENUP_HOME/var/<channel>`), so it survives every
+/// republication of the toolchain. Created here, at dispatch, because nothing in the installation
+/// path is allowed to touch it -- creating it at install time would be one step away from
+/// replacing it at install time.
+fn var_dir(channel: &Channel, config: &Config) -> Result<std::path::PathBuf, InvalidExecutable> {
+    let dir = crate::paths::var_dir(&config.midenup_home, &channel.name);
+    std::fs::create_dir_all(&dir).map_err(|_| InvalidExecutable::InvalidFile(dir.clone()))?;
+    Ok(dir)
+}
+
+#[cfg(test)]
+mod tests {
+    /// `%var` must resolve outside the publication. Inside it, every toolchain update deleted the
+    /// client's database along with the publication it replaced.
+    #[test]
+    fn var_resolves_outside_the_publication_and_is_created_on_demand() {
+        let temp = tempdir::TempDir::new("exec-var").unwrap();
+        let home = temp.path().join("midenup");
+
+        let dir = crate::paths::var_dir(&home, &semver::Version::new(0, 15, 0));
+        assert_eq!(dir, home.join("var").join("0.15.0"));
+        assert!(!dir.starts_with(crate::paths::publications_dir(&home)));
+
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(dir.is_dir());
     }
 }
