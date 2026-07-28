@@ -38,8 +38,12 @@ test: ## Run all tests, except integration
 	cargo nextest run --no-fail-fast -- --skip integration
 
 .PHONY: integration-test
-integration-test: ## Run all integration tests
-	cargo nextest run --no-fail-fast integration
+integration-test: ## Run integration tests, excluding the slow pre-release checks
+	cargo nextest run --no-fail-fast -E 'test(/integration_/) and not test(/prerelease/)'
+
+.PHONY: prerelease-test
+prerelease-test: ## Run pre-release checks against the real manifest (slow: builds real components)
+	cargo nextest run --no-fail-fast -E 'test(/prerelease/)'
 
 # --- building ------------------------------------------------------------------------------------
 

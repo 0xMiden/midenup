@@ -117,3 +117,138 @@ impl OfflineFixture {
         }
     }
 }
+
+/// Local `path`- and `git`-sourced crates, for exercising those authorities cheaply.
+///
+/// Installing from a path or a git revision is inherently a `cargo install`, so these tests cannot
+/// avoid a build. What they *can* avoid is building something real: the behaviour under test is
+/// whether midenup records a path's modification time and a git revision, and re-triggers an
+/// install when either changes. A dependency-free crate proves that just as well as cloning an
+/// entire component repository, and does it in about a second.
+pub struct SourceFixture {
+    /// A crate on disk, for `Authority::Path`.
+    pub path_crate: PathBuf,
+    /// A git repository, for `Authority::Git`.
+    pub git_repo: PathBuf,
+    /// Two commits in `git_repo`, oldest first, so an update can be triggered by moving between
+    /// them.
+    pub revisions: Vec<String>,
+}
+
+impl SourceFixture {
+    pub fn build(root: &Path) -> Self {
+        let path_crate = root.join("path-source");
+        write_trivial_crate(&path_crate, "fixture-vm", "miden-vm");
+
+        let git_repo = root.join("git-source");
+        write_trivial_crate(&git_repo, "fixture-client", "miden-client");
+        let revisions = init_repo_with_two_commits(&git_repo);
+
+        Self { path_crate, git_repo, revisions }
+    }
+
+    /// A `file://` URL for the git repository, which cargo and `git` both accept.
+    pub fn git_url(&self) -> String {
+        format!("file://{}", self.git_repo.display())
+    }
+}
+
+/// Writes a dependency-free crate producing a single binary.
+fn write_trivial_crate(dir: &Path, package: &str, binary: &str) {
+    std::fs::create_dir_all(dir.join("src")).expect("failed to create fixture crate dir");
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \
+             \"2021\"\n\n[[bin]]\nname = \"{binary}\"\npath = \"src/main.rs\"\n"
+        ),
+    )
+    .expect("failed to write fixture Cargo.toml");
+    std::fs::write(dir.join("src").join("main.rs"), "fn main() {}\n")
+        .expect("failed to write fixture main.rs");
+
+    // midenup installs with `--locked`, which requires a lockfile to be present.
+    let status = std::process::Command::new("cargo")
+        .arg("generate-lockfile")
+        .arg("--manifest-path")
+        .arg(dir.join("Cargo.toml"))
+        .status()
+        .expect("failed to run cargo generate-lockfile");
+    assert!(status.success(), "cargo generate-lockfile failed for {}", dir.display());
+}
+
+/// Initializes a git repo with two commits, returning both revisions oldest-first.
+fn init_repo_with_two_commits(dir: &Path) -> Vec<String> {
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap_or_else(|err| panic!("failed to run git {args:?}: {err}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+
+    git(&["init", "--quiet", "--initial-branch=main"]);
+    // Set identity locally so the fixture does not depend on the developer's global git config.
+    git(&["config", "user.email", "fixture@example.invalid"]);
+    git(&["config", "user.name", "Fixture"]);
+
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "first"]);
+    let first = git(&["rev-parse", "HEAD"]);
+
+    std::fs::write(dir.join("CHANGES"), b"second\n").expect("failed to write fixture change");
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "second"]);
+    let second = git(&["rev-parse", "HEAD"]);
+
+    vec![first, second]
+}
+
+/// Writes a manifest whose `vm` comes from a path and whose `client` comes from a git revision.
+pub fn write_source_manifest(
+    dir: &Path,
+    name: &str,
+    fixture: &SourceFixture,
+    revision: &str,
+) -> String {
+    let manifest = serde_json::json!({
+        "manifest_version": "2.0.0",
+        "date": 1735689600,
+        "channels": [{
+            "name": "0.15.0",
+            "components": [
+                {
+                    "name": "vm",
+                    "version": {"kind": "path", "path": fixture.path_crate.to_str().unwrap()},
+                    "kind": "executable",
+                    "installation_method": {"kind": "cargo", "crate_name": "fixture-vm"},
+                    "installed-executable": "miden-vm",
+                    "profiles": ["minimal"]
+                },
+                {
+                    "name": "client",
+                    "version": {
+                        "kind": "git",
+                        "repository_url": fixture.git_url(),
+                        "revision": revision
+                    },
+                    "kind": "executable",
+                    "installation_method": {"kind": "cargo", "crate_name": "fixture-client"},
+                    "installed-executable": "miden-client",
+                    "profiles": ["minimal"]
+                }
+            ]
+        }]
+    });
+
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap())
+        .expect("failed to write source manifest");
+    format!("file://{}", path.display())
+}

@@ -130,3 +130,8 @@ jobs:
         run: make test-build
       - name: Test
         run: make integration-test
+      - name: Pre-release checks
+        # These install real components from the published manifest and run them, so they take
+        # minutes. Run them on main only -- labelled PRs get the fast integration suite.
+        if: ${{ github.ref_name == 'main' }}
+        run: make prerelease-test
