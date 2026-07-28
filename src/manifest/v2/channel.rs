@@ -157,7 +157,7 @@ impl Channel {
                 | ComponentKind::Executable { spec, .. } => {
                     spec.aliases.keys().cloned().collect::<Vec<_>>()
                 },
-                ComponentKind::Asset { .. }
+                ComponentKind::Asset
                 | ComponentKind::Package
                 | ComponentKind::LegacyPackage { .. }
                 | ComponentKind::Unsupported { .. } => vec![],
@@ -218,7 +218,7 @@ impl Channel {
                         }
                     }
                 },
-                ComponentKind::Asset { .. }
+                ComponentKind::Asset
                 | ComponentKind::Package
                 | ComponentKind::LegacyPackage { .. }
                 | ComponentKind::Unsupported { .. } => (),

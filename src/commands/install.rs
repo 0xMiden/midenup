@@ -481,7 +481,7 @@ fn main() -> ExitCode {
                     component.name
                 );
             },
-            ComponentKind::Asset { .. } | ComponentKind::Command { .. } => {
+            ComponentKind::Asset | ComponentKind::Command { .. } => {
                 let artifacts =
                     component.artifacts.get_artifacts_for_target(config.target(), component)?;
                 if artifacts.is_empty() {

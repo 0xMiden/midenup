@@ -659,9 +659,8 @@ fn resolve_argument<'a>(
                     });
                 }
             },
-            ComponentKind::Package
-            | ComponentKind::LegacyPackage { .. }
-            | ComponentKind::Asset { .. } => (),
+            ComponentKind::Package | ComponentKind::LegacyPackage { .. } | ComponentKind::Asset => {
+            },
         }
     }
 
@@ -677,9 +676,7 @@ fn resolve_argument<'a>(
                     available: spec.aliases.keys().cloned().collect(),
                 });
             },
-            ComponentKind::Package
-            | ComponentKind::LegacyPackage { .. }
-            | ComponentKind::Asset { .. } => {
+            ComponentKind::Package | ComponentKind::LegacyPackage { .. } | ComponentKind::Asset => {
                 return Err(EnvironmentError::NotExecutable { component: comp.name.to_string() });
             },
         }

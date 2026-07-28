@@ -72,7 +72,7 @@ impl Artifacts {
         component: &'a Component,
     ) -> Result<Vec<(&'a str, ArtifactUri)>, InvalidArtifactError> {
         match component.kind() {
-            ComponentKind::Asset { .. } => self.get_artifacts_for_target(target, component),
+            ComponentKind::Asset => self.get_artifacts_for_target(target, component),
             ComponentKind::CargoExtension { spec, .. } | ComponentKind::Executable { spec, .. } => {
                 let id = spec.installed_executable.as_str();
                 let artifact = self.get_artifact_for_target(id, target, component)?;
@@ -156,6 +156,9 @@ pub enum Artifact {
         substitutions: Option<Substitutions>,
         /// The supported target triples for this artifact, and their target-specific substitutions
         targets: BTreeMap<String, Substitutions>,
+        /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        digest: Option<Digest>,
     },
     /// A non-executable/target-agnostic asset
     TargetAgnostic {
@@ -165,7 +168,21 @@ pub enum Artifact {
         /// the version of the containing component. Note that `%version` requires that the
         /// component have an associated semantic version, or an error will be produced.
         uri: String,
+        /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        digest: Option<Digest>,
     },
+}
+
+impl Artifact {
+    /// The declared content digest, if any. Never verified -- see [Digest].
+    pub fn digest(&self) -> Option<&Digest> {
+        match self {
+            Self::TargetSpecific { digest, .. } | Self::TargetAgnostic { digest, .. } => {
+                digest.as_ref()
+            },
+        }
+    }
 }
 
 /// The value of user-defined substitutions in [Artifact] definitions
@@ -249,7 +266,7 @@ impl Artifact {
         component: &Component,
     ) -> Result<Option<ArtifactUri>, InvalidArtifactError> {
         match self {
-            Self::TargetAgnostic { uri } => {
+            Self::TargetAgnostic { uri, .. } => {
                 let Some((scheme, rest)) = uri.split_once("://") else {
                     return Err(InvalidArtifactError::MissingScheme {
                         id: id.to_string(),
@@ -277,7 +294,7 @@ impl Artifact {
                     }),
                 }
             },
-            Self::TargetSpecific { uri, substitutions, targets } => {
+            Self::TargetSpecific { uri, substitutions, targets, .. } => {
                 let Some(target_subs) = targets.get(target) else {
                     return Ok(None);
                 };
@@ -338,5 +355,135 @@ impl Artifact {
                 }
             },
         }
+    }
+}
+
+/// A content digest declared for an artifact, e.g. `sha256:9f86d081...`.
+///
+/// Reserved, not enforced: the value is validated for shape, recorded, and round-tripped, but no
+/// verification is performed against downloaded bytes. Turning verification on later is then a
+/// behavior change rather than a schema break.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Digest {
+    pub algorithm: String,
+    pub hex: String,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum InvalidDigestError {
+    #[error("invalid digest '{0}': expected the form '<algorithm>:<hex>'")]
+    Malformed(String),
+    #[error("invalid digest '{0}': the digest value must be non-empty lowercase hex")]
+    NotHex(String),
+}
+
+impl core::str::FromStr for Digest {
+    type Err = InvalidDigestError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let Some((algorithm, hex)) = s.split_once(':') else {
+            return Err(InvalidDigestError::Malformed(s.to_string()));
+        };
+        if algorithm.is_empty() {
+            return Err(InvalidDigestError::Malformed(s.to_string()));
+        }
+        if hex.is_empty() || !hex.bytes().all(|b| b.is_ascii_digit() || b.is_ascii_lowercase()) {
+            return Err(InvalidDigestError::NotHex(s.to_string()));
+        }
+        if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(InvalidDigestError::NotHex(s.to_string()));
+        }
+        Ok(Self {
+            algorithm: algorithm.to_string(),
+            hex: hex.to_string(),
+        })
+    }
+}
+
+impl fmt::Display for Digest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.algorithm, self.hex)
+    }
+}
+
+impl Serialize for Digest {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.to_string())
+    }
+}
+
+impl<'de> Deserialize<'de> for Digest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let raw = String::deserialize(deserializer)?;
+        raw.parse().map_err(D::Error::custom)
+    }
+}
+
+#[cfg(test)]
+mod digest_tests {
+    use super::*;
+
+    #[test]
+    fn digest_parses_and_round_trips() {
+        let d: Digest = "sha256:9f86d081884c7d659a2feaa0c55ad015".parse().unwrap();
+        assert_eq!(d.algorithm, "sha256");
+        assert_eq!(d.to_string(), "sha256:9f86d081884c7d659a2feaa0c55ad015");
+    }
+
+    #[test]
+    fn malformed_digest_is_rejected() {
+        assert!("9f86d081".parse::<Digest>().is_err(), "missing algorithm");
+        assert!(":abc".parse::<Digest>().is_err(), "empty algorithm");
+        assert!("sha256:".parse::<Digest>().is_err(), "empty hex");
+        assert!("sha256:zzzz".parse::<Digest>().is_err(), "non-hex");
+        assert!("sha256:ABCD".parse::<Digest>().is_err(), "uppercase hex");
+    }
+
+    /// The digest survives a manifest round-trip and is not verified against anything.
+    #[test]
+    fn digest_round_trips_through_a_manifest() {
+        let src = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "core",
+                "version": {"kind": "registry", "version": "0.23.4"},
+                "kind": "package",
+                "artifacts": {"core.masp": {
+                    "uri": "https://example.invalid/core.masp",
+                    "digest": "sha256:deadbeef"
+                }}
+            }]}]
+        })
+        .to_string();
+
+        let m = crate::manifest::VersionedManifest::parse_str(&src).expect("parse");
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+        assert_eq!(
+            out["channels"][0]["components"][0]["artifacts"]["core.masp"]["digest"],
+            serde_json::json!("sha256:deadbeef")
+        );
+    }
+
+    #[test]
+    fn a_malformed_digest_fails_the_parse() {
+        let src = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "core",
+                "version": {"kind": "registry", "version": "0.23.4"},
+                "kind": "package",
+                "artifacts": {"core.masp": {
+                    "uri": "https://example.invalid/core.masp",
+                    "digest": "not-a-digest"
+                }}
+            }]}]
+        })
+        .to_string();
+
+        assert!(crate::manifest::VersionedManifest::parse_str(&src).is_err());
     }
 }

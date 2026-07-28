@@ -250,11 +250,7 @@ enum KnownKind {
         installation_method: PackageInstallationMethod,
     },
     /// An asset that will be installed to the toolchain's `etc` directory
-    Asset {
-        /// If true, then the asset is a compressed file that needs to be extracted upon download
-        #[serde(default)]
-        compressed: bool,
-    },
+    Asset,
 }
 
 /// An installable component's kind, including kinds this build does not recognize.
@@ -287,7 +283,7 @@ pub enum ComponentKind {
         installation_method: PackageInstallationMethod,
     },
     /// An asset that will be installed to the toolchain's `etc` directory
-    Asset { compressed: bool },
+    Asset,
     /// A kind declared by a newer schema that this build does not know how to install.
     ///
     /// Held verbatim so it round-trips losslessly. It belongs to no profile, is never selected
@@ -346,7 +342,7 @@ impl ComponentKind {
             Self::LegacyPackage { installation_method } => KnownKind::LegacyPackage {
                 installation_method: installation_method.clone(),
             },
-            Self::Asset { compressed } => KnownKind::Asset { compressed: *compressed },
+            Self::Asset => KnownKind::Asset,
             Self::Unsupported { .. } => return None,
         })
     }
@@ -376,7 +372,7 @@ impl From<KnownKind> for ComponentKind {
             KnownKind::LegacyPackage { installation_method } => {
                 Self::LegacyPackage { installation_method }
             },
-            KnownKind::Asset { compressed } => Self::Asset { compressed },
+            KnownKind::Asset => Self::Asset,
         }
     }
 }
@@ -701,7 +697,7 @@ impl Component {
             ComponentKind::LegacyPackage { .. } | ComponentKind::Package => {
                 Some(self.name.as_ref())
             },
-            ComponentKind::Asset { .. }
+            ComponentKind::Asset
             | ComponentKind::Command { .. }
             | ComponentKind::Unsupported { .. } => None,
         }
@@ -733,7 +729,7 @@ impl Component {
             ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => {
                 self.name.as_ref()
             },
-            ComponentKind::Asset { .. }
+            ComponentKind::Asset
             | ComponentKind::Package
             | ComponentKind::LegacyPackage { .. }
             | ComponentKind::Unsupported { .. } => return None,
@@ -930,5 +926,83 @@ mod unsupported_tests {
             assert!(parsed.is_supported(), "'{tag}' must not degrade to Unsupported");
             assert_eq!(parsed.tag(), *tag);
         }
+    }
+}
+
+#[cfg(test)]
+mod initialization_tests {
+    use crate::manifest::VersionedManifest;
+
+    fn manifest_with_initialization() -> String {
+        serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "client",
+                "version": {"kind": "registry", "version": "0.15.0"},
+                "kind": "executable",
+                "installation_method": {"kind": "cargo", "crate_name": "miden-client-cli"},
+                "installed-executable": "miden-client",
+                "initialization": ["/bin/false", "SENTINEL-MUST-NOT-RUN"]
+            }]}]
+        })
+        .to_string()
+    }
+
+    /// `initialization` must survive parse -> serialize untouched.
+    ///
+    /// It is retained but never executed: removing it would be a breaking schema change for a
+    /// feature that is expected to come back. The sentinel argument is deliberately conspicuous so
+    /// that any code path which ever ran it would be obvious in a process listing or test output.
+    #[test]
+    fn initialization_round_trips_and_is_never_dropped() {
+        let m = VersionedManifest::parse_str(&manifest_with_initialization()).expect("parse");
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+
+        assert_eq!(
+            out["channels"][0]["components"][0]["initialization"],
+            serde_json::json!(["/bin/false", "SENTINEL-MUST-NOT-RUN"])
+        );
+    }
+
+    /// Guards against `initialization` acquiring an execution path.
+    ///
+    /// Only the v1 converter and the v2 schema may mention it. Wiring it up to a subprocess would
+    /// necessarily touch another file -- the executor, the dispatcher, an install command -- and
+    /// this test fires when that happens. Crude, but it fails loudly at exactly the right moment,
+    /// which is far cheaper than trying to observe the absence of a side effect at runtime.
+    #[test]
+    fn no_new_code_path_references_initialization() {
+        const ALLOWED: &[&str] = &["manifest/v1/component.rs", "manifest/v2/component.rs"];
+
+        fn walk(dir: &std::path::Path, found: &mut Vec<String>, root: &std::path::Path) {
+            for entry in std::fs::read_dir(dir).expect("readable source dir").flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, found, root);
+                } else if path.extension().is_some_and(|e| e == "rs")
+                    && std::fs::read_to_string(&path)
+                        .is_ok_and(|text| text.contains("initialization"))
+                {
+                    let rel = path.strip_prefix(root).unwrap_or(&path);
+                    found.push(rel.display().to_string());
+                }
+            }
+        }
+
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut found = Vec::new();
+        walk(&root, &mut found, &root);
+        found.sort();
+
+        let mut expected: Vec<String> = ALLOWED.iter().map(|s| s.to_string()).collect();
+        expected.sort();
+
+        assert_eq!(
+            found, expected,
+            "`initialization` is recorded but must never be executed. If you added a legitimate \
+             new reference, extend ALLOWED; if you wired it to a subprocess, do not."
+        );
     }
 }

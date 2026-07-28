@@ -358,7 +358,7 @@ fn integration_test_components_are_runnable() {
             // Skip executables that aren't meant to be executed directly
             ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
             // Skip non-executable components, or command aliases
-            ComponentKind::Asset { .. }
+            ComponentKind::Asset
             | ComponentKind::Command { .. }
             | ComponentKind::Package
             | ComponentKind::LegacyPackage { .. } => (),
