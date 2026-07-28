@@ -116,6 +116,12 @@ impl<'de> Deserialize<'de> for Component {
             if let serde_json::Value::Object(known) = known {
                 for key in known.keys() {
                     extra.remove(key);
+                    // Also drop the separator-swapped spelling. Fields carry `#[serde(alias)]`
+                    // for the other of kebab/snake so the schema can migrate gradually, but the
+                    // "known = whatever the typed form serializes" rule cannot see aliases: an
+                    // input using the alias would be retained as an unknown field and then
+                    // emitted *alongside* the canonical one, producing duplicate keys.
+                    extra.remove(&swap_separator(key));
                 }
             }
         }
@@ -129,6 +135,22 @@ impl<'de> Deserialize<'de> for Component {
             artifacts: base.artifacts,
             extra,
         })
+    }
+}
+
+/// Returns `key` with `-` and `_` exchanged, or an empty string if it contains neither.
+///
+/// Used to recognize a field spelled with its serde alias. A key that differs from a known field
+/// only by separator *is* that field by the convention this schema uses; a future field that
+/// genuinely differs from a known one only by separator would be indistinguishable from its own
+/// alias, and would be a confusing thing to add for that reason.
+fn swap_separator(key: &str) -> String {
+    if key.contains('-') {
+        key.replace('-', "_")
+    } else if key.contains('_') {
+        key.replace('_', "-")
+    } else {
+        String::new()
     }
 }
 
@@ -168,6 +190,11 @@ enum KnownKind {
     /// A component derived from an executable artifact
     Executable {
         /// How the executable artifact should be installed
+        ///
+        /// The kebab-case alias is accepted so the schema can migrate to kebab-case throughout
+        /// without a breaking change: both spellings parse, and the snake_case form remains what
+        /// is written, so a later flip is a one-line change rather than a manifest rewrite.
+        #[serde(alias = "installation-method")]
         installation_method: InstallationMethod,
         /// The generic details of how this executable component is installed/executed
         #[serde(flatten)]
@@ -176,6 +203,7 @@ enum KnownKind {
     /// An executable component that is invoked via `cargo`, rather than directly
     CargoExtension {
         /// How the Cargo extension should be installed
+        #[serde(alias = "installation-method")]
         installation_method: InstallationMethod,
         /// The generic details of how this executable component is installed/executed
         #[serde(flatten)]
@@ -247,6 +275,7 @@ enum KnownKind {
     /// Legacy support for packages which required extraction from a Rust crate
     LegacyPackage {
         /// How the package artifact will be installed
+        #[serde(alias = "installation-method")]
         installation_method: PackageInstallationMethod,
         /// The exact filename this package installs as, e.g. `core.masp`.
         ///
@@ -1131,5 +1160,79 @@ mod legacy_package_tests {
         let manifest = VersionedManifest::parse_str(&src).unwrap();
         let core = manifest.get_channels().next().unwrap().get_component("core").unwrap();
         assert!(core.installed_package_name().is_none());
+    }
+}
+
+#[cfg(test)]
+mod field_alias_tests {
+    use crate::manifest::{ComponentKind, VersionedManifest};
+
+    fn manifest_with(spelling: &str) -> String {
+        serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "vm",
+                "version": {"kind": "registry", "version": "0.15.0"},
+                "kind": "executable",
+                spelling: {"kind": "cargo", "crate_name": "miden-vm"},
+                "installed-executable": "miden-vm"
+            }]}]
+        })
+        .to_string()
+    }
+
+    /// Both spellings must parse, so the schema can move to kebab-case without a breaking change.
+    #[test]
+    fn installation_method_accepts_both_spellings() {
+        for spelling in ["installation_method", "installation-method"] {
+            let manifest = VersionedManifest::parse_str(&manifest_with(spelling))
+                .unwrap_or_else(|err| panic!("'{spelling}' must parse: {err}"));
+            let vm = manifest.get_channels().next().unwrap().get_component("vm").unwrap();
+            assert!(
+                matches!(vm.kind(), ComponentKind::Executable { .. }),
+                "'{spelling}' must produce an executable"
+            );
+        }
+    }
+
+    /// The alias is a *read* affordance. Output stays snake_case until the primary name is
+    /// flipped, so adding it does not churn every manifest on the next `update-manifest format`.
+    #[test]
+    fn the_canonical_spelling_is_still_written() {
+        let manifest = VersionedManifest::parse_str(&manifest_with("installation-method")).unwrap();
+        let text = serde_json::to_string(&manifest).unwrap();
+        assert!(text.contains("\"installation_method\""));
+        assert!(!text.contains("\"installation-method\""));
+    }
+
+    /// A field supplied under its alias must not *also* survive as an unknown field.
+    ///
+    /// The unknown-field capture defines "known" as "whatever the typed form serializes", which
+    /// cannot see serde aliases. Without compensating, an input using the alias is retained as an
+    /// extra and then emitted alongside the canonical spelling -- producing a document with two
+    /// keys for one field, which JSON tolerates and readers disagree about.
+    #[test]
+    fn an_aliased_field_is_not_also_captured_as_unknown() {
+        let manifest = VersionedManifest::parse_str(&manifest_with("installation-method")).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&manifest).unwrap()).unwrap();
+
+        let component = &value["channels"][0]["components"][0];
+        let keys: Vec<&String> = component.as_object().unwrap().keys().collect();
+        assert!(
+            !keys.iter().any(|k| k.as_str() == "installation-method"),
+            "the alias must not survive as an unknown field: {keys:?}"
+        );
+        assert!(keys.iter().any(|k| k.as_str() == "installation_method"));
+    }
+
+    /// An unknown spelling must not be silently swallowed into the unknown-field capture.
+    #[test]
+    fn a_misspelled_installation_method_is_still_an_error() {
+        assert!(
+            VersionedManifest::parse_str(&manifest_with("installationmethod")).is_err(),
+            "a missing installation method must be reported, not absorbed into extras"
+        );
     }
 }
