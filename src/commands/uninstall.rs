@@ -127,6 +127,8 @@ pub fn uninstall_components(
     for component in components {
         println!("removing previous version of component {}", component.name);
         match component.kind() {
+            // Never installed by this build, so it owns no files to remove.
+            ComponentKind::Unsupported { .. } => continue,
             ComponentKind::Asset { .. } | ComponentKind::Command { .. } => {
                 // The artifact id is the installed filename, so uninstall must mirror install
                 // exactly: `etc/<component>/<artifact-id>`. Deriving the name from the URI

@@ -595,6 +595,8 @@ fn resolve_argument<'a>(
 ) -> Result<MidenArgument<'a>, EnvironmentError> {
     for comp in channel.components.iter() {
         match comp.kind() {
+            // Defines no commands or aliases this build can resolve.
+            ComponentKind::Unsupported { .. } => continue,
             ComponentKind::Command {
                 command_name: name,
                 format,
@@ -666,6 +668,9 @@ fn resolve_argument<'a>(
     if let Some(comp) = channel.get_component(argument) {
         match comp.kind() {
             ComponentKind::Command { .. } => unreachable!(),
+            ComponentKind::Unsupported { .. } => {
+                return Err(EnvironmentError::NotExecutable { component: comp.name.to_string() });
+            },
             ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. } => {
                 return Err(EnvironmentError::Hidden {
                     component: comp.name.to_string(),

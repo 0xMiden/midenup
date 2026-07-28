@@ -472,6 +472,15 @@ fn main() -> ExitCode {
     for component in components.toposort()? {
         max_component_width = core::cmp::max(max_component_width, component.name.chars().count());
         match component.kind() {
+            // Reaching here means an unknown kind was explicitly selected: this build cannot know
+            // how to install it, so fail with an actionable message rather than skipping it.
+            ComponentKind::Unsupported { tag, .. } => {
+                bail!(
+                    "unable to install component '{}': its kind '{tag}' is not supported by this \
+                     version of midenup; upgrade midenup or deselect the component",
+                    component.name
+                );
+            },
             ComponentKind::Asset { .. } | ComponentKind::Command { .. } => {
                 let artifacts =
                     component.artifacts.get_artifacts_for_target(config.target(), component)?;

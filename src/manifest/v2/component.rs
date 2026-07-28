@@ -132,9 +132,39 @@ impl<'de> Deserialize<'de> for Component {
     }
 }
 
+/// The verbatim body of a component whose `kind` this build does not recognize.
+///
+/// Wrapped in a newtype so it can carry the `PartialEq`/`Eq`/`Hash` impls that
+/// `serde_json::Value` lacks, keeping those derives available on [ComponentKind].
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(transparent)]
+pub struct OpaqueBody(pub Extra);
+
+impl PartialEq for OpaqueBody {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl Eq for OpaqueBody {}
+
+impl Hash for OpaqueBody {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // `serde_json::Map` is a `BTreeMap` here (the `preserve_order` feature is off), so its
+        // serialization is canonical and this hash is stable across parses.
+        serde_json::to_string(&self.0).unwrap_or_default().hash(state);
+    }
+}
+
+/// Component kinds this build knows how to install.
+///
+/// This mirrors the known variants of [ComponentKind] and exists purely so that the derive can
+/// generate their (de)serialization. [ComponentKind] dispatches to it by tag; see
+/// [ComponentKind::KNOWN_TAGS] and the `known_tags_match_the_mirror` test, which fails if the two
+/// drift apart.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
-pub enum ComponentKind {
+enum KnownKind {
     /// A component derived from an executable artifact
     Executable {
         /// How the executable artifact should be installed
@@ -225,6 +255,169 @@ pub enum ComponentKind {
         #[serde(default)]
         compressed: bool,
     },
+}
+
+/// An installable component's kind, including kinds this build does not recognize.
+///
+/// The variants carry no serde attributes: (de)serialization is hand-written below and delegates
+/// to [KnownKind] for everything it recognizes, so there is no attribute duplication to drift.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ComponentKind {
+    /// A component derived from an executable artifact
+    Executable {
+        installation_method: InstallationMethod,
+        spec: ExecutableComponent,
+    },
+    /// An executable component that is invoked via `cargo`, rather than directly
+    CargoExtension {
+        installation_method: InstallationMethod,
+        spec: ExecutableComponent,
+    },
+    /// A virtual component that defines a `miden` command. See [KnownKind::Command].
+    Command {
+        command_name: Option<String>,
+        format: Executable,
+        subcommands: BTreeMap<Alias, Executable>,
+        aliases: BTreeMap<Alias, Executable>,
+    },
+    /// A logical set of one or more Miden packages
+    Package,
+    /// Legacy support for packages which required extraction from a Rust crate
+    LegacyPackage {
+        installation_method: PackageInstallationMethod,
+    },
+    /// An asset that will be installed to the toolchain's `etc` directory
+    Asset { compressed: bool },
+    /// A kind declared by a newer schema that this build does not know how to install.
+    ///
+    /// Held verbatim so it round-trips losslessly. It belongs to no profile, is never selected
+    /// implicitly, and fails plan construction if named explicitly -- see
+    /// [Component::is_supported].
+    Unsupported { tag: String, body: OpaqueBody },
+}
+
+impl ComponentKind {
+    /// The `kind` tags this build recognizes.
+    ///
+    /// Kept in sync with [KnownKind] by the `known_tags_match_the_mirror` test.
+    pub const KNOWN_TAGS: &[&str] =
+        &["executable", "cargo-extension", "command", "package", "legacy-package", "asset"];
+
+    /// The declared `kind` tag, whether or not this build recognizes it.
+    pub fn tag(&self) -> &str {
+        match self {
+            Self::Executable { .. } => "executable",
+            Self::CargoExtension { .. } => "cargo-extension",
+            Self::Command { .. } => "command",
+            Self::Package => "package",
+            Self::LegacyPackage { .. } => "legacy-package",
+            Self::Asset { .. } => "asset",
+            Self::Unsupported { tag, .. } => tag.as_str(),
+        }
+    }
+
+    /// Whether this build knows how to install this kind.
+    pub fn is_supported(&self) -> bool {
+        !matches!(self, Self::Unsupported { .. })
+    }
+
+    fn as_known(&self) -> Option<KnownKind> {
+        Some(match self {
+            Self::Executable { installation_method, spec } => KnownKind::Executable {
+                installation_method: installation_method.clone(),
+                spec: spec.clone(),
+            },
+            Self::CargoExtension { installation_method, spec } => KnownKind::CargoExtension {
+                installation_method: installation_method.clone(),
+                spec: spec.clone(),
+            },
+            Self::Command {
+                command_name,
+                format,
+                subcommands,
+                aliases,
+            } => KnownKind::Command {
+                command_name: command_name.clone(),
+                format: format.clone(),
+                subcommands: subcommands.clone(),
+                aliases: aliases.clone(),
+            },
+            Self::Package => KnownKind::Package,
+            Self::LegacyPackage { installation_method } => KnownKind::LegacyPackage {
+                installation_method: installation_method.clone(),
+            },
+            Self::Asset { compressed } => KnownKind::Asset { compressed: *compressed },
+            Self::Unsupported { .. } => return None,
+        })
+    }
+}
+
+impl From<KnownKind> for ComponentKind {
+    fn from(value: KnownKind) -> Self {
+        match value {
+            KnownKind::Executable { installation_method, spec } => {
+                Self::Executable { installation_method, spec }
+            },
+            KnownKind::CargoExtension { installation_method, spec } => {
+                Self::CargoExtension { installation_method, spec }
+            },
+            KnownKind::Command {
+                command_name,
+                format,
+                subcommands,
+                aliases,
+            } => Self::Command {
+                command_name,
+                format,
+                subcommands,
+                aliases,
+            },
+            KnownKind::Package => Self::Package,
+            KnownKind::LegacyPackage { installation_method } => {
+                Self::LegacyPackage { installation_method }
+            },
+            KnownKind::Asset { compressed } => Self::Asset { compressed },
+        }
+    }
+}
+
+impl Serialize for ComponentKind {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.as_known() {
+            Some(known) => known.serialize(serializer),
+            // Emitted verbatim, including its own `kind` tag.
+            None => match self {
+                Self::Unsupported { body, .. } => body.0.serialize(serializer),
+                _ => unreachable!("as_known only returns None for Unsupported"),
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ComponentKind {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+        let tag = value
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| D::Error::missing_field("kind"))?;
+
+        // Dispatch on the tag explicitly rather than relying on an untagged fallback. An untagged
+        // fallback also swallows a *malformed known* kind -- `{"kind":"executable"}` missing
+        // `installed-executable` would silently become Unsupported instead of erroring.
+        if !Self::KNOWN_TAGS.contains(&tag) {
+            let tag = tag.to_string();
+            let body = match value {
+                serde_json::Value::Object(map) => map,
+                _ => Extra::new(),
+            };
+            return Ok(Self::Unsupported { tag, body: OpaqueBody(body) });
+        }
+
+        KnownKind::deserialize(value).map(Self::from).map_err(D::Error::custom)
+    }
 }
 
 impl FromStr for ComponentKind {
@@ -508,12 +701,22 @@ impl Component {
             ComponentKind::LegacyPackage { .. } | ComponentKind::Package => {
                 Some(self.name.as_ref())
             },
-            ComponentKind::Asset { .. } | ComponentKind::Command { .. } => None,
+            ComponentKind::Asset { .. }
+            | ComponentKind::Command { .. }
+            | ComponentKind::Unsupported { .. } => None,
         }
     }
 
     pub fn is_callable(&self) -> bool {
         self.kind.is_callable()
+    }
+
+    /// Whether this build knows how to install this component.
+    ///
+    /// An unsupported component belongs to no profile regardless of what its `profiles` field
+    /// says, so it is never selected implicitly; naming it as an explicit root is an error.
+    pub fn is_supported(&self) -> bool {
+        self.kind.is_supported()
     }
 
     /// Returns the string representation under which midenup calls a component, if it is callable
@@ -532,7 +735,8 @@ impl Component {
             },
             ComponentKind::Asset { .. }
             | ComponentKind::Package
-            | ComponentKind::LegacyPackage { .. } => return None,
+            | ComponentKind::LegacyPackage { .. }
+            | ComponentKind::Unsupported { .. } => return None,
         };
         Some(format!("miden {name}"))
     }
@@ -601,6 +805,130 @@ impl Component {
                 }
             },
             Authority::Registry { .. } => {},
+        }
+    }
+}
+
+#[cfg(test)]
+mod unsupported_tests {
+    use super::*;
+    use crate::manifest::VersionedManifest;
+
+    fn manifest_with_kind(kind: &str) -> String {
+        serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [
+                {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"},
+                 "kind": "executable",
+                 "installation_method": {"kind": "cargo", "crate_name": "miden-vm"},
+                 "installed-executable": "miden-vm", "profiles": ["minimal"]},
+                {"name": "futurething", "version": {"kind": "registry", "version": "1.0.0"},
+                 "kind": kind, "profiles": ["minimal"], "some-future-field": true}
+            ]}]
+        })
+        .to_string()
+    }
+
+    /// One unknown component kind must not make the whole manifest unreadable -- that would brick
+    /// every older midenup for every channel the first time a new kind ships.
+    #[test]
+    fn unknown_kind_parses_and_does_not_abort_the_manifest() {
+        let m = VersionedManifest::parse_str(&manifest_with_kind("wasm-module"))
+            .expect("unknown kind must not make the manifest unparseable");
+        let channel = m.get_channels().next().unwrap();
+
+        assert!(channel.get_component("vm").is_some(), "known components stay usable");
+
+        let c = channel.get_component("futurething").unwrap();
+        assert!(matches!(c.kind(), ComponentKind::Unsupported { tag, .. } if tag == "wasm-module"));
+        assert!(!c.is_supported());
+        assert_eq!(c.kind().tag(), "wasm-module");
+    }
+
+    #[test]
+    fn unknown_kind_round_trips_losslessly() {
+        let m = VersionedManifest::parse_str(&manifest_with_kind("wasm-module")).unwrap();
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&m).unwrap()).unwrap();
+
+        let c = out["channels"][0]["components"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "futurething")
+            .expect("component preserved");
+
+        assert_eq!(c["kind"], serde_json::json!("wasm-module"));
+        assert_eq!(c["some-future-field"], serde_json::json!(true));
+        assert_eq!(c["profiles"], serde_json::json!(["minimal"]));
+    }
+
+    /// A *malformed known* kind must error, not silently degrade into `Unsupported`.
+    ///
+    /// This is why dispatch is written by hand: `#[serde(untagged)]` on a fallback variant was
+    /// measured to swallow `{"kind":"executable"}` with a missing `installed-executable`, turning
+    /// a manifest typo into an opaque component that would simply never install.
+    #[test]
+    fn a_malformed_known_kind_is_an_error_not_an_unsupported_component() {
+        let bad = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [
+                {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"},
+                 "kind": "executable",
+                 "installation_method": {"kind": "cargo", "crate_name": "miden-vm"}}
+            ]}]
+        })
+        .to_string();
+
+        assert!(
+            VersionedManifest::parse_str(&bad).is_err(),
+            "a known kind missing a required field must be rejected"
+        );
+    }
+
+    #[test]
+    fn a_component_without_a_kind_is_an_error() {
+        let bad = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [
+                {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"}}
+            ]}]
+        })
+        .to_string();
+
+        assert!(VersionedManifest::parse_str(&bad).is_err(), "`kind` is required");
+    }
+
+    /// Guards against `KNOWN_TAGS` drifting from the `KnownKind` mirror.
+    #[test]
+    fn known_tags_match_the_mirror() {
+        for tag in ComponentKind::KNOWN_TAGS {
+            let value = match *tag {
+                "executable" | "cargo-extension" => serde_json::json!({
+                    "kind": tag,
+                    "installation_method": {"kind": "cargo", "crate_name": "c"},
+                    "installed-executable": "e"
+                }),
+                "command" => serde_json::json!({"kind": tag, "format": ["docker"]}),
+                "package" => serde_json::json!({"kind": tag}),
+                "legacy-package" => serde_json::json!({
+                    "kind": tag,
+                    "installation_method": {
+                        "kind": "cargo", "crate_name": "c", "extractor": "x()"
+                    }
+                }),
+                "asset" => serde_json::json!({"kind": tag}),
+                other => panic!("KNOWN_TAGS lists '{other}' but this test has no case for it"),
+            };
+
+            let parsed = ComponentKind::deserialize(value).unwrap_or_else(|err| {
+                panic!("KNOWN_TAGS lists '{tag}' but KnownKind cannot parse it: {err}")
+            });
+            assert!(parsed.is_supported(), "'{tag}' must not degrade to Unsupported");
+            assert_eq!(parsed.tag(), *tag);
         }
     }
 }

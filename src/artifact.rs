@@ -78,7 +78,9 @@ impl Artifacts {
                 let artifact = self.get_artifact_for_target(id, target, component)?;
                 Ok(artifact.into_iter().map(|uri| (id, uri)).collect())
             },
-            ComponentKind::Command { .. } => Ok(vec![]),
+            // Never selected for installation, so it has no artifacts to resolve. The resolver
+            // is the gate that rejects it; this arm just keeps the match total.
+            ComponentKind::Command { .. } | ComponentKind::Unsupported { .. } => Ok(vec![]),
             ComponentKind::LegacyPackage { .. } | ComponentKind::Package => {
                 self.get_artifacts_for_target(target, component)
             },

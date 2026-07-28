@@ -159,7 +159,8 @@ impl Channel {
                 },
                 ComponentKind::Asset { .. }
                 | ComponentKind::Package
-                | ComponentKind::LegacyPackage { .. } => vec![],
+                | ComponentKind::LegacyPackage { .. }
+                | ComponentKind::Unsupported { .. } => vec![],
             })
             .collect()
     }
@@ -219,7 +220,8 @@ impl Channel {
                 },
                 ComponentKind::Asset { .. }
                 | ComponentKind::Package
-                | ComponentKind::LegacyPackage { .. } => (),
+                | ComponentKind::LegacyPackage { .. }
+                | ComponentKind::Unsupported { .. } => (),
             }
         }
 

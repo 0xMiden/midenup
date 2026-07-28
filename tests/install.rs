@@ -362,6 +362,11 @@ fn integration_test_components_are_runnable() {
             | ComponentKind::Command { .. }
             | ComponentKind::Package
             | ComponentKind::LegacyPackage { .. } => (),
+            // The checked-in manifest declares no unknown kinds; if one appears, the manifest and
+            // this build have diverged and the test should say so rather than skipping quietly.
+            ComponentKind::Unsupported { tag, .. } => {
+                panic!("component '{}' has unsupported kind '{tag}'", component.name)
+            },
         }
     }
 }
