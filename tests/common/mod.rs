@@ -1,5 +1,7 @@
 #![allow(unused)]
 
+pub mod harness;
+
 use std::path::{Path, PathBuf};
 
 use midenup::{config, manifest};

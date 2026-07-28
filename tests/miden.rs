@@ -9,6 +9,7 @@ use common::*;
 /// not installed, and then installing it before executing the passed in command.
 #[test]
 fn integration_miden_test() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_miden_test";
     let test_env = environment_setup(test_name);
 
@@ -111,6 +112,7 @@ fn integration_miden_test() {
 /// - recognize if the list gets expanded and install the missing components
 #[test]
 fn integration_miden_toolchain_toml() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_miden_toolchain_toml";
     let test_env = environment_setup(test_name);
 
@@ -195,6 +197,7 @@ fn integration_miden_toolchain_toml() {
 #[test]
 #[should_panic]
 fn integration_midenup_catches_installation_failure() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "midenup_catches_installation_failure";
     let test_env = environment_setup(test_name);
 

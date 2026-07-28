@@ -8,6 +8,7 @@ use common::*;
 /// This tests checks that midenup's update behavior works correctly
 #[test]
 fn integration_update_test() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_update_test";
     let test_env = environment_setup(test_name);
     eprintln!("KEEPING temp dir at: {}", test_env.tmp_dir.path().display());

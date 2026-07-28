@@ -13,6 +13,7 @@ use common::*;
 /// stable toolchain from published manifest.
 #[test]
 fn integration_install_stable() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_install_stable";
     let test_env = environment_setup(test_name);
 
@@ -64,6 +65,7 @@ fn integration_install_stable() {
 /// manages to update them when needed.
 #[test]
 fn integration_install_from_non_cargo() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_install_from_non_cargo";
     let test_env = environment_setup(test_name);
 
@@ -229,6 +231,7 @@ fn integration_install_from_non_cargo() {
 /// "already installed" on a completely fresh install.
 #[test]
 fn integration_install_stable_installs_packages() {
+    let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_install_stable_installs_packages");
 
     const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
@@ -275,6 +278,7 @@ fn integration_install_stable_installs_packages() {
 /// install produced exactly one shim (`cargo-miden`) and none for the nine callable components.
 #[test]
 fn integration_install_creates_default_symlinks() {
+    let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_install_creates_default_symlinks");
 
     const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
@@ -311,6 +315,7 @@ fn integration_install_creates_default_symlinks() {
 /// [See here for details](https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag)
 #[test]
 fn integration_test_components_are_runnable() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_test_components";
     let test_env = environment_setup(test_name);
 

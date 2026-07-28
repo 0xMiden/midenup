@@ -11,6 +11,7 @@ use common::*;
 ///   OLD directory.
 #[test]
 fn integration_channel_migration_test() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_channel_migration_test";
     let test_env = environment_setup(test_name);
     let toolchain_dir = test_env.midenup_home.join("toolchains");

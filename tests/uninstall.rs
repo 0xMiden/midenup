@@ -11,6 +11,7 @@ use common::*;
 /// also specific versions explicitly.
 #[test]
 fn integration_install_uninstall_test() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_install_uninstall_test";
     let test_env = environment_setup(test_name);
 
