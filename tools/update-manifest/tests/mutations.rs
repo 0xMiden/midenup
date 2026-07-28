@@ -189,3 +189,130 @@ fn a_failed_mutation_does_not_write() {
 
     assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be unchanged");
 }
+
+/// `check` must detect a requirement cycle.
+///
+/// Regression: it called `component_graph`, which built the graph and discarded it without ever
+/// topologically sorting, so cyclic manifests were accepted.
+#[test]
+fn check_rejects_a_cyclic_manifest() {
+    let dir = tempdir::TempDir::new("update-manifest-cycle").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([
+            {"name": "a", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "package", "requires": ["b"], "profiles": ["minimal"],
+             "artifacts": {"a.masp": {"uri": "https://example.invalid/a.masp"}}},
+            {"name": "b", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "package", "requires": ["a"], "profiles": ["minimal"],
+             "artifacts": {"b.masp": {"uri": "https://example.invalid/b.masp"}}}
+        ])),
+    );
+
+    let err = run(&path, &["check"]).expect_err("a cyclic manifest must fail check");
+    assert!(err.contains("cycle"), "the error should name the problem: {err}");
+}
+
+#[test]
+fn check_accepts_a_well_formed_manifest() {
+    let dir = tempdir::TempDir::new("update-manifest-ok").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+    run(&path, &["check"]).expect("a well-formed manifest must pass check");
+}
+
+/// `check` must report every problem in one pass, not one per run.
+#[test]
+fn check_reports_all_errors_at_once() {
+    let dir = tempdir::TempDir::new("update-manifest-many").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([
+            {"name": "a", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "package", "requires": ["ghost"], "profiles": ["minimal"],
+             "artifacts": {"a.masp": {"uri": "https://example.invalid/a.masp"}}},
+            {"name": "b", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "package", "requires": ["alsoghost"], "profiles": ["minimal"],
+             "artifacts": {"b.masp": {"uri": "https://example.invalid/b.masp"}}}
+        ])),
+    );
+
+    let err = run(&path, &["check"]).expect_err("must fail");
+    assert!(err.contains("ghost"), "{err}");
+    assert!(err.contains("alsoghost"), "both problems must be reported in one pass: {err}");
+}
+
+/// Removing a component that something else still requires would leave the channel unresolvable.
+#[test]
+fn removing_a_still_required_component_is_rejected() {
+    let dir = tempdir::TempDir::new("update-manifest-remove").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([
+            {"name": "core", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "package", "profiles": ["minimal"],
+             "artifacts": {"core.masp": {"uri": "https://example.invalid/core.masp"}}},
+            {"name": "client", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "executable", "requires": ["core"], "profiles": ["minimal"],
+             "installation_method": {"kind": "cargo", "crate_name": "c"},
+             "installed-executable": "miden-client"}
+        ])),
+    );
+
+    let err = run(&path, &["remove-component", "--channel", "0.15.0", "core"])
+        .expect_err("must refuse to orphan a dependent");
+    assert!(err.contains("client"), "the error must name the dependent: {err}");
+
+    // The component must still be there.
+    let manifest = read_manifest(&path);
+    assert_eq!(component(&manifest, "core")["name"], "core");
+}
+
+#[test]
+fn removing_an_unrequired_component_succeeds() {
+    let dir = tempdir::TempDir::new("update-manifest-remove-ok").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+    run(&path, &["remove-component", "--channel", "0.15.0", "vm"]).expect("should succeed");
+    assert!(read_manifest(&path)["channels"][0]["components"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn add_component_accepts_profiles() {
+    let dir = tempdir::TempDir::new("update-manifest-add").unwrap();
+    let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
+
+    run(&path, &[
+        "add-component",
+        "--channel", "0.15.0",
+        "vm",
+        "--authority", r#"{"kind":"registry","version":"0.15.0"}"#,
+        "--kind", r#"{"kind":"executable","installation_method":{"kind":"cargo","crate_name":"miden-vm"},"installed-executable":"miden-vm"}"#,
+        "--profile", "minimal",
+    ])
+    .expect("add-component should succeed");
+
+    let manifest = read_manifest(&path);
+    assert_eq!(component(&manifest, "vm")["profiles"], serde_json::json!(["minimal"]));
+}
+
+/// `legacy-package` is closed to new authoring: packages ship prebuilt from here on.
+#[test]
+fn authoring_a_legacy_package_is_rejected() {
+    let dir = tempdir::TempDir::new("update-manifest-legacy").unwrap();
+    let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
+
+    let err = run(&path, &[
+        "add-component",
+        "--channel", "0.15.0",
+        "protocol",
+        "--authority", r#"{"kind":"registry","version":"0.15.0"}"#,
+        "--kind", r#"{"kind":"legacy-package","installation_method":{"kind":"cargo","crate_name":"miden-protocol","extractor":"x()"}}"#,
+    ])
+    .expect_err("legacy-package must be closed to new channels");
+    assert!(err.contains("deprecated"), "{err}");
+}

@@ -62,6 +62,9 @@ enum Command {
         /// The component kind and associated metadata
         #[arg(long, value_name = "SPEC", value_parser)]
         kind: ComponentKind,
+        /// Profiles that should include this component by default
+        #[arg(long = "profile", value_name = "PROFILE", value_parser)]
+        profiles: Vec<Profile>,
         /// Specify other components this component implicitly requires
         #[arg(long, value_delimiter = ',', value_name = "VERSION")]
         requires: Vec<String>,
@@ -209,7 +212,23 @@ impl Cli {
 
                 write_manifest(&manifest, &self.manifest_path)
             },
-            Command::AddComponent { channel, name, authority, kind, requires } => {
+            Command::AddComponent {
+                channel,
+                name,
+                authority,
+                kind,
+                profiles,
+                requires,
+            } => {
+                // `legacy-package` exists only so that channels 0.9-0.15, which ship packages
+                // extracted from Rust crates, remain installable. It is closed to new authoring:
+                // packages are prebuilt from here on.
+                if matches!(kind, ComponentKind::LegacyPackage { .. }) {
+                    bail!(
+                        "'legacy-package' is deprecated and closed to new channels - packages \
+                         must ship prebuilt artifacts; use 'package' instead"
+                    );
+                }
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
                 };
@@ -224,7 +243,7 @@ impl Cli {
                     name: name.clone().into(),
                     version: authority.clone(),
                     kind: kind.clone(),
-                    profiles: vec![],
+                    profiles: profiles.clone(),
                     requires: requires.clone(),
                     artifacts: Default::default(),
                     // A newly authored component has no fields this build does not understand.
@@ -250,6 +269,22 @@ impl Cli {
                 if channel.get_component(name.as_str()).is_none() {
                     bail!("unknown component '{name}' for toolchain '{}'", channel.name);
                 }
+
+                // Removing a component that something else still requires would leave the channel
+                // unresolvable, which install would only discover much later.
+                let dependents: Vec<&str> = channel
+                    .components
+                    .iter()
+                    .filter(|c| c.name != name.as_str() && c.requires.iter().any(|r| r == name))
+                    .map(|c| c.name.as_ref())
+                    .collect();
+                if !dependents.is_empty() {
+                    bail!(
+                        "cannot remove component '{name}': it is still required by {}",
+                        dependents.join(", ")
+                    );
+                }
+
                 channel.components.retain_mut(|c| c.name != name.as_str());
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
