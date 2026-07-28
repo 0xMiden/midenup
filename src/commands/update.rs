@@ -10,9 +10,10 @@ use crate::{
     channel::{Channel, MigrationStrategy, UpstreamChannel, UpstreamMatch, UserChannel},
     commands::{self},
     config::Config,
-    manifest::{Component, Manifest},
+    manifest::Component,
     options::{InstallationOptions, PathUpdate, UpdateOptions},
     profile::Profile,
+    state::LocalState,
     version::Authority,
 };
 
@@ -20,21 +21,18 @@ use crate::{
 pub fn update(
     config: &Config,
     channel_type: Option<&UserChannel>,
-    local_manifest: &mut Manifest,
+    state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let last_updated = local_manifest.last_updated();
     match channel_type {
         Some(UserChannel::Stable) => {
-            let local_stable = local_manifest.get_latest_stable().context(
-                "No stable version was found. To install it, try running:
+            let local_stable =
+                state.latest_stable().map(|installation| installation.as_channel()).context(
+                    "No stable version was found. To install it, try running:
 midenup install stable
 ",
-            )?;
-            println!(
-                "syncing channel updates for stable (last update was {last_updated} as {})",
-                local_stable.name
-            );
+                )?;
+            println!("syncing channel updates for stable (installed as {})", local_stable.name);
             let upstream_stable = config
                 .manifest
                 .get_latest_stable()
@@ -83,22 +81,19 @@ midenup install stable
                 };
 
                 let install_options = InstallationOptions::from(*options);
-                commands::install(config, &channel_to_install, local_manifest, &install_options)?
+                commands::install(config, &channel_to_install, state, &install_options)?
             } else {
                 println!("Nothing to update, you are all up to date");
             }
         },
         Some(UserChannel::Version(version)) => {
             // Check if any individual component changed since the last the manifest was synced
-            let local_channel = local_manifest
-                .get_channel(&UserChannel::Version(version.clone()))
-                .context(format!("ERROR: No installed channel found with version {version}"))?
-                .clone();
+            let local_channel = state
+                .get(version)
+                .map(|installation| installation.as_channel())
+                .context(format!("ERROR: No installed channel found with version {version}"))?;
 
-            println!(
-                "syncing channel updates for {} (last update was {last_updated})",
-                local_channel.name
-            );
+            println!("syncing channel updates for {}", local_channel.name);
 
             let upstream_counterpart =
                 local_channel.find_upstream_counterpart(config).context(format!(
@@ -108,12 +103,13 @@ midenup install stable
 
             println!("upstream last updated on {}", config.manifest.last_updated());
 
-            update_channel(config, &local_channel, &upstream_counterpart, local_manifest, options)?
+            update_channel(config, &local_channel, &upstream_counterpart, state, options)?
         },
         None => {
             // Update all toolchains
             let mut channels_to_update = Vec::new();
-            for local_channel in local_manifest.get_channels() {
+            for local_channel in state.installations.iter().map(|i| i.as_channel()) {
+                let local_channel = &local_channel;
                 let upstream_counterpart = local_channel.find_upstream_counterpart(config);
 
                 let Some(upstream_channel) = upstream_counterpart else {
@@ -130,12 +126,9 @@ midenup install stable
             }
 
             for (local_channel, upstream_channel) in channels_to_update {
-                println!(
-                    "syncing channel updates for {} (last update was {last_updated})",
-                    local_channel.name
-                );
+                println!("syncing channel updates for {}", local_channel.name);
                 println!("upstream last updated on {}", config.manifest.last_updated());
-                update_channel(config, &local_channel, &upstream_channel, local_manifest, options)?;
+                update_channel(config, &local_channel, &upstream_channel, state, options)?;
             }
         },
         Some(UserChannel::Nightly) => todo!(),
@@ -169,7 +162,7 @@ fn update_channel(
     config: &Config,
     local_channel: &Channel,
     upstream_channel: &UpstreamChannel,
-    local_manifest: &mut Manifest,
+    state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     let update = match compute_update(local_channel, upstream_channel, options)? {
@@ -200,13 +193,13 @@ fn update_channel(
         components_to_uninstall,
     };
 
-    commands::install(config, &channel_to_install, local_manifest, &install_options)?;
+    commands::install(config, &channel_to_install, state, &install_options)?;
 
     if let Some(channel_to_install) = channel_to_uninstall {
         // If the update were to be interrupted before the uninstall finishes,
         // re-running `midenup update` would finish the process.
         // This does mean that channel migration is a non-atomic operation.
-        commands::uninstall(config, &channel_to_install, local_manifest)?;
+        commands::uninstall(config, &channel_to_install, state)?;
     };
 
     Ok(())

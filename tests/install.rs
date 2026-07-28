@@ -1,7 +1,7 @@
 use std::{ffi::OsString, fs::OpenOptions};
 
 use clap::Parser;
-use midenup::{channel, commands::Midenup, manifest::ComponentKind, miden_wrapper, utils, version};
+use midenup::{commands::Midenup, manifest::ComponentKind, miden_wrapper, utils, version};
 
 mod common;
 
@@ -23,41 +23,38 @@ fn integration_install_stable() {
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
-    // After install is executed, the local manifest should be present
-    let manifest = test_env.midenup_home.join("manifest").with_extension("json");
-    assert!(manifest.exists());
+    // After install, local state must record the installation.
+    let state_file = test_env.midenup_home.join("state").with_extension("json");
+    assert!(state_file.exists(), "install must write local state");
 
     let stable_dir = test_env.midenup_home.join("toolchains").join("stable");
     assert!(stable_dir.exists());
     assert!(stable_dir.is_symlink());
 
-    let stable_channel = local_manifest
+    // `stable` is not persisted in local state -- it is a property of the upstream manifest and a
+    // derived symlink on disk. Assert on the symlink, and that state records the version it names.
+    let stable_version = config
+        .manifest
         .get_latest_stable()
-        .expect("No stable channel found; despite having installed stable");
-
-    // We test if the in-memory representation of the local manifest contains the stable alias
-    assert_eq!(stable_channel.alias, Some(channel::ChannelAlias::Stable));
-
-    // We read the filesystem again, to check that the "stable" alias was correclty saved
+        .expect("upstream must declare a stable channel")
+        .name
+        .clone();
     assert_eq!(
-        local_manifest
-            .get_channels()
-            .next()
-            .expect(
-                "ERROR: The local_manifest in the filesystem has no alias, when it should have \
-                 stable alias"
-            )
-            .alias
-            .as_ref()
-            .expect(
-                "ERROR: The installed stable toolchain should be marked as stable in the local \
-                 manifest"
-            ),
-        &channel::ChannelAlias::Stable
+        std::fs::read_link(&stable_dir).unwrap().file_name().unwrap(),
+        std::ffi::OsStr::new(&stable_version.to_string()),
+        "the stable symlink must point at the upstream stable channel"
     );
+    assert!(
+        local_manifest.get(&stable_version).is_some(),
+        "local state must record the installed stable channel"
+    );
+
+    // Re-read from disk to confirm it was actually persisted, not just held in memory.
+    let reloaded = midenup::state::LocalState::load(&state_file).expect("state must reload");
+    assert!(reloaded.get(&stable_version).is_some());
 }
 
 /// Validates that midenup manages to install components with [Authority]s different than
@@ -88,14 +85,14 @@ fn integration_install_from_non_cargo() {
     // We install stable
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     let (time_when_installed, hash_when_installed) = {
         let stable_channel = local_manifest
-            .get_latest_stable()
+            .latest_stable()
             .expect("No stable channel found; despite having installed stable")
-            .clone();
+            .as_channel();
 
         let vm_from_path = stable_channel.get_component("vm").unwrap();
         let last_modification = match vm_from_path.version {
@@ -125,14 +122,14 @@ fn integration_install_from_non_cargo() {
     // changed.
     let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update");
 
     let (new_time, new_revision) = {
         let stable_channel = local_manifest
-            .get_latest_stable()
+            .latest_stable()
             .expect("No stable channel found; despite having installed stable")
-            .clone();
+            .as_channel();
 
         let vm_from_path = stable_channel.get_component("vm").unwrap();
         let last_modification = match vm_from_path.version {
@@ -181,14 +178,14 @@ fn integration_install_from_non_cargo() {
 
     let command = Midenup::try_parse_from(["midenup", "update", "--path-update=all"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update");
 
     let (new_time, new_revision) = {
         let stable_channel = local_manifest
-            .get_latest_stable()
+            .latest_stable()
             .expect("No stable channel found; despite having installed stable")
-            .clone();
+            .as_channel();
 
         let vm_from_path = stable_channel.get_component("vm").unwrap();
         let last_modification = match vm_from_path.version {
@@ -239,7 +236,7 @@ fn integration_install_stable_installs_packages() {
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     let lib = test_env.midenup_home.join("toolchains").join("stable").join("lib");
@@ -286,7 +283,7 @@ fn integration_install_creates_default_symlinks() {
 
     Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     let opt = test_env.midenup_home.join("toolchains").join("stable").join("opt");
@@ -326,13 +323,13 @@ fn integration_test_components_are_runnable() {
     let command =
         Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     let stable_channel = local_manifest
-        .get_latest_stable()
+        .latest_stable()
         .expect("No stable channel found after installing stable")
-        .clone();
+        .as_channel();
 
     println!("Installed: {}", stable_channel);
 

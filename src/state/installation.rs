@@ -126,4 +126,18 @@ impl Installation {
     pub fn is_managed(&self) -> bool {
         matches!(self.publication, PublicationRef::Managed { .. })
     }
+
+    /// A channel view of the installed component snapshot.
+    ///
+    /// Command dispatch, alias resolution and uninstall all reason in terms of a channel. The
+    /// snapshot is what makes that possible without the network: everything those paths need was
+    /// recorded at install time.
+    pub fn as_channel(&self) -> crate::manifest::Channel {
+        crate::manifest::Channel::new(
+            self.channel.clone(),
+            None,
+            self.components.clone(),
+            Vec::new(),
+        )
+    }
 }

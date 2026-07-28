@@ -10,11 +10,13 @@ use anyhow::{Context, bail};
 use serde::Deserialize;
 
 use crate::{
-    channel::{Channel, ChannelAlias},
+    channel::Channel,
     commands,
     config::Config,
-    manifest::{ComponentKind, InstallationMethod, Manifest, PackageInstallationMethod},
+    manifest::{ComponentKind, InstallationMethod, PackageInstallationMethod},
     options::InstallationOptions,
+    resolve::Intent,
+    state::{Installation, LocalState, PublicationId, PublicationRef},
     utils,
     version::{Authority, GitTarget},
 };
@@ -23,7 +25,7 @@ use crate::{
 pub fn install(
     config: &Config,
     channel: &Channel,
-    local_manifest: &mut Manifest,
+    state: &mut LocalState,
     options: &InstallationOptions,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
@@ -185,37 +187,26 @@ pub fn install(
             .expect("Couldn't create stable dir");
     }
 
-    // Update local manifest
-    let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
+    // Record what was installed.
+    //
+    // The component snapshot is pinned here rather than referencing the upstream manifest: `miden`
+    // dispatch reads it offline, and update needs to know what was *actually* installed, not what
+    // upstream happens to say now.
     {
-        // Check if the installed channel needs to marked as stable
-        let mut channel_to_save = if is_latest_stable {
-            let mut modifiable = channel.clone();
-            modifiable.alias = Some(ChannelAlias::Stable);
-            modifiable
-        } else {
-            channel.clone()
-        };
+        let mut installed_components = channel.components.clone();
 
-        // Next, we determine how the component got installed.
-        //
-        // A component could have been installed either by cargo install (i.e. "from source") or via
-        // a pre-compiled artifact.
-        // We can only *truly* determine how it got installed after the fact.
-        for component in channel_to_save.components.iter_mut() {
+        // How a component was really obtained can only be known after the fact.
+        for component in installed_components.iter_mut() {
             match &component.version {
-                // If a component was installed with --branch, then write down the current commit.
-                //
-                // This is used on updates to check if any new commits were pushed since
-                // installation.
+                // A branch is not a fixed point, so record the commit that was actually installed;
+                // update compares against it to decide whether new commits have landed.
                 Authority::Git {
                     repository_url,
                     subpath,
                     target: GitTarget::Branch { name, .. },
                 } => {
-                    // If, for whatever reason, we fail to find the latest hash, we simply leave it
-                    // empty. That does mean that an update will be triggered even if the component
-                    // does not need it.
+                    // Leaving this empty on failure means an update is triggered unnecessarily,
+                    // which is the safe direction to fail in.
                     let revision_hash = utils::git::find_latest_hash(repository_url, name).ok();
 
                     component.version = Authority::Git {
@@ -229,9 +220,7 @@ pub fn install(
                 },
                 Authority::Git { .. } => (),
                 Authority::Path { path, .. } => {
-                    // If a component was installed with --path, then write down the latest
-                    // modification time found inside the directory (or the current time as a
-                    // fallback). This is used on updates to check if anything changed.
+                    // Record the tree's modification time so update can tell whether it changed.
                     let path = if path.is_absolute() {
                         Cow::Borrowed(path.as_path())
                     } else {
@@ -250,24 +239,27 @@ pub fn install(
             }
         }
 
-        // Now that the channels have been updated, add them to the local manifest.
-        local_manifest.add_channel(channel_to_save);
+        // Intent is carried by the caller; installs that predate intent tracking record the
+        // profile they were performed with. M3-T3 replaces this with union/replace semantics.
+        let intent = Intent {
+            profiles: [options.profile].into_iter().collect(),
+            roots: Default::default(),
+        };
+
+        state.upsert(Installation {
+            channel: channel.name.clone(),
+            intent,
+            components: installed_components,
+            publication: PublicationRef::Managed {
+                id: PublicationId::generate(),
+                plan_key,
+                target: config.target().to_string(),
+            },
+            installed_at: chrono::Utc::now().timestamp(),
+        });
     }
 
-    let mut local_manifest_file =
-        std::fs::File::create(&local_manifest_path).with_context(|| {
-            format!(
-                "failed to create file for local manifest at '{}'",
-                local_manifest_path.display()
-            )
-        })?;
-    local_manifest_file
-        .write_all(
-            serde_json::to_string_pretty(&local_manifest)
-                .context("Couldn't serialize local manifest")?
-                .as_bytes(),
-        )
-        .context("Couldn't create local manifest file")?;
+    config.write_local_state(state)?;
 
     Ok(())
 }
@@ -841,7 +833,7 @@ mod tests {
             working_directory: PathBuf::from("/tmp"),
             midenup_home: PathBuf::from("/tmp/midenup"),
             cargo_home: PathBuf::from("/tmp/cargo"),
-            manifest: Manifest::default(),
+            manifest: crate::manifest::Manifest::default(),
             debug: true,
             target: Cow::Borrowed("aarch64-apple-darwin"),
         }

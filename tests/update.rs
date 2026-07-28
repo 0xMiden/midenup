@@ -1,5 +1,5 @@
 use clap::Parser;
-use midenup::{channel, commands::Midenup, version};
+use midenup::{commands::Midenup, version};
 
 mod common;
 
@@ -25,13 +25,13 @@ fn integration_update_test() {
     // We begin by initializing the midenup directory
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to initialize");
 
     // Now, we install stable. That is going to be version 0.14.0
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     // Now, we re-generate the config with a newer manifest that contains version 0.15.0. This
@@ -43,7 +43,7 @@ fn integration_update_test() {
     // Now, we update stable. The stable symlink should point to version 0.15.0
     let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update stable");
 
     // The original toolchain should still exist
@@ -84,7 +84,7 @@ fn integration_update_test() {
 
     let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update");
 
     // We check that the stable symlink still exits and is pointing to 0.15.0.
@@ -109,11 +109,14 @@ fn integration_update_test() {
     */
     assert!(!toolchain_v15.join("lib").join("core.masp").exists());
 
-    let std_version = &local_manifest
-        .get_channel(&channel::UserChannel::Version(semver::Version::new(0, 14, 0)))
-        .expect("Couldn't find toolchain 0.14.0 in local manifest")
-        .get_component("core")
-        .expect("Couldn't find core library despite being listed in manifest.")
+    let installed_0_14 = local_manifest
+        .get(&semver::Version::new(0, 14, 0))
+        .expect("Couldn't find toolchain 0.14.0 in local state");
+    let std_version = &installed_0_14
+        .components
+        .iter()
+        .find(|c| c.name == "core")
+        .expect("Couldn't find core library despite being listed in local state.")
         .version;
 
     assert!(
@@ -134,7 +137,7 @@ fn integration_update_test() {
     // toolchain.
     let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update stable");
 
     let toolchain_v16 = toolchain_dir.join("0.16.0");

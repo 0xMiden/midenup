@@ -25,7 +25,7 @@ fn integration_miden_test() {
     // case of the manifest present in FILE, that is version 0.16.0.
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
     // After this, `midenup` should:
@@ -55,14 +55,14 @@ fn integration_miden_test() {
     // to 0.15.0.
     let command = Midenup::try_parse_from(["midenup", "override", "0.15.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to override toolchain");
 
     // This should also trigger an install, since toolchain 0.15.0 is missing and is now the
     // active toolchain.
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
     let older_toolchain = toolchain_dir.join("0.15.0");
@@ -75,13 +75,13 @@ fn integration_miden_test() {
     // the manifest present in FILE, that is version 0.16.0.
     let command = Midenup::try_parse_from(["midenup", "set", "0.14.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to set local toolchain");
 
     // This should also trigger an install, since toolchain 0.14.0 is now missing
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
     let oldest_toolchain = toolchain_dir.join("0.14.0");
@@ -97,7 +97,9 @@ fn integration_miden_test() {
     // Besides creating the various directories, the local manifest should also reflect this
     // structure
     local_manifest
-        .get_channels()
+        .installations
+        .iter()
+        .map(|i| i.as_channel())
         .map(|channel| channel.name.clone())
         .eq(installed_toolchains);
 }
@@ -128,7 +130,7 @@ fn integration_miden_toolchain_toml() {
     // left empty.
     let command = Midenup::try_parse_from(["midenup", "set", "0.16.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to set local toolchain");
 
     // There should now be a `miden-toolchain.toml` file in the PWD.
@@ -138,14 +140,13 @@ fn integration_miden_toolchain_toml() {
     // `miden` should now install the minimal profile components for 0.16.0
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
     let toolchain_dir = test_env.midenup_home.join("toolchains");
     assert!(toolchain_dir.exists());
 
-    let installed_channel =
-        local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
+    let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
     assert_eq!(installed_channel.components.len(), 1);
 
     // Now, we'll add the optional debugger component to the list.
@@ -158,13 +159,11 @@ fn integration_miden_toolchain_toml() {
     // - The core library as it is a dependency for the debugger
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
-    let installed_channel = local_manifest
-        .get_channel_by_name(&semver::Version::new(0, 16, 0))
-        .unwrap()
-        .clone();
+    let installed_channel =
+        local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap().as_channel();
 
     // VM, debugger and core library
     assert_eq!(installed_channel.components.len(), 3);
@@ -173,7 +172,7 @@ fn integration_miden_toolchain_toml() {
     // components and ignore the rest.
     let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update stable toolchain");
 
     // No components should have been added
@@ -183,12 +182,11 @@ fn integration_miden_toolchain_toml() {
     // remaining components.
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable toolchain");
 
     // Now, the entire toolchain should be installed
-    let installed_channel =
-        local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
+    let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
     assert_eq!(installed_channel.components.len(), 4);
 }
 
@@ -209,7 +207,7 @@ fn integration_midenup_catches_installation_failure() {
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
     // After install is executed, the local manifest should be present
     let manifest = test_env.midenup_home.join("manifest").with_extension("json");

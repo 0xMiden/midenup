@@ -13,10 +13,10 @@ use crate::{
     channel::{Channel, Tags, UserChannel},
     commands,
     config::Config,
-    manifest::Manifest,
     options::InstallationOptions,
     profile::Profile,
     resolve::Intent,
+    state::LocalState,
 };
 
 /// Represents a `miden-toolchain.toml` file.
@@ -113,7 +113,7 @@ impl Toolchain {
 
     pub fn ensure_current_is_installed(
         config: &Config,
-        local_manifest: &mut Manifest,
+        state: &mut LocalState,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
@@ -156,16 +156,13 @@ impl Toolchain {
         ));
         let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
 
-        if let Some(installed_channel) =
-            local_manifest.get_channel_by_name(&channel_to_install.name)
-        {
+        if let Some(installed) = state.get(&channel_to_install.name) {
             let required_components: HashSet<&str> = HashSet::from_iter(
                 channel_to_install.components.iter().map(|comp| comp.name.as_ref()),
             );
 
-            let installed_components: HashSet<&str> = HashSet::from_iter(
-                installed_channel.components.iter().map(|comp| comp.name.as_ref()),
-            );
+            let installed_components: HashSet<&str> =
+                HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
 
             let missing_components: Vec<_> =
                 required_components.difference(&installed_components).collect();
@@ -205,7 +202,7 @@ impl Toolchain {
             ..Default::default()
         };
 
-        commands::install(config, channel_to_install, local_manifest, &options)?;
+        commands::install(config, channel_to_install, state, &options)?;
 
         // Now installed
         Ok((current_toolchain, justification, partial_channel))

@@ -3,7 +3,7 @@ use colored::Colorize;
 
 use crate::{
     config::Config,
-    manifest::Manifest,
+    state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
 };
 
@@ -22,7 +22,7 @@ pub enum ShowCommand {
 }
 
 impl ShowCommand {
-    pub fn execute(&self, config: &Config, local_manifest: &Manifest) -> anyhow::Result<()> {
+    pub fn execute(&self, config: &Config, state: &LocalState) -> anyhow::Result<()> {
         match self {
             Self::Current { verbose } => {
                 let (toolchain, justification) = Toolchain::current(config)?;
@@ -62,17 +62,15 @@ impl ShowCommand {
                 Ok(())
             },
             Self::List => {
-                let channels = local_manifest.get_channels();
+                let channels = state.installations.iter().map(|i| i.as_channel());
                 let stable_toolchain = config.manifest.get_latest_stable();
 
                 let toolchains_display: Vec<_> = channels
                     .map(|channel| {
-                        (
-                            &channel.name,
-                            stable_toolchain
-                                .as_ref()
-                                .is_some_and(|stable| stable.name == channel.name),
-                        )
+                        let is_stable = stable_toolchain
+                            .as_ref()
+                            .is_some_and(|stable| stable.name == channel.name);
+                        (channel.name.clone(), is_stable)
                     })
                     .map(|(channel_name, is_stable)| match (channel_name, is_stable) {
                         (name, false) => format!("{name}"),

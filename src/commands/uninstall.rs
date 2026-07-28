@@ -1,6 +1,5 @@
 use std::{
     ffi::OsStr,
-    io::Write,
     path::{Path, PathBuf},
 };
 
@@ -12,7 +11,8 @@ use crate::{
     artifact::InvalidArtifactError,
     channel::Channel,
     config::Config,
-    manifest::{Component, ComponentKind, InstallationMethod, Manifest, PackageInstallationMethod},
+    manifest::{Component, ComponentKind, InstallationMethod, PackageInstallationMethod},
+    state::LocalState,
 };
 
 #[derive(Error, Debug)]
@@ -36,14 +36,10 @@ pub enum UninstallError {
 pub fn uninstall(
     config: &Config,
     upstream_channel: &Channel,
-    local_manifest: &mut Manifest,
+    state: &mut LocalState,
 ) -> anyhow::Result<()> {
-    let Some(local_channel) = local_manifest.get_channel_by_name(&upstream_channel.name).cloned()
-    else {
-        bail!(
-            "Channel {} is not in the local manifest, nothing to uninstall.",
-            upstream_channel.name
-        );
+    let Some(local_channel) = state.get(&upstream_channel.name).map(|i| i.as_channel()) else {
+        bail!("channel {} is not installed, nothing to uninstall", upstream_channel.name);
     };
 
     let toolchains_dir = config.midenup_home.join("toolchains");
@@ -94,26 +90,10 @@ pub fn uninstall(
         std::fs::remove_file(&toolchain_symlink)?;
     }
 
-    // We remove the channel from the local manifest.
-    // This is what *REALLY* marks the channel as uninstalled.
+    // Removing the state record is what *really* marks the channel as uninstalled.
     {
-        local_manifest.remove_channel(local_channel.name.clone());
-
-        let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
-        let mut local_manifest_file =
-            std::fs::File::create(&local_manifest_path).with_context(|| {
-                format!(
-                    "failed to create file for install script at '{}'",
-                    local_manifest_path.display()
-                )
-            })?;
-        local_manifest_file
-            .write_all(
-                serde_json::to_string_pretty(&local_manifest)
-                    .context("Couldn't serialize local manifest")?
-                    .as_bytes(),
-            )
-            .context("Couldn't create local manifest file")?;
+        state.remove(&local_channel.name);
+        config.write_local_state(state)?;
     }
 
     Ok(())

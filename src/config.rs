@@ -8,7 +8,8 @@ use anyhow::{Context, bail};
 
 use crate::{
     channel::Channel,
-    manifest::{Manifest, ManifestError, VersionedManifest},
+    manifest::{Manifest, VersionedManifest},
+    state::LocalState,
     toolchain::Toolchain,
     utils,
 };
@@ -83,44 +84,19 @@ impl Config {
         self.target.as_ref()
     }
 
-    pub fn local_manifest_path(&self) -> PathBuf {
-        self.midenup_home.join("manifest").with_extension("json")
+    /// Where local installation state lives.
+    pub fn state_path(&self) -> PathBuf {
+        self.midenup_home.join("state").with_extension("json")
     }
 
-    /// Get the [Manifest] for locally installed toolchains
-    pub fn local_manifest(&self) -> anyhow::Result<Manifest> {
-        let local_manifest_path = self.local_manifest_path();
-        let local_manifest_uri = format!(
-            "file://{}",
-            local_manifest_path.to_str().context("Couldn't convert miden directory")?,
-        );
-        match VersionedManifest::load_from(local_manifest_uri) {
-            Ok(manifest) => Ok(manifest),
-            Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
-            Err(err) => Err(err),
-        }
-        .context("unable to load local manifest")
+    /// Reads what this machine has installed.
+    pub fn local_state(&self) -> anyhow::Result<LocalState> {
+        LocalState::load(&self.state_path()).context("unable to load local state")
     }
 
-    /// Write `manifest` as the locally-managed `manifest.json` file
-    pub fn write_local_manifest(&self, manifest: &Manifest) -> anyhow::Result<()> {
-        let path = self.local_manifest_path();
-        let tmp_path = path.with_added_extension("tmp");
-        let mut file = std::fs::File::create(&tmp_path).with_context(|| {
-            format!("failed to update local manifest: writing '{}' failed", tmp_path.display())
-        })?;
-        serde_json::to_writer_pretty(&mut file, manifest)
-            .context("failed to update local manifest")?;
-
-        std::fs::rename(&tmp_path, &path).with_context(|| {
-            format!(
-                "failed to update local manifest: renaming '{}' -> '{}' failed",
-                tmp_path.display(),
-                path.display()
-            )
-        })?;
-
-        Ok(())
+    /// Writes local installation state, refusing to commit anything that cannot be read back.
+    pub fn write_local_state(&self, state: &LocalState) -> anyhow::Result<()> {
+        state.save(&self.state_path()).context("unable to write local state")
     }
 
     pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {

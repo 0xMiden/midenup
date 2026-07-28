@@ -149,7 +149,7 @@ impl Commands {
     pub fn execute(
         &self,
         config: &config::Config,
-        local_manifest: &mut manifest::Manifest,
+        state: &mut crate::state::LocalState,
     ) -> anyhow::Result<()> {
         match &self {
             Self::Init => {
@@ -157,27 +157,25 @@ impl Commands {
                 Ok(())
             },
             Self::List => {
-                list(config, local_manifest);
+                list(config, state);
                 Ok(())
             },
             Self::Install { channel, options } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                install(config, channel, local_manifest, options)
+                install(config, channel, state, options)
             },
             Self::Uninstall { channel, .. } => {
                 let Some(channel) = config.manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                uninstall(config, channel, local_manifest)
+                uninstall(config, channel, state)
             },
-            Self::Update { channel, options } => {
-                update(config, channel.as_ref(), local_manifest, options)
-            },
-            Self::Show(cmd) => cmd.execute(config, local_manifest),
+            Self::Update { channel, options } => update(config, channel.as_ref(), state, options),
+            Self::Show(cmd) => cmd.execute(config, state),
             Self::Set { channel } => set(config, channel),
-            Self::Override { channel } => r#override(config, local_manifest, channel),
+            Self::Override { channel } => r#override(config, state, channel),
         }
     }
 }
@@ -273,34 +271,28 @@ impl Midenup {
 
     /// Execute this session with the provided configuration.
     pub fn execute(&self, config: &config::Config) -> anyhow::Result<()> {
-        let mut local_manifest = config.local_manifest()?;
-
-        // Update the local manifest file if it is using an older schema
-        if local_manifest.manifest_version() < &crate::manifest::MANIFEST_VERSION {
-            config.write_local_manifest(&local_manifest)?;
-        }
-
-        self.execute_with_manifest(config, &mut local_manifest)
+        let mut state = config.local_state()?;
+        self.execute_with_state(config, &mut state)
     }
 
     /// Execute this session with the provided configuration and local manifest
-    pub fn execute_with_manifest(
+    pub fn execute_with_state(
         &self,
         config: &config::Config,
-        local_manifest: &mut manifest::Manifest,
+        state: &mut crate::state::LocalState,
     ) -> anyhow::Result<()> {
         use crate::miden_wrapper;
 
         match &self.behavior {
             Behavior::Miden(argv) => {
-                miden_wrapper::miden_wrapper(argv, config, local_manifest)
+                miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
             },
             Behavior::Midenup { config: global_args, command: subcommand } => {
                 if global_args.version {
                     println!("{}", miden_wrapper::display_version(config));
                 } else if let Some(subcommand) = subcommand {
-                    subcommand.execute(config, local_manifest)?;
+                    subcommand.execute(config, state)?;
                 } else {
                     bail!("no subcommand provided. Run `midenup --help` for usage information.")
                 }

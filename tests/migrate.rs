@@ -24,13 +24,13 @@ fn integration_channel_migration_test() {
     // Initialize midenup
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to initialize");
 
     // Install stable (0.20.3)
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     // Check that binaries are installed in the bin directory
@@ -46,7 +46,7 @@ fn integration_channel_migration_test() {
     // Perform global update
     let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update");
 
     // Check 1: Components installed in 0.13.0 directory

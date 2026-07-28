@@ -5,7 +5,7 @@ use crate::{
     channel::UserChannel,
     commands,
     config::Config,
-    manifest::Manifest,
+    state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
 };
@@ -17,7 +17,7 @@ use crate::{
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 pub fn r#override(
     config: &Config,
-    _local_manifest: &Manifest,
+    _state: &LocalState,
     channel: &UserChannel,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;

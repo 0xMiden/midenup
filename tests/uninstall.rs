@@ -24,7 +24,7 @@ fn integration_install_uninstall_test() {
     // We begin by initializing the midenup directory
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to initialize");
 
     // We check that the basic midenup directory structure is present
@@ -38,7 +38,7 @@ fn integration_install_uninstall_test() {
     // This should install version 0.16.0, since it's the latest available stable toolchain
     // present in FILE
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     let latest_toolchain = toolchain_dir.join("0.16.0");
@@ -56,7 +56,7 @@ fn integration_install_uninstall_test() {
     // Now we install a separate toolchain.
     let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install 0.15.0");
 
     // This should install toolchain version 0.15.0.
@@ -75,14 +75,16 @@ fn integration_install_uninstall_test() {
     // Besides creating the various directories, the local manifest should also reflect this
     // structure
     local_manifest
-        .get_channels()
+        .installations
+        .iter()
+        .map(|i| i.as_channel())
         .map(|channel| channel.name.clone())
         .eq(installed_toolchains);
 
     // Now, we'll uninstall 0.16.0.
     let command = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to uninstall 0.16.0");
 
     // Afterwards, both the 0.16.0 directory and the `stable` symlink should be deleted.
@@ -101,7 +103,9 @@ fn integration_install_uninstall_test() {
     // Besides creating the various directories, the local manifest should also reflect this
     // structure
     local_manifest
-        .get_channels()
+        .installations
+        .iter()
+        .map(|i| i.as_channel())
         .map(|channel| channel.name.clone())
         .eq(installed_toolchains);
 }

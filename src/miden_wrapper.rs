@@ -7,7 +7,8 @@ pub use crate::config::Config;
 use crate::{
     channel::Channel,
     exec::Executable,
-    manifest::{Component, ComponentKind, ExecutableComponent, Manifest},
+    manifest::{Component, ComponentKind, ExecutableComponent},
+    state::LocalState,
     toolchain::Toolchain,
 };
 
@@ -314,7 +315,7 @@ fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand<'_> {
 pub fn miden_wrapper(
     argv: &[OsString],
     config: &Config,
-    local_manifest: &mut Manifest,
+    state: &mut LocalState,
 ) -> anyhow::Result<()> {
     let matches = build_miden_command().get_matches_from(argv);
 
@@ -336,15 +337,22 @@ pub fn miden_wrapper(
 
     // Make sure we know the current toolchain so we can modify the PATH appropriately
     let (toolchain, _justification, partial_channel) =
-        Toolchain::ensure_current_is_installed(config, local_manifest)?;
+        Toolchain::ensure_current_is_installed(config, state)?;
 
-    let toolchain_environment = {
-        let installed_channel = local_manifest
+    // The active channel is resolved through the *upstream* manifest to map a user-facing name
+    // like `stable` onto a version, then that version is looked up in local state -- which is what
+    // actually records the installed component snapshot.
+    let installed_channel = {
+        let active = config
+            .manifest
             .get_channel(&toolchain.channel)
-            .context("Couldn't find active toolchain in the manifest.")?;
-
-        ToolchainEnvironment::new(installed_channel, partial_channel)
+            .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
+        state
+            .get(&active.name)
+            .map(|installation| installation.as_channel())
+            .with_context(|| format!("channel '{}' is not installed", active.name))?
     };
+    let toolchain_environment = ToolchainEnvironment::new(&installed_channel, partial_channel);
 
     // Whether the user requested help for a specific alias or component (e.g. `miden help
     // compile`). If true, we append "--help" to the resolved command's arguments further down.
