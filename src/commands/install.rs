@@ -334,7 +334,7 @@ fn main() -> ExitCode {
     // Install downloadable components first
     {
         {% for downloadable in downloadable_components %}
-        info(format!("installing {:.<width$}", "{{ downlodable.component }}".white().bold(), width = {{ max_component_width }}));
+        info(format!("installing {:.<width$}", "{{ downloadable.component }}".white().bold(), width = {{ max_component_width }}));
 
         // NOTE: If the file already exists, then we are running an update and we don't need to
         // update this element. We treat failure to detect existence as non-existence, and in cases
@@ -434,9 +434,9 @@ fn main() -> ExitCode {
 
     // We install the 'miden <name>' symlinks
     let opt_dir = miden_sysroot_dir.join("opt");
-    let symlinks = &[
+    let symlinks: &[(&str, &str)] = &[
     {%- for link in symlinks %}
-        ("{{ link.alias }}", "{{ link.binary }}")
+        ("{{ link.alias }}", "{{ link.binary }}"),
     {%- endfor %}
     ];
     for (alias, binary) in symlinks {
