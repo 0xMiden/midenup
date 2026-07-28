@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// An installable component of a toolchain
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Component {
     /// The canonical name of this toolchain component.
     pub name: Cow<'static, str>,

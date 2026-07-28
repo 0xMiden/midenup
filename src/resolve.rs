@@ -21,11 +21,13 @@ use crate::{
 /// one with no profiles and explicit roots, which already yields the intended behaviour -- new
 /// dependencies of those roots are picked up, unrelated new profile members are not -- without a
 /// second concept.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Intent {
     /// Profiles observed across every activation and direct install for this channel.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub profiles: BTreeSet<Profile>,
     /// Components named explicitly.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub roots: BTreeSet<String>,
 }
 

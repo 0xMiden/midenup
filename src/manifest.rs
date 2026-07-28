@@ -36,6 +36,14 @@ pub enum ManifestError {
     #[error("channel manifest v{0} requires a newer version of midenup")]
     OutdatedMidenup(semver::Version),
     #[error(
+        "expected a {expected} document but found a {found} document; midenup keeps these \
+         separate and will not read one as the other"
+    )]
+    WrongDocumentType {
+        expected: &'static str,
+        found: &'static str,
+    },
+    #[error(
         "missing or malformed `{0}` field: every manifest and state document must declare its \
          schema version as a semantic version string"
     )]
@@ -66,6 +74,17 @@ impl VersionedManifest {
 
     /// Parses a channel manifest from `content`, and returns it in canonical form.
     pub fn parse_str(content: &str) -> Result<Manifest, ManifestError> {
+        // Name the mistake rather than reporting a missing field. The two documents are kept
+        // deliberately distinct, so confusing them is a recognizable error in its own right.
+        if version::read_version_header(content, "state_version").is_ok()
+            && version::read_version_header(content, "manifest_version").is_err()
+        {
+            return Err(ManifestError::WrongDocumentType {
+                expected: "channel manifest",
+                found: "local state",
+            });
+        }
+
         let header = version::read_version_header(content, "manifest_version")?;
 
         let mut manifest = match version::classify(&header.version, v2::MANIFEST_VERSION.major) {

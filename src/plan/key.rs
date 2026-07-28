@@ -36,6 +36,28 @@ impl PlanKey {
     pub const PREFIX: &'static str = "pk1:";
 }
 
+impl serde::Serialize for PlanKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for PlanKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let raw = String::deserialize(deserializer)?;
+        if !raw.starts_with(Self::PREFIX) {
+            // A key without a recognized algorithm prefix is *unknown*, not merely different --
+            // we cannot compare it meaningfully, so it must not be accepted as one of ours.
+            return Err(D::Error::custom(format!(
+                "unrecognized plan key '{raw}': expected a '{}' prefix",
+                Self::PREFIX
+            )));
+        }
+        Ok(PlanKey(raw))
+    }
+}
+
 impl fmt::Display for PlanKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)

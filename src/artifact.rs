@@ -47,7 +47,7 @@ pub enum InvalidArtifactError {
 }
 
 /// All the artifacts that the [Component] contains.
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Hash, PartialEq)]
 #[serde(transparent)]
 pub struct Artifacts {
     pub(crate) artifacts: BTreeMap<String, Artifact>,
@@ -121,7 +121,7 @@ impl Artifacts {
 /// These URIs have the following format:
 ///
 /// * `(https://|file://)<path>/<component name>(-<triplet>)?(<extension>)`
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq)]
 #[serde(untagged, rename_all = "kebab-case")]
 pub enum Artifact {
     /// An artifact compiled for a specific target
@@ -186,7 +186,7 @@ impl Artifact {
 }
 
 /// The value of user-defined substitutions in [Artifact] definitions
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Hash, PartialEq)]
 pub struct Substitutions {
     /// The basename to use for the artifact, e.g. `foo` in `foo-aarch64-apple-darwin.ext`
     ///
