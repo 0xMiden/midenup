@@ -468,8 +468,11 @@ fn main() -> ExitCode {
     // - A symlink that adds the 'miden ' prefix to the corresponding executable, done in order to
     //   "trick" clap into displaying midenup compatile messages, for more information, see: https://github.com/0xMiden/midenup/pull/73.
     let mut symlinks = Vec::new();
-    let components = channel.component_graph(&options.profile)?;
-    for component in components.toposort()? {
+    // The channel handed to us has already been narrowed to exactly what should be installed,
+    // so resolve against `complete` to take all of it, in dependency order.
+    let components =
+        crate::resolve::resolve(channel, &crate::resolve::Intent::new(&[options.profile], &[]))?;
+    for component in components {
         max_component_width = core::cmp::max(max_component_width, component.name.chars().count());
         match component.kind() {
             // Reaching here means an unknown kind was explicitly selected: this build cannot know

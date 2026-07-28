@@ -12,6 +12,7 @@ pub mod migration;
 pub mod options;
 pub mod plan;
 pub mod profile;
+pub mod resolve;
 mod toolchain;
 pub mod utils;
 pub mod version;

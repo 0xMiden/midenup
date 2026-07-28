@@ -16,6 +16,7 @@ use crate::{
     manifest::Manifest,
     options::InstallationOptions,
     profile::Profile,
+    resolve::Intent,
 };
 
 /// Represents a `miden-toolchain.toml` file.
@@ -133,7 +134,26 @@ impl Toolchain {
             );
         };
 
-        let partial_channel = channel.create_subset(&current_toolchain, &justification);
+        // Resolve the project's declared toolchain into an exact component set. An omitted
+        // profile means `minimal` (Profile::default), and listed components are explicit roots on
+        // top of it.
+        let intent = Intent {
+            profiles: [current_toolchain.profile.unwrap_or_default()].into_iter().collect(),
+            roots: current_toolchain.components.iter().cloned().collect(),
+        };
+        let resolved =
+            crate::resolve::resolve(channel, &intent).with_context(|| match &justification {
+                ToolchainJustification::MidenToolchainFile { path } => {
+                    format!("unable to resolve the toolchain declared in {}", path.display())
+                },
+                _ => format!("unable to resolve the {} toolchain", channel.name),
+            })?;
+        let partial_channel = Some(Channel::new(
+            channel.name.clone(),
+            channel.alias.clone(),
+            resolved.into_iter().cloned().collect(),
+            vec![Tags::Partial],
+        ));
         let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
 
         if let Some(installed_channel) =

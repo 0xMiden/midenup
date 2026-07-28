@@ -132,9 +132,15 @@ impl Cli {
         let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
         match &self.command {
             Command::Check => {
-                // Verify that we can construct the full component graph for each channel
+                // Resolve every channel in full. Unlike the previous `component_graph` call, this
+                // topologically sorts the result, so a requirement cycle is actually detected --
+                // `check` used to build the graph and never sort it, and so accepted cycles.
                 for channel in manifest.get_channels() {
-                    let _graph = channel.component_graph(&Profile::Complete)?;
+                    midenup::resolve::resolve(
+                        channel,
+                        &midenup::resolve::Intent::new(&[Profile::Complete], &[]),
+                    )
+                    .with_context(|| format!("channel {} is not installable", channel.name))?;
                 }
                 Ok(())
             },

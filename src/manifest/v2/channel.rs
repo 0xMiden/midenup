@@ -4,8 +4,6 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::bail;
-use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use super::{Component, ComponentKind};
@@ -14,8 +12,6 @@ use crate::{
     config::Config,
     exec::Executable,
     manifest::{Alias, ManifestError, v2::unknown::Extra},
-    profile::Profile,
-    toolchain::{Toolchain, ToolchainJustification},
 };
 
 /// Represents a specific release channel for a toolchain.
@@ -44,24 +40,6 @@ pub struct Channel {
     /// Safe to derive here: `Channel` has no other flattened field.
     #[serde(flatten)]
     pub extra: Extra,
-}
-
-enum InstallationMotive {
-    ExplicitelySelected,
-    Dependency { comp_name: String },
-}
-
-impl fmt::Display for InstallationMotive {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            InstallationMotive::Dependency { comp_name } => {
-                write!(f, "is a depency of component {comp_name}")
-            },
-            InstallationMotive::ExplicitelySelected => {
-                write!(f, "was explictely selected for installation")
-            },
-        }
-    }
 }
 
 impl Channel {
@@ -228,163 +206,6 @@ impl Channel {
         Ok(aliases)
     }
 
-    /// Get all of the components in this channel that would be installed for `profile`
-    ///
-    /// This returns `Err` if the component graph is invalid due to:
-    ///
-    /// * Invalid references to components that don't exist in the same channel
-    pub fn component_graph(&self, profile: &Profile) -> anyhow::Result<ComponentGraph<'_>> {
-        let mut g = petgraph::graphmap::DiGraphMap::<usize, ()>::default();
-        let install_everything = matches!(profile, Profile::Complete);
-        let mut worklist = Vec::with_capacity(self.components.len());
-        for (i, c) in self.components.iter().enumerate() {
-            if install_everything || c.profiles.contains(profile) {
-                worklist.push(i);
-            }
-        }
-        while let Some(i) = worklist.pop() {
-            g.add_node(i);
-            let c = &self.components[i];
-            for required in c.requires.iter() {
-                let Some(j) =
-                    self.components.iter().position(|c| c.name.as_ref() == required.as_str())
-                else {
-                    bail!(
-                        "invalid requirement on '{required}' by '{}' in the {} channel: no such \
-                         component",
-                        c.name,
-                        self
-                    );
-                };
-                if !g.contains_node(j)
-                    && !install_everything
-                    && !self.components[j].profiles.contains(profile)
-                {
-                    worklist.push(j);
-                }
-                g.add_node(j);
-                g.add_edge(i, j, ());
-            }
-        }
-
-        Ok(ComponentGraph { channel: self, graph: g })
-    }
-
-    /// Creates a "partial channel" from the original channel, given a toolchain "Partial" in this
-    /// context refers to the fact that the channel will not install all the available components,
-    /// but rather a subset.
-    pub fn create_subset(
-        &self,
-        current_toolchain: &Toolchain,
-        toolchain_justification: &ToolchainJustification,
-    ) -> Option<Channel> {
-        let profile = current_toolchain.profile.unwrap_or_default();
-        let mut requested_components = Vec::new();
-        let mut components_to_install: Vec<Component> = Vec::new();
-        let mut components_not_found: HashMap<String, Vec<InstallationMotive>> = HashMap::new();
-
-        match profile {
-            Profile::Empty | Profile::Minimal => {
-                // Select components that are
-                requested_components.extend(self.components.iter().filter_map(|c| {
-                    if c.profiles.contains(&profile) {
-                        Some(c.name.as_ref())
-                    } else {
-                        None
-                    }
-                }));
-                for extra_component in current_toolchain.components.iter() {
-                    if !requested_components.contains(&extra_component.as_str()) {
-                        requested_components.push(extra_component.as_str());
-                    }
-                }
-            },
-            Profile::Complete => {
-                // Select all components from the manifest
-                requested_components.extend(self.components.iter().map(|c| c.name.as_ref()));
-                // We add any non-duplicate extra components here so that we can catch invalid
-                // components below
-                for extra_component in current_toolchain.components.iter() {
-                    if !requested_components.contains(&extra_component.as_str()) {
-                        requested_components.push(extra_component.as_str());
-                    }
-                }
-            },
-        }
-
-        for component_name in requested_components {
-            let Some(component) = self.get_component(component_name) else {
-                // NOTE: In order to provide more helpful error messages, we collect all the missing
-                // components and return a single error message at the end.
-                components_not_found
-                    .entry(component_name.to_string())
-                    .or_default()
-                    .push(InstallationMotive::ExplicitelySelected);
-
-                continue;
-            };
-            components_to_install.push(component.clone());
-
-            for depenency_name in &component.requires {
-                let Some(dependency) = self.get_component(depenency_name) else {
-                    components_not_found.entry(depenency_name.to_string()).or_default().push(
-                        InstallationMotive::Dependency { comp_name: component_name.to_string() },
-                    );
-                    continue;
-                };
-
-                if !components_to_install.iter().any(|c| c.name == dependency.name) {
-                    components_to_install.push(dependency.clone());
-                }
-            }
-        }
-        if !components_not_found.is_empty() {
-            println!(
-                "{}: Some elements present in the current Toolchain are not present in the \
-                 upstream channel: {}",
-                "WARNING".yellow().bold(),
-                self.name
-            );
-            println!();
-
-            for (missing_component_name, motive) in components_not_found {
-                let motives = motive
-                    .iter()
-                    .map(|motive| motive.to_string())
-                    .collect::<Vec<String>>()
-                    .join(" and ");
-
-                println!(
-                    "- {missing_component_name}, which {motives}, is missing in upstream channel"
-                );
-            }
-
-            println!();
-            println!("These components will be ignored for the current install.");
-            println!();
-            // TODO: Add messages for the other justifications
-            #[allow(clippy::single_match)]
-            match toolchain_justification {
-                ToolchainJustification::MidenToolchainFile { path } => println!(
-                    "Check the `miden_toolchain.toml` file in {} to see if any component is \
-                     misspelled or got removed from upstream",
-                    path.display()
-                ),
-                _ => (),
-            }
-        }
-
-        let partial_channel = Channel {
-            name: self.name.clone(),
-            alias: self.alias.clone(),
-            tags: vec![Tags::Partial],
-            components: components_to_install,
-            extra: Default::default(),
-        };
-
-        Some(partial_channel)
-    }
-
     /// Checks wheter the channel [other] is Self's upstream counterpart.
     /// Currently this can happen in two scenarios:
     /// - They share the same name (i.e. version).
@@ -448,23 +269,6 @@ impl fmt::Display for Channel {
                 write!(f, "nightly-{}{}", self.name, nightly_suffix)
             },
             None => write!(f, "{}", self.name),
-        }
-    }
-}
-
-pub struct ComponentGraph<'a> {
-    channel: &'a Channel,
-    graph: petgraph::graphmap::DiGraphMap<usize, ()>,
-}
-
-impl<'a> ComponentGraph<'a> {
-    pub fn toposort(&self) -> anyhow::Result<impl Iterator<Item = &'a Component>> {
-        match petgraph::algo::toposort(&self.graph, None) {
-            Ok(sorted) => Ok(sorted.into_iter().map(|c| &self.channel.components[c])),
-            Err(cycle) => bail!(
-                "invalid component graph: cycle is formed due to requirements of '{}'",
-                self.channel.components[cycle.node_id()].name.as_ref()
-            ),
         }
     }
 }
