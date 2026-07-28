@@ -85,8 +85,13 @@ enum Command {
         /// Updates the version/authority of the component
         #[arg(long, value_name = "SPEC", value_parser)]
         authority: Authority,
-        /// The component kind and associated metadata
-        #[arg(long, value_name = "SPEC", value_parser)]
+        /// The component kind and associated metadata, as a JSON merge patch
+        ///
+        /// The parser is explicit because clap resolves `serde_json::Value` through its
+        /// `From<String>` impl -- which yields `Value::String` -- before ever considering
+        /// `FromStr`. A string patch then *replaces* the target under RFC 7386 rather than
+        /// merging into it.
+        #[arg(long, value_name = "SPEC", value_parser = parse_json_object)]
         kind: Option<serde_json::Value>,
         /// Adds profiles that should include this component by default
         #[arg(long, value_name = "SPEC", value_parser)]
@@ -109,6 +114,26 @@ enum Command {
         )]
         keep_existing_requires: bool,
     },
+}
+
+/// Parses a CLI argument as a JSON object.
+fn parse_json_object(raw: &str) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|err| format!("invalid JSON: {err}"))?;
+    if !value.is_object() {
+        return Err(format!(
+            "expected a JSON object, got {}",
+            match &value {
+                serde_json::Value::Null => "null",
+                serde_json::Value::Bool(_) => "a boolean",
+                serde_json::Value::Number(_) => "a number",
+                serde_json::Value::String(_) => "a string",
+                serde_json::Value::Array(_) => "an array",
+                serde_json::Value::Object(_) => unreachable!(),
+            }
+        ));
+    }
+    Ok(value)
 }
 
 fn main() -> ExitCode {
@@ -265,10 +290,13 @@ impl Cli {
                 if !*keep_existing_requires {
                     component.requires = requires.clone();
                 }
-                if let Some(mut kind) = kind.clone() {
-                    let prev = serde_json::to_value(component.kind.clone())?;
-                    json_patch::merge(&mut kind, &prev);
-                    match serde_json::from_value::<ComponentKind>(kind) {
+                if let Some(kind) = kind.clone() {
+                    // `json_patch::merge(target, patch)` applies `patch` onto `target`. The
+                    // existing value is the target and the user's partial is the patch -- the
+                    // reverse silently discarded every requested change.
+                    let mut merged = serde_json::to_value(component.kind.clone())?;
+                    json_patch::merge(&mut merged, &kind);
+                    match serde_json::from_value::<ComponentKind>(merged) {
                         Ok(merged) => {
                             component.kind = merged;
                         },
