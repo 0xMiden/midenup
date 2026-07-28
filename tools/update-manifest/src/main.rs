@@ -132,9 +132,19 @@ impl Cli {
         let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
         match &self.command {
             Command::Check => {
-                // Resolve every channel in full. Unlike the previous `component_graph` call, this
-                // topologically sorts the result, so a requirement cycle is actually detected --
-                // `check` used to build the graph and never sort it, and so accepted cycles.
+                // Structural validation first: it reports every problem in one pass, which is
+                // what an authoring tool should do. Loading the manifest does NOT run this --
+                // see the module docs on src/manifest/validate.rs.
+                if let Err(errors) = midenup::manifest::validate::validate_manifest(&manifest) {
+                    for error in errors.iter() {
+                        eprintln!("error: {error}");
+                    }
+                    bail!("manifest failed validation with {} error(s)", errors.len());
+                }
+
+                // Then confirm each channel actually resolves. Unlike the previous
+                // `component_graph` call this topologically sorts, so requirement cycles are
+                // detected -- `check` used to build the graph and never sort it.
                 for channel in manifest.get_channels() {
                     midenup::resolve::resolve(
                         channel,

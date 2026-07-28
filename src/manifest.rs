@@ -1,5 +1,6 @@
 pub(crate) mod v1;
 pub(crate) mod v2;
+pub mod validate;
 pub mod version;
 
 use std::path::Path;
