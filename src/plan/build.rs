@@ -92,6 +92,13 @@ pub enum PlanStep {
         owner: String,
         /// Recorded in the receipt, never verified. See [crate::artifact::Digest].
         digest: Option<Digest>,
+        /// What to do instead if the transfer fails (spec section 9.3).
+        ///
+        /// Only a `prebuilt-with-cargo-fallback` component has one, and the planner only ever
+        /// puts a [PlanStep::CargoBuild] here. It is a whole step rather than a bag of Cargo
+        /// arguments so that the executor needs no second construction path -- and so a test can
+        /// substitute a cheaper step to exercise the fallback itself.
+        fallback: Option<Box<PlanStep>>,
     },
     /// Copy from the local filesystem.
     CopyLocal {
@@ -99,6 +106,9 @@ pub enum PlanStep {
         dest: PathBuf,
         mode: u32,
         owner: String,
+        /// As [PlanStep::Download::fallback]. A `file://` artifact can be missing just as a
+        /// download can 404, and the declared fallback is what makes either recoverable.
+        fallback: Option<Box<PlanStep>>,
     },
     /// Build with `cargo install`.
     CargoBuild {
@@ -142,6 +152,16 @@ impl PlanStep {
             | Self::CopyLocal { dest, .. }
             | Self::CargoBuild { dest, .. }
             | Self::ExtractPackage { dest, .. } => dest,
+        }
+    }
+
+    /// The step to run instead if this one fails, if any.
+    pub fn fallback(&self) -> Option<&PlanStep> {
+        match self {
+            Self::Download { fallback, .. } | Self::CopyLocal { fallback, .. } => {
+                fallback.as_deref()
+            },
+            Self::CargoBuild { .. } | Self::ExtractPackage { .. } => None,
         }
     }
 
@@ -340,8 +360,28 @@ fn plan_component(
                     rustup_channel,
                     features,
                 } => match available.into_iter().next() {
+                    // The artifact is what will be installed, but the declared fallback travels
+                    // with the step: an artifact that 404s at execution time is exactly the
+                    // situation the fallback exists for.
                     Some((id, uri)) => {
-                        push_transfer(component, &id, uri, destination, steps, inputs)
+                        let fallback = PlanStep::CargoBuild {
+                            crate_name: crate_name.clone(),
+                            authority: authority.clone(),
+                            features: features.clone(),
+                            rustup_channel: rustup_channel.clone(),
+                            expect_binary: executable.to_string(),
+                            dest: destination.path.clone(),
+                            owner: component.name.to_string(),
+                        };
+                        push_transfer_with_fallback(
+                            component,
+                            &id,
+                            uri,
+                            destination,
+                            steps,
+                            inputs,
+                            Some(fallback),
+                        )
                     },
                     // The declared fallback is exactly what makes missing target support
                     // recoverable rather than fatal.
@@ -484,7 +524,26 @@ fn push_transfer(
     steps: &mut Vec<PlanStep>,
     inputs: &mut ComponentInputs,
 ) {
+    push_transfer_with_fallback(component, id, uri, destination, steps, inputs, None)
+}
+
+/// As [push_transfer], with a step to run if the transfer fails.
+///
+/// The fallback deliberately contributes nothing to the plan key. It describes what would happen
+/// in a failure that has not occurred; the installed bytes are the same either way, and letting a
+/// latent alternative change the key would reclassify every existing `prebuilt-with-cargo-fallback`
+/// installation as changed.
+fn push_transfer_with_fallback(
+    component: &Component,
+    id: &str,
+    uri: ArtifactUri,
+    destination: Destination,
+    steps: &mut Vec<PlanStep>,
+    inputs: &mut ComponentInputs,
+    fallback: Option<PlanStep>,
+) {
     let digest = component.artifacts.artifacts.get(id).and_then(|a| a.digest().cloned());
+    let fallback = fallback.map(Box::new);
     inputs.artifacts.push((id.to_string(), uri.to_string()));
 
     steps.push(match uri {
@@ -493,6 +552,7 @@ fn push_transfer(
             dest: destination.path,
             mode: destination.mode,
             owner: component.name.to_string(),
+            fallback,
         },
         ArtifactUri::Http(uri) => PlanStep::Download {
             uri,
@@ -500,6 +560,7 @@ fn push_transfer(
             mode: destination.mode,
             owner: component.name.to_string(),
             digest,
+            fallback,
         },
     });
 }
@@ -716,6 +777,24 @@ mod tests {
         )])
         .expect("should plan");
         assert!(matches!(&plan.steps[0], PlanStep::Download { .. }));
+    }
+
+    /// ...but the declared fallback still travels with the transfer. An artifact that is listed
+    /// for this target and then 404s at execution time is exactly what the fallback is for
+    /// (spec section 9.3), and the executor cannot construct one on its own -- it holds no
+    /// manifest.
+    #[test]
+    fn a_supported_target_still_carries_the_fallback_on_the_transfer_step() {
+        let plan = plan_of(vec![component(
+            "vm",
+            executable_kind(fallback("miden-vm"), "miden-vm"),
+            &[("miden-vm", specific("https://example.invalid/%target", &[TARGET]))],
+        )])
+        .expect("should plan");
+
+        let fallback = plan.steps[0].fallback().expect("the transfer must carry its fallback");
+        assert!(matches!(fallback, PlanStep::CargoBuild { expect_binary, dest, .. }
+            if expect_binary == "miden-vm" && dest == plan.steps[0].dest()));
     }
 
     #[test]

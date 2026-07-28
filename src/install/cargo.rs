@@ -424,6 +424,7 @@ mod tests {
             mode: 0o755,
             owner: "x".to_string(),
             digest: None,
+            fallback: None,
         };
         assert!(argv_for(&step, Path::new("/s"), false, true).is_empty());
         build(&step, Path::new("/s"), false, true).expect("a download is not a build");

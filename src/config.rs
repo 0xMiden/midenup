@@ -86,7 +86,7 @@ impl Config {
 
     /// Where local installation state lives.
     pub fn state_path(&self) -> PathBuf {
-        self.midenup_home.join("state").with_extension("json")
+        crate::paths::state_path(&self.midenup_home)
     }
 
     /// Reads what this machine has installed.
@@ -149,7 +149,7 @@ impl Config {
     }
 
     pub fn toolchain_dir(&self, channel: &Channel) -> PathBuf {
-        self.midenup_home.join("toolchains").join(channel.name.to_string())
+        crate::paths::toolchain_link(&self.midenup_home, &channel.name)
     }
 
     /// Executes a command.

@@ -13,6 +13,7 @@ use crate::{
     commands,
     config::Config,
     options::{InstallationOptions, IntentUpdate},
+    paths,
     resolve::Intent,
     state::{Installation, LocalState, PublicationId, PublicationRef},
     utils,
@@ -28,75 +29,64 @@ pub fn install(
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_dir = toolchains_dir.join(format!("{}", channel.name));
+    let home = &config.midenup_home;
+    let toolchains_dir = paths::toolchains_dir(home);
+    let toolchain_link = paths::toolchain_link(home, &channel.name);
 
-    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    // The plan is the single description of what will be installed where; the key is derived
-    // from it, so directory naming and the recorded identity cannot disagree.
-    //
-    // Interim directory naming: M5 replaces this with an opaque publication id. Until then the
-    // name must differ whenever the installed content would differ, which is what the key
-    // measures. The key is sysroot-independent, so building the plan against the toolchains
-    // directory rather than the not-yet-known install directory does not affect it.
+    // Every install produces a *new* publication, named opaquely. Nothing may infer identity from
+    // the name: a name derived from the plan key would invite treating equal keys as equal bytes,
+    // which nothing verifies.
+    let publication_id = PublicationId::generate();
+    let publication = paths::publication_dir(home, &channel.name, &publication_id);
+    let relative_publication = PathBuf::from("..")
+        .join("publications")
+        .join(publication.file_name().expect("named"));
+
     let selection = crate::resolve::Intent {
         profiles: [options.profile].into_iter().collect(),
         roots: options.components.iter().cloned().collect(),
     };
-    let plan_key =
-        crate::plan::build_plan(channel, &selection, config.target(), &installed_toolchains_dir)?
-            .key;
-    let install_dir_name =
-        format!("{}-{}", channel.name, plan_key.to_string().trim_start_matches("pk1:"));
-    let install_dir = installed_toolchains_dir.join(&install_dir_name);
+    let plan = crate::plan::build_plan(channel, &selection, config.target(), &publication)?;
 
-    // Relative path to the newly installed channel directory.
-    let relative_install_target =
-        PathBuf::from("..").join("installed_toolchains").join(&install_dir_name);
+    // What the publication being replaced owns, if this build published it. Only a receipt can
+    // say; a directory listing cannot distinguish installed content from anything else that
+    // happens to be there.
+    let previous = previous_publication(config, state, &channel.name);
+    let stale: Vec<String> =
+        options.components_to_uninstall.iter().map(|c| c.name.to_string()).collect();
 
-    // If the install directory already exists; then that means we are re-issuing
-    // an install. That's probably because the installation got interrumpted
-    // mid way through.
-    if !install_dir.exists() {
-        std::fs::create_dir_all(&install_dir).with_context(|| {
-            format!("failed to create install directory: '{}'", install_dir.display())
-        })?;
-        // If a previous install of this channel exists, reuse the components.
-        // For more context behind this, see the [[update_channel]] function
-        // documentation.
-        if toolchain_dir.exists() {
-            utils::fs::copy_dir_recursive(&toolchain_dir, &install_dir, &[]).with_context(
-                || {
-                    format!(
-                        "failed to seed install directory '{}' from previous install at '{}'",
-                        install_dir.display(),
-                        toolchain_dir.display()
-                    )
-                },
-            )?;
-
-            commands::uninstall::uninstall_components(
-                &install_dir,
-                &options.components_to_uninstall,
-                config,
-            )?;
-        }
+    crate::install::prepare(&publication)?;
+    if let Some((previous_dir, receipt)) = &previous {
+        crate::install::seed(
+            &plan,
+            &publication,
+            &crate::install::Seed {
+                publication: previous_dir,
+                receipt,
+                stale: &stale,
+            },
+        )?;
     }
 
-    // Build the plan against the real staging directory. The key was computed above from a plan
-    // rooted elsewhere, which is safe because the key is sysroot-independent by construction --
-    // otherwise naming the directory after the key would be circular.
-    let plan = crate::plan::build_plan(channel, &selection, config.target(), &install_dir)?;
-
-    crate::install::prepare(&install_dir)?;
-    crate::install::execute(&plan, &install_dir, options.verbose, config.debug)?;
+    let realized = crate::install::execute(&plan, &publication, options.verbose, config.debug)?;
 
     // Structural check before anything is published: every planned file exists, is a regular
     // file, and carries the planned mode. Contents are not verified -- digests are recorded but
     // never checked -- so this asserts the plan was carried out, not what was installed.
-    crate::install::verify(&plan, &install_dir)?;
+    crate::install::verify(&plan, &publication)?;
 
-    let temp_symlink = installed_toolchains_dir.join(format!("{}.new", channel.name));
+    // The receipt makes the publication self-describing: from here on, what it owns is a fact
+    // recorded inside it rather than something re-derived from a manifest that may have moved on.
+    let receipt = crate::publish::receipt_for(
+        &plan,
+        &publication,
+        &publication_id,
+        &realized,
+        previous.as_ref().map(|(_, receipt)| receipt),
+    );
+    crate::publish::write_receipt(&publication, &receipt)?;
+
+    let temp_symlink = paths::publications_dir(home).join(format!("{}.new", channel.name));
     if std::fs::symlink_metadata(&temp_symlink).is_ok() {
         std::fs::remove_file(&temp_symlink).with_context(|| {
             format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
@@ -105,20 +95,20 @@ pub fn install(
 
     // ======================== Installation finalized  ===========================
 
-    // tmp_link is a symlink file that points to relative_install_target. Even
-    // if tmp_link file is moved, it will still point to relative_install_target.
+    // tmp_link is a symlink file that points to the new publication. Even if tmp_link is moved, it
+    // will still point there.
     // For further reference on atomic directory updates, see:
     // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
-    utils::fs::symlink(&temp_symlink, &relative_install_target)?;
+    utils::fs::symlink(&temp_symlink, &relative_publication)?;
 
-    // We now rename tmp_link to toolchain_dir. When renamed, it will still be
-    // pointing to relative_install_target. If the channel directory existed, it
-    // will overwrite the file. This is what marks the install as completed.
-    std::fs::rename(&temp_symlink, &toolchain_dir).with_context(|| {
+    // We now rename tmp_link onto the channel's toolchain link. When renamed, it will still be
+    // pointing to the new publication. If the channel link existed, it is overwritten. This is
+    // what marks the install as completed.
+    std::fs::rename(&temp_symlink, &toolchain_link).with_context(|| {
         format!(
             "failed to publish toolchain symlink '{}' -> '{}'",
-            toolchain_dir.display(),
-            relative_install_target.display()
+            toolchain_link.display(),
+            relative_publication.display()
         )
     })?;
 
@@ -213,8 +203,8 @@ pub fn install(
             intent,
             components: installed_components,
             publication: PublicationRef::Managed {
-                id: PublicationId::generate(),
-                plan_key,
+                id: publication_id,
+                plan_key: plan.key.clone(),
                 target: config.target().to_string(),
             },
             installed_at: chrono::Utc::now().timestamp(),
@@ -224,6 +214,26 @@ pub fn install(
     config.write_local_state(state)?;
 
     Ok(())
+}
+
+/// The publication this install is replacing, and what it owns.
+///
+/// `None` when the channel is not installed, was carried over from v1 (so nothing describes it),
+/// or its receipt is unreadable. In every one of those cases the correct behaviour is the same:
+/// seed nothing and install from scratch. Guessing ownership from a directory listing is what this
+/// exists to avoid.
+fn previous_publication(
+    config: &Config,
+    state: &LocalState,
+    channel: &semver::Version,
+) -> Option<(PathBuf, crate::state::Receipt)> {
+    let installation = state.get(channel)?;
+    let PublicationRef::Managed { id, .. } = &installation.publication else {
+        return None;
+    };
+    let dir = paths::publication_dir(&config.midenup_home, channel, id);
+    let receipt = crate::publish::read_receipt(&dir).ok()?;
+    Some((dir, receipt))
 }
 
 #[allow(unused)]

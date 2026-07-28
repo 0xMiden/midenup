@@ -115,6 +115,170 @@ fn integration_install_creates_default_symlinks() {
     );
 }
 
+/// An installation is published into `publications/<channel>-<publication-id>`, described by a
+/// receipt, and reached only through the `toolchains/<channel>` symlink.
+///
+/// The id is opaque: nothing may infer identity from the directory name, because equal plan keys
+/// are not evidence of equal bytes and a name derived from one would invite reusing the other's
+/// content.
+#[test]
+fn integration_install_publishes_into_an_opaque_publication_with_a_receipt() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_publishes");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    let channel = semver::Version::new(0, 15, 0);
+    let installed = state.get(&channel).expect("the install must be recorded");
+    let midenup::state::PublicationRef::Managed { id, plan_key, .. } = &installed.publication
+    else {
+        panic!("a fresh install must produce a managed publication");
+    };
+
+    let publication = midenup::paths::publication_dir(&test_env.midenup_home, &channel, id);
+    assert!(publication.is_dir(), "{} must exist", publication.display());
+    assert!(
+        !publication.to_string_lossy().contains(&plan_key.to_string()[4..12]),
+        "the publication must not be named after the plan key"
+    );
+
+    // The toolchain link is the only stable name; everything else reaches the publication through
+    // it, which is what lets the publication behind it be replaced atomically.
+    let link = test_env.midenup_home.join("toolchains").join("0.15.0");
+    assert_eq!(
+        std::fs::canonicalize(&link).unwrap(),
+        std::fs::canonicalize(&publication).unwrap()
+    );
+
+    let receipt = midenup::publish::read_receipt(&publication).expect("a receipt must be written");
+    assert_eq!(receipt.publication_id, *id);
+    assert_eq!(&receipt.plan_key, plan_key);
+    assert!(
+        receipt.outputs.iter().any(|o| o.path == std::path::Path::new("bin/miden-vm")
+            && o.owner == "vm"
+            && o.realized == midenup::state::RealizedMethod::Prebuilt),
+        "the receipt must record every installed file and how it was obtained: {:?}",
+        receipt.outputs
+    );
+}
+
+/// Adding a component publishes a *new* publication, seeded from the old one's receipt, and leaves
+/// the old publication untouched -- a publication is immutable once published.
+#[test]
+fn integration_install_republishes_rather_than_mutating() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_republishes");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let channel = semver::Version::new(0, 15, 0);
+
+    let publication_of =
+        |state: &LocalManifest| match &state.get(&channel).expect("installed").publication {
+            midenup::state::PublicationRef::Managed { id, .. } => {
+                midenup::paths::publication_dir(&test_env.midenup_home, &channel, id)
+            },
+            other => panic!("expected a managed publication, got {other:?}"),
+        };
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+    let first = publication_of(&state);
+
+    // The `complete` profile adds `assets`, which the minimal install did not have.
+    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to reinstall");
+    let second = publication_of(&state);
+
+    assert_ne!(first, second, "a changed installed set must produce a new publication");
+    assert!(first.is_dir(), "the previous publication must not be mutated or removed");
+    assert!(
+        second.join("lib").join("core.masp").exists(),
+        "unchanged files must be seeded from the previous publication"
+    );
+    assert!(
+        second.join("etc").join("assets").join("config.yml").exists(),
+        "the added component must be installed"
+    );
+}
+
+/// Spec section 9.3: when a `prebuilt-with-cargo-fallback` component's artifact cannot be
+/// acquired, midenup builds it from source instead, and the receipt records which path was really
+/// taken -- uninstall has to match the method that was actually used.
+#[test]
+fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_fallback");
+
+    let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
+    let manifest = serde_json::json!({
+        "manifest_version": "2.0.0",
+        "date": 1735689600,
+        "channels": [{
+            "name": "0.15.0",
+            "components": [{
+                "name": "vm",
+                "version": {"kind": "path", "path": sources.path_crate.to_str().unwrap()},
+                "kind": "executable",
+                "installation_method": {
+                    "kind": "prebuilt-with-cargo-fallback",
+                    "crate_name": "fixture-vm"
+                },
+                "installed-executable": "miden-vm",
+                "profiles": ["minimal"],
+                // Declared for this target, and absent from the filesystem: available at planning
+                // time, unavailable at execution time, which is precisely the case the fallback
+                // exists for.
+                "artifacts": {"miden-vm": {"uri": "file:///nonexistent/miden-vm"}}
+            }]
+        }]
+    });
+    let manifest_path = test_env.tmp_dir.path().join("fallback-manifest.json");
+    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+
+    let (mut state, config) = test_setup(&test_env, &format!("file://{}", manifest_path.display()));
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("a failed transfer with a declared fallback must not fail the install");
+
+    let channel = semver::Version::new(0, 15, 0);
+    let midenup::state::PublicationRef::Managed { id, .. } =
+        &state.get(&channel).expect("installed").publication
+    else {
+        panic!("expected a managed publication");
+    };
+    let publication = midenup::paths::publication_dir(&test_env.midenup_home, &channel, id);
+
+    assert!(
+        publication.join("bin").join("miden-vm").exists(),
+        "the fallback must install it"
+    );
+
+    let receipt = midenup::publish::read_receipt(&publication).unwrap();
+    let vm = receipt
+        .outputs
+        .iter()
+        .find(|o| o.owner == "vm")
+        .expect("the receipt must record the binary");
+    assert_eq!(
+        vm.realized,
+        midenup::state::RealizedMethod::Cargo,
+        "the receipt must record the method actually taken, not the one declared"
+    );
+}
+
 /// `path` and `git` authorities must be recorded at install time and re-checked on update.
 ///
 /// The behaviour under test is update *detection*: midenup records a path's modification time and

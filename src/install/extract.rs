@@ -167,6 +167,7 @@ mod tests {
             mode: 0o755,
             owner: "x".to_string(),
             digest: None,
+            fallback: None,
         };
         assert!(render_script(&[download]).is_none(), "downloads need no script");
     }

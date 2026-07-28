@@ -51,16 +51,17 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
 /// $MIDENUP_HOME
 /// |- toolchains/
 /// | |- stable     --> <channel>
-/// | |- <channel>  --> ../installed_toolchains/<channel>-<hash>
-/// |- installed_toolchains/
-/// | |- <channel>-<hash>/
+/// | |- <channel>  --> ../publications/<channel>-<publication-id>
+/// |- publications/
+/// | |- <channel>-<publication-id>/
+/// | | |- receipt.json
 /// | | |- bin/
 /// | | |- lib/
 /// | | | |- std.masp
 /// | | |- opt/
 /// | | |- var/
 /// |- config.toml
-/// |- manifest.json
+/// |- state.json
 /// ```
 ///
 /// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
@@ -86,7 +87,7 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         state = InitializationState::Initialized;
     }
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchains_dir = crate::paths::toolchains_dir(&config.midenup_home);
     if !toolchains_dir.exists() {
         std::fs::create_dir_all(&toolchains_dir).map_err(|e| {
             InitializationError::DirectoryCreation(toolchains_dir.clone(), e.to_string())
@@ -94,10 +95,10 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         state = InitializationState::Initialized;
     }
 
-    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    if !installed_toolchains_dir.exists() {
-        std::fs::create_dir_all(&installed_toolchains_dir).map_err(|e| {
-            InitializationError::DirectoryCreation(installed_toolchains_dir.clone(), e.to_string())
+    let publications_dir = crate::paths::publications_dir(&config.midenup_home);
+    if !publications_dir.exists() {
+        std::fs::create_dir_all(&publications_dir).map_err(|e| {
+            InitializationError::DirectoryCreation(publications_dir.clone(), e.to_string())
         })?;
         state = InitializationState::Initialized;
     }

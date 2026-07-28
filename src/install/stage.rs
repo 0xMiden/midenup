@@ -1,10 +1,16 @@
 //! Building a staged installation tree and checking it before it is published.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::{Path, PathBuf},
+};
+
+use colored::Colorize;
 
 use crate::{
     install::{CargoError, ExecError, ExtractError},
     plan::{InstallationPlan, PlanStep},
+    state::{RealizedMethod, Receipt},
     utils,
 };
 
@@ -35,6 +41,32 @@ pub enum StageError {
     },
     #[error("the shim '{path}' was not created")]
     MissingSymlink { path: PathBuf },
+    #[error("failed to carry '{path}' forward from the previous installation: {source}")]
+    Seed {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("component '{owner}' declares a fallback that cannot be executed as one")]
+    UnsupportedFallback { owner: String },
+}
+
+/// How each destination in a staged tree was actually produced.
+pub type Realized = BTreeMap<PathBuf, RealizedMethod>;
+
+/// The publication a new one is being built from.
+///
+/// Seeding is what makes an update cheap -- unchanged files are copied rather than re-fetched --
+/// but it is also how an update can silently carry stale content forward, so it is scoped
+/// deliberately: only files the previous receipt *owns*, only those the new plan still wants, and
+/// never those of a component known to have changed.
+pub struct Seed<'a> {
+    /// The previous publication's directory.
+    pub publication: &'a Path,
+    /// What that publication owns. Nothing outside it is carried forward, whatever is on disk.
+    pub receipt: &'a Receipt,
+    /// Components whose files must be re-acquired rather than reused.
+    pub stale: &'a [String],
 }
 
 /// The subdirectories every staged tree has.
@@ -51,38 +83,118 @@ pub fn prepare(into: &Path) -> Result<(), StageError> {
     Ok(())
 }
 
+/// Copies forward everything `from` owns that the new plan still wants.
+///
+/// Deliberately *not* a directory copy. The previous implementation copied the old toolchain tree
+/// wholesale, which carried forward anything that had ever landed there -- files from components
+/// since removed upstream, leftovers from an interrupted install, Cargo's own bookkeeping -- and
+/// left no way to tell inherited content from installed content. The receipt is the ownership
+/// record, so it is the only thing consulted here.
+pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(), StageError> {
+    let wanted: HashSet<&Path> = plan.steps.iter().map(|step| step.dest()).collect();
+
+    for output in &from.receipt.outputs {
+        if from.stale.iter().any(|name| name == &output.owner) {
+            continue;
+        }
+
+        let dest = into.join(&output.path);
+        if !wanted.contains(dest.as_path()) {
+            // Not part of the new installation. Omitting it here is how components removed
+            // upstream stop being installed.
+            continue;
+        }
+
+        let src = from.publication.join(&output.path);
+        // A missing source is not a failure: the step below simply acquires it instead. Refusing
+        // to proceed would turn a partially cleaned-up publication into an unrecoverable one.
+        if !src.is_file() {
+            continue;
+        }
+
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
+        }
+        std::fs::copy(&src, &dest)
+            .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
+    }
+
+    carry_var_forward(from.publication, into)
+}
+
+/// Carries `var/` from the previous publication into the new one.
+///
+/// `var/` holds mutable component-owned state -- most importantly the Miden client's database,
+/// reached as `%var(data)` -- and it lives *inside* the publication, so a publication swap would
+/// otherwise strand it. This is an interim measure: M5-T5 moves `var/` to
+/// `$MIDENUP_HOME/var/<channel>`, where it is outside the publication entirely and neither copying
+/// nor stranding is possible. Until then, copying is the only option that does not lose data.
+fn carry_var_forward(previous: &Path, into: &Path) -> Result<(), StageError> {
+    let src = previous.join("var");
+    if !src.is_dir() {
+        return Ok(());
+    }
+    let dest = into.join("var");
+    std::fs::create_dir_all(&dest)
+        .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
+    utils::fs::copy_dir_recursive(&src, &dest, &[]).map_err(|err| StageError::Seed {
+        path: dest,
+        source: std::io::Error::other(err.to_string()),
+    })
+}
+
 /// Runs every step of `plan` into `staging_root`, then creates the `opt/` shims.
 ///
-/// A step whose destination already exists is skipped. That is what makes an update cheap: the
-/// tree is seeded from the previous installation and only the components that actually changed
-/// were removed beforehand, so everything still present is current.
+/// A step whose destination already exists is skipped: it was seeded from the previous
+/// publication, and [seed] only carries forward what is still current.
 ///
 /// The check is against the step's *exact* destination. Testing a containing directory instead is
 /// what previously caused every package download to be skipped -- `lib/` exists as soon as the
 /// tree is prepared, so the check was always true.
+///
+/// Returns how each destination was actually produced, which is not always what the plan declared:
+/// see [PlanStep::fallback].
 pub fn execute(
     plan: &InstallationPlan,
     staging_root: &Path,
     verbose: bool,
     debug: bool,
-) -> Result<(), StageError> {
+) -> Result<Realized, StageError> {
     let mut pending_extractions = Vec::new();
+    let mut realized = Realized::new();
 
     for step in &plan.steps {
         if step.dest().exists() {
             continue;
         }
 
-        match step {
-            PlanStep::Download { .. } | PlanStep::CopyLocal { .. } => {
-                crate::install::acquire(step)?;
-            },
-            PlanStep::CargoBuild { .. } => {
-                crate::install::cargo_build(step, staging_root, verbose, debug)?;
-            },
-            // Collected so that every package sharing a crate is extracted by one script.
-            PlanStep::ExtractPackage { .. } => pending_extractions.push(step.clone()),
+        // Collected so that every package sharing a crate is extracted by one script.
+        if matches!(step, PlanStep::ExtractPackage { .. }) {
+            pending_extractions.push(step.clone());
+            continue;
         }
+
+        let method = match run(step, staging_root, verbose, debug) {
+            Ok(method) => method,
+            Err(err) => {
+                // A declared Cargo fallback is what makes an unavailable artifact recoverable
+                // rather than fatal. Only one retry: if the build fails too, the original
+                // acquisition failure is not the interesting one.
+                let Some(fallback) = step.fallback() else {
+                    return Err(err);
+                };
+                println!(
+                    "{}: could not acquire {}: {err}",
+                    "warning".yellow().bold(),
+                    step.owner().white().bold(),
+                );
+                println!("building {} from source instead", step.owner().white().bold());
+                run(fallback, staging_root, verbose, debug)?
+            },
+        };
+
+        realized.insert(step.dest().to_path_buf(), method);
     }
 
     if !pending_extractions.is_empty() {
@@ -90,9 +202,38 @@ pub fn execute(
         crate::install::extract(&pending_extractions, &script)?;
         // The script is a build artefact, not part of the toolchain.
         let _ = std::fs::remove_file(&script);
+        for step in &pending_extractions {
+            realized.insert(step.dest().to_path_buf(), RealizedMethod::Extracted);
+        }
     }
 
-    create_symlinks(plan, staging_root)
+    create_symlinks(plan, staging_root)?;
+
+    Ok(realized)
+}
+
+/// Performs one step, reporting how its output was produced.
+fn run(
+    step: &PlanStep,
+    staging_root: &Path,
+    verbose: bool,
+    debug: bool,
+) -> Result<RealizedMethod, StageError> {
+    match step {
+        PlanStep::Download { .. } | PlanStep::CopyLocal { .. } => {
+            crate::install::acquire(step)?;
+            Ok(RealizedMethod::Prebuilt)
+        },
+        PlanStep::CargoBuild { .. } => {
+            crate::install::cargo_build(step, staging_root, verbose, debug)?;
+            Ok(RealizedMethod::Cargo)
+        },
+        // Extractions are batched into a single generated script, so one cannot be run alone --
+        // which also means one can never be a fallback.
+        PlanStep::ExtractPackage { .. } => {
+            Err(StageError::UnsupportedFallback { owner: step.owner().to_string() })
+        },
+    }
 }
 
 /// Creates the `opt/` shims described by the plan.
@@ -178,6 +319,7 @@ mod tests {
         plan::{MODE_DATA, MODE_EXECUTABLE, build_plan},
         profile::Profile,
         resolve::Intent,
+        state::Output,
         version::Authority,
     };
 
@@ -371,5 +513,236 @@ mod tests {
             b"marked",
             "an existing file must not be re-fetched"
         );
+    }
+
+    /// A previous publication with `bin/miden-vm`, `lib/core.masp` and a file it does not own.
+    fn previous_publication(root: &Path) -> (PathBuf, Receipt) {
+        let dir = root.join("previous");
+        prepare(&dir).unwrap();
+        std::fs::write(dir.join("bin").join("miden-vm"), b"old-binary").unwrap();
+        std::fs::write(dir.join("lib").join("core.masp"), b"old-package").unwrap();
+        std::fs::write(dir.join("lib").join("stray.masp"), b"nobody-owns-me").unwrap();
+
+        let output = |path: PathBuf, owner: &str, mode| Output {
+            path,
+            owner: owner.to_string(),
+            mode,
+            realized: RealizedMethod::Prebuilt,
+            digest: None,
+        };
+
+        let receipt = Receipt {
+            publication_id: crate::state::PublicationId::generate(),
+            plan_key: serde_json::from_str(&format!("\"pk1:{}\"", "a".repeat(64))).unwrap(),
+            target: TARGET.to_string(),
+            channel: semver::Version::new(0, 15, 0),
+            outputs: vec![
+                output(PathBuf::from("bin").join("miden-vm"), "vm", MODE_EXECUTABLE),
+                output(PathBuf::from("lib").join("core.masp"), "core", MODE_DATA),
+            ],
+        };
+
+        (dir, receipt)
+    }
+
+    /// Seeding copies what the previous receipt owns and nothing else. Regression: the old
+    /// implementation copied the whole directory, so anything that had ever landed there --
+    /// leftovers from an interrupted install, files of components since removed -- was inherited
+    /// forever, with no way to tell it apart from installed content.
+    #[test]
+    fn seeding_copies_only_paths_the_old_receipt_owns() {
+        let temp = tempdir::TempDir::new("stage-seed-owned").unwrap();
+        let (previous, receipt) = previous_publication(temp.path());
+        let (plan, staging) = staged(temp.path());
+
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &[],
+            },
+        )
+        .expect("should seed");
+
+        assert_eq!(
+            std::fs::read(staging.join("bin").join("miden-vm")).unwrap(),
+            b"old-binary",
+            "an owned, still-planned file must be carried forward"
+        );
+        assert!(
+            !staging.join("lib").join("stray.masp").exists(),
+            "an unowned file must not be carried forward"
+        );
+    }
+
+    /// A file the previous publication owned but the new plan does not want is simply not seeded,
+    /// which is how a component removed upstream stops being installed.
+    #[test]
+    fn files_not_in_the_new_plan_are_not_seeded() {
+        let temp = tempdir::TempDir::new("stage-seed-dropped").unwrap();
+        let (previous, mut receipt) = previous_publication(temp.path());
+        std::fs::write(previous.join("bin").join("miden-debug"), b"old-debug").unwrap();
+        receipt.outputs.push(Output {
+            path: PathBuf::from("bin").join("miden-debug"),
+            owner: "debug".to_string(),
+            mode: MODE_EXECUTABLE,
+            realized: RealizedMethod::Prebuilt,
+            digest: None,
+        });
+
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &[],
+            },
+        )
+        .unwrap();
+
+        assert!(!staging.join("bin").join("miden-debug").exists());
+    }
+
+    /// A component known to have changed must be re-acquired, not reused -- otherwise an update
+    /// that keeps a destination's name would silently keep its old contents.
+    #[test]
+    fn a_stale_component_is_re_acquired_rather_than_seeded() {
+        let temp = tempdir::TempDir::new("stage-seed-stale").unwrap();
+        let (previous, receipt) = previous_publication(temp.path());
+        let (plan, staging) = staged(temp.path());
+
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &["vm".to_string()],
+            },
+        )
+        .unwrap();
+        execute(&plan, &staging, false, true).unwrap();
+
+        assert_eq!(
+            std::fs::read(staging.join("bin").join("miden-vm")).unwrap(),
+            b"binary",
+            "a stale component must be re-acquired"
+        );
+        assert_eq!(
+            std::fs::read(staging.join("lib").join("core.masp")).unwrap(),
+            b"old-package",
+            "an unchanged component must still be reused"
+        );
+    }
+
+    /// `%var(data)` is the Miden client's database. Until it moves outside publications (M5-T5),
+    /// seeding has to carry it, or the first update would delete it.
+    #[test]
+    fn var_is_carried_forward_across_publications() {
+        let temp = tempdir::TempDir::new("stage-seed-var").unwrap();
+        let (previous, receipt) = previous_publication(temp.path());
+        std::fs::create_dir_all(previous.join("var").join("data")).unwrap();
+        std::fs::write(previous.join("var").join("data").join("db"), b"user-database").unwrap();
+
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &[],
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read(staging.join("var").join("data").join("db")).unwrap(),
+            b"user-database"
+        );
+    }
+
+    /// Every destination the run produced is reported, so the receipt can record how each file was
+    /// really obtained rather than how the plan said it would be.
+    #[test]
+    fn execution_reports_how_each_destination_was_produced() {
+        let temp = tempdir::TempDir::new("stage-realized").unwrap();
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+
+        let realized = execute(&plan, &staging, false, true).unwrap();
+        assert_eq!(
+            realized.get(&staging.join("bin").join("miden-vm")),
+            Some(&RealizedMethod::Prebuilt)
+        );
+        assert_eq!(
+            realized.get(&staging.join("lib").join("core.masp")),
+            Some(&RealizedMethod::Prebuilt)
+        );
+    }
+
+    /// A transfer failure with no declared fallback stays fatal.
+    #[test]
+    fn a_failed_transfer_without_a_fallback_is_fatal() {
+        let temp = tempdir::TempDir::new("stage-nofallback").unwrap();
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+
+        let mut plan = plan;
+        let dest = staging.join("bin").join("miden-vm");
+        plan.steps[0] = PlanStep::CopyLocal {
+            src: temp.path().join("does-not-exist"),
+            dest,
+            mode: MODE_EXECUTABLE,
+            owner: "vm".to_string(),
+            fallback: None,
+        };
+
+        assert!(execute(&plan, &staging, false, true).is_err());
+    }
+
+    /// Spec section 9.3: a failed transfer for a component declaring a fallback is recoverable,
+    /// not fatal -- the fallback carried by the step runs in its place, and what *actually*
+    /// produced the file is reported, because uninstall has to match the path really taken.
+    ///
+    /// The planner only ever puts a Cargo build here; this substitutes a copy so the test does not
+    /// invoke Cargo, which is exactly why the field holds a whole step rather than build
+    /// arguments.
+    #[test]
+    fn a_taken_fallback_reports_its_own_method() {
+        let temp = tempdir::TempDir::new("stage-fallback-ok").unwrap();
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+
+        let replacement = temp.path().join("replacement");
+        std::fs::write(&replacement, b"from-the-fallback").unwrap();
+
+        let mut plan = plan;
+        let dest = staging.join("bin").join("miden-vm");
+        plan.steps[0] = PlanStep::CopyLocal {
+            src: temp.path().join("does-not-exist"),
+            dest: dest.clone(),
+            mode: MODE_EXECUTABLE,
+            owner: "vm".to_string(),
+            fallback: Some(Box::new(PlanStep::CopyLocal {
+                src: replacement,
+                dest: dest.clone(),
+                mode: MODE_EXECUTABLE,
+                owner: "vm".to_string(),
+                fallback: None,
+            })),
+        };
+
+        let realized = execute(&plan, &staging, false, true).expect("the fallback must be taken");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"from-the-fallback");
+        assert_eq!(realized.get(&dest), Some(&RealizedMethod::Prebuilt));
     }
 }
