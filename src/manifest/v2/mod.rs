@@ -13,11 +13,11 @@ pub const MANIFEST_VERSION: semver::Version = semver::Version::new(2, 0, 0);
 /// The global manifest of all known channels and their toolchains
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Manifest {
-    #[serde(
-        skip_deserializing,
-        default = "current_manifest_version",
-        serialize_with = "serialize_current_manifest_version"
-    )]
+    /// The schema version this document declares.
+    ///
+    /// Deserialized normally and verified after parsing. It was previously `skip_deserializing`
+    /// with a default, which meant the in-memory value was *always* the current version regardless
+    /// of what the file said -- making every version check downstream a tautology.
     pub(super) manifest_version: semver::Version,
     /// The UTC timestamp at which this manifest was generated
     pub(super) date: i64,
@@ -39,10 +39,17 @@ impl Manifest {
         Self::parse_str(&manifest_contents)
     }
 
-    /// Parses a [VersionedManifest] from `content`, and returns it in canonical form
+    /// Parses a v2 [Manifest] from `content`, and returns it in canonical form.
     pub fn parse_str(content: &str) -> Result<Self, ManifestError> {
         let mut manifest = serde_json::from_str::<Self>(content)
             .map_err(|err| ManifestError::Invalid(format!("failed to parse manifest: {err}")))?;
+
+        // Verify the literal declared version rather than trusting a serde default to have
+        // supplied it. Callers dispatch on a separately-read header, so a mismatch here means the
+        // document disagrees with itself.
+        if manifest.manifest_version.major != MANIFEST_VERSION.major {
+            return Err(ManifestError::UnsupportedVersion(manifest.manifest_version));
+        }
 
         // Sort channels by version, in ascending order
         if !manifest.channels.is_sorted_by_key(|channel| &channel.name) {
@@ -69,20 +76,6 @@ impl Default for Manifest {
             channels: vec![],
         }
     }
-}
-
-const fn current_manifest_version() -> semver::Version {
-    MANIFEST_VERSION
-}
-
-fn serialize_current_manifest_version<S>(
-    _ignore: &semver::Version,
-    serializer: S,
-) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    semver::Version::serialize(&MANIFEST_VERSION, serializer)
 }
 
 impl Manifest {

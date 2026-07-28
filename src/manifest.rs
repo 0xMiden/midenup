@@ -1,12 +1,13 @@
 pub(crate) mod v1;
 pub(crate) mod v2;
+pub mod version;
 
 use std::path::Path;
 
-use serde::Deserialize;
 use thiserror::Error;
 
 pub use self::v2::*;
+use self::version::Compatibility;
 use crate::channel::{ChannelAlias, UserChannel};
 
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
@@ -34,6 +35,11 @@ pub enum ManifestError {
     #[error("channel manifest v{0} requires a newer version of midenup")]
     OutdatedMidenup(semver::Version),
     #[error(
+        "missing or malformed `{0}` field: every manifest and state document must declare its \
+         schema version as a semantic version string"
+    )]
+    MissingVersion(String),
+    #[error(
         "conflicting alias '{alias}': defined by both '{component}' and '{prev_component}' \
          components"
     )]
@@ -44,57 +50,37 @@ pub enum ManifestError {
     },
 }
 
-/// Represents a manifest which has been deserialized
+/// Version-dispatched loading of channel manifests.
 ///
-/// A variant should be defined for each backwards-incompatible manifest version that needs to be
-/// migrated by midenup (by deserializing from an earlier variant, and migrating forward).
-#[derive(Deserialize, Debug, Clone)]
-#[serde(tag = "manifest_version")]
-pub enum VersionedManifest {
-    /// The original v1 manifest
-    #[serde(rename(deserialize = "1.0.1"))]
-    V1(v1::Manifest),
-    /// The v2 manifest schema made several breaking changes to make the structure cleaner and to
-    /// better handle future schema changes:
-    ///
-    /// * Components are categorized by kind
-    /// * Component authority is now serialized to a single `version` field, rather than flattened
-    /// * Support for `Library` is removed, and only `Package` is allowed moving forward
-    #[serde(rename(deserialize = "2.0.0"))]
-    V2(v2::Manifest),
-    /// This variant is the fallback when an unknown manifest version is deserialized
-    #[serde(untagged)]
-    Unknown {
-        /// This version is used to handle breaking changes in the manifest format itself
-        manifest_version: semver::Version,
-        /// The UTC timestamp at which this manifest was generated
-        date: i64,
-    },
-}
+/// This is a namespace, not a data type: the schema version is read from a minimal header first
+/// (see [version::read_version_header]) and only then is the document parsed with the matching
+/// schema. Dispatching via a tagged enum would couple version detection to the shape of the whole
+/// document, which defeats the point.
+pub struct VersionedManifest;
 
 impl VersionedManifest {
     pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
     pub const PUBLISHED_MANIFEST_URI: &str =
         "https://0xmiden.github.io/midenup/channel-manifest.json";
 
-    /// Parses a [VersionedManifest] from `content`, and returns it in canonical form
+    /// Parses a channel manifest from `content`, and returns it in canonical form.
     pub fn parse_str(content: &str) -> Result<Manifest, ManifestError> {
-        let manifest = serde_json::from_str::<VersionedManifest>(content)
-            .map_err(|err| ManifestError::Invalid(format!("failed to parse manifest: {err}")))?;
+        let header = version::read_version_header(content, "manifest_version")?;
 
-        let mut manifest = match manifest {
-            VersionedManifest::V1(v1) => Manifest::try_from(v1)?,
-            VersionedManifest::V2(v2) => v2,
-            VersionedManifest::Unknown { manifest_version, .. } => {
-                if manifest_version > v2::MANIFEST_VERSION {
-                    return Err(ManifestError::OutdatedMidenup(manifest_version));
-                } else if manifest_version == v2::MANIFEST_VERSION {
-                    return Err(
-                        v2::Manifest::parse_str(content).expect_err("expected re-parsing to fail")
-                    );
-                } else {
-                    return Err(ManifestError::UnsupportedVersion(manifest_version));
-                }
+        let mut manifest = match version::classify(&header.version, v2::MANIFEST_VERSION.major) {
+            Compatibility::Supported => v2::Manifest::parse_str(content)?,
+            Compatibility::RequiresNewer { found } => {
+                return Err(ManifestError::OutdatedMidenup(found));
+            },
+            // v1.0.1 is the supported migration floor; anything older is rejected outright.
+            Compatibility::TooOld { found } if found == v1::MANIFEST_VERSION => {
+                let v1 = serde_json::from_str::<v1::Manifest>(content).map_err(|err| {
+                    ManifestError::Invalid(format!("failed to parse v1 manifest: {err}"))
+                })?;
+                Manifest::try_from(v1)?
+            },
+            Compatibility::TooOld { found } => {
+                return Err(ManifestError::UnsupportedVersion(found));
             },
         };
 
@@ -339,6 +325,45 @@ mod tests {
 
     use super::VersionedManifest;
     use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
+
+    /// A converted v1 manifest must report the *v2* version.
+    ///
+    /// Two separate defects made the in-memory version meaningless: `v2::Manifest` declared
+    /// `manifest_version` as `skip_deserializing` with a default, and the v1 converter stamped the
+    /// v1 constant. Together they meant every downstream version check was a tautology.
+    #[test]
+    fn converted_v1_manifest_reports_the_v2_version() {
+        const FILE: &str = "file://tests/data/integration_update_test/channel-manifest-1.json";
+        let manifest = VersionedManifest::load_from(FILE).expect("v1.0.1 must still be readable");
+        assert_eq!(manifest.manifest_version(), &super::v2::MANIFEST_VERSION);
+    }
+
+    #[test]
+    fn a_newer_major_version_asks_for_a_newer_midenup() {
+        let err = VersionedManifest::parse_str(r#"{"manifest_version":"3.0.0","channels":[]}"#)
+            .expect_err("a v3 manifest must be rejected");
+        assert!(
+            matches!(&err, super::ManifestError::OutdatedMidenup(v) if v.major == 3),
+            "expected OutdatedMidenup, got: {err}"
+        );
+    }
+
+    /// A newer *minor* is additive by construction, so it must remain readable.
+    #[test]
+    fn a_newer_minor_version_is_accepted() {
+        VersionedManifest::parse_str(r#"{"manifest_version":"2.9.3","date":1,"channels":[]}"#)
+            .expect("a newer minor must be readable");
+    }
+
+    #[test]
+    fn a_version_below_the_migration_floor_is_rejected() {
+        let err = VersionedManifest::parse_str(r#"{"manifest_version":"1.0.0","channels":[]}"#)
+            .expect_err("v1.0.0 is below the supported migration floor");
+        assert!(
+            matches!(&err, super::ManifestError::UnsupportedVersion(v) if *v == semver::Version::new(1, 0, 0)),
+            "expected UnsupportedVersion(1.0.0), got: {err}"
+        );
+    }
 
     /// Validates that the current channel manifest is parseable.
     #[test]

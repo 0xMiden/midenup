@@ -47,7 +47,9 @@ impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
         }
 
         Ok(v2::Manifest {
-            manifest_version: MANIFEST_VERSION,
+            // The output of this conversion is a v2 manifest, so it declares the v2 version.
+            // Stamping the v1 constant here left converted manifests claiming to be v1.0.1.
+            manifest_version: v2::MANIFEST_VERSION,
             date: value.date,
             channels,
         })
