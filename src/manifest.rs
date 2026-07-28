@@ -353,7 +353,7 @@ mod tests {
     /// v1 constant. Together they meant every downstream version check was a tautology.
     #[test]
     fn converted_v1_manifest_reports_the_v2_version() {
-        const FILE: &str = "file://tests/data/integration_update_test/channel-manifest-1.json";
+        const FILE: &str = "file://tests/data/v1_manifest/channel-manifest.json";
         let manifest = VersionedManifest::load_from(FILE).expect("v1.0.1 must still be readable");
         assert_eq!(manifest.manifest_version(), &super::v2::MANIFEST_VERSION);
     }

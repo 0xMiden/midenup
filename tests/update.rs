@@ -5,146 +5,127 @@ mod common;
 
 use common::*;
 
-/// This tests checks that midenup's update behavior works correctly
+/// Update semantics: stable version bumps, and every kind of per-component change.
+///
+/// Everything asserted here is a property of the manifest rather than of the components it names,
+/// so the fixture uses `file://` stand-ins. Real components would prove nothing extra and cost
+/// minutes.
 #[test]
 fn integration_update_test() {
     let _guard = common::harness::mutating_test_guard();
-    let test_name = "integration_update_test";
-    let test_env = environment_setup(test_name);
-    eprintln!("KEEPING temp dir at: {}", test_env.tmp_dir.path().display());
+    let test_env = environment_setup("integration_update_test");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
 
-    // This manifest contains toolchain version 0.14.0 as its only toolchain
-    //
-    // WARNING: This test uses toolchain files which were created for testing purposes only.
-    // For instance, they are lacking many components in order to save time.
-    let manifest: &str =
-        full_path_manifest!("tests/data/integration_update_test/channel-manifest-1.json");
-    let (mut local_manifest, config) = test_setup(&test_env, manifest);
     let toolchain_dir = test_env.midenup_home.join("toolchains");
+    let toolchain_v14 = toolchain_dir.join("0.14.0");
+    let toolchain_v15 = toolchain_dir.join("0.15.0");
+    let toolchain_v16 = toolchain_dir.join("0.16.0");
+    let toolchain_stable = toolchain_dir.join("stable");
 
-    // We begin by initializing the midenup directory
-    let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
+    let stable_points_at = || {
+        std::fs::read_link(&toolchain_stable)
+            .expect("the stable symlink must exist")
+            .file_name()
+            .expect("the stable symlink must name a channel")
+            .to_string_lossy()
+            .into_owned()
+    };
+
+    // Only 0.14.0 exists upstream, so that is what `stable` means.
+    let (mut state, config) = test_setup(&test_env, &fixture.initial());
+
+    Midenup::try_parse_from(["midenup", "init"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
 
-    // Now, we install stable. That is going to be version 0.14.0
-    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
+    Midenup::try_parse_from(["midenup", "install", "stable"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
-    // Now, we re-generate the config with a newer manifest that contains version 0.15.0. This
-    // is trying to emulate the release of a new stable version
-    let manifest: &str =
-        full_path_manifest!("tests/data/integration_update_test/channel-manifest-2.json");
-    let (_, config) = test_setup(&test_env, manifest);
+    assert!(toolchain_v14.exists());
+    assert_eq!(stable_points_at(), "0.14.0");
 
-    // Now, we update stable. The stable symlink should point to version 0.15.0
-    let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
+    // 0.15.0 is released. Updating stable must install it *and* leave 0.14.0 alone: a version bump
+    // is an additional installation, not a replacement.
+    let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
+
+    Midenup::try_parse_from(["midenup", "update", "stable"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
         .expect("failed to update stable");
 
-    // The original toolchain should still exist
-    let toolchain_v14 = toolchain_dir.join("0.14.0");
-    assert!(toolchain_v14.exists());
-
-    // The newer toolchain should also now be installed
-    let toolchain_v15 = toolchain_dir.join("0.15.0");
-    assert!(toolchain_v15.exists());
-
-    // We check that the stable symlink still exits.
-    let toolchain_stable = toolchain_dir.join("stable");
-    assert!(toolchain_stable.exists());
+    assert!(toolchain_v14.exists(), "the previous toolchain must be retained");
+    assert!(toolchain_v15.exists(), "the new stable toolchain must be installed");
     assert!(toolchain_stable.is_symlink());
-    // The stable symlink should now point to the v0.15.0 toolchain
-    let resolved_stable_toolchain = std::fs::read_link(toolchain_stable.as_path())
-        .expect("Couldn't obtain directory where the stable directory is pointing to");
-    assert_eq!(resolved_stable_toolchain.file_name(), toolchain_v15.file_name());
+    assert_eq!(stable_points_at(), "0.15.0", "stable must follow the upstream bump");
 
-    // Now, we perform a "global" update. This performs an update on every *installed*
-    // toolchain.
-    //
-    // The manifest file tests/data/integration_update_test/channel-manifest-3.json, besides
-    // adding toolchain 0.16.0, also changed some fields on components from version 0.15.0.
-    //
-    // This update should perform the following changes:
-    //
-    // - Update 0.15.0's miden-vm to version 0.23.4.
-    // - Remove core.masp from 0.15.0's toolchain dir.
-    // - Downgrade 0.14.0's miden-vm.
-    // - Add the miden-client to 0.14.0's toolchain dir
-    // - Change 0.14.0's core's authority from Cargo to Git.
-    //
-    // Currently this does _not_ update the `stable` symlink
-    let manifest: &str =
-        full_path_manifest!("tests/data/integration_update_test/channel-manifest-3.json");
-    let (_, config) = test_setup(&test_env, manifest);
+    // A global update touches every *installed* toolchain. The manifest now changes something of
+    // each kind at once -- see `UpdateFixture::with_every_change`.
+    let (_, config) = test_setup(&test_env, &fixture.with_every_change());
 
-    let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
+    Midenup::try_parse_from(["midenup", "update"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
         .expect("failed to update");
 
-    // We check that the stable symlink still exits and is pointing to 0.15.0.
-    assert!(toolchain_stable.exists());
+    // A global update must not move `stable`, even though 0.16.0 now exists upstream: it updates
+    // what is installed, and 0.16.0 is not.
     assert!(toolchain_stable.is_symlink());
+    assert_eq!(stable_points_at(), "0.15.0", "a global update must not move stable");
+    assert!(!toolchain_v16.exists(), "a global update must not install a new channel");
 
-    // The stable symlink should still point to the v0.15.0 toolchain
-    let resolved_stable_toolchain = std::fs::read_link(toolchain_stable.as_path())
-        .expect("Couldn't obtain directory where the stable directory is pointing to");
-    assert_eq!(resolved_stable_toolchain.file_name(), toolchain_v15.file_name());
+    // A component removed upstream must be removed on disk.
+    assert!(
+        !toolchain_v15.join("lib").join("core.masp").exists(),
+        "core was removed from 0.15.0 upstream, so its artifact must be gone"
+    );
 
-    //TODO(pauls): the miden-vm CLI --version flag is currently broken
-    /*
-    let vm_exe_stable = toolchain_stable.join("bin").join("miden-vm");
-    let command = std::process::Command::new(&vm_exe_stable)
-        .arg("--version")
-        .output()
-        .unwrap_or_else(|err| {
-            panic!("error occurred executing {}: {err}", vm_exe_stable.display())
-        });
-    assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.23.4\n");
-    */
-    assert!(!toolchain_v15.join("lib").join("core.masp").exists());
+    // A component added upstream must appear on disk.
+    assert!(
+        toolchain_v14.join("bin").join("miden-client").exists(),
+        "client was added to 0.14.0 upstream, so it must be installed"
+    );
 
-    let installed_0_14 = local_manifest
+    // A component whose *authority kind* changed must be recorded with the new authority.
+    let core_authority = &state
         .get(&semver::Version::new(0, 14, 0))
-        .expect("Couldn't find toolchain 0.14.0 in local state");
-    let std_version = &installed_0_14
+        .expect("0.14.0 must still be installed")
         .components
         .iter()
         .find(|c| c.name == "core")
-        .expect("Couldn't find core library despite being listed in local state.")
+        .expect("core must still be part of 0.14.0")
         .version;
-
     assert!(
-        matches!(std_version, version::Authority::Git { .. }),
-        "expected git authority for {std_version:#?}"
+        matches!(core_authority, version::Authority::Git { .. }),
+        "core's authority changed from registry to git upstream, got {core_authority:#?}"
     );
 
-    //TODO(pauls): the miden-vm CLI --version flag is currently broken
-    /*
-    let vm_exe_v14 = toolchain_v14.join("bin").join("miden");
-    let command = std::process::Command::new(vm_exe_v14).arg("--version").output().unwrap();
-    assert_eq!(String::from_utf8(command.stdout).unwrap(), "miden-vm 0.23.2\n");
-    */
-    let client_v14 = toolchain_v14.join("bin").join("miden-client");
-    assert!(client_v14.exists());
+    // A version moving *backwards* is still a change. `vm`'s artifact is versioned, so a downgrade
+    // is observable as a different source file having been installed.
+    let vm_authority = &state
+        .get(&semver::Version::new(0, 14, 0))
+        .unwrap()
+        .components
+        .iter()
+        .find(|c| c.name == "vm")
+        .expect("vm must still be part of 0.14.0")
+        .version;
+    assert!(
+        matches!(
+            vm_authority,
+            version::Authority::Registry { version } if *version == semver::Version::new(0, 23, 1)
+        ),
+        "0.14.0's vm was downgraded upstream, got {vm_authority:#?}"
+    );
 
-    // Now, we use the same manifest that we used previously to update the current stable
-    // toolchain.
-    let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
+    // Updating stable again picks up the newly released 0.16.0 and moves the symlink.
+    Midenup::try_parse_from(["midenup", "update", "stable"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
         .expect("failed to update stable");
 
-    let toolchain_v16 = toolchain_dir.join("0.16.0");
     assert!(toolchain_v16.exists());
-
-    // The stable symlink should now point to the newest toolchain
-    let stable_toolchain = std::fs::read_link(toolchain_stable.as_path())
-        .expect("Couldn't obtain directory where the stable directory is pointing to");
-    assert_eq!(stable_toolchain.file_name(), toolchain_v16.file_name());
+    assert_eq!(stable_points_at(), "0.16.0");
 }

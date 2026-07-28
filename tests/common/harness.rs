@@ -252,3 +252,154 @@ pub fn write_source_manifest(
         .expect("failed to write source manifest");
     format!("file://{}", path.display())
 }
+
+/// A sequence of manifests describing an evolving set of channels, backed by local files.
+///
+/// Update semantics -- a stable version bump, a component appearing or disappearing, a version
+/// moving backwards, an authority changing kind -- are all properties of the *manifest*, not of
+/// the components it names. Real components prove nothing extra and cost minutes, so every
+/// artifact here is a `file://` path to a tiny local stand-in.
+pub struct UpdateFixture {
+    dir: PathBuf,
+}
+
+impl UpdateFixture {
+    pub fn build(root: &Path) -> Self {
+        let dir = root.join("update-fixture");
+        std::fs::create_dir_all(&dir).expect("failed to create update fixture dir");
+
+        // `vm`'s URI carries `%version`, so each version resolves to a distinct file and version
+        // changes are observable on disk.
+        for version in ["0.23.1", "0.23.2", "0.23.3", "0.23.4"] {
+            std::fs::write(dir.join(format!("miden-vm-{version}")), b"#!/bin/sh\nexit 0\n")
+                .expect("failed to write fixture binary");
+        }
+        std::fs::write(dir.join("miden-client"), b"#!/bin/sh\nexit 0\n")
+            .expect("failed to write fixture binary");
+        std::fs::write(dir.join("core.masp"), b"fixture-package")
+            .expect("failed to write fixture package");
+
+        Self { dir }
+    }
+
+    fn uri(&self, name: &str) -> String {
+        format!("file://{}", self.dir.join(name).display())
+    }
+
+    /// An executable whose artifact is versioned, so a version change moves it to another file.
+    fn vm(&self, version: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": "vm",
+            "version": {"kind": "registry", "version": version},
+            "kind": "executable",
+            "installation_method": {"kind": "prebuilt"},
+            "installed-executable": "miden-vm",
+            "profiles": ["minimal"],
+            "artifacts": {"miden-vm": {"uri": self.uri("miden-vm-%version")}}
+        })
+    }
+
+    /// A package. `authority` lets a channel change its authority *kind*, which is one of the
+    /// changes update must notice.
+    fn core(&self, authority: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "name": "core",
+            "version": authority,
+            "kind": "package",
+            "profiles": ["minimal"],
+            // No `%version` here: a git authority has no semantic version to substitute.
+            "artifacts": {"core.masp": {"uri": self.uri("core.masp")}}
+        })
+    }
+
+    fn client(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": "client",
+            "version": {"kind": "registry", "version": "0.9.0"},
+            "kind": "executable",
+            "installation_method": {"kind": "prebuilt"},
+            "installed-executable": "miden-client",
+            "profiles": ["minimal"],
+            "artifacts": {"miden-client": {"uri": self.uri("miden-client")}}
+        })
+    }
+
+    fn registry(version: &str) -> serde_json::Value {
+        serde_json::json!({"kind": "registry", "version": version})
+    }
+
+    fn write(&self, name: &str, channels: serde_json::Value) -> String {
+        let manifest = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": channels
+        });
+        let path = self.dir.join(name);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap())
+            .expect("failed to write fixture manifest");
+        format!("file://{}", path.display())
+    }
+
+    /// Only 0.14.0 exists.
+    pub fn initial(&self) -> String {
+        self.write(
+            "manifest-1.json",
+            serde_json::json!([{
+                "name": "0.14.0",
+                "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
+            }]),
+        )
+    }
+
+    /// 0.15.0 is released, so `stable` moves.
+    pub fn with_new_stable(&self) -> String {
+        self.write(
+            "manifest-2.json",
+            serde_json::json!([
+                {
+                    "name": "0.14.0",
+                    "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
+                },
+                {
+                    "name": "0.15.0",
+                    "components": [self.vm("0.23.3"), self.core(Self::registry("0.23.3"))]
+                }
+            ]),
+        )
+    }
+
+    /// Every kind of change at once:
+    ///
+    /// * 0.14.0's `vm` moves *backwards* to 0.23.1 (a downgrade is still a change)
+    /// * 0.14.0's `core` changes authority kind, registry to git
+    /// * 0.14.0 gains `client`
+    /// * 0.15.0 loses `core` entirely
+    /// * 0.16.0 appears but is not installed, so a global update must ignore it
+    pub fn with_every_change(&self) -> String {
+        self.write(
+            "manifest-3.json",
+            serde_json::json!([
+                {
+                    "name": "0.14.0",
+                    "components": [
+                        self.vm("0.23.1"),
+                        self.core(serde_json::json!({
+                            "kind": "git",
+                            "repository_url": "https://example.invalid/core.git",
+                            "revision": "0000000000000000000000000000000000000000"
+                        })),
+                        self.client()
+                    ]
+                },
+                {
+                    "name": "0.15.0",
+                    "components": [self.vm("0.23.4")]
+                },
+                {
+                    "name": "0.16.0",
+                    "components": [self.vm("0.23.4"), self.core(Self::registry("0.23.4"))]
+                }
+            ]),
+        )
+    }
+}
