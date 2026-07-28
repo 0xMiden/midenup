@@ -73,6 +73,9 @@ cargo_toml = "0.22"
 
 [dev-dependencies]
 tempdir = "0.3"
+# A local HTTP server, so download behaviour (status handling, redirects, empty bodies) is tested
+# against a real socket rather than a mock of curl.
+tiny_http = "0.12"
 
 [profile.release]
 opt-level = 2

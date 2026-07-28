@@ -5,8 +5,6 @@
 // utilities from any crate besides the standard library and they should also prioritize qualifying
 // over importing, in order to avoid duplicate `use` declarations.
 
-const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
-
 #[allow(dead_code)]
 pub fn install_artifact(
     uri: &str,
@@ -44,18 +42,13 @@ pub fn install_artifact(
         })?;
     } else if uri.starts_with("https://") {
         let mut data = Vec::new();
+        let mut handle = curl::easy::Easy::new();
         {
-            let mut handle = curl::easy::Easy::new();
             handle.follow_location(true).map_err(|_| String::from("failed to setup curl"))?;
+            handle.max_redirections(10).map_err(|_| String::from("failed to setup curl"))?;
             handle.url(uri).map_err(|error| {
                 format!("invalid artifact uri '{uri}': {}", error.description())
             })?;
-            let response_code = handle
-                .response_code()
-                .map_err(|err| format!("request failed for '{uri}' with unknown status: {err}"))?;
-            if HTTP_ERROR_CODES.contains(&response_code) {
-                return Err(format!("request failed for '{uri}' with status {response_code}"));
-            }
 
             let mut transfer = handle.transfer();
             transfer
@@ -68,17 +61,30 @@ pub fn install_artifact(
                 .perform()
                 .map_err(|error| format!("transfer failed for '{uri}': {error}"))?
         }
+
+        // *After* the transfer. Read beforehand, curl has no response yet and always reports 0,
+        // so the check never fired and the body of a 404 was written out as the artifact.
+        let response_code = handle
+            .response_code()
+            .map_err(|err| format!("request failed for '{uri}' with unknown status: {err}"))?;
+        if !(200..300).contains(&response_code) {
+            return Err(format!("request failed for '{uri}' with status {response_code}"));
+        }
         if data.is_empty() {
             return Err(format!("invalid artifact: content downloaded from '{uri}' is empty"));
         }
+
         let to = if target_is_file {
             to.to_path_buf()
         } else {
-            let (file_name, _) =
+            // `rsplit_once` yields (before, after); binding the first element took the URL
+            // *prefix* rather than the final path segment.
+            let (_, file_name) =
                 uri.rsplit_once('/').expect("expected source uri to have a file component");
             to.join(file_name)
         };
-        let tmp = to.with_extension("tmp");
+        // Unique, so two artifacts sharing a stem cannot stage through the same path.
+        let tmp = to.with_extension(format!("{}.part", std::process::id()));
         let mut file = std::fs::File::create(&tmp).map_err(|error| {
             format!("failed to create temporary file '{}' for artifact: {error}", to.display())
         })?;

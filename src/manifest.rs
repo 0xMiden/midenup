@@ -11,8 +11,6 @@ pub use self::v2::*;
 use self::version::Compatibility;
 use crate::channel::{ChannelAlias, UserChannel};
 
-const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
-
 pub type Alias = String;
 
 #[derive(Error, Debug)]
@@ -146,37 +144,32 @@ impl VersionedManifest {
 
         let mut data = Vec::new();
         let mut handle = curl::easy::Easy::new();
-        handle.url(uri).map_err(|error| {
+        let curl_error = |error: curl::Error| {
             let mut err = format!("Error code {}: ", error.code());
             err.push_str(error.description());
             ManifestError::InternalCurlError { uri: uri.to_string(), err }
-        })?;
+        };
+        handle.url(uri).map_err(curl_error)?;
+        handle.follow_location(true).map_err(curl_error)?;
         {
-            let response_code =
-                handle.response_code().map_err(|_| ManifestError::InternalCurlError {
-                    uri: uri.to_string(),
-                    err: "failed to get response code; despite HTTP protocol supporting it"
-                        .to_string(),
-                })?;
-            if HTTP_ERROR_CODES.contains(&response_code) {
-                return Err(ManifestError::DownloadError {
-                    uri: uri.to_string(),
-                    code: response_code,
-                });
-            }
-
             let mut transfer = handle.transfer();
             transfer
                 .write_function(|new_data| {
                     data.extend_from_slice(new_data);
                     Ok(new_data.len())
                 })
-                .unwrap();
-            transfer.perform().map_err(|error| {
-                let mut err = format!("Error code {}: ", error.code());
-                err.push_str(error.description());
-                ManifestError::InternalCurlError { uri: uri.to_string(), err }
-            })?
+                .map_err(curl_error)?;
+            transfer.perform().map_err(curl_error)?;
+        }
+
+        // *After* the transfer. Read beforehand, curl has no response yet and reports 0, so the
+        // error check never fired and an error page was parsed as though it were the manifest.
+        let response_code = handle.response_code().map_err(curl_error)?;
+        if !(200..300).contains(&response_code) {
+            return Err(ManifestError::DownloadError {
+                uri: uri.to_string(),
+                code: response_code,
+            });
         }
         if data.is_empty() {
             return Err(ManifestError::EmptyDownload(uri.to_string()));
