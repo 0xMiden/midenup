@@ -60,17 +60,21 @@ impl Artifacts {
         self.artifacts.insert(id, artifact).is_none()
     }
 
-    pub fn get_default_artifacts_for_target(
-        &self,
+    /// Returns the `(artifact id, uri)` pairs that should be installed for `target`.
+    ///
+    /// The artifact id is the exact filename the artifact is installed as, so callers must use it
+    /// to compute a destination path rather than inferring one from the URI.
+    pub fn get_default_artifacts_for_target<'a>(
+        &'a self,
         target: &str,
-        component: &Component,
-    ) -> Result<Vec<ArtifactUri>, InvalidArtifactError> {
+        component: &'a Component,
+    ) -> Result<Vec<(&'a str, ArtifactUri)>, InvalidArtifactError> {
         match component.kind() {
             ComponentKind::Asset { .. } => self.get_artifacts_for_target(target, component),
             ComponentKind::CargoExtension { spec, .. } | ComponentKind::Executable { spec, .. } => {
-                let artifact =
-                    self.get_artifact_for_target(&spec.installed_executable, target, component)?;
-                Ok(artifact.into_iter().collect())
+                let id = spec.installed_executable.as_str();
+                let artifact = self.get_artifact_for_target(id, target, component)?;
+                Ok(artifact.into_iter().map(|uri| (id, uri)).collect())
             },
             ComponentKind::Command { .. } => Ok(vec![]),
             ComponentKind::LegacyPackage { .. } | ComponentKind::Package => {
@@ -79,15 +83,16 @@ impl Artifacts {
         }
     }
 
+    /// Returns every declared `(artifact id, uri)` pair available for `target`.
     pub fn get_artifacts_for_target(
         &self,
         target: &str,
         component: &Component,
-    ) -> Result<Vec<ArtifactUri>, InvalidArtifactError> {
+    ) -> Result<Vec<(&str, ArtifactUri)>, InvalidArtifactError> {
         let mut artifacts = Vec::with_capacity(self.artifacts.len());
         for (id, artifact) in self.artifacts.iter() {
             if let Some(uri) = artifact.get_uri_for(id, target, component)? {
-                artifacts.push(uri);
+                artifacts.push((id.as_str(), uri));
             }
         }
 

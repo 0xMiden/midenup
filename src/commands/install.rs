@@ -10,7 +10,6 @@ use anyhow::{Context, bail};
 use serde::Deserialize;
 
 use crate::{
-    artifact::ArtifactUri,
     channel::{Channel, ChannelAlias},
     commands,
     config::Config,
@@ -479,31 +478,20 @@ fn main() -> ExitCode {
                 if artifacts.is_empty() {
                     continue;
                 }
+                // The artifact id is the exact installed filename, so the destination is always a
+                // file path. Passing the containing directory instead makes the installer's
+                // existence check test the directory, which the install already created.
                 let artifacts = artifacts
                     .into_iter()
-                    .map(|uri| {
-                        let (is_file, to) = match &uri {
-                            ArtifactUri::Http(_) => (
-                                false,
-                                toolchain_directory
-                                    .join("etc")
-                                    .join(component.name.as_ref())
-                                    .display()
-                                    .to_string(),
-                            ),
-                            ArtifactUri::File(path) => {
-                                let filename = path.file_name().expect("invalid artifact path");
-                                let to = toolchain_directory
-                                    .join("etc")
-                                    .join(component.name.as_ref())
-                                    .join(filename);
-                                (true, to.display().to_string())
-                            },
-                        };
+                    .map(|(id, uri)| {
+                        let to = toolchain_directory
+                            .join("etc")
+                            .join(component.name.as_ref())
+                            .join(id);
                         upon::value! {
-                            is_file: is_file,
+                            is_file: true,
                             from: uri.to_string(),
-                            to: to,
+                            to: to.display().to_string(),
                         }
                     })
                     .collect::<Vec<_>>();
@@ -519,7 +507,7 @@ fn main() -> ExitCode {
                     .get_default_artifacts_for_target(config.target(), component)?;
                 let artifacts = artifacts
                     .into_iter()
-                    .map(|uri| upon::value! {
+                    .map(|(_id, uri)| upon::value! {
                         is_file: true,
                         from: uri.to_string(),
                         to: toolchain_directory.join("bin").join(&spec.installed_executable).display().to_string(),
@@ -605,13 +593,14 @@ fn main() -> ExitCode {
                         component.name
                     );
                 }
+                // As above: `lib/<artifact-id>`, never the bare `lib/` directory.
                 let artifacts = artifacts
                     .into_iter()
-                    .map(|uri| {
+                    .map(|(id, uri)| {
                         upon::value! {
-                            is_file: false,
+                            is_file: true,
                             from: uri.to_string(),
-                            to: toolchain_directory.join("lib"),
+                            to: toolchain_directory.join("lib").join(id).display().to_string(),
                         }
                     })
                     .collect::<Vec<_>>();

@@ -222,6 +222,42 @@ fn integration_install_from_non_cargo() {
 /// This relies on every component respecting the --help flag, which is an assumption we already
 /// make in the miden_wrapper.rs file. This stems from the fact that the help command is
 /// generated automatically.
+/// A fresh install must actually download package artifacts.
+///
+/// Regression test for the existence check that tested the pre-created `lib/` directory rather
+/// than the artifact file, which caused every package download to be skipped and reported as
+/// "already installed" on a completely fresh install.
+#[test]
+fn integration_install_stable_installs_packages() {
+    let test_env = environment_setup("integration_install_stable_installs_packages");
+
+    const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
+    let (mut local_manifest, config) = test_setup(&test_env, FILE);
+
+    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+    command
+        .execute_with_manifest(&config, &mut local_manifest)
+        .expect("failed to install stable");
+
+    let lib = test_env.midenup_home.join("toolchains").join("stable").join("lib");
+    let entries: Vec<String> = std::fs::read_dir(&lib)
+        .expect("lib directory missing")
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+
+    // `core` is a prebuilt `package` whose sole artifact id is `core.masp`. Asserting on it
+    // specifically matters: `protocol` is a crate-extracted `legacy-package` that writes its
+    // output through a real file path, so a weaker "some .masp exists" assertion passes even
+    // when every prebuilt package download is skipped.
+    assert!(
+        entries.iter().any(|n| n == "core.masp"),
+        "prebuilt package artifact 'core.masp' was not installed into {}; found {:?}",
+        lib.display(),
+        entries
+    );
+}
+
 ///
 /// [See here for details](https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag)
 #[test]

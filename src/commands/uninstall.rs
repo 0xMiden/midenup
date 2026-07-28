@@ -128,18 +128,16 @@ pub fn uninstall_components(
         println!("removing previous version of component {}", component.name);
         match component.kind() {
             ComponentKind::Asset { .. } | ComponentKind::Command { .. } => {
+                // The artifact id is the installed filename, so uninstall must mirror install
+                // exactly: `etc/<component>/<artifact-id>`. Deriving the name from the URI
+                // instead can produce a path that was never written.
                 let base_dir = install_dir.join("etc").join(component.name.as_ref());
-                for (id, artifact) in component.artifacts.artifacts.iter() {
-                    let uris = artifact.get_uris_for(id, component)?;
-                    for uri in uris {
-                        let file_name =
-                            uri.file_name().expect("invalid artifact uri: no file name");
-                        let file_path = base_dir.join(file_name);
-                        if file_path.try_exists().unwrap_or(false) {
-                            std::fs::remove_file(&file_path).map_err(|err| {
-                                UninstallError::FailedToDeleteFile(file_path, err.to_string())
-                            })?;
-                        }
+                for id in component.artifacts.artifacts.keys() {
+                    let file_path = base_dir.join(id);
+                    if file_path.try_exists().unwrap_or(false) {
+                        std::fs::remove_file(&file_path).map_err(|err| {
+                            UninstallError::FailedToDeleteFile(file_path, err.to_string())
+                        })?;
                     }
                 }
             },
@@ -147,16 +145,16 @@ pub fn uninstall_components(
             | ComponentKind::LegacyPackage {
                 installation_method: PackageInstallationMethod::Prebuilt,
             } => {
-                for artifact in
+                // Packages install to `lib/<artifact-id>`; the previous path omitted `lib`
+                // entirely, so uninstall never removed anything.
+                for (id, _uri) in
                     component.artifacts.get_artifacts_for_target(config.target(), component)?
                 {
-                    if let Some(file_name) = artifact.file_name() {
-                        let file_path = install_dir.join(file_name);
-                        if file_path.try_exists().unwrap_or(false) {
-                            std::fs::remove_file(&file_path).map_err(|err| {
-                                UninstallError::FailedToDeleteFile(file_path, err.to_string())
-                            })?;
-                        }
+                    let file_path = install_dir.join("lib").join(id);
+                    if file_path.try_exists().unwrap_or(false) {
+                        std::fs::remove_file(&file_path).map_err(|err| {
+                            UninstallError::FailedToDeleteFile(file_path, err.to_string())
+                        })?;
                     }
                 }
             },
