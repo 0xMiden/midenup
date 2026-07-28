@@ -64,6 +64,11 @@ pub fn build(
         return Ok(());
     };
 
+    // What `bin/` held before this build. The check below is on the *delta*: by the time a
+    // second component builds, `bin/` already contains the first one's binary, so comparing
+    // against the whole directory would flag every component after the first.
+    let before = binaries_in(staging_root);
+
     let argv = argv_for(step, staging_root, verbose, debug);
     let rendered = argv
         .iter()
@@ -85,7 +90,7 @@ pub fn build(
         });
     }
 
-    verify_outputs(staging_root, crate_name, expect_binary, dest)
+    verify_outputs(staging_root, &before, crate_name, expect_binary, dest)
 }
 
 /// The exact argument vector for a build step.
@@ -156,9 +161,20 @@ pub fn argv_for(step: &PlanStep, staging_root: &Path, verbose: bool, debug: bool
     argv
 }
 
+/// The set of files currently in `<staging_root>/bin`.
+fn binaries_in(staging_root: &Path) -> std::collections::BTreeSet<String> {
+    std::fs::read_dir(staging_root.join("bin"))
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect()
+}
+
 /// Confirms the build produced exactly what was planned, and clears Cargo's bookkeeping.
 fn verify_outputs(
     staging_root: &Path,
+    before: &std::collections::BTreeSet<String>,
     crate_name: &str,
     expect_binary: &str,
     dest: &Path,
@@ -174,13 +190,9 @@ fn verify_outputs(
     // `--bin` should already prevent this, but a crate can define a binary under a different
     // name than its target, and an unexpected file in `bin/` would be published as though
     // midenup owned it.
-    let bin_dir = staging_root.join("bin");
-    let unexpected: Vec<String> = std::fs::read_dir(&bin_dir)
+    let unexpected: Vec<String> = binaries_in(staging_root)
         .into_iter()
-        .flatten()
-        .filter_map(|entry| entry.ok())
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name != expect_binary)
+        .filter(|name| !before.contains(name) && name != expect_binary)
         .collect();
 
     if !unexpected.is_empty() {
@@ -333,8 +345,14 @@ mod tests {
         let dir = tempdir::TempDir::new("cargo-missing").unwrap();
         std::fs::create_dir_all(dir.path().join("bin")).unwrap();
 
-        let err = verify_outputs(dir.path(), "c", "miden-vm", &dir.path().join("bin/miden-vm"))
-            .expect_err("must fail");
+        let err = verify_outputs(
+            dir.path(),
+            &Default::default(),
+            "c",
+            "miden-vm",
+            &dir.path().join("bin/miden-vm"),
+        )
+        .expect_err("must fail");
         assert!(matches!(err, CargoError::MissingBinary { .. }), "{err}");
     }
 
@@ -347,13 +365,36 @@ mod tests {
         std::fs::write(bin.join("miden-vm"), b"x").unwrap();
         std::fs::write(bin.join("stowaway"), b"x").unwrap();
 
-        let err = verify_outputs(dir.path(), "c", "miden-vm", &bin.join("miden-vm"))
-            .expect_err("must fail");
+        let err =
+            verify_outputs(dir.path(), &Default::default(), "c", "miden-vm", &bin.join("miden-vm"))
+                .expect_err("must fail");
         assert!(
             matches!(&err, CargoError::UnexpectedBinaries { unexpected, .. }
                 if unexpected == &["stowaway".to_string()]),
             "{err}"
         );
+    }
+
+    /// A binary another component already installed is not this build's doing.
+    ///
+    /// Regression: the check scanned all of `bin/`, so the second component to build in a
+    /// toolchain was always reported as having produced the first one's binary. Only an
+    /// integration test with more than one Cargo component could catch it.
+    #[test]
+    fn binaries_from_earlier_builds_are_not_attributed_to_this_one() {
+        let dir = tempdir::TempDir::new("cargo-delta").unwrap();
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+
+        // Installed by an earlier component in the same staging tree.
+        std::fs::write(bin.join("miden-client"), b"x").unwrap();
+        let before = binaries_in(dir.path());
+
+        // This build adds its own.
+        std::fs::write(bin.join("miden-vm"), b"x").unwrap();
+
+        verify_outputs(dir.path(), &before, "fixture-vm", "miden-vm", &bin.join("miden-vm"))
+            .expect("an earlier component's binary must not be attributed to this build");
     }
 
     /// Cargo's bookkeeping describes what Cargo put in a `--root`, not what midenup owns.
@@ -367,7 +408,8 @@ mod tests {
             std::fs::write(dir.path().join(name), b"{}").unwrap();
         }
 
-        verify_outputs(dir.path(), "c", "miden-vm", &bin.join("miden-vm")).expect("should succeed");
+        verify_outputs(dir.path(), &Default::default(), "c", "miden-vm", &bin.join("miden-vm"))
+            .expect("should succeed");
 
         for name in CARGO_BOOKKEEPING {
             assert!(!dir.path().join(name).exists(), "{name} must not be published");

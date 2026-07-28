@@ -6,9 +6,11 @@
 pub mod cargo;
 pub mod download;
 pub mod extract;
+pub mod stage;
 
 pub use self::{
     cargo::{CargoError, argv_for, build as cargo_build},
     download::{ExecError, acquire},
     extract::{ExtractError, extract, render_script},
+    stage::{StageError, execute, prepare, verify},
 };
