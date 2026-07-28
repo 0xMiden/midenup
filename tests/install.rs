@@ -14,19 +14,18 @@ use common::*;
 #[test]
 fn integration_install_stable() {
     let _guard = common::harness::mutating_test_guard();
-    let test_name = "integration_install_stable";
-    let test_env = environment_setup(test_name);
+    let test_env = environment_setup("integration_install_stable");
 
-    const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
+    // Offline fixture: this test asserts on recorded state and symlink layout, none of which
+    // needs a real toolchain. See `OfflineFixture` for why that matters.
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    let (mut local_manifest, config) = test_setup(&test_env, FILE);
-
-    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
+    Midenup::try_parse_from(["midenup", "install", "stable"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
-    // After install, local state must record the installation.
     let state_file = test_env.midenup_home.join("state").with_extension("json");
     assert!(state_file.exists(), "install must write local state");
 
@@ -47,14 +46,73 @@ fn integration_install_stable() {
         std::ffi::OsStr::new(&stable_version.to_string()),
         "the stable symlink must point at the upstream stable channel"
     );
-    assert!(
-        local_manifest.get(&stable_version).is_some(),
-        "local state must record the installed stable channel"
-    );
 
-    // Re-read from disk to confirm it was actually persisted, not just held in memory.
+    // Re-read from disk to confirm it was persisted, not merely held in memory.
     let reloaded = midenup::state::LocalState::load(&state_file).expect("state must reload");
     assert!(reloaded.get(&stable_version).is_some());
+}
+
+/// A fresh install must actually place every artifact kind where it belongs.
+///
+/// Regression: the existence check tested the pre-created `lib/` directory rather than the
+/// artifact file, so every package download was skipped and reported "already installed" on a
+/// completely fresh install.
+#[test]
+fn integration_install_places_every_artifact_kind() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_places_every_artifact_kind");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install stable");
+
+    let root = test_env.midenup_home.join("toolchains").join("stable");
+
+    assert!(
+        root.join("bin").join("miden-vm").exists(),
+        "executable -> bin/<installed-executable>"
+    );
+    assert!(root.join("lib").join("core.masp").exists(), "package -> lib/<artifact-id>");
+    assert!(
+        root.join("etc").join("assets").join("config.yml").exists(),
+        "asset -> etc/<component>/<artifact-id>"
+    );
+
+    // The package must be the real content, not a zero-length placeholder left by a partial write.
+    assert_eq!(std::fs::read(root.join("lib").join("core.masp")).unwrap(), b"fixture-package");
+}
+
+/// Executable components must get their `opt/` shims.
+///
+/// `opt/` serves two purposes: the clap `argv[0]` trick, so help renders as `miden vm ...`; and
+/// PATH discoverability, since `opt/` is the only toolchain directory on `PATH`.
+///
+/// Regression: shims were emitted only when `symlink-name` was set explicitly, so a stable install
+/// produced one shim -- for the single hidden component that declared one -- and none for the
+/// callable components.
+#[test]
+fn integration_install_creates_default_symlinks() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_creates_default_symlinks");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "install", "stable"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install stable");
+
+    let opt = test_env.midenup_home.join("toolchains").join("stable").join("opt");
+    assert!(
+        opt.join("miden vm").symlink_metadata().is_ok(),
+        "missing default shim for 'vm' in {}",
+        opt.display()
+    );
 }
 
 /// Validates that midenup manages to install components with [Authority]s different than
@@ -215,99 +273,14 @@ fn integration_install_from_non_cargo() {
     assert_ne!(new_revision, hash_when_installed);
 }
 
-/// Validates that every component present in the stable toolchain from the published manifest
-/// is able to be executed.
+/// Validates that every component in the stable toolchain from the real manifest is executable.
 ///
-/// This relies on every component respecting the --help flag, which is an assumption we already
-/// make in the miden_wrapper.rs file. This stems from the fact that the help command is
-/// generated automatically.
-/// A fresh install must actually download package artifacts.
+/// This relies on every component respecting the `--help` flag, an assumption `miden_wrapper`
+/// already makes because clap generates help automatically.
 ///
-/// Regression test for the existence check that tested the pre-created `lib/` directory rather
-/// than the artifact file, which caused every package download to be skipped and reported as
-/// "already installed" on a completely fresh install.
-#[test]
-fn integration_install_stable_installs_packages() {
-    let _guard = common::harness::mutating_test_guard();
-    let test_env = environment_setup("integration_install_stable_installs_packages");
-
-    const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
-    let (mut local_manifest, config) = test_setup(&test_env, FILE);
-
-    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-    command
-        .execute_with_state(&config, &mut local_manifest)
-        .expect("failed to install stable");
-
-    let lib = test_env.midenup_home.join("toolchains").join("stable").join("lib");
-    let entries: Vec<String> = std::fs::read_dir(&lib)
-        .expect("lib directory missing")
-        .filter_map(|e| e.ok())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-
-    // `core` is a prebuilt `package` whose sole artifact id is `core.masp`. Asserting on it
-    // specifically matters: `protocol` is a crate-extracted `legacy-package` that writes its
-    // output through a real file path, so a weaker "some .masp exists" assertion passes even
-    // when every prebuilt package download is skipped.
-    assert!(
-        entries.iter().any(|n| n == "core.masp"),
-        "prebuilt package artifact 'core.masp' was not installed into {}; found {:?}",
-        lib.display(),
-        entries
-    );
-}
-
-/// Executable components must get their `opt/` shims.
-///
-/// `opt/` serves two distinct purposes, and both are covered here:
-///
-/// 1. The clap `argv[0]` trick: a shim named `miden <component>` makes help text render as `miden
-///    vm ...` rather than `miden-vm ...`.
-/// 2. PATH discoverability: `opt/` is the only toolchain directory on `PATH` (see
-///    `Config::execute_command`), so a binary invoked by an external tool -- `cargo miden`, which
-///    backs the `miden new` alias -- resolves only if it has a shim.
-///
-/// So `hide` governs direct `miden <name>` invocation, not shim creation: a hidden component with
-/// an explicit `symlink-name` still needs its shim.
-///
-/// Regression test: shims were emitted only when `symlink-name` was set explicitly, so the 0.15.0
-/// install produced exactly one shim (`cargo-miden`) and none for the nine callable components.
-#[test]
-fn integration_install_creates_default_symlinks() {
-    let _guard = common::harness::mutating_test_guard();
-    let test_env = environment_setup("integration_install_creates_default_symlinks");
-
-    const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
-    let (mut local_manifest, config) = test_setup(&test_env, FILE);
-
-    Midenup::try_parse_from(["midenup", "install", "stable"])
-        .unwrap()
-        .execute_with_state(&config, &mut local_manifest)
-        .expect("failed to install stable");
-
-    let opt = test_env.midenup_home.join("toolchains").join("stable").join("opt");
-
-    // `vm` is a visible executable with no explicit symlink-name: it gets the default shim.
-    assert!(
-        opt.join("miden vm").symlink_metadata().is_ok(),
-        "missing default shim for 'vm' in {}",
-        opt.display()
-    );
-
-    // `cargo-miden` is hidden but declares `symlink-name`, which is how `cargo miden` finds it
-    // on PATH. It must get exactly that shim...
-    assert!(
-        opt.join("cargo-miden").symlink_metadata().is_ok(),
-        "hidden component with an explicit symlink-name still needs its PATH shim"
-    );
-    // ...and must NOT get a `miden <name>` shim, since it is not directly callable.
-    assert!(
-        opt.join("miden cargo-miden").symlink_metadata().is_err(),
-        "hidden component must not be directly callable as 'miden cargo-miden'"
-    );
-}
-
+/// Deliberately kept on the real manifest and a real install: it is the one test that proves the
+/// whole pipeline produces binaries that actually run. Everything asserting only on layout or
+/// recorded state uses the offline fixture instead.
 ///
 /// [See here for details](https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag)
 #[test]
