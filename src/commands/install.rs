@@ -34,14 +34,20 @@ pub fn install(
     let toolchain_dir = toolchains_dir.join(format!("{}", channel.name));
 
     let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    // Interim directory naming. M5 replaces this with an opaque publication id; until then the
-    // name must simply differ whenever the installed content would differ, which is exactly what
-    // the plan key measures.
-    let plan_key = crate::plan::compute_plan_key(&crate::plan::key_inputs_for_channel(
-        channel,
-        config.target(),
-        &installed_toolchains_dir,
-    )?);
+    // The plan is the single description of what will be installed where; the key is derived
+    // from it, so directory naming and the recorded identity cannot disagree.
+    //
+    // Interim directory naming: M5 replaces this with an opaque publication id. Until then the
+    // name must differ whenever the installed content would differ, which is what the key
+    // measures. The key is sysroot-independent, so building the plan against the toolchains
+    // directory rather than the not-yet-known install directory does not affect it.
+    let selection = crate::resolve::Intent {
+        profiles: [options.profile].into_iter().collect(),
+        roots: options.components.iter().cloned().collect(),
+    };
+    let plan_key =
+        crate::plan::build_plan(channel, &selection, config.target(), &installed_toolchains_dir)?
+            .key;
     let install_dir_name =
         format!("{}-{}", channel.name, plan_key.to_string().trim_start_matches("pk1:"));
     let install_dir = installed_toolchains_dir.join(&install_dir_name);
