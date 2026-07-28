@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Component, ComponentKind};
 use crate::{
-    channel::{ChannelAlias, ChannelHash, MigrationStrategy, Tags, UpstreamChannel, UpstreamMatch},
+    channel::{ChannelAlias, MigrationStrategy, Tags, UpstreamChannel, UpstreamMatch},
     config::Config,
     exec::Executable,
     manifest::{Alias, ManifestError, v2::unknown::Extra},
@@ -96,31 +96,6 @@ impl Channel {
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
         let installed_toolchains_dir = config.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", self.name))
-    }
-
-    pub fn content_hash(&self) -> ChannelHash {
-        use core::{fmt::Write, hash::Hash};
-
-        use sha2::Digest;
-
-        struct Sha256Hasher(sha2::Sha256);
-        impl core::hash::Hasher for Sha256Hasher {
-            fn finish(&self) -> u64 {
-                panic!("finish is intended to be left unused")
-            }
-
-            fn write(&mut self, bytes: &[u8]) {
-                self.0.update(bytes);
-            }
-        }
-        let mut h = Sha256Hasher(sha2::Sha256::new());
-        self.hash(&mut h);
-        let out = h.0.finalize();
-        let mut hex = String::with_capacity(64);
-        for byte in out {
-            write!(&mut hex, "{byte:02x}").expect("failed to write channel hash");
-        }
-        ChannelHash(hex)
     }
 
     /// Get all the alias names that the Channel is aware of

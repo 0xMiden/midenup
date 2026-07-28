@@ -8,7 +8,6 @@ pub mod exec;
 mod external;
 pub mod manifest;
 pub mod miden_wrapper;
-pub mod migration;
 pub mod options;
 pub mod plan;
 pub mod profile;

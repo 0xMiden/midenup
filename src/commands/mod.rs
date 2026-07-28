@@ -153,7 +153,7 @@ impl Commands {
     ) -> anyhow::Result<()> {
         match &self {
             Self::Init => {
-                init(config, local_manifest)?;
+                init(config)?;
                 Ok(())
             },
             Self::List => {

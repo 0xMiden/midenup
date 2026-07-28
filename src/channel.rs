@@ -5,15 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::config::Config;
 pub use crate::manifest::Channel;
 
-/// Hash created to distinguish one installed channel from the another.
-pub struct ChannelHash(pub(crate) String);
-
-impl fmt::Display for ChannelHash {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone, Hash)]
 #[serde(untagged)]
 pub enum MigrationStrategy {

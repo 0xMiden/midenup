@@ -26,13 +26,22 @@ pub fn install(
     local_manifest: &mut Manifest,
     options: &InstallationOptions,
 ) -> anyhow::Result<()> {
-    commands::setup_midenup(config, local_manifest)?;
+    commands::setup_midenup(config)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let toolchain_dir = toolchains_dir.join(format!("{}", channel.name));
 
     let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    let install_dir_name = format!("{}-{}", channel.name, channel.content_hash());
+    // Interim directory naming. M5 replaces this with an opaque publication id; until then the
+    // name must simply differ whenever the installed content would differ, which is exactly what
+    // the plan key measures.
+    let plan_key = crate::plan::compute_plan_key(&crate::plan::key_inputs_for_channel(
+        channel,
+        config.target(),
+        &installed_toolchains_dir,
+    )?);
+    let install_dir_name =
+        format!("{}-{}", channel.name, plan_key.to_string().trim_start_matches("pk1:"));
     let install_dir = installed_toolchains_dir.join(&install_dir_name);
 
     // Relative path to the newly installed channel directory.

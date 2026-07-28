@@ -17,10 +17,10 @@ use crate::{
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 pub fn r#override(
     config: &Config,
-    local_manifest: &Manifest,
+    _local_manifest: &Manifest,
     channel: &UserChannel,
 ) -> anyhow::Result<()> {
-    commands::setup_midenup(config, local_manifest)?;
+    commands::setup_midenup(config)?;
 
     // We check which toolchain is active in order to inform the user in case the `override` command
     // won't take effect.

@@ -982,8 +982,16 @@ mod initialization_tests {
                 if path.is_dir() {
                     walk(&path, found, root);
                 } else if path.extension().is_some_and(|e| e == "rs")
-                    && std::fs::read_to_string(&path)
-                        .is_ok_and(|text| text.contains("initialization"))
+                    && std::fs::read_to_string(&path).is_ok_and(|text| {
+                        // Only *code* counts. Documentation that merely explains why
+                        // `initialization` is excluded from something is not an execution path,
+                        // and flagging it would train people to widen the allowlist reflexively --
+                        // which is exactly how a guard like this stops working.
+                        text.lines()
+                            .map(str::trim_start)
+                            .filter(|line| !line.starts_with("//"))
+                            .any(|line| line.contains("initialization"))
+                    })
                 {
                     let rel = path.strip_prefix(root).unwrap_or(&path);
                     found.push(rel.display().to_string());

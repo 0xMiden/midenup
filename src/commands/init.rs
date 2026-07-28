@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::{config::Config, manifest::Manifest, migration, options::DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, manifest::Manifest, options::DEFAULT_USER_DATA_DIR, utils};
 
 #[derive(Error, Debug)]
 pub enum InitializationError {
@@ -12,8 +12,6 @@ pub enum InitializationError {
     FileCreation(PathBuf, String),
     #[error("Failed to create symlink. {0}")]
     Symlink(String),
-    #[error(transparent)]
-    Migration(anyhow::Error),
 }
 
 pub enum InitializationState {
@@ -21,8 +19,8 @@ pub enum InitializationState {
     Initialized,
 }
 
-pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), InitializationError> {
-    let state = setup_midenup(config, local_manifest)?;
+pub fn init(config: &Config) -> Result<(), InitializationError> {
+    let state = setup_midenup(config)?;
 
     match state {
         InitializationState::Initialized => println!(
@@ -67,10 +65,7 @@ pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), Initializa
 ///
 /// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
 /// executable.
-pub fn setup_midenup(
-    config: &Config,
-    local_manifest: &Manifest,
-) -> Result<InitializationState, InitializationError> {
+pub fn setup_midenup(config: &Config) -> Result<InitializationState, InitializationError> {
     let mut state = InitializationState::AlreadyInitialized;
 
     let midenhome_dir = &config.midenup_home;
@@ -167,9 +162,6 @@ source ~/.zprofile
             );
         }
     }
-
-    migration::run_toolchain_migration(config, local_manifest)
-        .map_err(InitializationError::Migration)?;
 
     Ok(state)
 }
