@@ -14,11 +14,10 @@ use crate::{
     artifact::{ArtifactUri, Digest, InvalidArtifactError},
     manifest::{Channel, Component, ComponentKind, InstallationMethod, PackageInstallationMethod},
     plan::{
-        ComponentInputs, Destination, DestinationError, KeyInputs, PlanKey, compute_plan_key,
-        destination_for,
+        ComponentInputs, Destination, DestinationError, KeyInputs, PlanKey, ResolvedAuthority,
+        compute_plan_key, destination_for,
     },
     resolve::{Intent, ResolutionError, resolve},
-    version::Authority,
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -29,6 +28,8 @@ pub enum PlanError {
     Destination(#[from] DestinationError),
     #[error(transparent)]
     Artifact(#[from] InvalidArtifactError),
+    #[error(transparent)]
+    Pin(#[from] crate::plan::PinError),
     #[error(
         "component '{component}' declares {found} artifact(s), but a {kind} component using \
          '{method}' must declare {expected}"
@@ -102,7 +103,8 @@ pub enum PlanStep {
     /// Build with `cargo install`.
     CargoBuild {
         crate_name: String,
-        authority: Authority,
+        /// Pinned: a branch is already reduced to the commit that will be installed.
+        authority: ResolvedAuthority,
         features: Vec<String>,
         rustup_channel: Option<String>,
         /// The binary the build must produce. Passed as `--bin`, and verified afterwards.
@@ -113,7 +115,8 @@ pub enum PlanStep {
     /// Extract a Miden package from a Rust crate. See [ComponentKind::LegacyPackage].
     ExtractPackage {
         crate_name: String,
-        authority: Authority,
+        /// Pinned: a branch is already reduced to the commit that will be installed.
+        authority: ResolvedAuthority,
         features: Vec<String>,
         extractor: String,
         dest: PathBuf,
@@ -171,6 +174,17 @@ pub fn build(
     target: &str,
     sysroot: &Path,
 ) -> Result<InstallationPlan, PlanError> {
+    build_in(channel, intent, target, sysroot, Path::new("."))
+}
+
+/// As [build], with an explicit working directory for resolving relative path authorities.
+pub fn build_in(
+    channel: &Channel,
+    intent: &Intent,
+    target: &str,
+    sysroot: &Path,
+    cwd: &Path,
+) -> Result<InstallationPlan, PlanError> {
     let components = resolve(channel, intent)?;
 
     let mut steps = Vec::new();
@@ -180,15 +194,20 @@ pub fn build(
     let mut cargo_units: HashMap<String, String> = HashMap::new();
 
     for component in components {
+        // Pin before anything is recorded. A key computed over "the tip of main" identifies
+        // nothing: it would compare equal across two installs producing different binaries.
+        let authority = crate::plan::pin(&component.version, cwd)?;
+
         let mut inputs = ComponentInputs {
             name: component.name.to_string(),
-            authority: component.version.to_string(),
+            authority: authority.identity(),
             kind: component.kind().tag().to_string(),
             ..Default::default()
         };
 
         plan_component(
             component,
+            &authority,
             target,
             sysroot,
             &mut steps,
@@ -230,8 +249,10 @@ pub fn build(
 }
 
 /// Enforces the component/artifact matrix for one component and emits its steps.
+#[allow(clippy::too_many_arguments)]
 fn plan_component(
     component: &Component,
+    authority: &ResolvedAuthority,
     target: &str,
     sysroot: &Path,
     steps: &mut Vec<PlanStep>,
@@ -291,6 +312,7 @@ fn plan_component(
                     }
                     push_cargo_build(
                         component,
+                        authority,
                         crate_name,
                         features,
                         rustup_channel,
@@ -325,6 +347,7 @@ fn plan_component(
                     // recoverable rather than fatal.
                     None => push_cargo_build(
                         component,
+                        authority,
                         crate_name,
                         features,
                         rustup_channel,
@@ -401,12 +424,12 @@ fn plan_component(
 
             match installation_method {
                 PackageInstallationMethod::Cargo { crate_name, features, extractor } => {
-                    claim_cargo_unit(&component.version, crate_name, &name, cargo_units)?;
+                    claim_cargo_unit(authority, crate_name, &name, cargo_units)?;
                     inputs.crate_name = Some(format!("{crate_name}#{extractor}"));
                     inputs.features = Some(features.clone());
                     steps.push(PlanStep::ExtractPackage {
                         crate_name: crate_name.clone(),
-                        authority: component.version.clone(),
+                        authority: authority.clone(),
                         features: features.clone(),
                         extractor: extractor.clone(),
                         dest: destination.path,
@@ -484,6 +507,7 @@ fn push_transfer(
 #[allow(clippy::too_many_arguments)]
 fn push_cargo_build(
     component: &Component,
+    authority: &ResolvedAuthority,
     crate_name: &str,
     features: &[String],
     rustup_channel: &Option<String>,
@@ -494,7 +518,7 @@ fn push_cargo_build(
     cargo_units: &mut HashMap<String, String>,
 ) -> Result<(), PlanError> {
     let owner = component.name.to_string();
-    claim_cargo_unit(&component.version, crate_name, &owner, cargo_units)?;
+    claim_cargo_unit(authority, crate_name, &owner, cargo_units)?;
 
     inputs.crate_name = Some(crate_name.to_string());
     inputs.features = Some(features.to_vec());
@@ -502,7 +526,7 @@ fn push_cargo_build(
 
     steps.push(PlanStep::CargoBuild {
         crate_name: crate_name.to_string(),
-        authority: component.version.clone(),
+        authority: authority.clone(),
         features: features.to_vec(),
         rustup_channel: rustup_channel.clone(),
         expect_binary: executable.to_string(),
@@ -518,12 +542,12 @@ fn push_cargo_build(
 /// so two components building the same package cannot be updated or removed independently --
 /// uninstalling one would take the other's binary with it.
 fn claim_cargo_unit(
-    authority: &Authority,
+    authority: &ResolvedAuthority,
     crate_name: &str,
     owner: &str,
     cargo_units: &mut HashMap<String, String>,
 ) -> Result<(), PlanError> {
-    let unit = format!("{authority}#{crate_name}");
+    let unit = format!("{}#{crate_name}", authority.identity());
     match cargo_units.insert(unit.clone(), owner.to_string()) {
         Some(previous) if previous != owner => Err(PlanError::CargoUnitConflict {
             unit,
@@ -543,6 +567,7 @@ mod tests {
         artifact::{Artifact, Artifacts},
         manifest::{ExecutableComponent, OpaqueBody},
         profile::Profile,
+        version::{Authority, GitTarget},
     };
 
     const TARGET: &str = "aarch64-apple-darwin";
@@ -904,6 +929,70 @@ mod tests {
         )
         .expect_err("must fail");
         assert!(matches!(err, PlanError::Resolution(_)), "{err}");
+    }
+
+    /// A branch must be pinned before the key is computed.
+    ///
+    /// Two installs from "the tip of main" at different commits are different installations. If
+    /// the key saw the branch *name*, they would compare equal -- and an update would conclude
+    /// nothing had changed.
+    #[test]
+    fn a_branch_authority_is_pinned_before_the_key_is_computed() {
+        fn git(dir: &Path, args: &[&str]) -> String {
+            let output =
+                std::process::Command::new("git").args(args).current_dir(dir).output().unwrap();
+            assert!(output.status.success(), "git {args:?} failed");
+            String::from_utf8_lossy(&output.stdout).trim().to_string()
+        }
+
+        let temp = tempdir::TempDir::new("plan-branch").unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("f"), b"one").unwrap();
+        git(&repo, &["init", "--quiet", "--initial-branch=main"]);
+        git(&repo, &["config", "user.email", "f@example.invalid"]);
+        git(&repo, &["config", "user.name", "F"]);
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "--quiet", "-m", "one"]);
+        let first = git(&repo, &["rev-parse", "HEAD"]);
+
+        let branch_component = || {
+            let mut c = component("vm", executable_kind(cargo("fixture-vm"), "miden-vm"), &[]);
+            c.version = Authority::Git {
+                repository_url: repo.display().to_string(),
+                subpath: None,
+                target: GitTarget::Branch {
+                    name: "main".to_string(),
+                    latest_revision: None,
+                },
+            };
+            c
+        };
+
+        let before = build(&channel(vec![branch_component()]), &intent(), TARGET, sysroot())
+            .expect("should plan");
+
+        // The step must carry the commit, not the branch name.
+        match &before.steps[0] {
+            PlanStep::CargoBuild { authority, .. } => {
+                assert!(
+                    matches!(authority, ResolvedAuthority::Git { revision, .. } if revision == &first)
+                );
+            },
+            other => panic!("expected a cargo build, got {other:?}"),
+        }
+
+        // Move the branch. The same manifest must now produce a different key.
+        std::fs::write(repo.join("f"), b"two").unwrap();
+        git(&repo, &["add", "."]);
+        git(&repo, &["commit", "--quiet", "-m", "two"]);
+
+        let after = build(&channel(vec![branch_component()]), &intent(), TARGET, sysroot())
+            .expect("should plan");
+        assert_ne!(
+            before.key, after.key,
+            "moving the branch must change the key; otherwise an update sees no change"
+        );
     }
 
     /// The key identifies what is installed, not where. Moving `MIDENUP_HOME` must not change it.

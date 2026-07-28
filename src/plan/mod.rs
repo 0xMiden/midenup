@@ -1,10 +1,12 @@
 //! Turning a resolved component set into an exact, target-specific installation plan.
 
+pub mod authority;
 pub mod build;
 pub mod destination;
 pub mod key;
 
 pub use self::{
+    authority::{PinError, ResolvedAuthority, pin, recheck_path},
     build::{InstallationPlan, PlanError, PlanStep, SymlinkSpec, build as build_plan},
     destination::{
         Destination, DestinationError, InvalidArtifactId, MODE_DATA, MODE_EXECUTABLE,

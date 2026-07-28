@@ -18,6 +18,18 @@ pub mod git {
                 "failed to fetch latest git rev-hash from branch {branch_name}, is git installed?.",
             ))?;
 
+        // A failed `ls-remote` leaves stdout empty. Without checking, this returned Ok("") --
+        // which callers then recorded as though it were a real revision, so update detection
+        // compared "" against "" and concluded the component was current. A branch-tracked
+        // component would never update again after one transient failure.
+        if !check_revision_hash.status.success() {
+            anyhow::bail!(
+                "failed to resolve branch '{branch_name}' of '{repository_url}': git ls-remote \
+                 exited with {}",
+                check_revision_hash.status
+            );
+        }
+
         // This returns a string of the form:
         //
         // sym_ref\tref_name
@@ -31,6 +43,17 @@ pub mod git {
             .chars()
             .take_while(|&c| c != '\t')
             .collect();
+
+        // `ls-remote` succeeds with no output when the branch does not exist.
+        if revision_hash.is_empty() {
+            anyhow::bail!("branch '{branch_name}' does not exist in '{repository_url}'");
+        }
+        if !revision_hash.chars().all(|c| c.is_ascii_hexdigit()) {
+            anyhow::bail!(
+                "expected a commit hash for branch '{branch_name}' of '{repository_url}', got \
+                 '{revision_hash}'"
+            );
+        }
 
         Ok(revision_hash)
     }
@@ -382,5 +405,67 @@ pub mod atomic {
                 assert_eq!(name.parent(), path.parent(), "must be a sibling, for rename atomicity");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod git_tests {
+    use std::path::Path;
+
+    fn run(dir: &Path, args: &[&str]) {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap_or_else(|err| panic!("git {args:?}: {err}"));
+        assert!(output.status.success(), "git {args:?} failed");
+    }
+
+    /// A failed or empty `ls-remote` must be an error.
+    ///
+    /// Regression: neither the exit status nor empty output was checked, so this returned
+    /// `Ok("")`. Callers recorded that as a revision, and update detection then compared `""`
+    /// against `""` and concluded the component was current -- a branch-tracked component would
+    /// never update again after one transient failure.
+    #[test]
+    fn a_missing_repository_is_an_error() {
+        let temp = tempdir::TempDir::new("git-missing").unwrap();
+        let missing = temp.path().join("nope");
+        let result = super::git::find_latest_hash(&missing.display().to_string(), "main");
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn a_missing_branch_is_an_error() {
+        let temp = tempdir::TempDir::new("git-branch").unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("file"), b"x").unwrap();
+        run(&repo, &["init", "--quiet", "--initial-branch=main"]);
+        run(&repo, &["config", "user.email", "f@example.invalid"]);
+        run(&repo, &["config", "user.name", "F"]);
+        run(&repo, &["add", "."]);
+        run(&repo, &["commit", "--quiet", "-m", "one"]);
+
+        let result = super::git::find_latest_hash(&repo.display().to_string(), "no-such-branch");
+        assert!(result.is_err(), "got {result:?}");
+    }
+
+    #[test]
+    fn an_existing_branch_resolves_to_a_commit_hash() {
+        let temp = tempdir::TempDir::new("git-ok").unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::write(repo.join("file"), b"x").unwrap();
+        run(&repo, &["init", "--quiet", "--initial-branch=main"]);
+        run(&repo, &["config", "user.email", "f@example.invalid"]);
+        run(&repo, &["config", "user.name", "F"]);
+        run(&repo, &["add", "."]);
+        run(&repo, &["commit", "--quiet", "-m", "one"]);
+
+        let hash = super::git::find_latest_hash(&repo.display().to_string(), "main")
+            .expect("an existing branch must resolve");
+        assert_eq!(hash.len(), 40);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }
 }
