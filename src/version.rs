@@ -48,9 +48,9 @@ impl Default for GitTarget {
 impl fmt::Display for GitTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            GitTarget::Branch { name, .. } => write!(f, "branch = \"{name}"),
-            GitTarget::Revision { hash } => write!(f, "rev = \"{hash}"),
-            GitTarget::Tag { name: tag } => write!(f, "tag = \"{tag}"),
+            GitTarget::Branch { name, .. } => write!(f, "branch = \"{name}\""),
+            GitTarget::Revision { hash } => write!(f, "rev = \"{hash}\""),
+            GitTarget::Tag { name: tag } => write!(f, "tag = \"{tag}\""),
         }
     }
 }

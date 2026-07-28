@@ -281,7 +281,7 @@ fn generate_install_script(
 ---cargo
 [dependencies]
 {%- for dep in dependencies %}
-{{ dep.name }} = { {{ dep.version }}, {{ dep.features }} }
+{{ dep.name }} = { {{ dep.spec }} }
 {%- endfor %}
 colored = "3.0"
 curl = "{{ curl_version }}"
@@ -484,10 +484,8 @@ fn main() -> ExitCode {
                 let artifacts = artifacts
                     .into_iter()
                     .map(|(id, uri)| {
-                        let to = toolchain_directory
-                            .join("etc")
-                            .join(component.name.as_ref())
-                            .join(id);
+                        let to =
+                            toolchain_directory.join("etc").join(component.name.as_ref()).join(id);
                         upon::value! {
                             is_file: true,
                             from: uri.to_string(),
@@ -616,43 +614,31 @@ fn main() -> ExitCode {
                 installation_method:
                     PackageInstallationMethod::Cargo { crate_name, features, extractor },
             } => {
-                let features = if features.is_empty() {
-                    String::new()
-                } else {
-                    let mut feature_strings = String::new();
-                    for (i, f) in features.iter().enumerate() {
-                        if i > 0 {
-                            feature_strings.push_str(", ");
-                        }
-                        feature_strings.push('"');
-                        feature_strings.push_str(f.as_str());
-                        feature_strings.push('"');
-                    }
-                    format!("default-features = false, features = [{feature_strings}]")
-                };
+                // The inline table body is assembled here rather than in the template so that an
+                // absent features list simply contributes no entry. Emitting
+                // `{ {{version}}, {{features}} }` unconditionally produced a trailing comma when
+                // features were empty, which is not valid TOML.
+                let mut spec = Vec::with_capacity(2);
                 match &component.version {
                     Authority::Registry { version } => {
-                        dependencies.push(upon::value! {
-                            name: crate_name.clone(),
-                            version: format!("version = \"{version}\""),
-                            features: features,
-                        });
+                        spec.push(format!("version = \"{version}\""));
                     },
                     Authority::Path { path, .. } => {
-                        dependencies.push(upon::value! {
-                            name: crate_name.clone(),
-                            version: format!("path = \"{}\"", path.display()),
-                            features: features,
-                        });
+                        spec.push(format!("path = \"{}\"", path.display()));
                     },
                     Authority::Git { repository_url, target, .. } => {
-                        dependencies.push(upon::value! {
-                            name: crate_name.clone(),
-                            version: format!("git = \"{repository_url}\", {target}"),
-                            features: features,
-                        });
+                        spec.push(format!("git = \"{repository_url}\", {target}"));
                     },
                 }
+                if !features.is_empty() {
+                    let feature_strings =
+                        features.iter().map(|f| format!("\"{f}\"")).collect::<Vec<_>>().join(", ");
+                    spec.push(format!("default-features = false, features = [{feature_strings}]"));
+                }
+                dependencies.push(upon::value! {
+                    name: crate_name.clone(),
+                    spec: spec.join(", "),
+                });
                 installable_packages.push(upon::value! {
                     component: component.name.to_string(),
                     extractor: extractor.clone(),
@@ -817,4 +803,136 @@ pub fn get_installed_cargo_binaries(
     }
 
     Ok(installed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        artifact::Artifacts,
+        manifest::{Component, ComponentKind, PackageInstallationMethod},
+        profile::Profile,
+        version::{Authority, GitTarget},
+    };
+
+    fn test_config() -> Config {
+        Config {
+            working_directory: PathBuf::from("/tmp"),
+            midenup_home: PathBuf::from("/tmp/midenup"),
+            cargo_home: PathBuf::from("/tmp/cargo"),
+            manifest: Manifest::default(),
+            debug: true,
+            target: Cow::Borrowed("aarch64-apple-darwin"),
+        }
+    }
+
+    fn channel_with_legacy_package(version: Authority) -> Channel {
+        channel_with_legacy_package_features(version, vec![])
+    }
+
+    /// Builds a channel with a single crate-extracted legacy package.
+    fn channel_with_legacy_package_features(version: Authority, features: Vec<String>) -> Channel {
+        Channel::new(
+            semver::Version::new(0, 14, 0),
+            None,
+            vec![Component {
+                name: Cow::Borrowed("core"),
+                version,
+                kind: ComponentKind::LegacyPackage {
+                    installation_method: PackageInstallationMethod::Cargo {
+                        crate_name: "miden-core-lib".to_string(),
+                        features,
+                        extractor: "miden_core_lib::CoreLibrary::default().package()".to_string(),
+                    },
+                },
+                profiles: vec![Profile::Minimal],
+                requires: vec![],
+                artifacts: Artifacts::default(),
+            }],
+            vec![],
+        )
+    }
+
+    /// Extracts the `---cargo ... ---` frontmatter manifest from a generated script.
+    fn frontmatter(script: &str) -> String {
+        let body = script.split_once("---cargo\n").expect("no frontmatter").1;
+        body.split_once("\n---").expect("unterminated frontmatter").0.to_string()
+    }
+
+    /// The generated frontmatter must be valid TOML for every authority kind.
+    ///
+    /// Regression: the dependency line was rendered as `name = { {{version}}, {{features}} }`
+    /// unconditionally. With no features declared, `features` is the empty string, so the inline
+    /// table ended in a trailing comma -- which TOML rejects. This only surfaced for components
+    /// with no prebuilt artifacts, since anything downloadable never emits a dependency at all.
+    #[test]
+    fn generated_frontmatter_is_valid_toml_without_features() {
+        let config = test_config();
+        let options = InstallationOptions {
+            profile: Profile::Complete,
+            ..Default::default()
+        };
+
+        let authorities = [
+            (
+                "git",
+                Authority::Git {
+                    repository_url: "https://github.com/0xMiden/miden-vm.git".to_string(),
+                    subpath: None,
+                    target: GitTarget::Revision { hash: "16a2866b1a4cb535".to_string() },
+                },
+            ),
+            ("registry", Authority::Registry { version: semver::Version::new(0, 23, 3) }),
+            (
+                "path",
+                Authority::Path {
+                    path: PathBuf::from("/tmp/miden-core-lib"),
+                    last_modification: None,
+                },
+            ),
+        ];
+
+        for (label, authority) in authorities {
+            let channel = channel_with_legacy_package(authority);
+            let script =
+                generate_install_script(&config, &channel, &options, Path::new("/tmp/sysroot"))
+                    .unwrap_or_else(|err| panic!("{label}: render failed: {err}"));
+            let fm = frontmatter(&script);
+            toml::from_str::<toml::Value>(&fm).unwrap_or_else(|err| {
+                panic!("{label}: generated frontmatter is not valid TOML: {err}\n---\n{fm}\n---")
+            });
+        }
+    }
+
+    /// The features path must also produce valid TOML, and must actually carry the features
+    /// through -- the extractor can only compile if they are enabled.
+    #[test]
+    fn generated_frontmatter_carries_features() {
+        let config = test_config();
+        let options = InstallationOptions {
+            profile: Profile::Complete,
+            ..Default::default()
+        };
+        let channel = channel_with_legacy_package_features(
+            Authority::Registry { version: semver::Version::new(0, 23, 3) },
+            vec!["std".to_string(), "concurrent".to_string()],
+        );
+
+        let script =
+            generate_install_script(&config, &channel, &options, Path::new("/tmp/sysroot"))
+                .expect("render failed");
+        let fm = frontmatter(&script);
+        let parsed: toml::Value = toml::from_str(&fm).expect("frontmatter is not valid TOML");
+
+        let dep = &parsed["dependencies"]["miden-core-lib"];
+        assert_eq!(dep["version"].as_str(), Some("0.23.3"));
+        assert_eq!(dep["default-features"].as_bool(), Some(false));
+        let features: Vec<&str> = dep["features"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f.as_str().unwrap())
+            .collect();
+        assert_eq!(features, vec!["std", "concurrent"]);
+    }
 }
