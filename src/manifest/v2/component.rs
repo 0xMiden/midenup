@@ -433,7 +433,7 @@ impl ComponentKind {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 pub struct ExecutableComponent {
     /// An [Executable] that represents how this component should be invoked when called direct,
