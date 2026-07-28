@@ -41,6 +41,10 @@ test: ## Run all tests, except integration
 integration-test: ## Run integration tests, excluding the slow pre-release checks
 	cargo nextest run --no-fail-fast -E 'test(/integration_/) and not test(/prerelease/)'
 
+.PHONY: recovery-test
+recovery-test: ## Run restart-recovery tests, which need the fault-injection abort points compiled in
+	cargo nextest run --features fault-injection --no-fail-fast -E 'test(/integration_recovery_/)'
+
 .PHONY: prerelease-test
 prerelease-test: ## Run pre-release checks against the real manifest (slow: builds real components)
 	cargo nextest run --no-fail-fast -E 'test(/prerelease/)'

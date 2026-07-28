@@ -176,14 +176,12 @@ pub fn commit_symlink(home: &Path, entry: &JournalEntry) -> Result<(), PublishEr
     })
 }
 
-/// Steps 5 and 7: commits the state record, removes the old publication, deletes the journal.
+/// Step 5: commits the state record the entry describes.
 ///
-/// Ordering matters and is not arbitrary. The state record is committed *first*: until it lands,
-/// the journal is the only thing that knows the operation happened, so deleting it earlier would
-/// lose the operation entirely. The old publication is removed only afterwards, so a crash in
-/// between leaves a stale directory -- reclaimable by `midenup gc` -- rather than a state record
-/// pointing at a directory that is already gone.
-pub fn finish(
+/// The state record is committed before anything is cleaned up. Until it lands, the journal is the
+/// only thing that knows the operation happened, so reclaiming or deleting anything earlier could
+/// lose it entirely.
+pub fn record(
     home: &Path,
     entry: &JournalEntry,
     state: &mut LocalState,
@@ -199,13 +197,18 @@ pub fn finish(
 
     state
         .save(&paths::state_path(home))
-        .map_err(|err| PublishError::Record { reason: err.to_string() })?;
+        .map_err(|err| PublishError::Record { reason: err.to_string() })
+}
 
+/// Step 7: reclaims the publication this operation replaced, and deletes the journal.
+///
+/// Everything here is best effort *except* deleting the journal. A publication that is already
+/// gone is not a failure, and a state record that is already committed must not be undone because
+/// a directory could not be removed -- anything left behind is reclaimable by `midenup gc`. The
+/// journal is different: while it exists, recovery will run this operation again.
+pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
     if let Some(old) = &entry.old_publication {
-        let dir = paths::publication_dir(home, &entry.channel, old);
-        // Best effort: a publication that is already gone is not a failure, and a state record
-        // that is already committed must not be undone by a cleanup problem.
-        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(paths::publication_dir(home, &entry.channel, old));
     }
 
     if matches!(entry.kind, OperationKind::Uninstall) {
@@ -217,6 +220,19 @@ pub fn finish(
 
     let path = entry_path(home, &entry.id);
     std::fs::remove_file(&path).map_err(|source| PublishError::Journal { path, source })
+}
+
+/// Steps 5 and 7 together, for a caller with no step 6 of its own to run.
+///
+/// Recovery uses this: rebuilding the derived symlinks (step 6) is idempotent and happens on every
+/// command anyway, so completing an interrupted operation does not need to interleave with it.
+pub fn finish(
+    home: &Path,
+    entry: &JournalEntry,
+    state: &mut LocalState,
+) -> Result<(), PublishError> {
+    record(home, entry, state)?;
+    clean(home, entry)
 }
 
 /// Runs at startup: completes or discards whatever the last run left behind.

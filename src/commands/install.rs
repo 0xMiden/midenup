@@ -12,6 +12,7 @@ use crate::{
     channel::Channel,
     commands,
     config::Config,
+    fault,
     options::{InstallationOptions, IntentUpdate},
     paths,
     resolve::Intent,
@@ -61,6 +62,7 @@ pub fn install(
         target_installation(config, channel, state, options, &publication_id, &plan),
     );
     crate::publish::journal::prepare(home, &entry)?;
+    fault::fail_at(fault::FaultPoint::PostPrepare)?;
 
     // 2. STAGE.
     crate::install::prepare(&publication)?;
@@ -77,6 +79,7 @@ pub fn install(
     }
 
     let realized = crate::install::execute(&plan, &publication, options.verbose, config.debug)?;
+    fault::fail_at(fault::FaultPoint::PostStage)?;
 
     // 3. VERIFY. Structural check before anything is published: every planned file exists, is a
     // regular file, and carries the planned mode. Contents are not verified -- digests are
@@ -104,16 +107,18 @@ pub fn install(
         refresh_path_modification_times(config, &mut installation.components);
     }
     crate::publish::journal::prepare(home, &entry)?;
+    fault::fail_at(fault::FaultPoint::PostVerify)?;
 
     // ======================== 4. COMMIT — the commit point ======================
     //
     // A single atomic rename of a symlink. Before it, this operation never happened and recovery
     // discards it; after it, recovery completes it. Nothing else distinguishes the two.
     crate::publish::journal::commit_symlink(home, &entry)?;
+    fault::fail_at(fault::FaultPoint::PostCommit)?;
 
-    // 5. RECORD, and 7. CLEAN: commit the state record, reclaim the publication this one replaced,
-    // and delete the journal.
-    crate::publish::journal::finish(home, &entry, state)?;
+    // 5. RECORD.
+    crate::publish::journal::record(home, &entry, state)?;
+    fault::fail_at(fault::FaultPoint::PostRecord)?;
 
     // 6. DERIVE. `stable` is a property of the upstream manifest, recomputed from it rather than
     // remembered, so a stale local copy can never disagree with upstream about which channel it
@@ -127,6 +132,10 @@ pub fn install(
         utils::fs::symlink(&stable_dir, &relative_channel_target)
             .expect("Couldn't create stable dir");
     }
+    fault::fail_at(fault::FaultPoint::PostDerive)?;
+
+    // 7. CLEAN.
+    crate::publish::journal::clean(home, &entry)?;
 
     Ok(())
 }

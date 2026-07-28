@@ -5,6 +5,7 @@ pub mod channel;
 pub mod commands;
 pub mod config;
 pub mod exec;
+pub mod fault;
 pub mod install;
 pub mod manifest;
 pub mod miden_wrapper;
