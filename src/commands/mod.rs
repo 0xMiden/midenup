@@ -1,3 +1,4 @@
+mod gc;
 mod init;
 mod install;
 mod list;
@@ -13,6 +14,7 @@ use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, Parser, Subcommand};
 
 pub use self::{
+    gc::gc,
     init::{init, setup_midenup},
     install::install,
     list::list,
@@ -104,6 +106,11 @@ enum Commands {
         #[clap(flatten)]
         options: options::InstallationOptions,
     },
+    /// Reclaim disk space from toolchain installations nothing refers to any more.
+    ///
+    /// Every change to an installed channel publishes a new copy and leaves the previous one in
+    /// place, because another process may still be running out of it. This removes those.
+    Gc,
     /// List all available toolchains
     List,
     /// Uninstall a Miden toolchain
@@ -160,9 +167,11 @@ impl Commands {
     /// something is taking so long.
     fn is_mutating(&self) -> bool {
         match self {
-            Self::Init | Self::Install { .. } | Self::Uninstall { .. } | Self::Update { .. } => {
-                true
-            },
+            Self::Init
+            | Self::Install { .. }
+            | Self::Uninstall { .. }
+            | Self::Update { .. }
+            | Self::Gc => true,
             // Writes `toolchains/default`.
             Self::Override { .. } => true,
             // Writes `miden-toolchain.toml` in the working directory, not `$MIDENUP_HOME`.
@@ -182,6 +191,7 @@ impl Commands {
                 init(config)?;
                 Ok(())
             },
+            Self::Gc => gc(config, state),
             Self::List => {
                 list(config, state);
                 Ok(())

@@ -155,6 +155,53 @@ pub fn receipt_for(
     }
 }
 
+/// Publication directories no `state.json` record refers to and no journal names.
+///
+/// Because a replaced publication is left on disk rather than deleted -- another process may be
+/// executing out of it (§3.1) -- this is what accumulates, and reclaiming it is `midenup gc`'s
+/// whole job.
+///
+/// Two things are deliberately *not* treated as garbage: a publication an in-flight operation
+/// names, which is either about to be published or about to be replaced; and anything that is not a
+/// directory, since nothing here created it.
+pub fn unreferenced(
+    home: &Path,
+    state: &crate::state::LocalState,
+) -> Result<Vec<PathBuf>, PublishError> {
+    let mut referenced: std::collections::HashSet<PathBuf> = state
+        .installations
+        .iter()
+        .filter_map(|installation| match &installation.publication {
+            crate::state::PublicationRef::Managed { id, .. } => {
+                Some(publication_dir(home, &installation.channel, id))
+            },
+            crate::state::PublicationRef::NeedsReinstall => None,
+        })
+        .collect();
+
+    if let Some(entry) = journal::read(home)? {
+        for id in [&entry.old_publication, &entry.new_publication].into_iter().flatten() {
+            referenced.insert(publication_dir(home, &entry.channel, id));
+        }
+    }
+
+    let dir = crate::paths::publications_dir(home);
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(source) => return Err(PublishError::Journal { path: dir, source }),
+    };
+
+    let mut orphans: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir() && !referenced.contains(path))
+        .collect();
+    orphans.sort();
+
+    Ok(orphans)
+}
+
 /// The method a step implies when nothing observed it running.
 pub fn declared_method(step: &PlanStep) -> RealizedMethod {
     match step {
@@ -306,6 +353,86 @@ mod tests {
         let receipt =
             receipt_for(&plan, publication, &PublicationId::generate(), &BTreeMap::new(), None);
         assert!(matches!(receipt.outputs[0].realized, RealizedMethod::Prebuilt));
+    }
+
+    /// A publication a state record refers to is never garbage, whatever else is on disk.
+    #[test]
+    fn only_publications_nothing_refers_to_are_collectable() {
+        use crate::state::{Installation, LocalState, PublicationRef};
+
+        let temp = tempdir::TempDir::new("publish-gc").unwrap();
+        let home = temp.path();
+        let channel = semver::Version::new(0, 15, 0);
+
+        let live = PublicationId::generate();
+        let orphan = PublicationId::generate();
+        for id in [&live, &orphan] {
+            std::fs::create_dir_all(publication_dir(home, &channel, id)).unwrap();
+        }
+        // Not a directory, and not ours: left alone.
+        std::fs::write(crate::paths::publications_dir(home).join("stray-file"), b"x").unwrap();
+
+        let mut state = LocalState::default();
+        state.upsert(Installation {
+            channel: channel.clone(),
+            intent: Default::default(),
+            components: vec![],
+            publication: PublicationRef::Managed {
+                id: live.clone(),
+                plan_key: plan_key(),
+                target: "aarch64-apple-darwin".to_string(),
+            },
+            installed_at: 1735689600,
+        });
+
+        assert_eq!(
+            unreferenced(home, &state).unwrap(),
+            vec![publication_dir(home, &channel, &orphan)]
+        );
+    }
+
+    /// An operation in flight owns both publications it names, even though neither is in
+    /// `state.json` yet.
+    #[test]
+    fn a_publication_an_in_flight_operation_names_is_not_collectable() {
+        use crate::state::{Installation, LocalState};
+
+        let temp = tempdir::TempDir::new("publish-gc-journal").unwrap();
+        let home = temp.path();
+        let channel = semver::Version::new(0, 15, 0);
+
+        let staged = PublicationId::generate();
+        std::fs::create_dir_all(publication_dir(home, &channel, &staged)).unwrap();
+
+        let state = LocalState::default();
+        assert_eq!(
+            unreferenced(home, &state).unwrap(),
+            vec![publication_dir(home, &channel, &staged)],
+            "with no journal it is simply garbage"
+        );
+
+        let entry = journal::JournalEntry::install(
+            channel.clone(),
+            None,
+            staged.clone(),
+            Installation {
+                channel: channel.clone(),
+                intent: Default::default(),
+                components: vec![],
+                publication: crate::state::PublicationRef::Managed {
+                    id: staged.clone(),
+                    plan_key: plan_key(),
+                    target: "aarch64-apple-darwin".to_string(),
+                },
+                installed_at: 1735689600,
+            },
+        );
+        journal::prepare(home, &entry).unwrap();
+
+        assert!(
+            unreferenced(home, &state).unwrap().is_empty(),
+            "an in-flight publication must never be collected"
+        );
     }
 
     #[test]

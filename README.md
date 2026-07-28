@@ -135,10 +135,28 @@ For example, to uninstall toolchain version `0.16.0`, run:
 midenup uninstall 0.16.0
 ```
 
+This keeps the toolchain's mutable data — the Miden client's database, for instance — and tells you
+where it left it. To remove that too, pass `--purge`:
+```
+midenup uninstall 0.16.0 --purge
+```
+
 > [!WARNING]
 > It is **strongly discouraged** to delete the toolchain directories manually,
 > since this will most likely generate an invalid environment and `midenup` will
 > probably *not* work as intended.
+
+### Reclaiming disk space
+
+Installing or updating a toolchain publishes a fresh copy of it and leaves the previous copy in
+place, because another shell may still be running a component out of it. Once you are done with
+those, reclaim them with:
+```
+midenup gc
+```
+
+This only ever removes installations nothing refers to any more. It never touches an installed
+toolchain, and it is safe to run at any time.
 
 ### Uninstalling `midenup`
 
