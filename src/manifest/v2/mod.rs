@@ -3,10 +3,9 @@ mod component;
 
 use std::path::Path;
 
-pub use self::{channel::*, component::*};
-
 use serde::{Deserialize, Serialize};
 
+pub use self::{channel::*, component::*};
 use super::ManifestError;
 
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(2, 0, 0);

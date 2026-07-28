@@ -19,5 +19,7 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 /// `MIDENUP_HOME` advisory lock.
 pub fn mutating_test_guard() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|err| err.into_inner())
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
 }

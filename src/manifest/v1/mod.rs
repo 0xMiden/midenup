@@ -2,11 +2,9 @@ mod authority;
 pub mod channel;
 pub mod component;
 
-pub use self::channel::*;
-pub use self::component::*;
-
 use serde::Deserialize;
 
+pub use self::{channel::*, component::*};
 use super::ManifestError;
 
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 1);

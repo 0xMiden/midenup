@@ -159,8 +159,8 @@ impl<'a> ToolchainEnvironment<'a> {
 
             let warning_message = match (&miden_argument, not_found_in_active) {
                 (MidenArgument::Alias { component, .. }, true) => Some(format!(
-                    "{}: '{argument}' is an alias from component {}, which is installed but is not part of \
-                     the current active toolchain.",
+                    "{}: '{argument}' is an alias from component {}, which is installed but is \
+                     not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
                     component.name,
                 )),

@@ -160,19 +160,23 @@ pub enum InvalidExecutable {
     #[error("invalid executable: component '{0}' is not executable, but was referenced as one")]
     NotAExecutable(String),
     #[error(
-        "invalid executable: invalid expr: `%etc` requires specifying a subpath, e.g. `%etc(foo.config)`"
+        "invalid executable: invalid expr: `%etc` requires specifying a subpath, e.g. \
+         `%etc(foo.config)`"
     )]
     MissingEtcPath,
     #[error(
-        "invalid executable: invalid `%etc` expr: expected format is '%etc(path/to/file)', got `{0}`"
+        "invalid executable: invalid `%etc` expr: expected format is '%etc(path/to/file)', got \
+         `{0}`"
     )]
     InvalidEtcExpr(String),
     #[error(
-        "invalid executable: invalid `%lib` expr: expected format is one of `%lib` or '%lib(path/to/file)', got `{0}`"
+        "invalid executable: invalid `%lib` expr: expected format is one of `%lib` or \
+         '%lib(path/to/file)', got `{0}`"
     )]
     InvalidLibExpr(String),
     #[error(
-        "invalid executable: invalid `%var` expr: expected format is one of `%var` or '%var(path/to/file)', got `{0}`"
+        "invalid executable: invalid `%var` expr: expected format is one of `%var` or \
+         '%var(path/to/file)', got `{0}`"
     )]
     InvalidVarExpr(String),
     #[error("invalid executable: '{0}' does not exist")]

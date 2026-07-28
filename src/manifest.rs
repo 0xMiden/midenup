@@ -1,13 +1,12 @@
 pub(crate) mod v1;
 pub(crate) mod v2;
 
-pub use self::v2::*;
-
 use std::path::Path;
 
 use serde::Deserialize;
 use thiserror::Error;
 
+pub use self::v2::*;
 use crate::channel::{ChannelAlias, UserChannel};
 
 const HTTP_ERROR_CODES: std::ops::Range<u32> = 400..500;
@@ -35,7 +34,8 @@ pub enum ManifestError {
     #[error("channel manifest v{0} requires a newer version of midenup")]
     OutdatedMidenup(semver::Version),
     #[error(
-        "conflicting alias '{alias}': defined by both '{component}' and '{prev_component}' components"
+        "conflicting alias '{alias}': defined by both '{component}' and '{prev_component}' \
+         components"
     )]
     ConflictingAlias {
         prev_component: String,

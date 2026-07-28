@@ -8,14 +8,13 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
+use super::authority::Authority as OldAuthority;
 use crate::{
     config::Config,
     manifest::{Alias, ManifestError},
     utils,
     version::GitTarget,
 };
-
-use super::authority::Authority as OldAuthority;
 
 #[derive(Deserialize, Default, Debug, Clone, Hash)]
 #[serde(transparent)]

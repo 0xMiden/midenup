@@ -265,8 +265,8 @@ fn integration_install_stable_installs_packages() {
 ///
 /// `opt/` serves two distinct purposes, and both are covered here:
 ///
-/// 1. The clap `argv[0]` trick: a shim named `miden <component>` makes help text render as
-///    `miden vm ...` rather than `miden-vm ...`.
+/// 1. The clap `argv[0]` trick: a shim named `miden <component>` makes help text render as `miden
+///    vm ...` rather than `miden-vm ...`.
 /// 2. PATH discoverability: `opt/` is the only toolchain directory on `PATH` (see
 ///    `Config::execute_command`), so a binary invoked by an external tool -- `cargo miden`, which
 ///    backs the `miden new` alias -- resolves only if it has a shim.

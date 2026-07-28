@@ -25,7 +25,8 @@ pub enum InvalidArtifactError {
         scheme: String,
     },
     #[error(
-        "invalid artifact: %version substitution is invalid for artifact {id} of {component}: component has no known semantic version"
+        "invalid artifact: %version substitution is invalid for artifact {id} of {component}: \
+         component has no known semantic version"
     )]
     VersionUnavailable { id: String, component: String },
     #[error("invalid artifact: {substitution} is not defined for artifact {id} of {component}")]
@@ -35,7 +36,8 @@ pub enum InvalidArtifactError {
         substitution: &'static str,
     },
     #[error(
-        "invalid artifact: uri is missing %target substitution for artifact {id} of {component} when target is '{target}'"
+        "invalid artifact: uri is missing %target substitution for artifact {id} of {component} \
+         when target is '{target}'"
     )]
     MissingTarget {
         id: String,
@@ -137,9 +139,9 @@ pub enum Artifact {
         ///
         /// The following substitutions and their values are available:
         ///
-        /// * `%version` - the version of the containing component. This requires that the component
-        ///   has an associated semantic version declared in the manifest, or an error will be
-        ///   produced
+        /// * `%version` - the version of the containing component. This requires that the
+        ///   component has an associated semantic version declared in the manifest, or an error
+        ///   will be produced
         /// * `%basename` - the value of `basename` if present, defaults to the component name
         /// * `%extension` - the value of `extension`, if present
         /// * `%target` - the current target triple

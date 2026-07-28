@@ -256,7 +256,8 @@ impl Cli {
                         },
                         Err(err) => {
                             bail!(
-                                "invalid component update: modified json failed to parse with: {err}"
+                                "invalid component update: modified json failed to parse with: \
+                                 {err}"
                             );
                         },
                     }

@@ -2,9 +2,8 @@ use std::hash::Hash;
 
 use serde::Deserialize;
 
-use crate::channel::{ChannelAlias, Tags};
-
 use super::Component;
+use crate::channel::{ChannelAlias, Tags};
 
 /// Represents a specific release channel for a toolchain.
 ///

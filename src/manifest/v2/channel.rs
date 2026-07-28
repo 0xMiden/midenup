@@ -8,6 +8,7 @@ use anyhow::bail;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
+use super::{Component, ComponentKind};
 use crate::{
     channel::{ChannelAlias, ChannelHash, MigrationStrategy, Tags, UpstreamChannel, UpstreamMatch},
     config::Config,
@@ -16,8 +17,6 @@ use crate::{
     profile::Profile,
     toolchain::{Toolchain, ToolchainJustification},
 };
-
-use super::{Component, ComponentKind};
 
 /// Represents a specific release channel for a toolchain.
 ///
@@ -238,7 +237,8 @@ impl Channel {
                     self.components.iter().position(|c| c.name.as_ref() == required.as_str())
                 else {
                     bail!(
-                        "invalid requirement on '{required}' by '{}' in the {} channel: no such component",
+                        "invalid requirement on '{required}' by '{}' in the {} channel: no such \
+                         component",
                         c.name,
                         self
                     );
