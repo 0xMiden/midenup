@@ -11,7 +11,7 @@ use crate::{
     commands::{self},
     config::Config,
     manifest::Component,
-    options::{InstallationOptions, PathUpdate, UpdateOptions},
+    options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
     profile::Profile,
     state::LocalState,
     version::Authority,
@@ -190,7 +190,10 @@ fn update_channel(
     let install_options = InstallationOptions {
         profile: Profile::Complete,
         verbose: options.verbose,
+        components: Vec::new(),
         components_to_uninstall,
+        // An update re-resolves what is already recorded rather than restating it.
+        intent_update: Some(IntentUpdate::Preserve),
     };
 
     commands::install(config, &channel_to_install, state, &install_options)?;

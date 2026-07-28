@@ -175,14 +175,34 @@ components = []
 ```
 
 Now, whenever `miden` is called in this directory (or any of its subdirectories), it will use the specified toolchain.
-If the `components` entry is left blank, all the available components for the selected channel will be installed. However, if the list is not empty, only the listed components will be installed.
-For example, with the following `miden-toolchain.toml` file:
+
+The `profile` entry selects a baseline set of components, and `components` names extras on top of
+it. An omitted `profile` means `minimal`, so an empty `components` list installs the minimal
+profile's members -- not everything. To install every component in the channel, ask for the
+`complete` profile:
+
+```toml
+[toolchain]
+channel = "stable"
+profile = "complete"
+components = []
+```
+
+Listing components adds them to the profile's members. With this file:
+
 ```toml
 [toolchain]
 channel = "stable"
 components = ["vm", "midenc", "client"]
 ```
-Only the `vm`, `midenc`, `client` will be installed after `miden` gets executed.
+
+the `minimal` profile is installed, plus `vm`, `midenc` and `client` if they are not already part
+of it.
+
+Activating a project's toolchain only ever *adds* to what is installed for a channel. Two projects
+sharing a channel cannot remove each other's components: if one asks for less, the other's
+components stay. Use `midenup install <channel> --profile <profile>` to deliberately reduce what is
+installed.
 
 
 #### Setting a global default toolchain

@@ -38,6 +38,34 @@ impl Intent {
             roots: roots.iter().map(|r| r.to_string()).collect(),
         }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.profiles.is_empty() && self.roots.is_empty()
+    }
+
+    /// Merges `other` in, never removing anything.
+    ///
+    /// This is what activating a project's toolchain file does. Two projects on the same channel
+    /// must not fight: one asking for less cannot take components away from the other, so
+    /// activation only ever adds.
+    ///
+    /// `complete` absorbs the other profiles -- it already means every component, so keeping the
+    /// rest alongside it would be noise that suggests a distinction that does not exist.
+    pub fn union_with(&mut self, other: &Intent) {
+        self.profiles.extend(other.profiles.iter().copied());
+        self.roots.extend(other.roots.iter().cloned());
+        if self.profiles.contains(&Profile::Complete) {
+            self.profiles = [Profile::Complete].into_iter().collect();
+        }
+    }
+
+    /// Replaces this intent outright.
+    ///
+    /// This is what a direct `midenup install` does: the user is stating what they want for the
+    /// channel, which may be *less* than before. Unlike activation, it is allowed to shrink.
+    pub fn replace_with(&mut self, other: Intent) {
+        *self = other;
+    }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -357,5 +385,61 @@ mod tests {
             resolve(&ch, &Intent::new(&[Profile::Minimal], &[])),
             Err(ResolutionError::UnsupportedComponentKind { .. })
         ));
+    }
+}
+
+#[cfg(test)]
+mod intent_tests {
+    use super::*;
+
+    #[test]
+    fn activation_unions_and_never_shrinks() {
+        let mut intent = Intent::new(&[Profile::Minimal], &["client"]);
+        intent.union_with(&Intent::new(&[Profile::Minimal], &["debug"]));
+
+        assert!(
+            intent.roots.contains("client"),
+            "another project must not remove this one's root"
+        );
+        assert!(intent.roots.contains("debug"));
+    }
+
+    #[test]
+    fn union_with_a_smaller_intent_keeps_everything() {
+        let mut intent = Intent::new(&[Profile::Minimal], &["client", "debug"]);
+        intent.union_with(&Intent::new(&[Profile::Empty], &[]));
+
+        assert!(intent.roots.contains("client") && intent.roots.contains("debug"));
+        assert!(intent.profiles.contains(&Profile::Minimal));
+    }
+
+    #[test]
+    fn complete_absorbs_other_profiles() {
+        let mut intent = Intent::new(&[Profile::Minimal], &["client"]);
+        intent.union_with(&Intent::new(&[Profile::Complete], &[]));
+
+        assert_eq!(intent.profiles, [Profile::Complete].into_iter().collect());
+        assert!(
+            intent.roots.contains("client"),
+            "explicit roots survive; only profiles collapse"
+        );
+    }
+
+    /// Direct installation states what the user wants *now*, so it may shrink -- even when the
+    /// resolved set happens to be unchanged, the recorded intent must still be replaced.
+    #[test]
+    fn direct_install_replaces_even_when_the_resolved_set_is_unchanged() {
+        let mut intent = Intent::new(&[Profile::Complete], &["client"]);
+        intent.replace_with(Intent::new(&[Profile::Minimal], &[]));
+
+        assert!(intent.roots.is_empty());
+        assert_eq!(intent.profiles, [Profile::Minimal].into_iter().collect());
+    }
+
+    #[test]
+    fn unioning_into_an_empty_intent_adopts_it() {
+        let mut intent = Intent::default();
+        intent.union_with(&Intent::new(&[Profile::Minimal], &["vm"]));
+        assert_eq!(intent, Intent::new(&[Profile::Minimal], &["vm"]));
     }
 }

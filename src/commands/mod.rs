@@ -42,6 +42,9 @@ pub struct Midenup {
 
 /// What set of behavior the CLI should exhibit
 #[derive(Debug, Subcommand)]
+// Boxing here would mean boxing a clap parse root that is constructed exactly once per process,
+// trading a real ergonomic cost for no measurable benefit.
+#[allow(clippy::large_enum_variant)]
 enum Behavior {
     /// The Miden toolchain installer
     Midenup {

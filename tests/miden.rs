@@ -213,3 +213,54 @@ fn integration_midenup_catches_installation_failure() {
     let manifest = test_env.midenup_home.join("manifest").with_extension("json");
     assert!(manifest.exists());
 }
+
+/// Two projects on one channel must not take components away from each other.
+///
+/// This is the whole point of recording intent as a union: activating a project's toolchain file
+/// adds what that project needs, but a project asking for *less* must never shrink the shared
+/// installation. A direct `midenup install` is the only thing allowed to shrink it.
+#[test]
+fn integration_activation_unions_intent_across_projects() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_activation_unions_intent");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let channel = semver::Version::new(0, 15, 0);
+
+    // Project A wants the `assets` component on top of the minimal profile.
+    let mut options = midenup::options::InstallationOptions {
+        profile: midenup::profile::Profile::Minimal,
+        components: vec!["assets".to_string()],
+        ..Default::default()
+    };
+    let upstream = config.manifest.get_channel_by_name(&channel).unwrap().clone();
+    midenup::commands::install(&config, &upstream, &mut state, &options)
+        .expect("failed to install for project A");
+
+    assert!(state.get(&channel).unwrap().intent.roots.contains("assets"));
+
+    // Project B activates with only the minimal profile -- expressed here as the union that
+    // activation performs. It must not remove project A's component.
+    options.intent_update = Some(midenup::options::IntentUpdate::Union(
+        midenup::resolve::Intent::new(&[midenup::profile::Profile::Minimal], &[]),
+    ));
+    options.components = Vec::new();
+    midenup::commands::install(&config, &upstream, &mut state, &options)
+        .expect("failed to activate for project B");
+
+    assert!(
+        state.get(&channel).unwrap().intent.roots.contains("assets"),
+        "activating a project that wants less must not drop another project's component"
+    );
+
+    // A direct install, by contrast, states what the user wants now -- and may shrink.
+    options.intent_update = None;
+    midenup::commands::install(&config, &upstream, &mut state, &options)
+        .expect("failed to install directly");
+
+    assert!(
+        !state.get(&channel).unwrap().intent.roots.contains("assets"),
+        "a direct install replaces intent, so it is allowed to shrink"
+    );
+}

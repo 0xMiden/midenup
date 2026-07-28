@@ -14,7 +14,7 @@ use crate::{
     commands,
     config::Config,
     manifest::{ComponentKind, InstallationMethod, PackageInstallationMethod},
-    options::InstallationOptions,
+    options::{InstallationOptions, IntentUpdate},
     resolve::Intent,
     state::{Installation, LocalState, PublicationId, PublicationRef},
     utils,
@@ -239,11 +239,25 @@ pub fn install(
             }
         }
 
-        // Intent is carried by the caller; installs that predate intent tracking record the
-        // profile they were performed with. M3-T3 replaces this with union/replace semantics.
-        let intent = Intent {
+        // What the caller asked for on this invocation.
+        let requested = Intent {
             profiles: [options.profile].into_iter().collect(),
-            roots: Default::default(),
+            roots: options.components.iter().cloned().collect(),
+        };
+        let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
+
+        // Installing and recording what the user wants are separate concerns: activation installs
+        // a narrowed set but must only add to the record, while a direct install restates it.
+        let intent = match options.intent_update.clone() {
+            // A direct `midenup install`: record exactly what the command line asked for.
+            None => requested,
+            Some(IntentUpdate::Replace(intent)) => intent,
+            Some(IntentUpdate::Union(intent)) => {
+                let mut merged = previous.unwrap_or_default();
+                merged.union_with(&intent);
+                merged
+            },
+            Some(IntentUpdate::Preserve) => previous.unwrap_or(requested),
         };
 
         state.upsert(Installation {

@@ -13,7 +13,7 @@ use crate::{
     channel::{Channel, Tags, UserChannel},
     commands,
     config::Config,
-    options::InstallationOptions,
+    options::{InstallationOptions, IntentUpdate},
     profile::Profile,
     resolve::Intent,
     state::LocalState,
@@ -199,6 +199,11 @@ impl Toolchain {
         };
         let options = InstallationOptions {
             profile: implied_profile,
+            // The channel handed to install is already narrowed to this project's resolved set,
+            // so it installs with `complete`. What gets *recorded* is the project's own request,
+            // merged into whatever other projects have already asked for -- activating one
+            // project must never take components away from another.
+            intent_update: Some(IntentUpdate::Union(intent.clone())),
             ..Default::default()
         };
 
