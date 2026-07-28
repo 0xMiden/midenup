@@ -168,8 +168,9 @@ fn integration_install_publishes_into_an_opaque_publication_with_a_receipt() {
     );
 }
 
-/// Adding a component publishes a *new* publication, seeded from the old one's receipt, and leaves
-/// the old publication untouched -- a publication is immutable once published.
+/// Adding a component publishes a *new* publication, seeded from the old one's receipt. The
+/// previous publication is never modified in place: it is replaced, and then reclaimed as the
+/// journal's final step.
 #[test]
 fn integration_install_republishes_rather_than_mutating() {
     let _guard = common::harness::mutating_test_guard();
@@ -201,7 +202,10 @@ fn integration_install_republishes_rather_than_mutating() {
     let second = publication_of(&state);
 
     assert_ne!(first, second, "a changed installed set must produce a new publication");
-    assert!(first.is_dir(), "the previous publication must not be mutated or removed");
+    assert!(
+        !first.exists(),
+        "the publication it replaced must be reclaimed once the new state record is committed"
+    );
     assert!(
         second.join("lib").join("core.masp").exists(),
         "unchanged files must be seeded from the previous publication"

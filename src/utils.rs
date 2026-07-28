@@ -1,5 +1,31 @@
 //! This module contains some general purpose functions.
 
+/// A fresh opaque identifier, for things whose name must carry no meaning.
+///
+/// Uniqueness only has to hold within one `MIDENUP_HOME`, against operations already serialized by
+/// the advisory lock. A process-local counter makes collisions within a process impossible rather
+/// than merely unlikely -- a clock read alone is not enough, since two calls can land in the same
+/// nanosecond -- and time plus pid separates processes.
+pub fn opaque_id() -> String {
+    use std::{
+        hash::{DefaultHasher, Hash, Hasher},
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let mut hasher = DefaultHasher::new();
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+        .hash(&mut hasher);
+    std::process::id().hash(&mut hasher);
+    COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 pub mod git {
     use std::path::Path;
 

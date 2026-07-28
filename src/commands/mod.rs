@@ -286,6 +286,8 @@ impl Midenup {
     ) -> anyhow::Result<()> {
         use crate::miden_wrapper;
 
+        recover(config, state)?;
+
         match &self.behavior {
             Behavior::Miden(argv) => {
                 miden_wrapper::miden_wrapper(argv, config, state)
@@ -309,6 +311,33 @@ impl Midenup {
 
         Ok(())
     }
+}
+
+/// Completes or discards whatever the previous run left behind, before anything else happens.
+///
+/// A new operation must never be planned against a half-published `MIDENUP_HOME`, so this runs
+/// ahead of every command, including `miden` dispatch.
+///
+/// Divergence -- a state record whose publication is not on disk -- is *reported* here rather than
+/// being fatal. It is a genuine error (spec section 14.3) and is never guessed at or silently
+/// repaired, but the remediation it names is itself a midenup command: making it fatal at startup
+/// would leave the user with a diagnostic they cannot act on. The operation that actually needs
+/// the missing files fails on its own terms.
+fn recover(config: &config::Config, state: &mut crate::state::LocalState) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    match crate::publish::journal::recover(&config.midenup_home, state) {
+        Ok(None) => {},
+        Ok(Some(operation)) => {
+            println!("{}: recovered an interrupted {operation}", "info".white().bold());
+        },
+        Err(err @ crate::publish::PublishError::DivergentState { .. }) => {
+            eprintln!("{}: {err}", "warning".yellow().bold());
+        },
+        Err(err) => return Err(err.into()),
+    }
+
+    Ok(())
 }
 
 fn get_full_command(argv: &[OsString]) -> String {

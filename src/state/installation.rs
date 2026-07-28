@@ -21,23 +21,7 @@ impl PublicationId {
     /// impossible rather than merely unlikely -- a clock read alone is not enough, since two calls
     /// can land in the same nanosecond -- and time plus pid separates processes.
     pub fn generate() -> Self {
-        use std::{
-            hash::{DefaultHasher, Hash, Hasher},
-            sync::atomic::{AtomicU64, Ordering},
-            time::{SystemTime, UNIX_EPOCH},
-        };
-
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
-
-        let mut hasher = DefaultHasher::new();
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-            .hash(&mut hasher);
-        std::process::id().hash(&mut hasher);
-        COUNTER.fetch_add(1, Ordering::Relaxed).hash(&mut hasher);
-        Self(format!("{:016x}", hasher.finish()))
+        Self(crate::utils::opaque_id())
     }
 
     pub fn as_str(&self) -> &str {

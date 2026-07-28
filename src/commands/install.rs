@@ -31,16 +31,12 @@ pub fn install(
 
     let home = &config.midenup_home;
     let toolchains_dir = paths::toolchains_dir(home);
-    let toolchain_link = paths::toolchain_link(home, &channel.name);
 
     // Every install produces a *new* publication, named opaquely. Nothing may infer identity from
     // the name: a name derived from the plan key would invite treating equal keys as equal bytes,
     // which nothing verifies.
     let publication_id = PublicationId::generate();
     let publication = paths::publication_dir(home, &channel.name, &publication_id);
-    let relative_publication = PathBuf::from("..")
-        .join("publications")
-        .join(publication.file_name().expect("named"));
 
     let selection = crate::resolve::Intent {
         profiles: [options.profile].into_iter().collect(),
@@ -55,6 +51,18 @@ pub fn install(
     let stale: Vec<String> =
         options.components_to_uninstall.iter().map(|c| c.name.to_string()).collect();
 
+    // 1. PREPARE. The record this operation intends to commit is written down *before* any of it
+    // happens, so that a crash anywhere after this point can be completed or discarded rather than
+    // reconstructed by inspection.
+    let mut entry = crate::publish::JournalEntry::install(
+        channel.name.clone(),
+        previous_publication_id(state, &channel.name),
+        publication_id.clone(),
+        target_installation(config, channel, state, options, &publication_id, &plan),
+    );
+    crate::publish::journal::prepare(home, &entry)?;
+
+    // 2. STAGE.
     crate::install::prepare(&publication)?;
     if let Some((previous_dir, receipt)) = &previous {
         crate::install::seed(
@@ -70,9 +78,10 @@ pub fn install(
 
     let realized = crate::install::execute(&plan, &publication, options.verbose, config.debug)?;
 
-    // Structural check before anything is published: every planned file exists, is a regular
-    // file, and carries the planned mode. Contents are not verified -- digests are recorded but
-    // never checked -- so this asserts the plan was carried out, not what was installed.
+    // 3. VERIFY. Structural check before anything is published: every planned file exists, is a
+    // regular file, and carries the planned mode. Contents are not verified -- digests are
+    // recorded but never checked -- so this asserts the plan was carried out, not what was
+    // installed.
     crate::install::verify(&plan, &publication)?;
 
     // The receipt makes the publication self-describing: from here on, what it owns is a fact
@@ -86,38 +95,32 @@ pub fn install(
     );
     crate::publish::write_receipt(&publication, &receipt)?;
 
-    let temp_symlink = paths::publications_dir(home).join(format!("{}.new", channel.name));
-    if std::fs::symlink_metadata(&temp_symlink).is_ok() {
-        std::fs::remove_file(&temp_symlink).with_context(|| {
-            format!("failed to remove stale temp symlink '{}'", temp_symlink.display())
-        })?;
+    // A `cargo install --path` build can touch its own source tree, so a `path` component's
+    // modification time is only knowable once the build is done. Refreshing it here and amending
+    // the journal -- atomically, and still before the commit point -- keeps the recorded time
+    // equal to what the *next* run will observe before building. Recording the pre-build time
+    // instead makes every subsequent update believe the source changed.
+    if let Some(installation) = entry.target_installation.as_mut() {
+        refresh_path_modification_times(config, &mut installation.components);
     }
+    crate::publish::journal::prepare(home, &entry)?;
 
-    // ======================== Installation finalized  ===========================
+    // ======================== 4. COMMIT — the commit point ======================
+    //
+    // A single atomic rename of a symlink. Before it, this operation never happened and recovery
+    // discards it; after it, recovery completes it. Nothing else distinguishes the two.
+    crate::publish::journal::commit_symlink(home, &entry)?;
 
-    // tmp_link is a symlink file that points to the new publication. Even if tmp_link is moved, it
-    // will still point there.
-    // For further reference on atomic directory updates, see:
-    // https://axialcorps.wordpress.com/2013/07/03/atomically-replacing-files-and-directories/
-    utils::fs::symlink(&temp_symlink, &relative_publication)?;
+    // 5. RECORD, and 7. CLEAN: commit the state record, reclaim the publication this one replaced,
+    // and delete the journal.
+    crate::publish::journal::finish(home, &entry, state)?;
 
-    // We now rename tmp_link onto the channel's toolchain link. When renamed, it will still be
-    // pointing to the new publication. If the channel link existed, it is overwritten. This is
-    // what marks the install as completed.
-    std::fs::rename(&temp_symlink, &toolchain_link).with_context(|| {
-        format!(
-            "failed to publish toolchain symlink '{}' -> '{}'",
-            toolchain_link.display(),
-            relative_publication.display()
-        )
-    })?;
-
-    let is_latest_stable = config.manifest.is_latest_stable(channel);
-
-    // If this channel is the new stable, we update the symlink
-    if is_latest_stable {
+    // 6. DERIVE. `stable` is a property of the upstream manifest, recomputed from it rather than
+    // remembered, so a stale local copy can never disagree with upstream about which channel it
+    // names.
+    if config.manifest.is_latest_stable(channel) {
         let stable_dir = toolchains_dir.join("stable");
-        if stable_dir.exists() {
+        if std::fs::symlink_metadata(&stable_dir).is_ok() {
             std::fs::remove_file(&stable_dir).context("Couldn't remove stable symlink")?;
         }
         let relative_channel_target = PathBuf::from(format!("{}", channel.name));
@@ -125,12 +128,27 @@ pub fn install(
             .expect("Couldn't create stable dir");
     }
 
-    // Record what was installed.
-    //
-    // The component snapshot is pinned here rather than referencing the upstream manifest: `miden`
-    // dispatch reads it offline, and update needs to know what was *actually* installed, not what
-    // upstream happens to say now.
-    {
+    Ok(())
+}
+
+/// The state record this install intends to commit.
+///
+/// Built before anything is staged, because the journal carries it: recovery has to be able to
+/// complete the operation without re-resolving it against an upstream manifest that may have moved
+/// on in the meantime.
+///
+/// The component snapshot is pinned here rather than referencing the upstream manifest: `miden`
+/// dispatch reads it offline, and update needs to know what was *actually* installed, not what
+/// upstream happens to say now.
+fn target_installation(
+    config: &Config,
+    channel: &Channel,
+    state: &LocalState,
+    options: &InstallationOptions,
+    publication_id: &PublicationId,
+    plan: &crate::plan::InstallationPlan,
+) -> Installation {
+    let installed_components = {
         let mut installed_components = channel.components.clone();
 
         // How a component was really obtained can only be known after the fact.
@@ -156,64 +174,86 @@ pub fn install(
                         },
                     }
                 },
-                Authority::Git { .. } => (),
-                Authority::Path { path, .. } => {
-                    // Record the tree's modification time so update can tell whether it changed.
-                    let path = if path.is_absolute() {
-                        Cow::Borrowed(path.as_path())
-                    } else {
-                        Cow::Owned(config.working_directory.join(path.as_path()))
-                    };
-                    let latest_time = utils::fs::latest_modification(&path)
-                        .ok()
-                        .map(|(latest_modification, _)| latest_modification)
-                        .unwrap_or(SystemTime::now());
-                    component.version = Authority::Path {
-                        path: path.to_path_buf(),
-                        last_modification: Some(latest_time),
-                    }
-                },
-                Authority::Registry { .. } => (),
+                Authority::Git { .. } | Authority::Path { .. } | Authority::Registry { .. } => (),
             }
         }
 
-        // What the caller asked for on this invocation.
-        let requested = Intent {
-            profiles: [options.profile].into_iter().collect(),
-            roots: options.components.iter().cloned().collect(),
-        };
-        let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
+        // Path authorities are recorded here too, but their modification time is refreshed after
+        // staging: see `refresh_path_modification_times`.
+        refresh_path_modification_times(config, &mut installed_components);
 
-        // Installing and recording what the user wants are separate concerns: activation installs
-        // a narrowed set but must only add to the record, while a direct install restates it.
-        let intent = match options.intent_update.clone() {
-            // A direct `midenup install`: record exactly what the command line asked for.
-            None => requested,
-            Some(IntentUpdate::Replace(intent)) => intent,
-            Some(IntentUpdate::Union(intent)) => {
-                let mut merged = previous.unwrap_or_default();
-                merged.union_with(&intent);
-                merged
-            },
-            Some(IntentUpdate::Preserve) => previous.unwrap_or(requested),
-        };
+        installed_components
+    };
 
-        state.upsert(Installation {
-            channel: channel.name.clone(),
-            intent,
-            components: installed_components,
-            publication: PublicationRef::Managed {
-                id: publication_id,
-                plan_key: plan.key.clone(),
-                target: config.target().to_string(),
-            },
-            installed_at: chrono::Utc::now().timestamp(),
-        });
+    // What the caller asked for on this invocation.
+    let requested = Intent {
+        profiles: [options.profile].into_iter().collect(),
+        roots: options.components.iter().cloned().collect(),
+    };
+    let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
+
+    // Installing and recording what the user wants are separate concerns: activation installs
+    // a narrowed set but must only add to the record, while a direct install restates it.
+    let intent = match options.intent_update.clone() {
+        // A direct `midenup install`: record exactly what the command line asked for.
+        None => requested,
+        Some(IntentUpdate::Replace(intent)) => intent,
+        Some(IntentUpdate::Union(intent)) => {
+            let mut merged = previous.unwrap_or_default();
+            merged.union_with(&intent);
+            merged
+        },
+        Some(IntentUpdate::Preserve) => previous.unwrap_or(requested),
+    };
+
+    Installation {
+        channel: channel.name.clone(),
+        intent,
+        components: installed_components,
+        publication: PublicationRef::Managed {
+            id: publication_id.clone(),
+            plan_key: plan.key.clone(),
+            target: config.target().to_string(),
+        },
+        installed_at: chrono::Utc::now().timestamp(),
     }
+}
 
-    config.write_local_state(state)?;
+/// Records each `path` component's source tree modification time, canonicalizing the path.
+///
+/// Called once while assembling the record and again after staging, because a build can modify its
+/// own source tree -- Cargo writes into it -- and what matters is that the recorded time matches
+/// what the next run will see *before* it builds. Anything else makes every subsequent update
+/// believe the source changed.
+fn refresh_path_modification_times(config: &Config, components: &mut [crate::manifest::Component]) {
+    for component in components.iter_mut() {
+        let Authority::Path { path, .. } = &component.version else {
+            continue;
+        };
 
-    Ok(())
+        let path = if path.is_absolute() {
+            Cow::Borrowed(path.as_path())
+        } else {
+            Cow::Owned(config.working_directory.join(path.as_path()))
+        };
+        let latest_time = utils::fs::latest_modification(&path)
+            .ok()
+            .map(|(latest_modification, _)| latest_modification)
+            .unwrap_or_else(SystemTime::now);
+
+        component.version = Authority::Path {
+            path: path.to_path_buf(),
+            last_modification: Some(latest_time),
+        };
+    }
+}
+
+/// The publication currently recorded for `channel`, if this build published it.
+fn previous_publication_id(state: &LocalState, channel: &semver::Version) -> Option<PublicationId> {
+    match &state.get(channel)?.publication {
+        PublicationRef::Managed { id, .. } => Some(id.clone()),
+        PublicationRef::NeedsReinstall => None,
+    }
 }
 
 /// The publication this install is replacing, and what it owns.

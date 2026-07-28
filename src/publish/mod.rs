@@ -13,11 +13,14 @@
 //!   both read it. Deriving ownership from the manifest a second time is how the install and
 //!   uninstall paths drifted apart in the first place.
 
+pub mod journal;
+
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
 };
 
+pub use self::journal::{JournalEntry, OperationKind};
 pub use crate::paths::publication_dir;
 use crate::{
     plan::{InstallationPlan, PlanStep},
@@ -39,6 +42,39 @@ pub enum PublishError {
     InvalidReceipt { path: PathBuf, reason: String },
     #[error("failed to write the publication receipt: {0}")]
     WriteReceipt(#[from] crate::utils::atomic::WriteError),
+    #[error("failed to access the operation journal at '{path}': {source}")]
+    Journal {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("'{path}' is not a valid journal entry: {reason}")]
+    InvalidJournal { path: PathBuf, reason: String },
+    #[error(
+        "an interrupted {operation} of channel {channel} is still recorded; run any midenup \
+         command to let it finish recovering before starting another operation"
+    )]
+    OperationInProgress {
+        operation: OperationKind,
+        channel: semver::Version,
+    },
+    #[error("failed to publish the toolchain link '{path}': {source}")]
+    Commit {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to record the operation in local state: {reason}")]
+    Record { reason: String },
+    #[error(
+        "channel {channel} is recorded as installed, but {detail}; midenup will not guess what \
+         happened. To reinstall it, run: {remediation}"
+    )]
+    DivergentState {
+        channel: semver::Version,
+        detail: String,
+        remediation: String,
+    },
 }
 
 /// Where a publication records what it owns.

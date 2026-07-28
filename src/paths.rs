@@ -45,6 +45,14 @@ pub fn publications_dir(home: &Path) -> PathBuf {
     home.join("publications")
 }
 
+/// Where an in-flight physical operation records its intent.
+///
+/// Holds at most one entry, and only while an operation is running: its presence at startup means
+/// a previous one was interrupted.
+pub fn journal_dir(home: &Path) -> PathBuf {
+    home.join("journal")
+}
+
 /// One immutable publication.
 ///
 /// The channel is in the name for human legibility only; the publication id is what makes it
