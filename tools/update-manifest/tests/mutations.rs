@@ -316,3 +316,49 @@ fn authoring_a_legacy_package_is_rejected() {
     .expect_err("legacy-package must be closed to new channels");
     assert!(err.contains("deprecated"), "{err}");
 }
+
+/// A mutation whose result would be an invalid manifest must be refused before it can replace the
+/// file it was editing.
+///
+/// A plain write commits bytes before anything confirms they are usable, so an edit that produces
+/// something broken destroys the document. Here the write is staged, read back, validated, and
+/// only then renamed into place.
+#[test]
+fn a_mutation_producing_an_invalid_manifest_is_refused() {
+    let dir = tempdir::TempDir::new("update-manifest-invalid").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+    let before = std::fs::read(&path).unwrap();
+
+    let err = run(
+        &path,
+        &[
+            "update-component",
+            "--channel",
+            "0.15.0",
+            "vm",
+            "--authority",
+            r#"{"kind":"registry","version":"0.15.0"}"#,
+            // A path traversal is not a valid installed filename.
+            "--kind",
+            r#"{"installed-executable":"../../etc/passwd"}"#,
+        ],
+    )
+    .expect_err("an invalid result must be refused");
+
+    assert!(
+        err.contains("valid manifest"),
+        "the error should explain what was rejected: {err}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the original must survive intact");
+
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| n != "channel-manifest.json")
+        .collect();
+    assert!(leftovers.is_empty(), "no temporary files may be left behind: {leftovers:?}");
+}

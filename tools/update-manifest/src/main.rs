@@ -149,7 +149,9 @@ fn main() -> ExitCode {
     match cli.execute() {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            // `{err:#}` renders the whole context chain. Plain `{err}` prints only the outermost
+            // message, which routinely reduced a precise diagnostic to "failed to write manifest".
+            eprintln!("error: {err:#}");
             ExitCode::FAILURE
         },
     }
@@ -350,9 +352,22 @@ impl Cli {
     }
 }
 
+/// Writes `manifest`, but only if it parses and validates once read back from disk.
+///
+/// A plain `fs::write` cannot do this: it commits the bytes before anything has confirmed they are
+/// a usable manifest, so a mutation that produces something unparseable destroys the file it was
+/// editing. Here the destination is replaced by a single rename, and every failure before that
+/// leaves the original byte-for-byte intact.
 fn write_manifest(manifest: &Manifest, manifest_path: &Path) -> anyhow::Result<()> {
-    let formatted = serde_json::to_vec_pretty(manifest).context("failed to format manifest")?;
-    std::fs::write(manifest_path, formatted).context("failed to write manifest")
+    midenup::utils::atomic::write_validated(manifest_path, manifest, |written| {
+        let reparsed = VersionedManifest::parse_str(written)
+            .map_err(|err| format!("the result would not parse as a manifest: {err}"))?;
+        midenup::manifest::validate::validate_manifest(&reparsed).map_err(|errors| {
+            let detail: Vec<String> = errors.iter().map(|e| format!("\n  - {e}")).collect();
+            format!("the result would not be a valid manifest:{}", detail.concat())
+        })
+    })
+    .context("failed to write manifest")
 }
 
 fn write_manifest_to_stdout(manifest: &Manifest) -> anyhow::Result<()> {

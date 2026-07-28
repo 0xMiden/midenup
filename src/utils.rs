@@ -200,3 +200,187 @@ pub mod fs {
         Ok(())
     }
 }
+
+/// Writing a document so that a failure never leaves a partial file behind.
+pub mod atomic {
+    use std::{
+        io::Write,
+        path::{Path, PathBuf},
+    };
+
+    #[derive(Debug, thiserror::Error)]
+    pub enum WriteError {
+        #[error("failed to serialize document for '{path}': {source}")]
+        Serialize {
+            path: PathBuf,
+            #[source]
+            source: serde_json::Error,
+        },
+        #[error("failed to write temporary file '{path}': {source}")]
+        Io {
+            path: PathBuf,
+            #[source]
+            source: std::io::Error,
+        },
+        #[error("refusing to write '{path}': {reason}")]
+        Validation { path: PathBuf, reason: String },
+    }
+
+    /// Serializes `value`, verifies the bytes actually landed, and only then replaces `path`.
+    ///
+    /// The sequence is: write to a unique temporary sibling, flush and `fsync` it, close it,
+    /// re-read it from disk, hand those bytes to `validate`, and finally `rename` over `path`.
+    ///
+    /// Two things make this worth more than a plain write.
+    ///
+    /// First, `validate` sees the bytes **as they were read back**, not the in-memory value. A
+    /// serializer that produces something which cannot be parsed again is caught before it can
+    /// replace a good file, rather than on the next startup.
+    ///
+    /// Second, the commit is a single `rename`. Every failure path before it leaves `path`
+    /// byte-for-byte unchanged, and the temporary file is removed. There is no window in which the
+    /// destination holds a partial document.
+    ///
+    /// The temporary file is a *sibling* so that the rename stays within one filesystem; renaming
+    /// across filesystems is not atomic and is not a rename at all on most platforms.
+    pub fn write_validated<T, V>(path: &Path, value: &T, validate: V) -> Result<(), WriteError>
+    where
+        T: serde::Serialize,
+        V: FnOnce(&str) -> Result<(), String>,
+    {
+        let bytes = serde_json::to_vec_pretty(value)
+            .map_err(|source| WriteError::Serialize { path: path.to_path_buf(), source })?;
+
+        let temporary = temporary_sibling(path);
+
+        // Everything from here to the rename is fallible, so each error path removes the
+        // temporary file before returning.
+        let result = (|| {
+            let mut file = std::fs::File::create(&temporary)?;
+            file.write_all(&bytes)?;
+            file.flush()?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::read_to_string(&temporary)
+        })();
+
+        let written = match result {
+            Ok(written) => written,
+            Err(source) => {
+                let _ = std::fs::remove_file(&temporary);
+                return Err(WriteError::Io { path: temporary, source });
+            },
+        };
+
+        if let Err(reason) = validate(&written) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(WriteError::Validation { path: path.to_path_buf(), reason });
+        }
+
+        // The commit point.
+        if let Err(source) = std::fs::rename(&temporary, path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(WriteError::Io { path: path.to_path_buf(), source });
+        }
+
+        Ok(())
+    }
+
+    /// A temporary name that cannot collide with a concurrent writer's.
+    fn temporary_sibling(path: &Path) -> PathBuf {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        path.with_file_name(format!(".{name}.{}.{nanos}.tmp", std::process::id()))
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn leftovers(dir: &Path, keep: &str) -> Vec<String> {
+            std::fs::read_dir(dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|name| name != keep)
+                .collect()
+        }
+
+        #[test]
+        fn a_failed_validation_leaves_the_original_untouched() {
+            let dir = tempdir::TempDir::new("atomic-validate").unwrap();
+            let path = dir.path().join("doc.json");
+            std::fs::write(&path, b"ORIGINAL").unwrap();
+
+            let result =
+                write_validated(&path, &serde_json::json!({"a": 1}), |_| Err("nope".to_string()));
+
+            assert!(matches!(result, Err(WriteError::Validation { .. })));
+            assert_eq!(std::fs::read(&path).unwrap(), b"ORIGINAL", "must be byte-identical");
+            assert!(leftovers(dir.path(), "doc.json").is_empty(), "temp files must be cleaned up");
+        }
+
+        #[test]
+        fn the_validator_sees_the_bytes_read_back_from_disk() {
+            let dir = tempdir::TempDir::new("atomic-seen").unwrap();
+            let path = dir.path().join("doc.json");
+
+            let seen = std::cell::RefCell::new(None);
+            write_validated(&path, &serde_json::json!({"a": 1}), |text| {
+                *seen.borrow_mut() = Some(text.to_string());
+                Ok(())
+            })
+            .unwrap();
+
+            let seen = seen.borrow().clone().expect("validator must run");
+            assert_eq!(
+                seen,
+                std::fs::read_to_string(&path).unwrap(),
+                "the validator must see exactly what was committed"
+            );
+            assert!(seen.contains("\"a\""));
+        }
+
+        #[test]
+        fn a_successful_write_replaces_the_destination() {
+            let dir = tempdir::TempDir::new("atomic-ok").unwrap();
+            let path = dir.path().join("doc.json");
+            std::fs::write(&path, b"OLD").unwrap();
+
+            write_validated(&path, &serde_json::json!({"a": 1}), |_| Ok(())).unwrap();
+
+            let written: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(written, serde_json::json!({"a": 1}));
+            assert!(leftovers(dir.path(), "doc.json").is_empty());
+        }
+
+        #[test]
+        fn writing_a_new_file_works() {
+            let dir = tempdir::TempDir::new("atomic-new").unwrap();
+            let path = dir.path().join("doc.json");
+            write_validated(&path, &serde_json::json!([1, 2]), |_| Ok(())).unwrap();
+            assert!(path.exists());
+        }
+
+        /// Concurrent writers must not collide on the temporary name.
+        #[test]
+        fn temporary_names_are_unique() {
+            let path = Path::new("/tmp/doc.json");
+            let mut names = std::collections::BTreeSet::new();
+            for _ in 0..64 {
+                names.insert(temporary_sibling(path));
+                std::thread::sleep(std::time::Duration::from_nanos(1));
+            }
+            assert!(names.len() > 1, "temporary names must vary");
+            for name in names {
+                assert_eq!(name.parent(), path.parent(), "must be a sibling, for rename atomicity");
+            }
+        }
+    }
+}
