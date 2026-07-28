@@ -181,6 +181,9 @@ pub struct Substitutions {
     /// The default extension is determined by the component type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extension: Option<String>,
+    /// Fields declared by a newer schema that this build does not recognize.
+    #[serde(flatten)]
+    pub extra: crate::manifest::v2::unknown::Extra,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

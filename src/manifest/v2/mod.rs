@@ -1,11 +1,12 @@
 mod channel;
 mod component;
+pub mod unknown;
 
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-pub use self::{channel::*, component::*};
+pub use self::{channel::*, component::*, unknown::*};
 use super::ManifestError;
 
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(2, 0, 0);
@@ -23,6 +24,12 @@ pub struct Manifest {
     pub(super) date: i64,
     /// The channels described in this manifest
     pub(super) channels: Vec<Channel>,
+    /// Fields declared by a newer schema that this build does not recognize.
+    ///
+    /// Safe to derive here: `Manifest` has no other flattened field, so the catch-all captures
+    /// only genuinely unknown keys.
+    #[serde(flatten)]
+    pub(super) extra: Extra,
 }
 
 impl Manifest {
@@ -74,6 +81,7 @@ impl Default for Manifest {
             manifest_version: MANIFEST_VERSION,
             date,
             channels: vec![],
+            extra: Extra::new(),
         }
     }
 }

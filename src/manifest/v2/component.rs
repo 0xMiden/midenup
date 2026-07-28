@@ -6,33 +6,130 @@ use crate::{
     artifact::Artifacts,
     config::Config,
     exec::Executable,
-    manifest::{Alias, ManifestError},
+    manifest::{Alias, ManifestError, v2::unknown::Extra},
     profile::Profile,
     utils,
     version::{Authority, GitTarget},
 };
 
 /// An installable component of a toolchain
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Debug, Clone)]
 pub struct Component {
     /// The canonical name of this toolchain component.
     pub name: Cow<'static, str>,
     /// The versioning authority for this component.
     pub version: Authority,
     /// The component kind
-    #[serde(flatten)]
     pub kind: ComponentKind,
     /// The set of profiles this component is included in
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<Profile>,
     /// Other components that are required if this component is installed.
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
     /// Pre-built artifacts for this component, if available.
-    #[serde(default, skip_serializing_if = "Artifacts::is_empty")]
     pub artifacts: Artifacts,
+    /// Fields declared by a newer schema that this build does not recognize.
+    ///
+    /// Preserved verbatim so an older `midenup` rewriting a manifest -- `update-manifest`, most
+    /// importantly -- cannot silently strip them.
+    pub extra: Extra,
+}
+
+/// The derivable part of [Component].
+///
+/// [Component] cannot simply add `#[serde(flatten)] extra` next to its flattened `kind`: a
+/// catch-all flatten alongside another flatten also captures the keys that flatten consumed, and
+/// serialization then emits them twice. So the typed fields are derived here and [Component]'s own
+/// `Serialize`/`Deserialize` compose this with the extras.
+#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+struct ComponentBase {
+    name: Cow<'static, str>,
+    version: Authority,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    profiles: Vec<Profile>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    requires: Vec<String>,
+    #[serde(default, skip_serializing_if = "Artifacts::is_empty")]
+    artifacts: Artifacts,
+}
+
+impl Component {
+    fn base(&self) -> ComponentBase {
+        ComponentBase {
+            name: self.name.clone(),
+            version: self.version.clone(),
+            profiles: self.profiles.clone(),
+            requires: self.requires.clone(),
+            artifacts: self.artifacts.clone(),
+        }
+    }
+}
+
+/// Hashes everything except [Component::extra].
+///
+/// Unknown fields cannot be known to affect installed files, and a hash over them would make
+/// otherwise-identical components compare unequal purely because one was authored by a newer
+/// publisher. `serde_json::Value` does not implement `Hash` either.
+impl Hash for Component {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.base().hash(state);
+        self.kind.hash(state);
+    }
+}
+
+impl Serialize for Component {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::Error;
+
+        let mut out = serde_json::to_value(self.base()).map_err(S::Error::custom)?;
+        let kind = serde_json::to_value(&self.kind).map_err(S::Error::custom)?;
+
+        let object = out.as_object_mut().expect("ComponentBase serializes to an object");
+        if let serde_json::Value::Object(kind) = kind {
+            object.extend(kind);
+        }
+        for (key, value) in self.extra.iter() {
+            object.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+
+        out.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Component {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        let kind = ComponentKind::deserialize(value.clone()).map_err(D::Error::custom)?;
+        let base = ComponentBase::deserialize(value.clone()).map_err(D::Error::custom)?;
+
+        // Anything neither the base nor the kind round-trips is unknown to this build.
+        let mut extra = match &value {
+            serde_json::Value::Object(map) => map.clone(),
+            _ => Extra::new(),
+        };
+        for known in [
+            serde_json::to_value(&base).map_err(D::Error::custom)?,
+            serde_json::to_value(&kind).map_err(D::Error::custom)?,
+        ] {
+            if let serde_json::Value::Object(known) = known {
+                for key in known.keys() {
+                    extra.remove(key);
+                }
+            }
+        }
+
+        Ok(Component {
+            name: base.name,
+            version: base.version,
+            kind,
+            profiles: base.profiles,
+            requires: base.requires,
+            artifacts: base.artifacts,
+            extra,
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash)]

@@ -848,6 +848,7 @@ mod tests {
                 profiles: vec![Profile::Minimal],
                 requires: vec![],
                 artifacts: Artifacts::default(),
+                extra: Default::default(),
             }],
             vec![],
         )

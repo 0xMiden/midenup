@@ -186,6 +186,8 @@ impl Cli {
                     profiles: vec![],
                     requires: requires.clone(),
                     artifacts: Default::default(),
+                    // A newly authored component has no fields this build does not understand.
+                    extra: Default::default(),
                 };
                 for required in requires {
                     if channel.get_component(required).is_none() {

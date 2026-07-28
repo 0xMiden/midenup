@@ -13,7 +13,7 @@ use crate::{
     channel::{ChannelAlias, ChannelHash, MigrationStrategy, Tags, UpstreamChannel, UpstreamMatch},
     config::Config,
     exec::Executable,
-    manifest::{Alias, ManifestError},
+    manifest::{Alias, ManifestError, v2::unknown::Extra},
     profile::Profile,
     toolchain::{Toolchain, ToolchainJustification},
 };
@@ -39,6 +39,11 @@ pub struct Channel {
     pub tags: Vec<Tags>,
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
+    /// Fields declared by a newer schema that this build does not recognize.
+    ///
+    /// Safe to derive here: `Channel` has no other flattened field.
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 enum InstallationMotive {
@@ -66,7 +71,13 @@ impl Channel {
         components: Vec<Component>,
         tags: Vec<Tags>,
     ) -> Self {
-        Self { name, alias, components, tags }
+        Self {
+            name,
+            alias,
+            components,
+            tags,
+            extra: Extra::new(),
+        }
     }
 
     pub fn get_component(&self, name: impl AsRef<str>) -> Option<&Component> {
@@ -366,6 +377,7 @@ impl Channel {
             alias: self.alias.clone(),
             tags: vec![Tags::Partial],
             components: components_to_install,
+            extra: Default::default(),
         };
 
         Some(partial_channel)

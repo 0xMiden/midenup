@@ -78,6 +78,7 @@ midenup install stable
                         alias: upstream_stable.alias.clone(),
                         tags: local_stable.tags.clone(),
                         components,
+                        extra: Default::default(),
                     }
                 };
 

@@ -43,6 +43,7 @@ impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
                 alias: channel.alias,
                 tags: channel.tags,
                 components,
+                extra: Default::default(),
             });
         }
 
@@ -52,6 +53,7 @@ impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
             manifest_version: v2::MANIFEST_VERSION,
             date: value.date,
             channels,
+            extra: Default::default(),
         })
     }
 }

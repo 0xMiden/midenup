@@ -290,6 +290,7 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
             kind,
             profiles,
             requires,
+            extra: Default::default(),
             artifacts: v2artifacts,
         })
     }
