@@ -248,6 +248,17 @@ enum KnownKind {
     LegacyPackage {
         /// How the package artifact will be installed
         installation_method: PackageInstallationMethod,
+        /// The exact filename this package installs as, e.g. `core.masp`.
+        ///
+        /// A crate-extracted package has no artifact to take a name from, so without this the
+        /// name has to be invented -- and install and uninstall invented it differently. See
+        /// [Component::installed_package_name].
+        ///
+        /// Spelled in kebab-case to match `installed-executable`, the analogous field naming an
+        /// installed file. (`rename_all` on this enum applies to variant names, not fields, which
+        /// is why its sibling `installation_method` stays snake_case.)
+        #[serde(rename = "installed-package", default, skip_serializing_if = "Option::is_none")]
+        installed_package: Option<String>,
     },
     /// An asset that will be installed to the toolchain's `etc` directory
     Asset,
@@ -281,6 +292,7 @@ pub enum ComponentKind {
     /// Legacy support for packages which required extraction from a Rust crate
     LegacyPackage {
         installation_method: PackageInstallationMethod,
+        installed_package: Option<String>,
     },
     /// An asset that will be installed to the toolchain's `etc` directory
     Asset,
@@ -339,8 +351,11 @@ impl ComponentKind {
                 aliases: aliases.clone(),
             },
             Self::Package => KnownKind::Package,
-            Self::LegacyPackage { installation_method } => KnownKind::LegacyPackage {
-                installation_method: installation_method.clone(),
+            Self::LegacyPackage { installation_method, installed_package } => {
+                KnownKind::LegacyPackage {
+                    installation_method: installation_method.clone(),
+                    installed_package: installed_package.clone(),
+                }
             },
             Self::Asset => KnownKind::Asset,
             Self::Unsupported { .. } => return None,
@@ -369,8 +384,8 @@ impl From<KnownKind> for ComponentKind {
                 aliases,
             },
             KnownKind::Package => Self::Package,
-            KnownKind::LegacyPackage { installation_method } => {
-                Self::LegacyPackage { installation_method }
+            KnownKind::LegacyPackage { installation_method, installed_package } => {
+                Self::LegacyPackage { installation_method, installed_package }
             },
             KnownKind::Asset => Self::Asset,
         }
@@ -715,6 +730,22 @@ impl Component {
         self.kind.is_supported()
     }
 
+    /// The exact filename a `legacy-package` component installs as.
+    ///
+    /// The schema field is optional, and when absent this falls back to `<component>.masp` --
+    /// which is what install has always written. The point of having a single accessor is that
+    /// install and uninstall can no longer disagree: they previously invented the name
+    /// independently, install from the component name and uninstall from the kebab-cased crate
+    /// name, so uninstalling `protocol` looked for `miden-protocol.masp` and removed nothing.
+    pub fn installed_package_name(&self) -> Option<String> {
+        match self.kind() {
+            ComponentKind::LegacyPackage { installed_package, .. } => {
+                Some(installed_package.clone().unwrap_or_else(|| format!("{}.masp", self.name)))
+            },
+            _ => None,
+        }
+    }
+
     /// Returns the string representation under which midenup calls a component, if it is callable
     pub fn get_cli_display(&self) -> Option<String> {
         let name = match &self.kind {
@@ -1012,5 +1043,93 @@ mod initialization_tests {
             "`initialization` is recorded but must never be executed. If you added a legitimate \
              new reference, extend ALLOWED; if you wired it to a subprocess, do not."
         );
+    }
+}
+
+#[cfg(test)]
+mod legacy_package_tests {
+    use crate::manifest::VersionedManifest;
+
+    fn manifest(installed_package: Option<&str>) -> String {
+        let mut component = serde_json::json!({
+            "name": "protocol",
+            "version": {"kind": "registry", "version": "0.15.3"},
+            "kind": "legacy-package",
+            "installation_method": {
+                "kind": "cargo",
+                "crate_name": "miden-protocol",
+                "extractor": "miden_protocol::ProtocolLib::default().as_ref()"
+            }
+        });
+        if let Some(name) = installed_package {
+            component["installed-package"] = serde_json::json!(name);
+        }
+        serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [component]}]
+        })
+        .to_string()
+    }
+
+    fn component_of(src: &str) -> crate::manifest::Component {
+        VersionedManifest::parse_str(src)
+            .expect("parse")
+            .get_channels()
+            .next()
+            .unwrap()
+            .get_component("protocol")
+            .unwrap()
+            .clone()
+    }
+
+    /// Absent `installed-package` falls back to `<component>.masp`, which is what install has
+    /// always written.
+    #[test]
+    fn an_absent_installed_package_falls_back_to_the_component_name() {
+        assert_eq!(
+            component_of(&manifest(None)).installed_package_name().as_deref(),
+            Some("protocol.masp")
+        );
+    }
+
+    /// The declared name wins when present.
+    #[test]
+    fn a_declared_installed_package_is_used_verbatim() {
+        assert_eq!(
+            component_of(&manifest(Some("custom.masp"))).installed_package_name().as_deref(),
+            Some("custom.masp")
+        );
+    }
+
+    /// Regression: install wrote `lib/<component>.masp` while uninstall removed
+    /// `lib/<kebab-crate-name>.masp`, so uninstalling `protocol` looked for
+    /// `miden-protocol.masp` and removed nothing. Both now resolve through one accessor.
+    #[test]
+    fn the_name_does_not_depend_on_the_crate_name() {
+        let resolved = component_of(&manifest(None)).installed_package_name().unwrap();
+        assert_ne!(
+            resolved, "miden-protocol.masp",
+            "the installed name must come from the component, not the crate"
+        );
+        assert_eq!(resolved, "protocol.masp");
+    }
+
+    #[test]
+    fn only_legacy_packages_resolve_an_installed_package_name() {
+        let src = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "core",
+                "version": {"kind": "registry", "version": "0.1.0"},
+                "kind": "package",
+                "artifacts": {"core.masp": {"uri": "https://example.invalid/core.masp"}}
+            }]}]
+        })
+        .to_string();
+        let manifest = VersionedManifest::parse_str(&src).unwrap();
+        let core = manifest.get_channels().next().unwrap().get_component("core").unwrap();
+        assert!(core.installed_package_name().is_none());
     }
 }

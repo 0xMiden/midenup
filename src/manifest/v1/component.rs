@@ -271,7 +271,7 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                     crate::manifest::ComponentKind::Executable { installation_method, spec }
                 }
             },
-            Some(InstalledFile::Library { library_struct, library_name: _ }) => {
+            Some(InstalledFile::Library { library_struct, library_name }) => {
                 if v2artifacts.is_empty() {
                     crate::manifest::ComponentKind::LegacyPackage {
                         installation_method: crate::manifest::PackageInstallationMethod::Cargo {
@@ -279,6 +279,10 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                             features,
                             extractor: format!("{library_struct}::default().as_ref()"),
                         },
+                        // v1 declared the exact output filename; carrying it forward is the whole
+                        // point of the field. It was previously discarded, which is what forced
+                        // install and uninstall to invent the name independently.
+                        installed_package: Some(library_name),
                     }
                 } else {
                     crate::manifest::ComponentKind::Package

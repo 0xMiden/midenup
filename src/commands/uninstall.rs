@@ -4,7 +4,6 @@ use std::{
 };
 
 use anyhow::{Context, bail};
-use heck::ToKebabCase;
 use thiserror::Error;
 
 use crate::{
@@ -126,6 +125,7 @@ pub fn uninstall_components(
             ComponentKind::Package
             | ComponentKind::LegacyPackage {
                 installation_method: PackageInstallationMethod::Prebuilt,
+                ..
             } => {
                 // Packages install to `lib/<artifact-id>`; the previous path omitted `lib`
                 // entirely, so uninstall never removed anything.
@@ -141,10 +141,16 @@ pub fn uninstall_components(
                 }
             },
             ComponentKind::LegacyPackage {
-                installation_method: PackageInstallationMethod::Cargo { crate_name, .. },
+                installation_method: PackageInstallationMethod::Cargo { .. },
+                ..
             } => {
-                let file_path =
-                    install_dir.join("lib").join(format!("{}.masp", crate_name.to_kebab_case()));
+                // Must mirror what install wrote. Deriving this from the kebab-cased crate name
+                // meant uninstalling `protocol` looked for `miden-protocol.masp`.
+                let file_path = install_dir.join("lib").join(
+                    component
+                        .installed_package_name()
+                        .expect("legacy packages always resolve an installed filename"),
+                );
                 if file_path.try_exists().unwrap_or(false) {
                     std::fs::remove_file(&file_path).map_err(|err| {
                         UninstallError::FailedToDeleteFile(file_path, err.to_string())

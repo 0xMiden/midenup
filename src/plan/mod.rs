@@ -57,7 +57,7 @@ pub fn key_inputs_for_channel(
                     ),
                 }
             },
-            ComponentKind::LegacyPackage { installation_method } => match installation_method {
+            ComponentKind::LegacyPackage { installation_method, .. } => match installation_method {
                 PackageInstallationMethod::Prebuilt => (None, None, None, "prebuilt"),
                 PackageInstallationMethod::Cargo { crate_name, features, extractor } => {
                     // The extractor is source code compiled into the install script, so it is

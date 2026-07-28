@@ -387,7 +387,7 @@ fn main() -> ExitCode {
         info(format!("installing {:.<width$}", "{{ extractable.component }}".white().bold(), width = {{ max_component_width }}));
 
         // Write library to $MIDEN_SYSROOT/lib/dep.masp
-        let lib_path = _lib_dir.join("{{ extractable.component }}").with_extension("masp");
+        let lib_path = _lib_dir.join("{{ extractable.installed_package }}");
         // NOTE: If the file already exists, then we are running an update and we don't need to
         // update this element. We treat failure to detect existence as non-existence, and in cases
         // where that is due to permissions or some other issue, we let the actual install fail.
@@ -611,6 +611,7 @@ fn main() -> ExitCode {
             ComponentKind::Package
             | ComponentKind::LegacyPackage {
                 installation_method: PackageInstallationMethod::Prebuilt,
+                ..
             } => {
                 let artifacts = component
                     .artifacts
@@ -640,6 +641,7 @@ fn main() -> ExitCode {
             ComponentKind::LegacyPackage {
                 installation_method:
                     PackageInstallationMethod::Cargo { crate_name, features, extractor },
+                ..
             } => {
                 // The inline table body is assembled here rather than in the template so that an
                 // absent features list simply contributes no entry. Emitting
@@ -668,6 +670,10 @@ fn main() -> ExitCode {
                 });
                 installable_packages.push(upon::value! {
                     component: component.name.to_string(),
+                    // Resolved once, here, so uninstall can look up the same name.
+                    installed_package: component
+                        .installed_package_name()
+                        .expect("legacy packages always resolve an installed filename"),
                     extractor: extractor.clone(),
                 });
             },
@@ -871,6 +877,7 @@ mod tests {
                         features,
                         extractor: "miden_core_lib::CoreLibrary::default().package()".to_string(),
                     },
+                    installed_package: None,
                 },
                 profiles: vec![Profile::Minimal],
                 requires: vec![],
