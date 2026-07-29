@@ -1,22 +1,16 @@
 use std::{borrow::Cow, fmt};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::config::Config;
 pub use crate::manifest::Channel;
-
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
-#[serde(untagged)]
-pub enum MigrationStrategy {
-    NameChange { old_channel: semver::Version },
-}
 
 #[derive(Debug, Clone)]
 pub enum UpstreamMatch {
     /// The remote Channel is this Channel's upstream equivalent.
     UpstreamCounterpart,
-    /// The remote Channel is this Channel's equivalent and got migrated.
-    Migrated(MigrationStrategy),
+    /// The remote channel supersedes this one, and declares so with `migrates_from`.
+    Migrated { old_channel: semver::Version },
 }
 
 #[derive(Debug, Clone)]
@@ -142,18 +136,4 @@ impl core::str::FromStr for UserChannel {
                 .map_err(|err| anyhow!("invalid channel version: {err}")),
         }
     }
-}
-
-/// Tags used to identify special qualities of a specific channel.
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum Tags {
-    /// The channel is partially installed, i.e. only a subset of components
-    /// have been installed.
-    Partial,
-    /// The channel has been moved to a new channel or potentially even removed.
-    Migration {
-        #[serde(flatten)]
-        migration: MigrationStrategy,
-    },
 }

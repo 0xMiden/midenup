@@ -3,7 +3,21 @@ use std::hash::Hash;
 use serde::Deserialize;
 
 use super::Component;
-use crate::channel::{ChannelAlias, Tags};
+use crate::channel::ChannelAlias;
+
+/// Tags used to identify special qualities of a specific channel.
+///
+/// A **v1-only** concept, kept here because v1 documents in the wild carry it. v2 has neither:
+/// `Migration` became the explicit `migrates_from` field on the upstream channel, and `Partial`
+/// described local state, which now derives it from the installed component set (spec section 8.6).
+#[derive(Deserialize, Debug, Clone, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum Tags {
+    /// The channel is partially installed, i.e. only a subset of components have been installed.
+    Partial,
+    /// The channel has been moved to a new channel or potentially even removed.
+    Migration { old_channel: semver::Version },
+}
 
 /// Represents a specific release channel for a toolchain.
 ///

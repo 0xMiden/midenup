@@ -360,8 +360,7 @@ mod tests {
 
     fn manifest(components: Vec<Component>) -> Manifest {
         let mut m = Manifest::default();
-        m.channels
-            .push(Channel::new(semver::Version::new(0, 15, 0), None, components, vec![]));
+        m.channels.push(Channel::new(semver::Version::new(0, 15, 0), None, components));
         m
     }
 
@@ -378,8 +377,7 @@ mod tests {
     #[test]
     fn duplicate_channels_are_rejected() {
         let mut m = manifest(vec![]);
-        m.channels
-            .push(Channel::new(semver::Version::new(0, 15, 0), None, vec![], vec![]));
+        m.channels.push(Channel::new(semver::Version::new(0, 15, 0), None, vec![]));
         assert!(errors_of(&m).iter().any(|e| matches!(e, ValidationError::DuplicateChannel(_))));
     }
 

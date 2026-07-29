@@ -156,7 +156,6 @@ impl Toolchain {
             channel.name.clone(),
             channel.alias.clone(),
             resolved.iter().map(|component| (*component).clone()).collect(),
-            vec![],
         ));
 
         if let Some(installed) = state.get(&channel.name) {

@@ -38,10 +38,17 @@ impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
             for component in channel.components {
                 components.push(component.try_into()?);
             }
+            // `Partial` is dropped: it recorded local state in a document that describes upstream,
+            // and v2 derives it. `Migration` becomes the explicit field.
+            let migrates_from = channel.tags.iter().find_map(|tag| match tag {
+                super::v1::channel::Tags::Migration { old_channel } => Some(old_channel.clone()),
+                super::v1::channel::Tags::Partial => None,
+            });
+
             channels.push(v2::Channel {
                 name: channel.name,
                 alias: channel.alias,
-                tags: channel.tags,
+                migrates_from,
                 components,
                 extra: Default::default(),
             });

@@ -348,7 +348,6 @@ mod tests {
                 ),
                 component("core", ComponentKind::Package, core_artifacts),
             ],
-            vec![],
         );
 
         (channel, sources)

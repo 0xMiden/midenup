@@ -834,13 +834,7 @@
     },
     {
       "name": "0.13.3",
-      "tags": [
-        {
-          "migration": {
-            "old_channel": "0.20.3"
-          }
-        }
-      ],
+      "migrates_from": "0.20.3",
       "components": [
         {
           "aliases": {

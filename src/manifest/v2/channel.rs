@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Component, ComponentKind};
 use crate::{
-    channel::{ChannelAlias, MigrationStrategy, Tags, UpstreamChannel, UpstreamMatch},
+    channel::{ChannelAlias, UpstreamChannel, UpstreamMatch},
     config::Config,
     exec::Executable,
     manifest::{Alias, ManifestError, v2::unknown::Extra},
@@ -27,12 +27,18 @@ pub struct Channel {
     /// with the [`ChannelAlias::Stable`] alias.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub alias: Option<ChannelAlias>,
-    /// Set of tags used to denote a special characteristic about the channel.
+    /// The channel this one supersedes, if any.
     ///
-    /// Mainly used for locally installed channels.
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub tags: Vec<Tags>,
+    /// An installation of the named channel is carried here when it is updated: intent transfers
+    /// verbatim, `var/` is renamed so client data follows, and the old publication is removed once
+    /// the new state record commits (spec section 11.4).
+    ///
+    /// Replaces the v1 `tags: [{ migration: { old_channel } }]` array. Migration is a property of
+    /// the *upstream* channel, and expressing it as one field rather than as a member of an
+    /// open-ended tag list means it can be found without pattern-matching over unrelated values.
+    /// The other tag, `partial`, described local state and is now derived (section 8.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub migrates_from: Option<semver::Version>,
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
     /// Fields declared by a newer schema that this build does not recognize.
@@ -47,13 +53,12 @@ impl Channel {
         name: semver::Version,
         alias: Option<ChannelAlias>,
         components: Vec<Component>,
-        tags: Vec<Tags>,
     ) -> Self {
         Self {
             name,
             alias,
             components,
-            tags,
+            migrates_from: None,
             extra: Extra::new(),
         }
     }
@@ -81,10 +86,14 @@ impl Channel {
             .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
     }
 
-    /// Determines if the current toolchain was installed "partially", i.e., containing only a
-    /// subset of all the available components. This can be the case with `miden-toolchain.toml`.
-    pub fn is_partially_installed(&self) -> bool {
-        self.tags.iter().any(|tag| matches!(tag, Tags::Partial))
+    /// Whether this channel installs only part of what `complete` would.
+    ///
+    /// Derived, never recorded (spec section 8.6): local state has no "partial" flag, because one
+    /// would be a second answer to a question the component set already answers -- and the two
+    /// drifted apart, which is how a partially installed channel came to suppress every new
+    /// component during updates.
+    pub fn is_partially_installed(&self, upstream: &Channel) -> bool {
+        self.components.len() < upstream.components.len()
     }
 
     pub fn is_latest_nightly(&self) -> bool {
@@ -181,48 +190,33 @@ impl Channel {
         Ok(aliases)
     }
 
-    /// Checks wheter the channel [other] is Self's upstream counterpart.
-    /// Currently this can happen in two scenarios:
-    /// - They share the same name (i.e. version).
-    /// - The upstream version is tagged as having being migrated from self's .
+    /// Finds the upstream channel this one corresponds to.
+    ///
+    /// Either they share a version, or an upstream channel declares `migrates_from: <this
+    /// channel>`. A same-version match wins: a channel that still exists upstream is not migrated
+    /// away from, whatever some other channel claims to supersede.
     pub fn find_upstream_counterpart(&self, config: &Config) -> Option<UpstreamChannel> {
         let upstream_manifest = &config.manifest;
-        let mut upstream_counterpart = None;
 
-        for upstream_channel in upstream_manifest.get_channels() {
-            // They share version
-            let equal_name = self.name == upstream_channel.name;
-            if equal_name {
-                let upstream_match = UpstreamMatch::UpstreamCounterpart;
-                upstream_counterpart =
-                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match, config));
-                break;
-            };
-
-            let was_migrated = upstream_channel.tags.iter().find_map(|tag| match tag {
-                Tags::Migration { migration } => match migration {
-                    // A channel is only considered as "migrated" if it's
-                    // current name matches the "old_channel" field of an
-                    // upstream channel.
-                    MigrationStrategy::NameChange { old_channel } => {
-                        if old_channel == &self.name {
-                            Some(migration)
-                        } else {
-                            None
-                        }
-                    },
-                },
-                _ => None,
-            });
-
-            if let Some(migration) = was_migrated {
-                let upstream_match = UpstreamMatch::Migrated(migration.clone());
-                upstream_counterpart =
-                    Some(UpstreamChannel::new(upstream_channel.clone(), upstream_match, config));
-                break;
-            };
+        if let Some(same_version) =
+            upstream_manifest.get_channels().find(|upstream| upstream.name == self.name)
+        {
+            return Some(UpstreamChannel::new(
+                same_version.clone(),
+                UpstreamMatch::UpstreamCounterpart,
+                config,
+            ));
         }
-        upstream_counterpart
+
+        let successor = upstream_manifest
+            .get_channels()
+            .find(|upstream| upstream.migrates_from.as_ref() == Some(&self.name))?;
+
+        Some(UpstreamChannel::new(
+            successor.clone(),
+            UpstreamMatch::Migrated { old_channel: self.name.clone() },
+            config,
+        ))
     }
 
     // Syncs the channel to the latest changes

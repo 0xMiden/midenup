@@ -117,11 +117,6 @@ impl Installation {
     /// snapshot is what makes that possible without the network: everything those paths need was
     /// recorded at install time.
     pub fn as_channel(&self) -> crate::manifest::Channel {
-        crate::manifest::Channel::new(
-            self.channel.clone(),
-            None,
-            self.components.clone(),
-            Vec::new(),
-        )
+        crate::manifest::Channel::new(self.channel.clone(), None, self.components.clone())
     }
 }

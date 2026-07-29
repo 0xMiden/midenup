@@ -17,7 +17,7 @@ use anyhow::Context;
 use colored::Colorize;
 
 use crate::{
-    channel::{Channel, MigrationStrategy, UpstreamChannel, UpstreamMatch, UserChannel},
+    channel::{Channel, UpstreamChannel, UpstreamMatch, UserChannel},
     commands,
     config::Config,
     manifest::Component,
@@ -210,7 +210,7 @@ fn migration_of(
 ) -> Option<semver::Version> {
     match &upstream.upstream_match {
         UpstreamMatch::UpstreamCounterpart => None,
-        UpstreamMatch::Migrated(MigrationStrategy::NameChange { old_channel }) => {
+        UpstreamMatch::Migrated { old_channel } => {
             (upstream.channel.name != installation.channel).then(|| old_channel.clone())
         },
     }
