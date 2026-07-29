@@ -268,6 +268,47 @@ pub fn build_in(
     })
 }
 
+/// The plan key contribution of one component, computed in isolation.
+///
+/// "A component needs reinstallation iff its contribution to the plan key changed" (spec section
+/// 11.1) is only a usable rule if that contribution can be computed for one component at a time.
+/// This runs the same planning logic the full plan does -- pinning the authority, resolving
+/// artifacts for the target, computing destinations and modes -- and hashes the result.
+///
+/// The sysroot is notional: destinations enter the key relative to it, so the answer does not
+/// depend on where the toolchain happens to live.
+pub fn component_key(
+    component: &Component,
+    target: &str,
+    cwd: &Path,
+) -> Result<PlanKey, PlanError> {
+    const NOTIONAL_SYSROOT: &str = "/sysroot";
+
+    let authority = crate::plan::pin(&component.version, cwd)?;
+    let mut inputs = ComponentInputs {
+        name: component.name.to_string(),
+        authority: authority.identity(),
+        kind: component.kind().tag().to_string(),
+        ..Default::default()
+    };
+
+    plan_component(
+        component,
+        &authority,
+        target,
+        Path::new(NOTIONAL_SYSROOT),
+        &mut Vec::new(),
+        &mut Vec::new(),
+        &mut inputs,
+        &mut HashMap::new(),
+    )?;
+
+    Ok(compute_plan_key(&KeyInputs {
+        target: target.to_string(),
+        components: vec![inputs],
+    }))
+}
+
 /// Enforces the component/artifact matrix for one component and emits its steps.
 #[allow(clippy::too_many_arguments)]
 fn plan_component(

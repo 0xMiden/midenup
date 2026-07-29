@@ -11,6 +11,8 @@
 //! component. Between them, a `minimal` installation could never gain a component newly tagged
 //! `minimal`, and a project-activated toolchain could never gain anything at all.
 
+use std::path::Path;
+
 use anyhow::Context;
 use colored::Colorize;
 
@@ -97,6 +99,54 @@ pub fn update(
     }
 }
 
+/// How a component changed between what is installed and what upstream now says.
+///
+/// Replaces `Component::is_up_to_date`, a hand-written field-by-field comparison that ignored
+/// artifacts, requirements and profiles entirely -- so an artifact URI moving to a new release was
+/// invisible, while adding an alias forced a full reinstall.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeClass {
+    /// Its files have to be replaced: authority, kind, installation method, artifacts,
+    /// destinations, modes, Cargo features, rustup channel, or symlink layout.
+    ///
+    /// Defined precisely as "its contribution to the plan key changed" (spec section 11.1), and
+    /// computed that way rather than by enumerating fields, so the rule cannot drift from the key.
+    InstallationImpacting,
+    /// `requires` or `profiles`. Changes what gets *selected*, not what an unchanged component's
+    /// files look like.
+    GraphOnly,
+    /// Aliases, call format, subcommands, `initialization`. Recorded in local state and resolved at
+    /// dispatch; nothing on disk depends on them, and `initialization` is still never executed.
+    RuntimeMetadataOnly,
+    /// Nothing at all.
+    None,
+}
+
+/// Classifies `new` against the installed `old`.
+///
+/// A component whose *old* definition cannot be planned -- an artifact that no longer resolves for
+/// this target, say -- is reported as installation-impacting: equality could not be established,
+/// and reinstalling is the safe direction to be wrong in.
+pub fn classify(old: &Component, new: &Component, target: &str, cwd: &Path) -> ChangeClass {
+    let key_of = |component: &Component| crate::plan::component_key(component, target, cwd).ok();
+
+    match (key_of(old), key_of(new)) {
+        (Some(old_key), Some(new_key)) if old_key == new_key => {},
+        _ => return ChangeClass::InstallationImpacting,
+    }
+
+    if old.requires != new.requires || old.profiles != new.profiles {
+        return ChangeClass::GraphOnly;
+    }
+
+    // Anything left is metadata: the key already accounted for everything material, and the
+    // authority is part of the key, so a structural difference here cannot be a physical one.
+    match (serde_json::to_value(old), serde_json::to_value(new)) {
+        (Ok(old), Ok(new)) if old == new => ChangeClass::None,
+        _ => ChangeClass::RuntimeMetadataOnly,
+    }
+}
+
 /// What an update has to do beyond re-resolving intent.
 #[derive(Debug, Default, Clone)]
 struct Changes {
@@ -104,6 +154,8 @@ struct Changes {
     stale: Vec<String>,
     /// Components the update policy declined to touch, at the definition they are installed with.
     held_back: Vec<Component>,
+    /// Whether anything changed that local state records but no file reflects.
+    logical_only: bool,
 }
 
 fn update_installed_channel(
@@ -126,7 +178,8 @@ fn update_installed_channel(
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
             .with_context(|| format!("failed to migrate channel {old_channel}")),
         None => {
-            let Some(changes) = classify(installation, &upstream.channel, options)? else {
+            let Some(changes) = changes_for(config, installation, &upstream.channel, options)?
+            else {
                 println!(
                     "Aborting update of {} due to user input/configuration",
                     installation.channel
@@ -205,12 +258,14 @@ fn migrate(
 /// Decides which components have to be re-acquired, applying the path-update policy.
 ///
 /// `None` means the user cancelled.
-fn classify(
+fn changes_for(
+    config: &Config,
     installation: &Installation,
     upstream: &Channel,
     options: &UpdateOptions,
 ) -> anyhow::Result<Option<Changes>> {
     let mut changes = Changes::default();
+    let cwd = &config.working_directory;
 
     for installed in &installation.components {
         // Absent upstream: there is nothing to re-acquire. Whether it stays installed is decided
@@ -218,21 +273,25 @@ fn classify(
         let Some(upstream_component) = upstream.get_component(&installed.name) else {
             continue;
         };
-        if installed.is_up_to_date(upstream_component) {
-            continue;
-        }
 
-        match update_decision(installed, options)? {
-            ComponentUpdateDecision::Abort => return Ok(None),
-            ComponentUpdateDecision::Keep => changes.held_back.push(installed.clone()),
-            ComponentUpdateDecision::Update => changes.stale.push(installed.name.to_string()),
+        match classify(installed, upstream_component, config.target(), cwd) {
+            ChangeClass::None => continue,
+            // Neither moves a byte on disk, but both change what local state records.
+            ChangeClass::GraphOnly | ChangeClass::RuntimeMetadataOnly => {
+                changes.logical_only = true;
+            },
+            ChangeClass::InstallationImpacting => match update_decision(installed, options)? {
+                ComponentUpdateDecision::Abort => return Ok(None),
+                ComponentUpdateDecision::Keep => changes.held_back.push(installed.clone()),
+                ComponentUpdateDecision::Update => changes.stale.push(installed.name.to_string()),
+            },
         }
     }
 
     Ok(Some(changes))
 }
 
-/// Runs the install, unless there is demonstrably nothing to do.
+/// Runs the install, unless less than that is needed.
 ///
 /// The idempotency check is deliberately made against the *resolved* set rather than against a
 /// hand-built channel: an update with no changed components can still have work to do, because
@@ -245,6 +304,7 @@ fn install_for_update(
     changes: Changes,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    let logical_only = changes.logical_only;
     let install_options = InstallationOptions {
         verbose: options.verbose,
         stale: changes.stale,
@@ -253,30 +313,48 @@ fn install_for_update(
         ..Default::default()
     };
 
-    if nothing_to_do(upstream, state, &install_options)? {
-        println!("Toolchain {} is up to date", upstream.name);
-        return Ok(());
+    match work_for(upstream, state, &install_options, logical_only)? {
+        Work::Physical => {
+            display_warnings(upstream, &install_options, options);
+            println!("Updating toolchain {}..", upstream.name);
+            commands::install(config, upstream, state, &install_options)
+        },
+        // Spec section 9.8: a change that touches selection or runtime metadata but no installed
+        // file is committed as a single atomic `state.json` write. No journal, no staging, no new
+        // publication -- republishing an identical tree to record an alias would be pure cost.
+        Work::LogicalOnly => {
+            println!("Updating recorded metadata for toolchain {}..", upstream.name);
+            record_logical_changes(config, upstream, state, &install_options)
+        },
+        Work::Nothing => {
+            println!("Toolchain {} is up to date", upstream.name);
+            Ok(())
+        },
     }
-
-    display_warnings(upstream, &install_options, options);
-
-    println!("Updating toolchain {}..", upstream.name);
-    commands::install(config, upstream, state, &install_options)
 }
 
-/// Whether the installed set already matches what this update would produce.
-fn nothing_to_do(
+/// How much of the protocol an update actually needs.
+enum Work {
+    /// Stage and publish.
+    Physical,
+    /// Rewrite `state.json` and nothing else.
+    LogicalOnly,
+    Nothing,
+}
+
+fn work_for(
     upstream: &Channel,
     state: &LocalState,
     options: &InstallationOptions,
-) -> anyhow::Result<bool> {
+    logical_only: bool,
+) -> anyhow::Result<Work> {
     if !options.stale.is_empty() {
-        return Ok(false);
+        return Ok(Work::Physical);
     }
 
     let Some(installed) = state.get(&upstream.name) else {
         // Not installed yet -- a carried-over or migrated channel.
-        return Ok(false);
+        return Ok(Work::Physical);
     };
 
     let intent = commands::install::effective_intent(state, upstream, options);
@@ -287,7 +365,48 @@ fn nothing_to_do(
     let resolved_names: std::collections::BTreeSet<&str> =
         resolved.iter().map(|component| component.name.as_ref()).collect();
 
-    Ok(installed_names == resolved_names && installed.intent == intent)
+    if installed_names != resolved_names {
+        return Ok(Work::Physical);
+    }
+    if logical_only || installed.intent != intent {
+        return Ok(Work::LogicalOnly);
+    }
+    Ok(Work::Nothing)
+}
+
+/// Commits selection and metadata changes that no installed file reflects.
+///
+/// Each component's recorded *authority* is preserved rather than taken from upstream. Reaching
+/// here means the authority is materially unchanged, and the recorded one carries what was pinned
+/// at install time -- a branch's commit, a path's modification time -- which upstream does not
+/// have. Overwriting it would discard the pin and make the next update believe the source moved.
+fn record_logical_changes(
+    config: &Config,
+    upstream: &Channel,
+    state: &mut LocalState,
+    options: &InstallationOptions,
+) -> anyhow::Result<()> {
+    let intent = commands::install::effective_intent(state, upstream, options);
+
+    let installation = state
+        .get_mut(&upstream.name)
+        .with_context(|| format!("channel {} is not installed", upstream.name))?;
+    installation.intent = intent;
+
+    for component in installation.components.iter_mut() {
+        let Some(upstream_component) = upstream.get_component(&component.name) else {
+            continue;
+        };
+        if options.held_back.iter().any(|held| held.name == component.name) {
+            continue;
+        }
+
+        let pinned = component.version.clone();
+        *component = upstream_component.clone();
+        component.version = pinned;
+    }
+
+    config.write_local_state(state)
 }
 
 /// Moves `var/<from>` to `var/<to>`, so client data follows a migrated channel.
@@ -419,5 +538,130 @@ Alternatively, pass the '--path-update=interactive' flag to interactively select
     }
     for component_message in components_from_path {
         println!("{}", component_message);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::*;
+    use crate::{
+        artifact::{Artifact, Artifacts},
+        manifest::{ComponentKind, ExecutableComponent, InstallationMethod},
+        profile::Profile,
+        version::Authority,
+    };
+
+    // No test here changes `initialization`, deliberately: it lives in the same struct as the
+    // aliases below and travels the same path, so it would prove nothing extra -- and naming the
+    // field in a command module would trip the guard in `manifest::v2::component` that keeps it
+    // from ever acquiring an execution path.
+
+    const TARGET: &str = "aarch64-apple-darwin";
+
+    fn cwd() -> &'static Path {
+        Path::new(".")
+    }
+
+    /// A prebuilt executable with one artifact, which is the shape most components have.
+    fn base() -> Component {
+        let mut artifacts = Artifacts::default();
+        artifacts.insert(
+            "miden-vm".to_string(),
+            Artifact::TargetAgnostic {
+                uri: "https://example.invalid/v1/miden-vm".to_string(),
+                digest: None,
+            },
+        );
+
+        Component {
+            name: Cow::Borrowed("vm"),
+            version: Authority::Registry { version: semver::Version::new(0, 1, 0) },
+            kind: ComponentKind::Executable {
+                installation_method: InstallationMethod::Prebuilt,
+                spec: ExecutableComponent {
+                    installed_executable: "miden-vm".to_string(),
+                    ..Default::default()
+                },
+            },
+            profiles: vec![Profile::Minimal],
+            requires: vec![],
+            artifacts,
+            extra: Default::default(),
+        }
+    }
+
+    fn classify_pair(old: Component, new: Component) -> ChangeClass {
+        classify(&old, &new, TARGET, cwd())
+    }
+
+    fn spec_of(component: &mut Component) -> &mut ExecutableComponent {
+        match &mut component.kind {
+            ComponentKind::Executable { spec, .. } => spec,
+            _ => unreachable!("the fixture is an executable"),
+        }
+    }
+
+    #[test]
+    fn an_identical_component_has_not_changed() {
+        assert_eq!(classify_pair(base(), base()), ChangeClass::None);
+    }
+
+    /// Regression: `is_up_to_date` ignored artifacts entirely, so a component whose artifact moved
+    /// to a new release URL was reported as current and never reinstalled.
+    #[test]
+    fn an_artifact_only_change_is_installation_impacting() {
+        let mut new = base();
+        new.artifacts.insert(
+            "miden-vm".to_string(),
+            Artifact::TargetAgnostic {
+                uri: "https://example.invalid/v2/miden-vm".to_string(),
+                digest: None,
+            },
+        );
+
+        assert_eq!(classify_pair(base(), new), ChangeClass::InstallationImpacting);
+    }
+
+    #[test]
+    fn a_version_change_is_installation_impacting() {
+        let mut new = base();
+        new.version = Authority::Registry { version: semver::Version::new(0, 2, 0) };
+        assert_eq!(classify_pair(base(), new), ChangeClass::InstallationImpacting);
+    }
+
+    /// The `opt/` shims are real files, so their layout is material even though nothing else about
+    /// the component moved.
+    #[test]
+    fn a_symlink_layout_change_is_installation_impacting() {
+        let mut new = base();
+        spec_of(&mut new).symlink_name = Some("miden-vm-next".to_string());
+        assert_eq!(classify_pair(base(), new), ChangeClass::InstallationImpacting);
+    }
+
+    /// Regression: adding an alias forced a full reinstall of an otherwise identical component.
+    #[test]
+    fn an_alias_only_change_is_runtime_metadata_only() {
+        let mut new = base();
+        spec_of(&mut new)
+            .aliases
+            .insert("run".to_string(), crate::exec::Executable::default_call_format());
+
+        assert_eq!(classify_pair(base(), new), ChangeClass::RuntimeMetadataOnly);
+    }
+
+    #[test]
+    fn a_requires_only_change_is_graph_only() {
+        let mut new = base();
+        new.requires = vec!["core".to_string()];
+        assert_eq!(classify_pair(base(), new), ChangeClass::GraphOnly);
+    }
+
+    #[test]
+    fn a_profiles_only_change_is_graph_only() {
+        let mut new = base();
+        new.profiles = vec![Profile::Complete];
+        assert_eq!(classify_pair(base(), new), ChangeClass::GraphOnly);
     }
 }

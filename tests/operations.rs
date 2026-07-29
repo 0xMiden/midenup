@@ -71,14 +71,33 @@ impl Fixture {
         })
     }
 
+    /// As [`Fixture::manifest`], with an extra alias declared on `vm`.
+    ///
+    /// An alias is the canonical *runtime-metadata-only* change: recorded in local state, resolved
+    /// at dispatch, reflected in no installed file.
+    fn manifest_with_vm_alias(&self, file: &str, components: &[Spec<'_>], alias: &str) -> String {
+        let mut components: Vec<serde_json::Value> =
+            components.iter().map(|spec| self.component(*spec)).collect();
+        for component in components.iter_mut() {
+            if component["name"] == serde_json::json!("vm") {
+                component["aliases"] = serde_json::json!({alias: ["%installed-executable", "run"]});
+            }
+        }
+        self.write(file, components)
+    }
+
     /// Writes a one-channel manifest and returns its URI.
     fn manifest(&self, file: &str, components: &[Spec<'_>]) -> String {
+        self.write(file, components.iter().map(|spec| self.component(*spec)).collect())
+    }
+
+    fn write(&self, file: &str, components: Vec<serde_json::Value>) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "2.0.0",
             "date": 1735689600,
             "channels": [{
                 "name": "0.15.0",
-                "components": components.iter().map(|spec| self.component(*spec)).collect::<Vec<_>>()
+                "components": components
             }]
         });
 
@@ -315,4 +334,57 @@ fn integration_a_removed_root_blocks_the_update_and_preserves_the_installation()
         vec!["goingaway"],
         "a blocked update must leave the installation exactly as it was"
     );
+}
+
+/// Spec section 9.8: a change that no installed file reflects is committed as a single atomic
+/// `state.json` write -- no journal, no staging, no new publication.
+///
+/// Regression: `is_up_to_date` compared component *kind* wholesale, so adding an alias forced a
+/// full reinstall of an otherwise byte-identical component.
+#[test]
+fn integration_a_metadata_only_change_updates_state_without_republishing() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("logical_only_update");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let channel = semver::Version::new(0, 15, 0);
+
+    let before = fixture.manifest("before.json", &[("vm", &["minimal"], &[])]);
+    let (mut state, config) = test_setup(&env, &before);
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    let publication_of = |state: &LocalState| match &state.get(&channel).unwrap().publication {
+        midenup::state::PublicationRef::Managed { id, .. } => id.clone(),
+        other => panic!("expected a managed publication, got {other:?}"),
+    };
+    let before_publication = publication_of(&state);
+
+    // Upstream adds an alias, and changes nothing else.
+    let after = fixture.manifest_with_vm_alias("after.json", &[("vm", &["minimal"], &[])], "run");
+    let (_, config) = test_setup(&env, &after);
+    Midenup::try_parse_from(["midenup", "update", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to update");
+
+    let reloaded = LocalState::load(&midenup::paths::state_path(&env.midenup_home)).unwrap();
+    assert!(
+        reloaded.get(&channel).unwrap().as_channel().get_alias_names().contains("run"),
+        "the new alias must be recorded"
+    );
+    assert_eq!(
+        publication_of(&reloaded),
+        before_publication,
+        "a metadata-only change must not produce a new publication"
+    );
+
+    let publications: Vec<_> =
+        std::fs::read_dir(midenup::paths::publications_dir(&env.midenup_home))
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+    assert_eq!(publications.len(), 1, "nothing was staged, so nothing was published");
 }
