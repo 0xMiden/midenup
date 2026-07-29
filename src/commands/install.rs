@@ -84,6 +84,17 @@ pub fn install(
     }
 
     let realized = crate::install::execute(&plan, &publication, options.verbose, config.debug)?;
+
+    // Spec section 9.2: a `path` source that moved *during* the build produced an installation
+    // matching neither the tree we pinned nor the one on disk now, and nothing else would ever
+    // report it. Checked before the commit point, so the answer is to retry rather than to work
+    // out what was published.
+    for step in &plan.steps {
+        if let Some(authority) = step.authority() {
+            crate::plan::recheck_path(authority)?;
+        }
+    }
+
     fault::fail_at(fault::FaultPoint::PostStage)?;
 
     // 3. VERIFY. Structural check before anything is published: every planned file exists, is a

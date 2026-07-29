@@ -498,3 +498,73 @@ fn integration_prerelease_components_are_runnable() {
         }
     }
 }
+
+/// Spec section 9.2: a `path` source that changes *while* it is being built produces an
+/// installation matching neither the tree that was pinned nor the one on disk, so it is refused
+/// before anything is published.
+#[test]
+fn integration_a_path_source_that_moves_during_the_build_is_refused() {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_path_moved");
+
+    let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
+    let manifest = serde_json::json!({
+        "manifest_version": "2.0.0",
+        "date": 1735689600,
+        "channels": [{
+            "name": "0.15.0",
+            "components": [{
+                "name": "vm",
+                "version": {"kind": "path", "path": sources.path_crate.to_str().unwrap()},
+                "kind": "executable",
+                "installation_method": {"kind": "cargo", "crate_name": "fixture-vm"},
+                "installed-executable": "miden-vm",
+                "profiles": ["minimal"]
+            }]
+        }]
+    });
+    let manifest_path = test_env.tmp_dir.path().join("moving-source.json");
+    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+
+    let (mut state, config) = test_setup(&test_env, &format!("file://{}", manifest_path.display()));
+
+    // Stand in for an editor saving into the source tree while the build runs. It writes
+    // continuously rather than once, so that a write is guaranteed to land after the plan pinned
+    // the tree and before the post-build check reads it -- otherwise the test would be a race
+    // against how long a trivial `cargo install` happens to take.
+    let editing = Arc::new(AtomicBool::new(true));
+    let editor = {
+        let editing = Arc::clone(&editing);
+        let file = sources.path_crate.join("edited-during-the-build");
+        std::thread::spawn(move || {
+            while editing.load(Ordering::Relaxed) {
+                let _ = std::fs::write(&file, format!("{:?}", std::time::SystemTime::now()));
+                std::thread::sleep(std::time::Duration::from_millis(25));
+            }
+        })
+    };
+
+    let result = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state);
+
+    editing.store(false, Ordering::Relaxed);
+    editor.join().expect("the editing thread must not panic");
+
+    let err = result.expect_err("a source that moved during the build must not be published");
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("changed") || message.contains("retry"),
+        "the diagnostic must say what happened: {message}"
+    );
+
+    assert!(
+        state.get(&semver::Version::new(0, 15, 0)).is_none(),
+        "and nothing may be recorded as installed"
+    );
+}

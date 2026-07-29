@@ -161,6 +161,13 @@ pub mod fs {
 
     const ENTRY_LIMIT: u32 = u32::MAX;
 
+    /// Directory names that never count as a change to a source tree.
+    ///
+    /// `target` is Cargo's build output, written *into* the source directory by
+    /// `cargo install --path`. `.git` records history, which a build can touch (an index refresh)
+    /// without the working tree having moved at all.
+    const IGNORED: &[&str] = &["target", ".git"];
+
     /// Returns the latest registered modification time inside a directory, including its
     /// subdirectories.
     ///
@@ -188,6 +195,14 @@ pub mod fs {
 
                     if current_entry_count == ENTRY_LIMIT {
                         break;
+                    }
+
+                    // Build output is not source. `cargo install --path <dir>` builds into
+                    // `<dir>/target`, so a tree walked without this exclusion changes on every
+                    // build -- which makes "did the source move while we were building it?"
+                    // unanswerable, and makes every subsequent update believe the source changed.
+                    if file.file_name().to_str().is_some_and(|name| IGNORED.contains(&name)) {
+                        continue;
                     }
 
                     let (current_entry_latest, visited_entries) =
@@ -223,14 +238,12 @@ pub mod fs {
             (local_latest, current_entry_count)
         }
 
-        let directory_last_modification = dir
-            .metadata()
-            .and_then(|file| file.modified())
-            .map(|metadata| (metadata, dir.to_path_buf()))
-            .ok();
-
-        let (latest_found_modification, _) =
-            traverse_directories(dir, directory_last_modification, 0);
+        // Deliberately *not* seeded with the directory's own modification time. A directory's
+        // mtime changes when an entry is created in it, so seeding it would count the creation of
+        // `target/` -- undoing the exclusion above and making a build look like a source edit. The
+        // cost is that deleting a file, with nothing left behind to observe, is not detected on its
+        // own; this has always been a best-effort approximation.
+        let (latest_found_modification, _) = traverse_directories(dir, None, 0);
 
         // This should only be an error if every single metadata read failed, which should be
         // unlikely.

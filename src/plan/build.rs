@@ -155,6 +155,19 @@ impl PlanStep {
         }
     }
 
+    /// The source this step builds from, for steps that build.
+    ///
+    /// `None` for a transfer: an artifact is fetched from a URI that was already resolved, so there
+    /// is nothing left to re-check about where it came from.
+    pub fn authority(&self) -> Option<&ResolvedAuthority> {
+        match self {
+            Self::CargoBuild { authority, .. } | Self::ExtractPackage { authority, .. } => {
+                Some(authority)
+            },
+            Self::Download { .. } | Self::CopyLocal { .. } => None,
+        }
+    }
+
     /// The step to run instead if this one fails, if any.
     pub fn fallback(&self) -> Option<&PlanStep> {
         match self {

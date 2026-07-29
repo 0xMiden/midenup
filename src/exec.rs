@@ -588,6 +588,61 @@ mod tests {
         assert!(message.contains("%etc"), "and the expression: {message}");
     }
 
+    /// Spec section 13.5: a spawned component is told where it is running.
+    ///
+    /// `MIDEN_SYSROOT` is how a component finds its own toolchain without asking midenup, and
+    /// `opt/` on `PATH` is how one component invokes another by its `miden <name>` spelling.
+    #[test]
+    fn a_spawned_component_is_given_its_toolchain_environment() {
+        let temp = tempdir::TempDir::new("exec-env").unwrap();
+        let home = temp.path().join("midenup");
+        let channel = crate::manifest::Channel::new(CHANNEL, None, vec![]);
+        let sysroot = crate::paths::toolchain_link(&home, &CHANNEL);
+        std::fs::create_dir_all(sysroot.join("opt")).unwrap();
+
+        // The component reports its environment by writing it down: `execute_command` gives the
+        // child this process's stdout, so there is nothing to capture.
+        let reported = temp.path().join("environment");
+        let probe = temp.path().join("probe.sh");
+        std::fs::write(
+            &probe,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n%s\\n%s\\n' \"$MIDEN_SYSROOT\" \"$MIDENUP_TOOLCHAIN\" \
+                 \"$PATH\" > '{}'\n",
+                reported.display()
+            ),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&probe, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let config = crate::config::Config::init(
+            temp.path().to_path_buf(),
+            home.clone(),
+            temp.path().join("cargo"),
+            "file:///nonexistent.json",
+            true,
+        )
+        .unwrap();
+
+        let mut child =
+            config.execute_command(&channel, probe.as_os_str(), &[]).expect("should spawn");
+        assert!(child.wait().unwrap().success());
+
+        let reported = std::fs::read_to_string(&reported).expect("the probe must have run");
+        let mut lines = reported.lines();
+
+        assert_eq!(lines.next().unwrap(), sysroot.to_str().unwrap(), "MIDEN_SYSROOT");
+        assert_eq!(lines.next().unwrap(), CHANNEL.to_string(), "MIDENUP_TOOLCHAIN");
+        assert!(
+            lines.next().unwrap().starts_with(sysroot.join("opt").to_str().unwrap()),
+            "the toolchain's opt/ must come first on PATH"
+        );
+    }
+
     #[test]
     fn a_path_expression_cannot_be_the_program_itself() {
         let env = Env::new();
