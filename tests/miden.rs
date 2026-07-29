@@ -237,7 +237,12 @@ fn integration_activation_unions_intent_across_projects() {
         components: vec!["assets".to_string()],
         ..Default::default()
     };
-    let upstream = config.manifest.get_channel_by_name(&channel).unwrap().clone();
+    let upstream = config
+        .upstream_manifest()
+        .unwrap()
+        .get_channel_by_name(&channel)
+        .unwrap()
+        .clone();
     midenup::commands::install(&config, &upstream, &mut state, &options)
         .expect("failed to install for project A");
 

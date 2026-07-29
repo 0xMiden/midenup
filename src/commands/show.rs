@@ -62,7 +62,12 @@ impl ShowCommand {
                 Ok(())
             },
             Self::List => {
-                let stable_toolchain = config.manifest.get_latest_stable();
+                // Installed toolchains are recorded locally, so this works with no network at all.
+                // Upstream only adds *markers* -- which channel is stable, which installations are
+                // partial or no longer published -- so when it is unavailable they are simply
+                // omitted rather than guessed at (spec section 8.6).
+                let upstream = config.upstream_manifest().ok();
+                let stable_toolchain = upstream.and_then(|manifest| manifest.get_latest_stable());
 
                 let toolchains_display: Vec<_> = state
                     .installations
@@ -86,10 +91,24 @@ impl ShowCommand {
                             ));
                         }
 
-                        // Retained, not deleted: the user may still want `var/` and an explicit
-                        // uninstall (spec section 12.3).
-                        if config.manifest.get_channel_by_name(name).is_none() {
-                            line.push_str(&format!(" {}", "(unavailable upstream)".yellow()));
+                        if let Some(manifest) = upstream {
+                            match manifest.get_channel_by_name(name) {
+                                Some(channel)
+                                    if installation
+                                        .as_channel()
+                                        .is_partially_installed(channel) =>
+                                {
+                                    line.push_str(&format!(
+                                        " {}",
+                                        "(partially installed)".yellow()
+                                    ));
+                                },
+                                Some(_) => {},
+                                // Retained, not deleted: the user may still want `var/` and an
+                                // explicit uninstall (spec section 12.3).
+                                None => line
+                                    .push_str(&format!(" {}", "(unavailable upstream)".yellow())),
+                            }
                         }
 
                         line

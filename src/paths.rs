@@ -27,6 +27,15 @@ pub fn state_path(home: &Path) -> PathBuf {
     home.join("state").with_extension("json")
 }
 
+/// The last upstream manifest that was successfully fetched, cached verbatim.
+///
+/// Consulted only when a fetch fails: an operation that needs upstream can then proceed against a
+/// copy that is known to have been real, and say that it is doing so, rather than failing outright
+/// because a network was briefly unavailable.
+pub fn manifest_cache(home: &Path) -> PathBuf {
+    home.join("channel-manifest").with_extension("json")
+}
+
 /// The directory of `toolchains/<channel>` symlinks, plus the derived `stable` and `default`.
 pub fn toolchains_dir(home: &Path) -> PathBuf {
     home.join("toolchains")

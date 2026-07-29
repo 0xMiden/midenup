@@ -128,3 +128,107 @@ fn integration_concurrent_activations_converge_on_a_superset() {
         "the recorded publication must exist"
     );
 }
+
+/// Dispatch against an installed toolchain must not touch the network.
+///
+/// The manifest URI points at a closed port, so any fetch fails loudly. `miden vm ...` answers from
+/// `state.json` and the active publication, which is what makes it usable offline and what keeps a
+/// network round trip out of every component invocation (spec section 13.1).
+#[test]
+fn integration_dispatch_against_an_installed_toolchain_makes_no_network_request() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("offline_dispatch");
+    let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+
+    // Install with a reachable manifest...
+    let install = Command::new(env!("CARGO_BIN_EXE_midenup"))
+        .args(["install", "0.15.0"])
+        .current_dir(&env.present_working_dir)
+        .env("MIDENUP_HOME", &env.midenup_home)
+        .env("CARGO_HOME", &env.cargo_home)
+        .env("MIDENUP_MANIFEST_URI", &fixture.manifest_uri)
+        .output()
+        .expect("failed to run midenup");
+    assert!(install.status.success(), "{}", String::from_utf8_lossy(&install.stderr));
+
+    assert!(
+        env.midenup_home.join("toolchains").join("0.15.0").exists(),
+        "the toolchain must be installed before dispatch is tested"
+    );
+
+    // Remove the cached manifest the install left behind. Without it, *any* attempt to consult
+    // upstream is fatal rather than quietly satisfied from disk -- which is the difference between
+    // "does not need the network" and "does not need it to be up".
+    std::fs::remove_file(midenup::paths::manifest_cache(&env.midenup_home)).unwrap();
+
+    let bin = env.tmp_dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let miden = bin.join("miden");
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_midenup"), &miden).unwrap();
+
+    let project = env.tmp_dir.path().join("project");
+    write_toolchain_file(&project, &[]);
+
+    let output = Command::new(&miden)
+        .args(["help", "vm"])
+        .current_dir(&project)
+        .env("XDG_DATA_HOME", env.tmp_dir.path())
+        .env("CARGO_HOME", &env.cargo_home)
+        // Nothing listens here: reaching for upstream would fail, loudly.
+        .env("MIDENUP_MANIFEST_URI", "https://127.0.0.1:1/nope.json")
+        .output()
+        .expect("failed to run miden");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "dispatch must not need upstream.\nstdout:\n{}\nstderr:\n{stderr}",
+        String::from_utf8_lossy(&output.stdout),
+    );
+    assert!(
+        !stderr.contains("could not reach"),
+        "dispatch must not even *attempt* a fetch: {stderr}"
+    );
+}
+
+/// When an operation genuinely needs upstream and the fetch fails, the cached copy is used -- and
+/// the staleness is reported rather than passed off as current.
+#[test]
+fn integration_an_operation_needing_upstream_falls_back_to_the_cached_manifest() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("cached_upstream");
+    let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+
+    let midenup = |manifest_uri: &str, args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_midenup"))
+            .args(args)
+            .current_dir(&env.present_working_dir)
+            .env("MIDENUP_HOME", &env.midenup_home)
+            .env("CARGO_HOME", &env.cargo_home)
+            .env("MIDENUP_MANIFEST_URI", manifest_uri)
+            .output()
+            .expect("failed to run midenup")
+    };
+
+    let installed = midenup(&fixture.manifest_uri, &["install", "0.15.0"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+    assert!(
+        midenup::paths::manifest_cache(&env.midenup_home).exists(),
+        "a successful fetch must be cached"
+    );
+
+    // `list` needs upstream by definition -- it lists what is published.
+    let output = midenup("https://127.0.0.1:1/nope.json", &["list"]);
+    assert!(
+        output.status.success(),
+        "the cache must let it proceed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cached"), "staleness must be reported: {stderr}");
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("0.15.0"),
+        "and the cached content must actually be used"
+    );
+}

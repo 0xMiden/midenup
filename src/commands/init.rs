@@ -115,15 +115,25 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
             state = InitializationState::Initialized;
         }
 
-        // We check if the `miden` executable is accessible via the $PATH. This is most certainly
-        // not going to be the case the first time `midenup` is initialized.
-        let miden_is_accessible = std::process::Command::new("miden")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null())
-            .arg("--version")
-            .output()
-            .is_ok();
+        // Is `miden` reachable through `$PATH`? Almost certainly not the first time midenup is
+        // initialized.
+        //
+        // Answered by *looking*, never by executing. Running `miden --version` to find out -- which
+        // is what this did -- executes whatever binary happens to be first on `PATH`, hands it this
+        // process's entire environment, and lets it do whatever it likes with the `MIDENUP_HOME`
+        // that environment names. During a test run it reached the developer's real installation;
+        // between two parallel runs it contended on that installation's advisory lock and blocked
+        // for the full ten-minute timeout.
+        let miden_is_accessible = std::env::var_os("PATH")
+            .map(|path| {
+                std::env::split_paths(&path).any(|dir| {
+                    let candidate = dir.join("miden");
+                    // `symlink_metadata`, not `exists`: the entry midenup itself installs is a
+                    // symlink, and a broken one is not reachable but does answer "is it there".
+                    std::fs::symlink_metadata(&candidate).is_ok() && candidate.exists()
+                })
+            })
+            .unwrap_or(false);
 
         if !miden_is_accessible {
             if std::env::var(DEFAULT_USER_DATA_DIR).is_err() {

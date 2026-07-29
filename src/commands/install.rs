@@ -128,7 +128,7 @@ pub fn install(
     // 6. DERIVE. `stable` is a property of the upstream manifest, recomputed from it rather than
     // remembered, so a stale local copy can never disagree with upstream about which channel it
     // names.
-    if config.manifest.is_latest_stable(channel) {
+    if config.upstream_manifest()?.is_latest_stable(channel) {
         let stable_dir = toolchains_dir.join("stable");
         let relative_channel_target = PathBuf::from(format!("{}", channel.name));
         utils::fs::replace_symlink(&stable_dir, &relative_channel_target)

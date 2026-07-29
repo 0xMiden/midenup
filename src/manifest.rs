@@ -132,10 +132,25 @@ impl VersionedManifest {
 
     /// Loads a [Manifest] from the given URI.
     pub fn load_from(uri: impl AsRef<str>) -> Result<Manifest, ManifestError> {
+        Self::parse_str(&Self::read_from(uri)?)
+    }
+
+    /// Reads the document at `uri` without parsing it.
+    ///
+    /// Separate from [Self::load_from] so that a caller can keep the bytes it fetched -- the cached
+    /// copy of the upstream manifest is written verbatim, not re-serialized from the parsed form,
+    /// so that a manifest carrying fields this build does not understand is cached exactly as
+    /// published.
+    pub fn read_from(uri: impl AsRef<str>) -> Result<String, ManifestError> {
         let uri = uri.as_ref();
 
         if let Some(manifest_path) = uri.strip_prefix("file://") {
-            return Self::load_from_file(manifest_path);
+            let contents = std::fs::read_to_string(manifest_path)
+                .map_err(|_| ManifestError::Missing(manifest_path.to_string()))?;
+            if contents.is_empty() {
+                return Err(ManifestError::Empty);
+            }
+            return Ok(contents);
         }
 
         if !uri.starts_with("https://") {
@@ -178,7 +193,7 @@ impl VersionedManifest {
             ManifestError::Invalid(format!("manifest contains invalid utf8 data: {err}"))
         })?;
 
-        Self::parse_str(manifest_data)
+        Ok(manifest_data.to_string())
     }
 }
 

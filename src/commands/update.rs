@@ -43,7 +43,7 @@ pub fn update(
             println!("syncing channel updates for stable (installed as {})", local_stable.channel);
 
             let upstream_stable = config
-                .manifest
+                .upstream_manifest()?
                 .get_latest_stable()
                 // NOTE: This means that there is no stable toolchain upstream.
                 //
@@ -54,7 +54,7 @@ pub fn update(
             println!(
                 "latest stable is version {} (upstream last updated on {})",
                 upstream_stable.name,
-                config.manifest.last_updated()
+                config.upstream_manifest()?.last_updated()
             );
 
             if upstream_stable.name > local_stable.channel {
@@ -172,7 +172,7 @@ fn update_installed_channel(
         return Ok(());
     };
 
-    println!("upstream last updated on {}", config.manifest.last_updated());
+    println!("upstream last updated on {}", config.upstream_manifest()?.last_updated());
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
@@ -249,10 +249,14 @@ fn migrate(
     // so it is atomic and cannot half-happen.
     carry_var_to(config, &installation.channel, &upstream.name)?;
 
-    let old_channel = installation.as_channel();
     // Not purged: the data has already been renamed to the new channel, and purging would delete a
     // directory that no longer belongs to the channel being removed.
-    commands::uninstall(config, &old_channel, state, false)
+    commands::uninstall(
+        config,
+        &crate::channel::UserChannel::Version(installation.channel.clone()),
+        state,
+        false,
+    )
 }
 
 /// Decides which components have to be re-acquired, applying the path-update policy.

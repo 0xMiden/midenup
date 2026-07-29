@@ -36,7 +36,8 @@ fn integration_install_stable() {
     // `stable` is not persisted in local state -- it is a property of the upstream manifest and a
     // derived symlink on disk. Assert on the symlink, and that state records the version it names.
     let stable_version = config
-        .manifest
+        .upstream_manifest()
+        .unwrap()
         .get_latest_stable()
         .expect("upstream must declare a stable channel")
         .name

@@ -196,7 +196,7 @@ impl Channel {
     /// channel>`. A same-version match wins: a channel that still exists upstream is not migrated
     /// away from, whatever some other channel claims to supersede.
     pub fn find_upstream_counterpart(&self, config: &Config) -> Option<UpstreamChannel> {
-        let upstream_manifest = &config.manifest;
+        let upstream_manifest = config.upstream_manifest().ok()?;
 
         if let Some(same_version) =
             upstream_manifest.get_channels().find(|upstream| upstream.name == self.name)

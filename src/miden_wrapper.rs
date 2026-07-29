@@ -339,18 +339,17 @@ pub fn miden_wrapper(
     let (toolchain, _justification, partial_channel) =
         Toolchain::ensure_current_is_installed(config, state)?;
 
-    // The active channel is resolved through the *upstream* manifest to map a user-facing name
-    // like `stable` onto a version, then that version is looked up in local state -- which is what
-    // actually records the installed component snapshot.
+    // Resolved entirely from local state. `state.json` records what is installed, and
+    // `toolchains/stable` records the last answer upstream gave about what `stable` means, so
+    // dispatch never needs the network to find its own toolchain (spec section 13.1).
     let installed_channel = {
         let active = config
-            .manifest
-            .get_channel(&toolchain.channel)
+            .local_channel(&toolchain.channel, state)
             .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
         state
-            .get(&active.name)
+            .get(&active)
             .map(|installation| installation.as_channel())
-            .with_context(|| format!("channel '{}' is not installed", active.name))?
+            .with_context(|| format!("channel '{active}' is not installed"))?
     };
     let toolchain_environment = ToolchainEnvironment::new(&installed_channel, partial_channel);
 
@@ -497,10 +496,11 @@ pub fn display_version(config: &Config) -> String {
 
     let toolchain_version = Toolchain::current(config)
         .and_then(|(toolchain, _)| {
+            // `midenup --version` is informational and must not reach for the network.
+            let state = config.local_state()?;
             config
-                .manifest
-                .get_channel(&toolchain.channel)
-                .map(|channel| channel.name.to_string())
+                .local_channel(&toolchain.channel, &state)
+                .map(|channel| channel.to_string())
                 .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
         })
         .inspect_err(|err| {

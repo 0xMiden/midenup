@@ -3,8 +3,8 @@ use colored::Colorize;
 use crate::{config::Config, state::LocalState};
 
 /// List all the available [[Channels]] presents in the upstream manifest.
-pub fn list(config: &Config, state: &LocalState) {
-    let upstream_channels = config.manifest.get_channels();
+pub fn list(config: &Config, state: &LocalState) -> anyhow::Result<()> {
+    let upstream_channels = config.upstream_manifest()?.get_channels();
 
     let toolchains_display: Vec<String> = upstream_channels
         .map(|channel| {
@@ -30,4 +30,6 @@ pub fn list(config: &Config, state: &LocalState) {
     for toolchain in toolchains_display {
         println!("{toolchain}");
     }
+
+    Ok(())
 }

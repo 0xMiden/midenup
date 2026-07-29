@@ -33,7 +33,7 @@ pub fn r#override(
         // always be using the stable toolchain, even after updates occur.
         UserChannel::Stable => toolchains_dir.join("stable"),
         _ => {
-            let inner_channel = config.manifest.get_channel(channel).context(
+            let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
                 "failed to set {channel} as the system default. Try installing it:
         midenup install {channel}",
             )?;

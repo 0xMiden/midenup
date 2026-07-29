@@ -192,22 +192,17 @@ impl Commands {
                 Ok(())
             },
             Self::Gc => gc(config, state),
-            Self::List => {
-                list(config, state);
-                Ok(())
-            },
+            Self::List => list(config, state),
             Self::Install { channel, options } => {
-                let Some(channel) = config.manifest.get_channel(channel) else {
+                let manifest = config.upstream_manifest()?;
+                let Some(channel) = manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
                 install(config, channel, state, options)
             },
-            Self::Uninstall { channel, purge } => {
-                let Some(channel) = config.manifest.get_channel(channel) else {
-                    bail!("channel '{}' doesn't exist or is unavailable", channel);
-                };
-                uninstall(config, channel, state, *purge)
-            },
+            // Deliberately not resolved against upstream: a channel that has been withdrawn is
+            // exactly one a user needs to be able to uninstall (spec section 12.3).
+            Self::Uninstall { channel, purge } => uninstall(config, channel, state, *purge),
             Self::Update { channel, options } => update(config, channel.as_ref(), state, options),
             Self::Show(cmd) => cmd.execute(config, state),
             Self::Set { channel } => set(config, channel),
@@ -371,7 +366,7 @@ impl Midenup {
         // After execution we check if need to update the midenup/opt symlink
         // This is done *after* execution because some commands change what the active toolchain
         // (update, set) and some remove the directory entirely (uninstall)
-        config.update_opt_symlinks(config)?;
+        config.update_opt_symlinks(state)?;
 
         Ok(())
     }
