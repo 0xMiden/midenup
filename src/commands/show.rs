@@ -62,19 +62,37 @@ impl ShowCommand {
                 Ok(())
             },
             Self::List => {
-                let channels = state.installations.iter().map(|i| i.as_channel());
                 let stable_toolchain = config.manifest.get_latest_stable();
 
-                let toolchains_display: Vec<_> = channels
-                    .map(|channel| {
-                        let is_stable = stable_toolchain
-                            .as_ref()
-                            .is_some_and(|stable| stable.name == channel.name);
-                        (channel.name.clone(), is_stable)
-                    })
-                    .map(|(channel_name, is_stable)| match (channel_name, is_stable) {
-                        (name, false) => format!("{name}"),
-                        (name, true) => format!("{name} {}", "(stable)".bold()),
+                let toolchains_display: Vec<_> = state
+                    .installations
+                    .iter()
+                    .map(|installation| {
+                        let name = &installation.channel;
+                        let mut line = format!("{name}");
+
+                        if stable_toolchain.as_ref().is_some_and(|stable| &stable.name == name) {
+                            line.push_str(&format!(" {}", "(stable)".bold()));
+                        }
+
+                        // A migrated record describes a pre-publication tree that no receipt
+                        // covers, so midenup will not execute against it. Saying so is the whole
+                        // point: the user's toolchain still works, but only after it is installed
+                        // properly, and they should not have to infer that from a failure.
+                        if !installation.is_managed() {
+                            line.push_str(&format!(
+                                " {} -- run `midenup install {name}`",
+                                "(needs reinstallation)".yellow()
+                            ));
+                        }
+
+                        // Retained, not deleted: the user may still want `var/` and an explicit
+                        // uninstall (spec section 12.3).
+                        if config.manifest.get_channel_by_name(name).is_none() {
+                            line.push_str(&format!(" {}", "(unavailable upstream)".yellow()));
+                        }
+
+                        line
                     })
                     .collect();
 

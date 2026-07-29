@@ -158,7 +158,10 @@ impl Toolchain {
             resolved.iter().map(|component| (*component).clone()).collect(),
         ));
 
-        if let Some(installed) = state.get(&channel.name) {
+        // A migrated record is never executed against: the pre-publication tree it describes is
+        // covered by no receipt, so midenup cannot know what it owns. Dispatch installs it
+        // properly first, exactly as it would a toolchain that was never installed.
+        if let Some(installed) = state.get(&channel.name).filter(|i| i.is_managed()) {
             let installed_components: HashSet<&str> =
                 HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
 
@@ -199,7 +202,7 @@ impl Toolchain {
         // Another invocation may have installed it while we waited. Re-read rather than plan
         // against what was true before the wait.
         *state = config.local_state()?;
-        if let Some(installed) = state.get(&channel.name)
+        if let Some(installed) = state.get(&channel.name).filter(|i| i.is_managed())
             && resolved
                 .iter()
                 .all(|component| installed.components.iter().any(|c| c.name == component.name))

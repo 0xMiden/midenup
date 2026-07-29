@@ -48,7 +48,7 @@ pub fn install(
     let publication = paths::publication_dir(home, &channel.name, &publication_id);
 
     // The single decision this whole function turns on.
-    let intent = effective_intent(state, channel, options);
+    let intent = carry_migrated_intent(state, channel, effective_intent(state, channel, options));
     let plan = crate::plan::build_plan(channel, &intent, config.target(), &publication)?;
 
     // What the publication being replaced owns, if this build published it. Only a receipt can
@@ -171,6 +171,63 @@ pub(crate) fn effective_intent(
             merged
         },
         Some(IntentUpdate::Preserve) => previous.unwrap_or(requested),
+    }
+}
+
+/// Carries a migrated selection into the install that replaces it, dropping what upstream no longer
+/// has.
+///
+/// Two rules, both from spec section 12, and both scoped to a record that is still
+/// `NeedsReinstall`:
+///
+/// **The migrated selection is carried, not replaced.** A migrated record exists because the
+/// toolchain *was* installed; the install that resolves it is a continuation of that, not a fresh
+/// choice, so `midenup install <channel>` reinstalls what the user had rather than silently
+/// reducing it to the default profile. Once the record is managed, `install` replaces intent as
+/// usual (section 8.1) -- which is also how a user deliberately shrinks it.
+///
+/// **Roots upstream no longer has are dropped with a warning.** Section 11.3 blocks an update when
+/// an explicit root disappears, because the user chose that root deliberately. A migrated root was
+/// not chosen in those terms -- it was inferred from a v1 record -- so blocking would strand every
+/// v1 user whose channel happened to drop a component, with no way forward but deleting their state
+/// by hand.
+///
+/// Both are one-time by construction rather than by a flag: the install they are part of replaces
+/// the migrated record with a managed one.
+fn carry_migrated_intent(state: &LocalState, channel: &Channel, intent: Intent) -> Intent {
+    use colored::Colorize;
+
+    let Some(migrated) = state.get(&channel.name).filter(|installation| !installation.is_managed())
+    else {
+        return intent;
+    };
+
+    let mut intent = intent;
+    intent.union_with(&migrated.intent);
+
+    let (kept, dropped): (Vec<String>, Vec<String>) = intent
+        .roots
+        .iter()
+        .cloned()
+        .partition(|root| channel.get_component(root).is_some());
+
+    if dropped.is_empty() {
+        return intent;
+    }
+
+    println!(
+        "{}: these components are no longer part of channel {} and have been dropped from your \
+         selection:",
+        "warning".yellow().bold(),
+        channel.name
+    );
+    for root in &dropped {
+        println!("- {}", root.white().bold());
+    }
+
+    Intent {
+        profiles: intent.profiles,
+        roots: kept.into_iter().collect(),
     }
 }
 

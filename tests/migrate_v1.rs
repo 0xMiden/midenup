@@ -164,3 +164,172 @@ fn integration_recovery_a_failure_before_the_migration_commit_preserves_the_v1_d
         "and no partial state document may be left behind"
     );
 }
+
+/// A fixture channel with `vm` (minimal) plus whatever else is named, all `file://` backed.
+fn upstream(env: &TestEnvironment, file: &str, components: &[&str]) -> String {
+    let dir = env.tmp_dir.path().join("fixture");
+    std::fs::create_dir_all(&dir).unwrap();
+
+    let vm = dir.join("miden-vm");
+    std::fs::write(&vm, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&vm, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let mut declared = vec![serde_json::json!({
+        "name": "vm",
+        "version": {"kind": "registry", "version": "0.1.0"},
+        "kind": "executable",
+        "installation_method": {"kind": "prebuilt"},
+        "installed-executable": "miden-vm",
+        "profiles": ["minimal"],
+        "artifacts": {"miden-vm": {"uri": format!("file://{}", vm.display())}}
+    })];
+
+    for name in components.iter().filter(|name| **name != "vm") {
+        let artifact = dir.join(format!("{name}.txt"));
+        std::fs::write(&artifact, format!("{name}\n")).unwrap();
+        declared.push(serde_json::json!({
+            "name": name,
+            "version": {"kind": "registry", "version": "0.1.0"},
+            "kind": "asset",
+            "profiles": [],
+            "artifacts": {format!("{name}.txt"): {"uri": format!("file://{}", artifact.display())}}
+        }));
+    }
+
+    let manifest = serde_json::json!({
+        "manifest_version": "2.0.0",
+        "date": 1735689600,
+        "channels": [{"name": "0.15.0", "components": declared}]
+    });
+
+    let path = dir.join(file);
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    format!("file://{}", path.display())
+}
+
+/// A migrated record describes a tree no receipt covers, so midenup will not execute against it:
+/// the first use installs it properly, and only then dispatches.
+#[test]
+fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("needs_reinstall");
+    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm"]));
+
+    let manifest = upstream(&env, "upstream.json", &["vm"]);
+    run_midenup(&env, &manifest, &["list"]);
+
+    assert!(
+        matches!(
+            state_of(&env.midenup_home).installations[0].publication,
+            PublicationRef::NeedsReinstall
+        ),
+        "migration alone must not claim the toolchain is usable"
+    );
+
+    // Dispatch triggers the install, exactly as it would for a toolchain that was never installed.
+    let output = Command::new(env!("CARGO_BIN_EXE_midenup"))
+        .args(["install", "0.15.0", "--profile", "minimal"])
+        .current_dir(&env.present_working_dir)
+        .env("MIDENUP_HOME", &env.midenup_home)
+        .env("CARGO_HOME", &env.cargo_home)
+        .env("MIDENUP_MANIFEST_URI", &manifest)
+        .output()
+        .expect("failed to run midenup");
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+    let installation = &state_of(&env.midenup_home).installations[0];
+    assert!(
+        matches!(installation.publication, PublicationRef::Managed { .. }),
+        "the reinstall must produce a publication midenup owns"
+    );
+    assert!(!installation.components.is_empty(), "and a component snapshot to dispatch from");
+}
+
+/// Spec section 12.1: a migrated root that no longer exists upstream is dropped, once, with a
+/// warning. Blocking would strand every v1 user whose channel happened to drop a component.
+#[test]
+fn integration_migrated_roots_missing_upstream_are_dropped_once_with_a_warning() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("migrated_root_dropped");
+    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm", "goneaway"]));
+
+    let manifest = upstream(&env, "upstream.json", &["vm"]);
+    run_midenup(&env, &manifest, &["list"]);
+
+    let output = run_midenup(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(
+        output.status.success(),
+        "a missing migrated root must not block: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let reported = String::from_utf8_lossy(&output.stdout);
+    assert!(reported.contains("goneaway"), "the dropped root must be named: {reported}");
+
+    let installation = &state_of(&env.midenup_home).installations[0];
+    assert!(
+        !installation.intent.roots.contains("goneaway"),
+        "intent must be rewritten without it: {:?}",
+        installation.intent
+    );
+    assert!(matches!(installation.publication, PublicationRef::Managed { .. }));
+}
+
+/// ...and only once. The relaxation exists because migrated roots were inferred rather than
+/// chosen; once the user has installed on top of them, they are chosen.
+#[test]
+fn integration_after_the_first_operation_a_removed_root_blocks_as_normal() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("relaxation_is_one_time");
+    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm", "client"]));
+
+    let with_client = upstream(&env, "with-client.json", &["vm", "client"]);
+    run_midenup(&env, &with_client, &["list"]);
+    // Consumes the relaxation: the record stops being a migrated one here.
+    let output = run_midenup(&env, &with_client, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+    let installation = &state_of(&env.midenup_home).installations[0];
+    assert!(
+        installation.intent.roots.contains("client"),
+        "the root survived the first install"
+    );
+
+    let without_client = upstream(&env, "without-client.json", &["vm"]);
+    let output = run_midenup(&env, &without_client, &["update", "0.15.0"]);
+    assert!(!output.status.success(), "a chosen root that disappeared must block the update");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("client"), "the diagnostic must name it: {stderr}");
+    assert!(
+        state_of(&env.midenup_home).installations[0].intent.roots.contains("client"),
+        "and the installation must be preserved"
+    );
+}
+
+/// A migrated channel that no longer exists upstream is reported, not deleted: the user may still
+/// want `var/` and an explicit uninstall.
+#[test]
+fn integration_a_migrated_channel_absent_upstream_is_reported_not_deleted() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("migrated_channel_gone");
+    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.1.0", &["vm"]));
+
+    let manifest = upstream(&env, "upstream.json", &["vm"]);
+    let output = run_midenup(&env, &manifest, &["show", "list"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+    let reported = String::from_utf8_lossy(&output.stdout);
+    assert!(reported.contains("0.1.0"), "the channel must still be listed: {reported}");
+    assert!(reported.contains("unavailable"), "and marked unavailable: {reported}");
+
+    assert_eq!(
+        state_of(&env.midenup_home).installations.len(),
+        1,
+        "the record must be retained, not deleted"
+    );
+}
