@@ -466,7 +466,7 @@ checksum = "88904434abc2901f197fe8cc55f0445e7ded921dba5911dad2e2b39b48e663c4"
 
 [[package]]
 name = "midenup"
-version = "0.3.2"
+version = "1.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "cargo_toml",
@@ -892,7 +892,7 @@ checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
 
 [[package]]
 name = "update-manifest"
-version = "0.3.2"
+version = "1.0.0-alpha.1"
 dependencies = [
  "anyhow",
  "chrono",
