@@ -158,6 +158,17 @@ midenup gc
 This only ever removes installations nothing refers to any more. It never touches an installed
 toolchain, and it is safe to run at any time.
 
+### Upgrading from an older `midenup`
+
+The first time a newer `midenup` runs, it converts the record an older one left in
+`$MIDENUP_HOME` into its own format. It carries over which channels you had installed and which
+components you had in each, and nothing else — everything else is re-derived from the published
+manifest, which is authoritative for it. Your toolchains are reinstalled the next time you use
+them, so that `midenup` knows exactly which files it owns; `var/` is untouched throughout.
+
+**This is one-way.** After the conversion, an older `midenup` will not see your installation and
+will report it as absent. If you need to go back, reinstall your toolchains with the older version.
+
 ### Uninstalling `midenup`
 
 You can easily uninstall `midenup` itself by deleting the `$MIDENUP_HOME` directory.
