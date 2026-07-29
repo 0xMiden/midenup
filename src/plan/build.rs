@@ -683,7 +683,11 @@ mod tests {
     }
 
     fn agnostic(uri: &str) -> Artifact {
-        Artifact::TargetAgnostic { uri: uri.to_string(), digest: None }
+        Artifact::TargetAgnostic {
+            uri: uri.to_string(),
+            digest: None,
+            extra: Default::default(),
+        }
     }
 
     fn specific(uri: &str, targets: &[&str]) -> Artifact {
@@ -692,6 +696,7 @@ mod tests {
             substitutions: None,
             targets: targets.iter().map(|t| (t.to_string(), Default::default())).collect(),
             digest: None,
+            extra: Default::default(),
         }
     }
 

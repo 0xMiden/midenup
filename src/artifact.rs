@@ -121,8 +121,18 @@ impl Artifacts {
 /// These URIs have the following format:
 ///
 /// * `(https://|file://)<path>/<component name>(-<triplet>)?(<extension>)`
-#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq)]
-#[serde(untagged, rename_all = "kebab-case")]
+///
+/// # Forward compatibility
+///
+/// Like every other schema type, an artifact preserves fields this build does not recognize
+/// (spec section 4.4). It needs hand-written `Serialize`/`Deserialize` for the same reason
+/// [crate::manifest::Component] does: `TargetSpecific` already flattens `substitutions`, so a
+/// catch-all `#[serde(flatten)]` would capture the keys that flatten consumed and emit them twice.
+///
+/// Deserialization also dispatches on the presence of `targets` rather than falling back through an
+/// untagged enum. An untagged fallback reports "data did not match any variant", which says nothing
+/// about which field was actually wrong.
+#[derive(Debug, Clone, Hash, PartialEq)]
 pub enum Artifact {
     /// An artifact compiled for a specific target
     TargetSpecific {
@@ -152,13 +162,13 @@ pub enum Artifact {
         /// optional, and can be used at your convenience.
         uri: String,
         /// Substitutions that apply to all targets
-        #[serde(flatten, skip_serializing_if = "Option::is_none")]
         substitutions: Option<Substitutions>,
         /// The supported target triples for this artifact, and their target-specific substitutions
         targets: BTreeMap<String, Substitutions>,
         /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         digest: Option<Digest>,
+        /// Fields declared by a newer schema that this build does not recognize.
+        extra: crate::manifest::v2::unknown::Extra,
     },
     /// A non-executable/target-agnostic asset
     TargetAgnostic {
@@ -169,9 +179,101 @@ pub enum Artifact {
         /// component have an associated semantic version, or an error will be produced.
         uri: String,
         /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
+        digest: Option<Digest>,
+        /// Fields declared by a newer schema that this build does not recognize.
+        extra: crate::manifest::v2::unknown::Extra,
+    },
+}
+
+/// The typed shape of an artifact, without the unknown-field capture.
+///
+/// Kept in lockstep with [Artifact] by construction: it is what the hand-written impls below
+/// serialize through, so "known" means exactly "what this emits".
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged, rename_all = "kebab-case")]
+enum ArtifactFields {
+    TargetSpecific {
+        uri: String,
+        #[serde(flatten, skip_serializing_if = "Option::is_none")]
+        substitutions: Option<Substitutions>,
+        targets: BTreeMap<String, Substitutions>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         digest: Option<Digest>,
     },
+    TargetAgnostic {
+        uri: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        digest: Option<Digest>,
+    },
+}
+
+impl Artifact {
+    fn fields(&self) -> ArtifactFields {
+        match self {
+            Self::TargetSpecific { uri, substitutions, targets, digest, .. } => {
+                ArtifactFields::TargetSpecific {
+                    uri: uri.clone(),
+                    substitutions: substitutions.clone(),
+                    targets: targets.clone(),
+                    digest: digest.clone(),
+                }
+            },
+            Self::TargetAgnostic { uri, digest, .. } => {
+                ArtifactFields::TargetAgnostic { uri: uri.clone(), digest: digest.clone() }
+            },
+        }
+    }
+
+    fn extra(&self) -> &crate::manifest::v2::unknown::Extra {
+        match self {
+            Self::TargetSpecific { extra, .. } | Self::TargetAgnostic { extra, .. } => extra,
+        }
+    }
+}
+
+impl Serialize for Artifact {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::Error;
+
+        crate::manifest::v2::unknown::merge_extra(&self.fields(), self.extra())
+            .map_err(S::Error::custom)?
+            .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for Artifact {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+
+        // `targets` is what distinguishes the two shapes, and saying so produces a better
+        // diagnostic than the untagged fallback's "data did not match any variant" -- which names
+        // no field at all.
+        if value.get("targets").is_some_and(|targets| !targets.is_object()) {
+            return Err(D::Error::custom(
+                "an artifact's `targets` must be a map of target triple to substitutions",
+            ));
+        }
+
+        let (fields, extra) = crate::manifest::v2::unknown::split_extra::<ArtifactFields>(value)
+            .map_err(D::Error::custom)?;
+
+        Ok(match fields {
+            ArtifactFields::TargetSpecific { uri, substitutions, targets, digest } => {
+                Self::TargetSpecific {
+                    uri,
+                    substitutions,
+                    targets,
+                    digest,
+                    extra,
+                }
+            },
+            ArtifactFields::TargetAgnostic { uri, digest } => {
+                Self::TargetAgnostic { uri, digest, extra }
+            },
+        })
+    }
 }
 
 impl Artifact {
@@ -485,5 +587,70 @@ mod digest_tests {
         .to_string();
 
         assert!(crate::manifest::VersionedManifest::parse_str(&src).is_err());
+    }
+}
+
+#[cfg(test)]
+mod forward_compatibility_tests {
+    use super::*;
+
+    /// Spec section 4.4: *every* schema type preserves what this build does not understand.
+    /// `Artifact` was the last one that did not, so a newer publisher adding a field to an
+    /// artifact -- a signature, say -- would have lost it on the first `update-manifest` round
+    /// trip.
+    #[test]
+    fn unknown_artifact_fields_round_trip() {
+        for source in [
+            serde_json::json!({
+                "uri": "https://example.invalid/%target",
+                "targets": {"aarch64-apple-darwin": {"basename": "vm"}},
+                "signature": {"alg": "ed25519", "sig": "deadbeef"}
+            }),
+            serde_json::json!({
+                "uri": "https://example.invalid/core.masp",
+                "digest": "sha256:9f86d081884c7d659a2feaa0c55ad015",
+                "provenance": ["a", "b"]
+            }),
+        ] {
+            let artifact: Artifact = serde_json::from_value(source.clone()).expect("must parse");
+            let out = serde_json::to_value(&artifact).expect("must serialize");
+            assert_eq!(out, source, "an artifact must round-trip byte-for-byte");
+        }
+    }
+
+    /// The capture must not duplicate keys that the flattened `substitutions` already consumed --
+    /// the failure mode that made this need hand-written impls in the first place.
+    #[test]
+    fn flattened_substitutions_are_not_duplicated_into_the_extras() {
+        let source = serde_json::json!({
+            "uri": "https://example.invalid/%target.%extension",
+            "basename": "miden-vm",
+            "extension": "tar.gz",
+            "targets": {"aarch64-apple-darwin": {}}
+        });
+
+        let artifact: Artifact = serde_json::from_value(source.clone()).unwrap();
+        let out = serde_json::to_value(&artifact).unwrap();
+
+        assert_eq!(out, source);
+        assert_eq!(
+            out.as_object().unwrap().len(),
+            4,
+            "no key may appear twice: {}",
+            serde_json::to_string(&out).unwrap()
+        );
+    }
+
+    /// A malformed artifact names what is wrong with it, rather than reporting that no variant
+    /// matched.
+    #[test]
+    fn a_malformed_targets_map_is_reported_as_such() {
+        let err = serde_json::from_value::<Artifact>(serde_json::json!({
+            "uri": "https://example.invalid/%target",
+            "targets": ["aarch64-apple-darwin"]
+        }))
+        .expect_err("must reject");
+
+        assert!(err.to_string().contains("targets"), "{err}");
     }
 }

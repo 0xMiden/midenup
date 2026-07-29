@@ -353,6 +353,7 @@ mod tests {
             Artifact::TargetAgnostic {
                 uri: "https://example.invalid/x".to_string(),
                 digest: None,
+                extra: Default::default(),
             },
         );
         component

@@ -175,7 +175,11 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
             if artifact.ends_with(".masp") {
                 v2artifacts.insert(
                     filename.to_string(),
-                    crate::artifact::Artifact::TargetAgnostic { uri: artifact, digest: None },
+                    crate::artifact::Artifact::TargetAgnostic {
+                        uri: artifact,
+                        digest: None,
+                        extra: Default::default(),
+                    },
                 );
             } else if artifact.contains("aarch64-apple-darwin") {
                 let uri = artifact.replace("aarch64-apple-darwin", "%target");
@@ -186,6 +190,7 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                             substitutions: None,
                             targets: Default::default(),
                             digest: None,
+                            extra: Default::default(),
                         }
                     });
                 let crate::artifact::Artifact::TargetSpecific { targets, .. } = artifact else {
@@ -201,6 +206,7 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                             substitutions: None,
                             targets: Default::default(),
                             digest: None,
+                            extra: Default::default(),
                         }
                     });
                 let crate::artifact::Artifact::TargetSpecific { targets, .. } = artifact else {

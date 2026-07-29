@@ -314,7 +314,11 @@ mod tests {
         std::fs::write(sources.join("core.masp"), b"package").unwrap();
 
         let uri = |name: &str| format!("file://{}", sources.join(name).display());
-        let artifact = |name: &str| Artifact::TargetAgnostic { uri: uri(name), digest: None };
+        let artifact = |name: &str| Artifact::TargetAgnostic {
+            uri: uri(name),
+            digest: None,
+            extra: Default::default(),
+        };
 
         let mut vm_artifacts = Artifacts::default();
         vm_artifacts.insert("miden-vm".to_string(), artifact("miden-vm"));
