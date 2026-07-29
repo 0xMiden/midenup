@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::{config::Config, manifest::Manifest, options::DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
 
 #[derive(Error, Debug)]
 pub enum InitializationError {
@@ -76,16 +76,8 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         })?;
         state = InitializationState::Initialized;
     }
-    let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
-    if !local_manifest_file.exists() {
-        let mut file = std::fs::File::create(&local_manifest_file).map_err(|e| {
-            InitializationError::FileCreation(local_manifest_file.clone(), e.to_string())
-        })?;
-        serde_json::to_writer_pretty(&mut file, &Manifest::default()).map_err(|e| {
-            InitializationError::FileCreation(local_manifest_file.clone(), e.to_string())
-        })?;
-        state = InitializationState::Initialized;
-    }
+    // No `manifest.json` is written here. It was the v1 local manifest, replaced by `state.json`,
+    // and writing an empty one made every fresh installation look like a migration candidate.
 
     let toolchains_dir = crate::paths::toolchains_dir(&config.midenup_home);
     if !toolchains_dir.exists() {

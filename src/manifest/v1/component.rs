@@ -94,6 +94,41 @@ pub struct Component {
     pub artifacts: Artifacts,
 }
 
+/// Converts one v1 command expression, naming what failed.
+///
+/// v1 documents are still fetched from upstream, so a malformed one is *input*, not a bug: it must
+/// be reported with enough context to fix the manifest. This used to `expect`, which turned a bad
+/// upstream publish into a panic with no indication of which component or field was at fault.
+fn convert<T>(
+    component: &str,
+    field: &'static str,
+    words: Vec<T>,
+) -> Result<crate::exec::Executable, ManifestError>
+where
+    crate::exec::Executable: TryFrom<Vec<T>, Error = crate::exec::InvalidExecutable>,
+{
+    crate::exec::Executable::try_from(words).map_err(|err| {
+        ManifestError::Invalid(format!("component '{component}' has an invalid {field}: {err}"))
+    })
+}
+
+fn convert_aliases(
+    component: &str,
+    aliases: std::collections::BTreeMap<String, Vec<CliCommand>>,
+) -> Result<std::collections::BTreeMap<String, crate::exec::Executable>, ManifestError> {
+    aliases
+        .into_iter()
+        .map(|(alias, words)| {
+            let executable = crate::exec::Executable::try_from(words).map_err(|err| {
+                ManifestError::Invalid(format!(
+                    "component '{component}' defines alias '{alias}' with an invalid                      invocation: {err}"
+                ))
+            })?;
+            Ok((alias, executable))
+        })
+        .collect()
+}
+
 impl TryFrom<Component> for crate::manifest::v2::Component {
     type Error = ManifestError;
 
@@ -188,29 +223,14 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                 let call_format = if call_format.is_empty() {
                     None
                 } else {
-                    Some(
-                        crate::exec::Executable::try_from(call_format)
-                            .expect("invalid call_format"),
-                    )
+                    Some(convert(&name, "call_format", call_format)?)
                 };
                 let initialization = if initialization.is_empty() {
                     None
                 } else {
-                    Some(
-                        crate::exec::Executable::try_from(initialization)
-                            .expect("invalid initialization format"),
-                    )
+                    Some(convert(&name, "initialization", initialization)?)
                 };
-                let aliases = aliases
-                    .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k,
-                            crate::exec::Executable::try_from(v)
-                                .expect("invalid alias invocation format"),
-                        )
-                    })
-                    .collect();
+                let aliases = convert_aliases(&name, aliases)?;
                 let spec = crate::manifest::ExecutableComponent {
                     symlink_name,
                     installed_executable: name.to_string(),
@@ -234,29 +254,14 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                 let call_format = if call_format.is_empty() {
                     None
                 } else {
-                    Some(
-                        crate::exec::Executable::try_from(call_format)
-                            .expect("invalid call_format"),
-                    )
+                    Some(convert(&name, "call_format", call_format)?)
                 };
                 let initialization = if initialization.is_empty() {
                     None
                 } else {
-                    Some(
-                        crate::exec::Executable::try_from(initialization)
-                            .expect("invalid initialization format"),
-                    )
+                    Some(convert(&name, "initialization", initialization)?)
                 };
-                let aliases = aliases
-                    .into_iter()
-                    .map(|(k, v)| {
-                        (
-                            k,
-                            crate::exec::Executable::try_from(v)
-                                .expect("invalid alias invocation format"),
-                        )
-                    })
-                    .collect();
+                let aliases = convert_aliases(&name, aliases)?;
                 let spec = crate::manifest::ExecutableComponent {
                     symlink_name,
                     installed_executable: binary_name,

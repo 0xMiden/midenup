@@ -34,11 +34,27 @@ pub enum FaultPoint {
     PostRecord,
     /// After the derived symlinks, before the old publication and journal are cleaned up.
     PostDerive,
+    /// Inside v1 migration, after the state document is built and before it is written.
+    ///
+    /// Not part of the publication protocol: migration has its own single commit point (the rename
+    /// of `state.json`), and what it has to prove is the opposite -- that a failure *before* that
+    /// point leaves the v1 document byte-for-byte intact.
+    PreMigrationCommit,
 }
 
 impl FaultPoint {
-    /// Every point, in protocol order.
-    pub const ALL: [FaultPoint; 6] = [
+    /// Every point that can be armed.
+    pub const ALL: [FaultPoint; 7] = [
+        Self::PostPrepare,
+        Self::PostStage,
+        Self::PostVerify,
+        Self::PostCommit,
+        Self::PostRecord,
+        Self::PostDerive,
+        Self::PreMigrationCommit,
+    ];
+    /// The publication protocol's points, in order.
+    pub const PUBLICATION: [FaultPoint; 6] = [
         Self::PostPrepare,
         Self::PostStage,
         Self::PostVerify,
@@ -55,6 +71,7 @@ impl FaultPoint {
             Self::PostCommit => "post-commit",
             Self::PostRecord => "post-record",
             Self::PostDerive => "post-derive",
+            Self::PreMigrationCommit => "pre-migration-commit",
         }
     }
 }

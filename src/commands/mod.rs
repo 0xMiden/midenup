@@ -252,6 +252,11 @@ impl Midenup {
 
                 let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                     .unwrap_or(manifest::VersionedManifest::PUBLISHED_MANIFEST_URI.to_string());
+
+                // Before the upstream fetch below: an unreachable upstream must not be able to
+                // prevent a local migration (spec section 12.2).
+                crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+
                 config::Config::init(
                     working_directory,
                     midenup_home,
@@ -294,6 +299,9 @@ impl Midenup {
                         )
                     })?;
 
+                // See above: migration precedes any upstream fetch.
+                crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+
                 config::Config::init(
                     working_directory,
                     midenup_home,
@@ -318,6 +326,17 @@ impl Midenup {
         state: &mut crate::state::LocalState,
     ) -> anyhow::Result<()> {
         use crate::miden_wrapper;
+
+        // Migration first, before recovery and before anything reads local state. `config()`
+        // already ran this ahead of the upstream fetch on the CLI path; it is idempotent and costs
+        // one `stat`, and running it here too means a caller that built its own `Config` -- every
+        // in-process test -- gets the same startup sequence rather than a subtly different one.
+        if let crate::migrate_v1::MigrationOutcome::Migrated { channels } =
+            crate::migrate_v1::migrate_if_needed(&config.midenup_home)?
+        {
+            report_migration(&channels);
+            *state = config.local_state()?;
+        }
 
         recover(config, state)?;
 
@@ -355,6 +374,22 @@ impl Midenup {
         config.update_opt_symlinks(config)?;
 
         Ok(())
+    }
+}
+
+fn report_migration(channels: &[semver::Version]) {
+    use colored::Colorize;
+
+    println!(
+        "{}: migrated {} installed toolchain(s) to the new local state format",
+        "info".white().bold(),
+        channels.len()
+    );
+    for channel in channels {
+        println!(
+            "- {channel} will be reinstalled the next time it is used, so that midenup knows \
+             exactly what it owns"
+        );
     }
 }
 

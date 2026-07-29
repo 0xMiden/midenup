@@ -70,7 +70,7 @@ fn integration_recovery_is_deterministic_at_every_publication_step() {
     let _guard = common::harness::mutating_test_guard();
     let channel = semver::Version::new(0, 15, 0);
 
-    for point in FaultPoint::ALL {
+    for point in FaultPoint::PUBLICATION {
         let env = environment_setup(&format!("recovery_{point}"));
         let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
 
@@ -153,7 +153,7 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
     let _guard = common::harness::mutating_test_guard();
     let channel = semver::Version::new(0, 15, 0);
 
-    for point in FaultPoint::ALL {
+    for point in FaultPoint::PUBLICATION {
         let env = environment_setup(&format!("retry_{point}"));
         let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
 
@@ -185,6 +185,9 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
         let expected = match point {
             FaultPoint::PostPrepare | FaultPoint::PostStage | FaultPoint::PostVerify => 1,
             FaultPoint::PostCommit | FaultPoint::PostRecord | FaultPoint::PostDerive => 2,
+            // Not reachable: this loop walks `PUBLICATION`, and migration has its own commit
+            // point and its own test.
+            FaultPoint::PreMigrationCommit => unreachable!("not a publication step"),
         };
         assert_eq!(
             publications.len(),
