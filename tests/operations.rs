@@ -86,6 +86,30 @@ impl Fixture {
         self.write(file, components)
     }
 
+    /// A `command` component with a `format` prefix and two subcommands, plus the asset its
+    /// format refers to.
+    fn manifest_with_command(&self, file: &str) -> String {
+        let compose = self.dir.join("docker-compose.yml");
+        std::fs::write(&compose, "services: {}\n").unwrap();
+
+        let node = serde_json::json!({
+            "name": "node",
+            "version": {"kind": "registry", "version": "0.1.0"},
+            "kind": "command",
+            "profiles": ["minimal"],
+            "format": ["docker", "compose", "-f", "%etc(node/docker-compose.yml)"],
+            "subcommands": {
+                "up": ["up", "-d"],
+                "down": ["down"]
+            },
+            "artifacts": {
+                "docker-compose.yml": {"uri": format!("file://{}", compose.display())}
+            }
+        });
+
+        self.write(file, vec![self.component(("vm", &["minimal"], &[])), node])
+    }
+
     /// Writes a one-channel manifest and returns its URI.
     fn manifest(&self, file: &str, components: &[Spec<'_>]) -> String {
         self.write(file, components.iter().map(|spec| self.component(*spec)).collect())
@@ -387,4 +411,72 @@ fn integration_a_metadata_only_change_updates_state_without_republishing() {
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .collect();
     assert_eq!(publications.len(), 1, "nothing was staged, so nothing was published");
+}
+
+/// Naming a subcommand a component does not declare must say which ones it does.
+///
+/// Spec section 13.3: `argv[1]` must name a declared subcommand, and the error lists the valid
+/// ones -- a bare "invalid subcommand" leaves the user to go read the manifest.
+#[test]
+fn integration_an_invalid_subcommand_lists_the_valid_ones() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("invalid_subcommand");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest_with_command("manifest.json");
+
+    let (mut state, config) = test_setup(&env, &manifest);
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    let err = Midenup::try_parse_from(["miden", "node", "bogus"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("an undeclared subcommand must not be passed through");
+
+    let message = format!("{err:#}");
+    assert!(message.contains("bogus"), "the error must name what was asked for: {message}");
+    assert!(
+        message.contains("up") && message.contains("down"),
+        "and list what is available: {message}"
+    );
+}
+
+/// A declared subcommand expands to its own words, with the component's `format` in front.
+///
+/// Regression: the subcommand map was consulted through `matches.subcommand()`, which is always
+/// `None` for an external subcommand, so `miden node up` passed `up` through as a literal argument
+/// and -- for the shipped `node`, whose `format` is empty -- tried to execute it as a program.
+#[test]
+fn integration_a_declared_subcommand_expands_to_its_own_words() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("subcommand_expansion");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest_with_command("manifest.json");
+
+    let (mut state, config) = test_setup(&env, &manifest);
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    // `docker` is not installed here, and that is the point: the failure names what midenup tried
+    // to run, which is what proves the expansion happened.
+    let err = Midenup::try_parse_from(["miden", "node", "up"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("docker is not available in the test environment");
+
+    let message = format!("{err:#}");
+    assert!(
+        message.contains("miden node up"),
+        "the failure must name the user's command: {message}"
+    );
+
+    // ...and asking for help on it lists the verbs rather than trying to run one.
+    Midenup::try_parse_from(["miden", "help", "node"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("`miden help <command>` must list its subcommands, not fail");
 }

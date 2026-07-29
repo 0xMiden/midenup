@@ -693,6 +693,16 @@ impl Component {
     }
 
     /// Returns the name of symlink associated with an executable component, if it is one
+    /// The filename this component installs into `bin/`, if it installs an executable.
+    pub fn installed_executable(&self) -> Option<&str> {
+        match &self.kind {
+            ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. } => {
+                Some(spec.installed_executable.as_str())
+            },
+            _ => None,
+        }
+    }
+
     pub fn get_symlink_name(&self) -> Option<String> {
         match &self.kind {
             ComponentKind::Executable {

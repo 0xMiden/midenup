@@ -6,7 +6,7 @@ use colored::Colorize;
 pub use crate::config::Config;
 use crate::{
     channel::Channel,
-    exec::Executable,
+    exec::{self, Executable, Resolver},
     manifest::{Component, ComponentKind, ExecutableComponent},
     state::LocalState,
     toolchain::Toolchain,
@@ -16,6 +16,8 @@ use crate::{
 enum EnvironmentError {
     #[error("invalid command '{command}': not a known alias or executable component")]
     InvalidCommand { command: String },
+    #[error("'{command}' requires a subcommand, one of: {}", available.join(", "))]
+    MissingSubcommand { command: String, available: Vec<String> },
     #[error("invalid subcommand '{subcommand}' of '{command}', expected one of: {}", available.join(", "))]
     InvalidSubcommand {
         command: String,
@@ -63,11 +65,18 @@ enum MidenArgument<'a> {
         executable: &'a Executable,
         matches: &'a clap::ArgMatches,
     },
-    /// A subcommand of a command defined by a virtual component
+    /// A subcommand of a command defined by a virtual component.
+    ///
+    /// Carries the component's `format` as well as the subcommand's own expansion: composition is
+    /// `format ++ subcommand ++ user args` (spec section 13.3), and dropping the prefix would
+    /// execute the subcommand's first word as though it were a program.
     Subcommand {
         component: &'a Component,
+        format: &'a Executable,
         executable: &'a Executable,
-        matches: &'a clap::ArgMatches,
+        /// What followed the subcommand. Owned, because it is the tail of a list clap handed us
+        /// rather than a nested `ArgMatches` of its own -- see `resolve_argument`.
+        rest: Vec<OsString>,
     },
     /// The passed argument was an alias stored in the local [Manifest].
     ///
@@ -384,51 +393,65 @@ pub fn miden_wrapper(
             matches: subcommand_matches,
         } => {
             match toolchain_environment.resolve(resolve, subcommand_matches) {
-                Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Command { component, executable, matches },
-                    active_channel,
-                })
-                | Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Subcommand { component, executable, matches, .. },
-                    active_channel,
-                })
-                | Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Alias { component, executable, matches, .. },
-                    active_channel,
-                }) => {
-                    let mut argv = executable.to_argv(component, active_channel, config)?;
-                    if requested_help {
-                        argv.push("--help".into());
-                    }
-                    // Since we're using "allow_external_subcommands" all the remaining
-                    // arguments are stored in the empty string "".
+                Ok(environment) => {
+                    let active_channel = environment.active_channel;
+                    let resolver = resolver_for(config, active_channel);
+
+                    // Since we're using "allow_external_subcommands" all the remaining arguments
+                    // are stored in the empty string "".
                     // Source: https://docs.rs/clap/latest/clap/struct.Command.html#method.allow_external_subcommands
-                    if let Some(extra_args) = matches.get_many::<OsString>("") {
-                        argv.extend(extra_args.into_iter().cloned());
-                    }
+                    let user_args = |matches: &clap::ArgMatches| -> Vec<OsString> {
+                        let mut args: Vec<OsString> =
+                            requested_help.then(|| OsString::from("--help")).into_iter().collect();
+                        if let Some(extra) = matches.get_many::<OsString>("") {
+                            args.extend(extra.cloned());
+                        }
+                        args
+                    };
+
+                    let argv = match environment.argument {
+                        MidenArgument::Subcommand { component, format, executable, rest } => {
+                            let mut args: Vec<OsString> = requested_help
+                                .then(|| OsString::from("--help"))
+                                .into_iter()
+                                .collect();
+                            args.extend(rest);
+
+                            exec::compose(component, format, Some(executable), args, &resolver)?
+                        },
+                        MidenArgument::Command { component, executable, matches }
+                        | MidenArgument::Alias { component, executable, matches } => exec::compose(
+                            component,
+                            executable,
+                            None,
+                            user_args(matches),
+                            &resolver,
+                        )?,
+                        MidenArgument::Component { component, spec, matches } => {
+                            let format = spec
+                                .call_format
+                                .clone()
+                                .unwrap_or_else(Executable::default_call_format);
+                            exec::compose(component, &format, None, user_args(matches), &resolver)?
+                        },
+                    };
+
                     let mut argv = VecDeque::from(argv);
-                    let arg0 = argv.pop_front().unwrap();
+                    let arg0 = argv.pop_front().expect("composition never yields an empty argv");
                     (arg0, Vec::from(argv), active_channel)
                 },
-                Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Component { component, spec, matches },
-                    active_channel,
-                }) => {
-                    let executable =
-                        spec.call_format.clone().unwrap_or_else(Executable::default_call_format);
-                    let mut argv = executable.to_argv(component, active_channel, config)?;
-                    if requested_help {
-                        argv.push("--help".into());
+                // `miden help <command>` on a component whose verbs live in `subcommands` has
+                // exactly one useful answer, and it is the list. Reporting "requires a subcommand"
+                // as a failure would be telling the user what they asked to be told, and exiting
+                // non-zero for it.
+                Err(EnvironmentError::MissingSubcommand { command, available })
+                    if requested_help =>
+                {
+                    println!("{}", format!("Subcommands of `miden {command}`:").bold());
+                    for subcommand in available {
+                        println!("  {subcommand}");
                     }
-                    // Since we're using "allow_external_subcommands" all the remaining
-                    // arguments are stored in the empty string "".
-                    // Source: https://docs.rs/clap/latest/clap/struct.Command.html#method.allow_external_subcommands
-                    if let Some(extra_args) = matches.get_many::<OsString>("") {
-                        argv.extend(extra_args.into_iter().cloned());
-                    }
-                    let mut argv = VecDeque::from(argv);
-                    let arg0 = argv.pop_front().unwrap();
-                    (arg0, Vec::from(argv), active_channel)
+                    return Ok(());
                 },
                 Err(err) => {
                     let help_message = toolchain_help(&toolchain_environment);
@@ -596,6 +619,18 @@ fn default_help() -> String {
 }
 
 /// Function that tries to resolve `argument` inside the `channel`.
+/// Where this invocation's `%`-expressions resolve to.
+///
+/// Built once, from the active publication and this channel's `var/`, so that every expression in
+/// every alias of one invocation resolves against the same toolchain.
+fn resolver_for(config: &Config, channel: &Channel) -> Resolver {
+    Resolver::new(
+        crate::paths::toolchain_link(&config.midenup_home, &channel.name),
+        &config.midenup_home,
+        &channel.name,
+    )
+}
+
 fn resolve_argument<'a>(
     channel: &'a Channel,
     argument: &'a str,
@@ -613,30 +648,44 @@ fn resolve_argument<'a>(
             } => {
                 let name = name.as_deref().unwrap_or(comp.name.as_ref());
                 if name == argument {
-                    match matches.subcommand() {
-                        None => {
-                            return Ok(MidenArgument::Command {
-                                component: comp,
-                                executable: format,
-                                matches,
-                            });
-                        },
-                        Some((sub, rest)) => {
-                            if let Some(exe) = subcommands.get(sub) {
-                                return Ok(MidenArgument::Subcommand {
-                                    component: comp,
-                                    executable: exe,
-                                    matches: rest,
-                                });
-                            } else {
-                                return Err(EnvironmentError::InvalidSubcommand {
-                                    command: name.to_string(),
-                                    subcommand: sub.to_string(),
-                                    available: subcommands.keys().cloned().collect(),
-                                });
-                            }
-                        },
+                    if subcommands.is_empty() {
+                        return Ok(MidenArgument::Command {
+                            component: comp,
+                            executable: format,
+                            matches,
+                        });
                     }
+
+                    // The subcommand is the first *user* argument, not a nested clap subcommand.
+                    // `miden` allows external subcommands, so clap parses `miden node up` as the
+                    // external subcommand `node` with `up` in its trailing-argument bucket and
+                    // never descends further. Reading `matches.subcommand()` here therefore always
+                    // saw `None`: every declared subcommand map was dead, and the shipped `node`
+                    // component -- whose `format` is empty and whose verbs live entirely in that
+                    // map -- composed `miden node up` into an attempt to execute `up`.
+                    let mut user = matches.get_many::<OsString>("").into_iter().flatten();
+
+                    let Some(requested) = user.next() else {
+                        return Err(EnvironmentError::MissingSubcommand {
+                            command: name.to_string(),
+                            available: subcommands.keys().cloned().collect(),
+                        });
+                    };
+                    let requested = requested.to_string_lossy().into_owned();
+
+                    return match subcommands.get(&requested) {
+                        Some(exe) => Ok(MidenArgument::Subcommand {
+                            component: comp,
+                            format,
+                            executable: exe,
+                            rest: user.cloned().collect(),
+                        }),
+                        None => Err(EnvironmentError::InvalidSubcommand {
+                            command: name.to_string(),
+                            subcommand: requested,
+                            available: subcommands.keys().cloned().collect(),
+                        }),
+                    };
                 } else if let Some(aliased) = aliases.get(argument) {
                     return Ok(MidenArgument::Alias {
                         component: comp,
