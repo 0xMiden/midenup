@@ -110,6 +110,44 @@ impl Fixture {
         self.write(file, vec![self.component(("vm", &["minimal"], &[])), node])
     }
 
+    /// Two executables that both declare the alias `run`, neither in any profile.
+    ///
+    /// Nothing installs them together by default, which is the situation section 8.5 is about: a
+    /// superset that accreted both from different projects.
+    fn manifest_with_conflicting_aliases(&self, file: &str) -> String {
+        let executable = |name: &str| {
+            let binary = self.dir.join(format!("miden-{name}"));
+            std::fs::write(&binary, "#!/bin/sh\nexit 0\n").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+
+            serde_json::json!({
+                "name": name,
+                "version": {"kind": "registry", "version": "0.1.0"},
+                "kind": "executable",
+                "installation_method": {"kind": "prebuilt"},
+                "installed-executable": format!("miden-{name}"),
+                "profiles": [],
+                "aliases": {"run": ["%installed-executable", "run"]},
+                "artifacts": {
+                    format!("miden-{name}"): {"uri": format!("file://{}", binary.display())}
+                }
+            })
+        };
+
+        self.write(
+            file,
+            vec![
+                self.component(("vm", &["minimal"], &[])),
+                executable("first"),
+                executable("second"),
+            ],
+        )
+    }
+
     /// Writes a one-channel manifest and returns its URI.
     fn manifest(&self, file: &str, components: &[Spec<'_>]) -> String {
         self.write(file, components.iter().map(|spec| self.component(*spec)).collect())
@@ -479,4 +517,120 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("`miden help <command>` must list its subcommands, not fail");
+}
+
+/// A conflict that exists only in the superset must not break every command.
+///
+/// The installed set accretes components from every project that ever activated the channel, so two
+/// components no project uses together could otherwise make `miden <anything>` fail. Section 8.5:
+/// that is a warning, and the component in the active view wins.
+#[test]
+fn integration_a_superset_only_alias_conflict_does_not_break_every_command() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("alias_conflict");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest_with_conflicting_aliases("manifest.json");
+
+    // Install both, as two projects asking for one each would have.
+    let (mut state, config) = test_setup(&env, &manifest);
+    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+    assert_eq!(installed(&state), vec!["first", "second", "vm"]);
+
+    // This project wants only `first`, so only one definition of `run` is in view.
+    let dir = project(&env, "project-a", &["first"]);
+    let config = config_in(&env, &dir, &manifest);
+
+    Midenup::try_parse_from(["miden", "help", "vm"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("a superset-only conflict must not be fatal");
+
+    Midenup::try_parse_from(["miden", "run"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("and the alias must resolve to the component in the active view");
+}
+
+/// A conflict *within* the active view is a real ambiguity: this project asked for both, and
+/// `miden run` has no defensible answer.
+#[test]
+fn integration_an_alias_conflict_inside_the_active_view_is_an_error() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("alias_conflict_in_view");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest_with_conflicting_aliases("manifest.json");
+
+    let (mut state, config) = test_setup(&env, &manifest);
+    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    let dir = project(&env, "project-both", &["first", "second"]);
+    let config = config_in(&env, &dir, &manifest);
+
+    let err = Midenup::try_parse_from(["miden", "run"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("an ambiguous alias in the active view must be reported");
+
+    let message = format!("{err:#}");
+    assert!(message.contains("run"), "the error must name the alias: {message}");
+    assert!(
+        message.contains("first") && message.contains("second"),
+        "and both components that define it: {message}"
+    );
+}
+
+/// Spec section 8.6: local state carries no partial flag. The display derives it by comparing what
+/// is installed against the complete upstream channel -- and when upstream is unavailable, simply
+/// does not show it rather than guessing.
+#[test]
+fn integration_partial_status_is_derived_from_upstream_not_stored() {
+    let _guard = common::harness::mutating_test_guard();
+    // Not named "partial": the temp directory path ends up inside state.json, in artifact URIs.
+    let env = environment_setup("derived_status");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest =
+        fixture.manifest("manifest.json", &[("vm", &["minimal"], &[]), ("extra", &[], &[])]);
+
+    let midenup = |manifest_uri: &str, args: &[&str]| {
+        std::process::Command::new(env!("CARGO_BIN_EXE_midenup"))
+            .args(args)
+            .current_dir(&env.present_working_dir)
+            .env("MIDENUP_HOME", &env.midenup_home)
+            .env("CARGO_HOME", &env.cargo_home)
+            .env("MIDENUP_MANIFEST_URI", manifest_uri)
+            .output()
+            .expect("failed to run midenup")
+    };
+
+    let installed = midenup(&manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let raw = std::fs::read_to_string(midenup::paths::state_path(&env.midenup_home)).unwrap();
+    assert!(!raw.contains("partial"), "state must not persist a partial flag: {raw}");
+
+    let shown = midenup(&manifest, &["show", "list"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains("partially installed"),
+        "with upstream available it must be derived and shown: {}",
+        String::from_utf8_lossy(&shown.stdout)
+    );
+
+    // With upstream unavailable it is not shown -- and never guessed at. The cached manifest would
+    // answer, so it goes too.
+    std::fs::remove_file(midenup::paths::manifest_cache(&env.midenup_home)).unwrap();
+    let offline = midenup("https://127.0.0.1:1/nope.json", &["show", "list"]);
+    assert!(offline.status.success(), "listing what is installed must work offline");
+
+    let stdout = String::from_utf8_lossy(&offline.stdout);
+    assert!(
+        stdout.contains("0.15.0"),
+        "the installed channel must still be listed: {stdout}"
+    );
+    assert!(!stdout.contains("partial"), "but its partial status must not be: {stdout}");
 }

@@ -16,6 +16,11 @@ use crate::{
 enum EnvironmentError {
     #[error("invalid command '{command}': not a known alias or executable component")]
     InvalidCommand { command: String },
+    #[error(
+        "the toolchain declared by this project defines an ambiguous alias: {reason}. Remove one \
+         of the components from your miden-toolchain.toml, or name the component directly."
+    )]
+    AmbiguousAlias { reason: String },
     #[error("'{command}' requires a subcommand, one of: {}", available.join(", "))]
     MissingSubcommand { command: String, available: Vec<String> },
     #[error("invalid subcommand '{subcommand}' of '{command}', expected one of: {}", available.join(", "))]
@@ -147,6 +152,25 @@ impl<'a> ToolchainEnvironment<'a> {
         argument: &'a str,
         matches: &'a clap::ArgMatches,
     ) -> Result<ExecutionEnvironment<'a>, EnvironmentError> {
+        // Alias conflicts are scoped to the view (spec section 8.5).
+        //
+        // Within the active view a conflict is a real ambiguity: this project asked for both
+        // components, and `miden <alias>` has no defensible answer. Across the *superset* it is
+        // not: the installed set accretes components from every project that ever activated this
+        // channel, so two components no project uses together could otherwise make every single
+        // command fail. That one is a warning, and the component in the view wins by being
+        // resolved first.
+        if let Some(active_channel) = self.active_channel.as_ref() {
+            active_channel
+                .get_aliases()
+                .map_err(|err| EnvironmentError::AmbiguousAlias { reason: err.to_string() })?;
+        } else if let Err(err) = self.installed_channel.get_aliases() {
+            eprintln!(
+                "{}: {err}. Naming the component directly resolves it unambiguously.",
+                "warning".yellow().bold()
+            );
+        }
+
         // Local function that tries to parse an argument given a channel's state.
         let fallback_motive = if let Some(active_channel) = self.active_channel.as_ref() {
             match resolve_argument(active_channel, argument, matches) {
