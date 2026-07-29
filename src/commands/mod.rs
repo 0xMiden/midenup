@@ -22,7 +22,7 @@ pub use self::{
     set::set,
     show::ShowCommand,
     uninstall::uninstall,
-    update::{ComponentUpdate, update},
+    update::update,
 };
 use crate::{channel, config, manifest, options};
 

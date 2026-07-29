@@ -32,9 +32,21 @@ pub struct InstallationOptions {
     /// Components to install in addition to the profile's members
     #[arg(long = "component", value_name = "COMPONENT")]
     pub components: Vec<String>,
-    /// These are the components that will be uninstalled before re-installation.
+    /// Components whose files must be re-acquired rather than carried forward from the previous
+    /// publication.
+    ///
+    /// Empty for a fresh install: there is nothing to carry forward. An update fills it with the
+    /// components it determined have actually changed.
     #[arg(skip)]
-    pub components_to_uninstall: Vec<Component>,
+    pub stale: Vec<String>,
+    /// Components to record exactly as they are already installed, rather than as upstream
+    /// describes them.
+    ///
+    /// Only `--path-update=off`/`interactive` produces these. Recording the upstream definition
+    /// for a component the user declined to update would mark it up to date without having
+    /// rebuilt it, so the next update would stop offering.
+    #[arg(skip)]
+    pub held_back: Vec<Component>,
     /// How this installation affects the recorded selection.
     ///
     /// `None` means "derive a `Replace` from the profile and components given on the command
@@ -84,7 +96,8 @@ impl From<UpdateOptions> for InstallationOptions {
             profile: Profile::Minimal,
             verbose: value.verbose,
             components: Vec::new(),
-            components_to_uninstall: Vec::new(),
+            stale: Vec::new(),
+            held_back: Vec::new(),
             // An update re-resolves what is already recorded; it does not restate intent.
             intent_update: Some(IntentUpdate::Preserve),
         }

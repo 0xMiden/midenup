@@ -10,7 +10,7 @@ use colored::Colorize;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    channel::{Channel, Tags, UserChannel},
+    channel::{Channel, UserChannel},
     commands,
     config::Config,
     options::{InstallationOptions, IntentUpdate},
@@ -148,31 +148,33 @@ impl Toolchain {
                 },
                 _ => format!("unable to resolve the {} toolchain", channel.name),
             })?;
-        let partial_channel = Some(Channel::new(
+
+        // The active view: this project's resolution, used for command discovery and alias
+        // scoping. Transient, and never persisted -- what is *installed* is the union of every
+        // project's requests, which is a different thing (spec section 8.5).
+        let active_view = Some(Channel::new(
             channel.name.clone(),
             channel.alias.clone(),
-            resolved.into_iter().cloned().collect(),
-            vec![Tags::Partial],
+            resolved.iter().map(|component| (*component).clone()).collect(),
+            vec![],
         ));
-        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
 
-        if let Some(installed) = state.get(&channel_to_install.name) {
-            let required_components: HashSet<&str> = HashSet::from_iter(
-                channel_to_install.components.iter().map(|comp| comp.name.as_ref()),
-            );
-
+        if let Some(installed) = state.get(&channel.name) {
             let installed_components: HashSet<&str> =
                 HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
 
-            let missing_components: Vec<_> =
-                required_components.difference(&installed_components).collect();
+            let missing_components: Vec<&str> = resolved
+                .iter()
+                .map(|component| component.name.as_ref())
+                .filter(|name| !installed_components.contains(name))
+                .collect();
 
             if missing_components.is_empty() {
                 println!(
                     "{}: current toolchain is {desired_channel} and is installed",
                     "info".white().bold()
                 );
-                return Ok((current_toolchain, justification, partial_channel));
+                return Ok((current_toolchain, justification, active_view));
             }
 
             println!(
@@ -198,37 +200,26 @@ impl Toolchain {
         // Another invocation may have installed it while we waited. Re-read rather than plan
         // against what was true before the wait.
         *state = config.local_state()?;
-        if let Some(installed) = state.get(&channel_to_install.name)
-            && channel_to_install
-                .components
+        if let Some(installed) = state.get(&channel.name)
+            && resolved
                 .iter()
                 .all(|component| installed.components.iter().any(|c| c.name == component.name))
         {
-            return Ok((current_toolchain, justification, partial_channel));
+            return Ok((current_toolchain, justification, active_view));
         }
 
-        let is_partial = channel_to_install.tags.iter().any(|tag| matches!(tag, Tags::Partial));
-        let implied_profile = if is_partial {
-            // Partial toolchains install everything (as they are filtered by definition)
-            Profile::Complete
-        } else {
-            // Non-partial toolchains get the default/minimal profile if one is not specified
-            current_toolchain.profile.unwrap_or_default()
-        };
+        // Activation goes through exactly the same code path as everything else: the full upstream
+        // channel, and an intent that *adds* this project's request to whatever other projects have
+        // already asked for. Activating one project must never take components away from another.
         let options = InstallationOptions {
-            profile: implied_profile,
-            // The channel handed to install is already narrowed to this project's resolved set,
-            // so it installs with `complete`. What gets *recorded* is the project's own request,
-            // merged into whatever other projects have already asked for -- activating one
-            // project must never take components away from another.
             intent_update: Some(IntentUpdate::Union(intent.clone())),
             ..Default::default()
         };
 
-        commands::install(config, channel_to_install, state, &options)?;
+        commands::install(config, channel, state, &options)?;
 
         // Now installed
-        Ok((current_toolchain, justification, partial_channel))
+        Ok((current_toolchain, justification, active_view))
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.

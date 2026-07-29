@@ -168,19 +168,22 @@ fn integration_miden_toolchain_toml() {
     // VM, debugger and core library
     assert_eq!(installed_channel.components.len(), 3);
 
-    // Now, we try updating the installed toolchain. This should only update the installed
-    // components and ignore the rest.
+    // Now, we try updating the installed toolchain. An update re-resolves the *recorded* intent,
+    // which is `minimal` plus the project's `debug`, so it must not pull in anything else.
     let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
     command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update stable toolchain");
 
     // No components should have been added
+    let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
     assert_eq!(installed_channel.components.len(), 3);
 
-    // Finally, we attempt to install the entire stable toolchain, which should install the
-    // remaining components.
-    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+    // Finally, we install the entire stable toolchain. This needs `--profile complete`: an install
+    // without one records the *minimal* profile, and would shrink the installation rather than
+    // grow it (spec section 8.1 -- a direct install replaces intent).
+    let command =
+        Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"]).unwrap();
     command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable toolchain");

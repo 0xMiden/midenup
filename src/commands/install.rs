@@ -21,7 +21,15 @@ use crate::{
     version::{Authority, GitTarget},
 };
 
-/// Installs a specified toolchain by channel or version.
+/// Installs `channel` as `options` describes it.
+///
+/// **`channel` is always the full upstream channel**, and what gets installed is decided here, by
+/// resolving the effective intent against it. Every operation -- a direct install, a toolchain-file
+/// activation, an update, a channel migration -- differs only in how that intent is derived, and
+/// they all arrive here. Previously each caller hand-built a *narrowed* channel and passed
+/// `--profile complete`, so "what should be installed" was decided in three places that disagreed:
+/// activation could not add a component another project had asked for, and update suppressed every
+/// new component of a partially installed channel.
 pub fn install(
     config: &Config,
     channel: &Channel,
@@ -39,18 +47,15 @@ pub fn install(
     let publication_id = PublicationId::generate();
     let publication = paths::publication_dir(home, &channel.name, &publication_id);
 
-    let selection = crate::resolve::Intent {
-        profiles: [options.profile].into_iter().collect(),
-        roots: options.components.iter().cloned().collect(),
-    };
-    let plan = crate::plan::build_plan(channel, &selection, config.target(), &publication)?;
+    // The single decision this whole function turns on.
+    let intent = effective_intent(state, channel, options);
+    let plan = crate::plan::build_plan(channel, &intent, config.target(), &publication)?;
 
     // What the publication being replaced owns, if this build published it. Only a receipt can
     // say; a directory listing cannot distinguish installed content from anything else that
     // happens to be there.
     let previous = previous_publication(config, state, &channel.name);
-    let stale: Vec<String> =
-        options.components_to_uninstall.iter().map(|c| c.name.to_string()).collect();
+    let stale = options.stale.clone();
 
     // 1. PREPARE. The record this operation intends to commit is written down *before* any of it
     // happens, so that a crash anywhere after this point can be completed or discarded rather than
@@ -59,7 +64,7 @@ pub fn install(
         channel.name.clone(),
         previous_publication_id(state, &channel.name),
         publication_id.clone(),
-        target_installation(config, channel, state, options, &publication_id, &plan),
+        target_installation(config, channel, &intent, options, &publication_id, &plan)?,
     );
     crate::publish::journal::prepare(home, &entry)?;
     fault::fail_at(fault::FaultPoint::PostPrepare)?;
@@ -137,25 +142,59 @@ pub fn install(
     Ok(())
 }
 
+/// What this operation wants installed.
+///
+/// Installing and *recording what the user wants* are separate concerns, and this is where they
+/// meet: the effective intent is both what gets resolved into a plan and what gets persisted. A
+/// toolchain-file activation may only add to the record, so it unions; a direct install restates
+/// it, and is allowed to shrink; an update re-resolves what is already recorded rather than
+/// restating it.
+pub(crate) fn effective_intent(
+    state: &LocalState,
+    channel: &Channel,
+    options: &InstallationOptions,
+) -> Intent {
+    // What the caller asked for on this invocation.
+    let requested = Intent {
+        profiles: [options.profile].into_iter().collect(),
+        roots: options.components.iter().cloned().collect(),
+    };
+    let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
+
+    match options.intent_update.clone() {
+        // A direct `midenup install`: record exactly what the command line asked for.
+        None => requested,
+        Some(IntentUpdate::Replace(intent)) => intent,
+        Some(IntentUpdate::Union(intent)) => {
+            let mut merged = previous.unwrap_or_default();
+            merged.union_with(&intent);
+            merged
+        },
+        Some(IntentUpdate::Preserve) => previous.unwrap_or(requested),
+    }
+}
+
 /// The state record this install intends to commit.
 ///
 /// Built before anything is staged, because the journal carries it: recovery has to be able to
 /// complete the operation without re-resolving it against an upstream manifest that may have moved
 /// on in the meantime.
 ///
-/// The component snapshot is pinned here rather than referencing the upstream manifest: `miden`
-/// dispatch reads it offline, and update needs to know what was *actually* installed, not what
-/// upstream happens to say now.
+/// The component snapshot is the **resolved** set, pinned, rather than the whole channel: `miden`
+/// dispatch reads it offline to decide what is available, and update needs to know what was
+/// *actually* installed. Recording every component in the channel made a `--profile minimal`
+/// installation claim to have everything, so activation never noticed a missing component.
 fn target_installation(
     config: &Config,
     channel: &Channel,
-    state: &LocalState,
+    intent: &Intent,
     options: &InstallationOptions,
     publication_id: &PublicationId,
     plan: &crate::plan::InstallationPlan,
-) -> Installation {
+) -> anyhow::Result<Installation> {
     let installed_components = {
-        let mut installed_components = channel.components.clone();
+        let mut installed_components: Vec<crate::manifest::Component> =
+            crate::resolve::resolve(channel, intent)?.into_iter().cloned().collect();
 
         // How a component was really obtained can only be known after the fact.
         for component in installed_components.iter_mut() {
@@ -188,33 +227,21 @@ fn target_installation(
         // staging: see `refresh_path_modification_times`.
         refresh_path_modification_times(config, &mut installed_components);
 
+        // A component the update policy declined to touch keeps the definition it was installed
+        // with. Recording the upstream one instead would mark it up to date without having
+        // rebuilt it, and the next update would stop offering.
+        for component in installed_components.iter_mut() {
+            if let Some(held) = options.held_back.iter().find(|held| held.name == component.name) {
+                *component = held.clone();
+            }
+        }
+
         installed_components
     };
 
-    // What the caller asked for on this invocation.
-    let requested = Intent {
-        profiles: [options.profile].into_iter().collect(),
-        roots: options.components.iter().cloned().collect(),
-    };
-    let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
-
-    // Installing and recording what the user wants are separate concerns: activation installs
-    // a narrowed set but must only add to the record, while a direct install restates it.
-    let intent = match options.intent_update.clone() {
-        // A direct `midenup install`: record exactly what the command line asked for.
-        None => requested,
-        Some(IntentUpdate::Replace(intent)) => intent,
-        Some(IntentUpdate::Union(intent)) => {
-            let mut merged = previous.unwrap_or_default();
-            merged.union_with(&intent);
-            merged
-        },
-        Some(IntentUpdate::Preserve) => previous.unwrap_or(requested),
-    };
-
-    Installation {
+    Ok(Installation {
         channel: channel.name.clone(),
-        intent,
+        intent: intent.clone(),
         components: installed_components,
         publication: PublicationRef::Managed {
             id: publication_id.clone(),
@@ -222,7 +249,7 @@ fn target_installation(
             target: config.target().to_string(),
         },
         installed_at: chrono::Utc::now().timestamp(),
-    }
+    })
 }
 
 /// Records each `path` component's source tree modification time, canonicalizing the path.
