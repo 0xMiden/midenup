@@ -13,9 +13,10 @@ use crate::{
     channel::{Channel, UserChannel},
     commands,
     config::Config,
-    manifest::Manifest,
-    options::InstallationOptions,
+    options::{InstallationOptions, IntentUpdate},
     profile::Profile,
+    resolve::Intent,
+    state::LocalState,
 };
 
 /// Represents a `miden-toolchain.toml` file.
@@ -55,6 +56,34 @@ pub enum ToolchainJustification {
     Override,
     /// No toolchain was specified, fallback to stable.
     Default,
+}
+
+/// This project's request, resolved against what is *installed*.
+///
+/// `None` when the channel is not installed, was carried over from v1 (so nothing describes what it
+/// owns), or does not contain everything the project asked for. Each of those means the same thing
+/// to the caller: upstream is needed after all.
+///
+/// This is the active view of spec section 8.5 -- the project's request against this machine's
+/// installation, not against the channel as published. A component another project installed is in
+/// the superset but outside this view.
+fn active_view(
+    config: &Config,
+    state: &LocalState,
+    channel: &UserChannel,
+    intent: &Intent,
+) -> Option<Channel> {
+    let version = config.local_channel(channel, state)?;
+    let installation = state.get(&version).filter(|installation| installation.is_managed())?;
+
+    let installed = installation.as_channel();
+    let resolved = crate::resolve::resolve(&installed, intent).ok()?;
+
+    Some(Channel::new(
+        installed.name.clone(),
+        installed.alias.clone(),
+        resolved.into_iter().cloned().collect(),
+    ))
 }
 
 impl Toolchain {
@@ -110,14 +139,42 @@ impl Toolchain {
         }
     }
 
+    /// Makes sure the current toolchain is usable, installing it if it is not.
+    ///
+    /// The offline path comes first, and is the common one: if everything this project asks for is
+    /// already installed, this answers from `state.json` alone. Only when something is missing does
+    /// it reach for the upstream manifest -- and that is exactly the moment it becomes a writer, so
+    /// that is where it takes the lock (spec sections 13.1 and 13.2).
     pub fn ensure_current_is_installed(
         config: &Config,
-        local_manifest: &mut Manifest,
+        state: &mut LocalState,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
         let (current_toolchain, justification) = Toolchain::current(config)?;
         let desired_channel = &current_toolchain.channel;
 
-        let Some(channel) = config.manifest.get_channel(desired_channel) else {
+        // Resolve the project's declared toolchain into an exact component set. An omitted
+        // profile means `minimal` (Profile::default), and listed components are explicit roots on
+        // top of it.
+        let intent = Intent {
+            profiles: [current_toolchain.profile.unwrap_or_default()].into_iter().collect(),
+            roots: current_toolchain.components.iter().cloned().collect(),
+        };
+
+        // Everything the project asked for is installed: nothing to fetch, nothing to install.
+        //
+        // The active view is resolved against the *installed* snapshot rather than upstream, which
+        // is what section 8.5 says it is -- this project's request, against what this machine has.
+        if let Some(view) = active_view(config, state, desired_channel, &intent) {
+            println!(
+                "{}: current toolchain is {desired_channel} and is installed",
+                "info".white().bold()
+            );
+            return Ok((current_toolchain, justification, Some(view)));
+        }
+
+        // Something is missing, so upstream is needed after all.
+        let manifest = config.upstream_manifest()?;
+        let Some(channel) = manifest.get_channel(desired_channel) else {
             bail!(
                 "channel '{}' is set because {}, however the channel doesn't exist or is \
                  unavailable",
@@ -133,54 +190,69 @@ impl Toolchain {
             );
         };
 
-        let partial_channel = channel.create_subset(&current_toolchain, &justification);
-        let channel_to_install = partial_channel.as_ref().unwrap_or(channel);
+        let resolved =
+            crate::resolve::resolve(channel, &intent).with_context(|| match &justification {
+                ToolchainJustification::MidenToolchainFile { path } => {
+                    format!("unable to resolve the toolchain declared in {}", path.display())
+                },
+                _ => format!("unable to resolve the {} toolchain", channel.name),
+            })?;
 
-        if let Some(installed_channel) =
-            local_manifest.get_channel_by_name(&channel_to_install.name)
-        {
-            let required_components: HashSet<&str> = HashSet::from_iter(
-                channel_to_install.components.iter().map(|comp| comp.name.as_ref()),
-            );
+        let upstream_view = Some(Channel::new(
+            channel.name.clone(),
+            channel.alias.clone(),
+            resolved.iter().map(|component| (*component).clone()).collect(),
+        ));
 
-            let installed_components: HashSet<&str> = HashSet::from_iter(
-                installed_channel.components.iter().map(|comp| comp.name.as_ref()),
-            );
-
-            let missing_components: Vec<_> =
-                required_components.difference(&installed_components).collect();
-
-            if missing_components.is_empty() {
+        match state.get(&channel.name).filter(|installation| installation.is_managed()) {
+            Some(installed) => {
+                let installed_components: HashSet<&str> =
+                    HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
                 println!(
-                    "{}: current toolchain is {desired_channel} and is installed",
+                    "{}: installing missing components of the current toolchain:",
                     "info".white().bold()
                 );
-                return Ok((current_toolchain, justification, partial_channel));
-            }
-
-            println!(
-                "{}: installing missing components of the current toolchain:",
-                "info".white().bold()
-            );
-            for component in missing_components {
-                println!("- {}", component.white().bold());
-            }
-        } else {
-            println!(
-                "{}: current toolchain is {desired_channel}, but not yet installed",
-                "info".white().bold()
-            );
+                for component in resolved
+                    .iter()
+                    .map(|component| component.name.as_ref())
+                    .filter(|name| !installed_components.contains(name))
+                {
+                    println!("- {}", component.white().bold());
+                }
+            },
+            None => {
+                println!(
+                    "{}: current toolchain is {desired_channel}, but not yet installed",
+                    "info".white().bold()
+                );
+            },
         }
 
-        commands::install(
-            config,
-            channel_to_install,
-            local_manifest,
-            &InstallationOptions::default(),
-        )?;
+        // Dispatch has decided it must install, which makes it a writer. It takes the lock here,
+        // for the install only, and releases it before exec'ing the component: two `miden`
+        // invocations in two project directories are otherwise two concurrent writers against one
+        // MIDENUP_HOME, with no user involved in making that happen.
+        let _lock = crate::lock::acquire(&config.midenup_home)?;
+
+        // Another invocation may have installed it while we waited. Re-read rather than plan
+        // against what was true before the wait.
+        *state = config.local_state()?;
+        if let Some(view) = active_view(config, state, desired_channel, &intent) {
+            return Ok((current_toolchain, justification, Some(view)));
+        }
+
+        // Activation goes through exactly the same code path as everything else: the full upstream
+        // channel, and an intent that *adds* this project's request to whatever other projects have
+        // already asked for. Activating one project must never take components away from another.
+        let options = InstallationOptions {
+            intent_update: Some(IntentUpdate::Union(intent.clone())),
+            ..Default::default()
+        };
+
+        commands::install(config, channel, state, &options)?;
 
         // Now installed
-        Ok((current_toolchain, justification, partial_channel))
+        Ok((current_toolchain, justification, upstream_view))
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.

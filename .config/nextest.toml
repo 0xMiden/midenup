@@ -1,11 +1,23 @@
 [profile.default]
 slow-timeout = "5m"
 
-# Run integration tests with a maximum concurrency of 1, so as to avoid
-# consuming all available logical CPUs with tests, when each test will
-# also need CPU time to build components from source. It additionally
-# avoids the issue where `rustup` could get invoked concurrently in ways
-# that it doesn't support
+# Integration tests must not run concurrently with each other.
+#
+# Each gets its own MIDENUP_HOME, but installs still shell out to `cargo install` against the
+# ambient CARGO_HOME and can invoke `rustup`, neither of which tolerates concurrent use. When they
+# overlap, a nondeterministic subset fails while each passes in isolation.
+#
+# This requires a *test group*. The previous configuration set `threads-required = 1`, which is
+# simply the default value and therefore had no effect -- integration tests have been running
+# concurrently in CI all along, despite the comment saying otherwise.
+#
+# Note that nextest runs each test in its own process, so the in-process mutex in
+# `tests/common/harness.rs` does nothing here. That mutex covers plain `cargo test`, which runs
+# tests as threads within a single process. The two mechanisms are complementary, not redundant,
+# and both are needed to make the suite deterministic under both runners.
+[test-groups.integration]
+max-threads = 1
+
 [[profile.default.overrides]]
 filter = 'test(/integration/)'
-threads-required = 1
+test-group = 'integration'

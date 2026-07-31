@@ -1,0 +1,405 @@
+//! Shared harness pieces for integration tests.
+
+use std::sync::{Mutex, MutexGuard, OnceLock};
+
+/// Serializes integration tests that mutate shared state outside their own temp directory.
+///
+/// Each test gets an isolated `MIDENUP_HOME`, but installs still run `cargo install` against a
+/// shared `CARGO_HOME` and the shared Cargo registry/package cache. Running several installs
+/// concurrently makes them contend, and which test loses the race varies between runs -- the
+/// observed symptom is a nondeterministic subset of the install tests failing while each one
+/// passes in isolation.
+///
+/// `cargo test` runs a test binary's tests in a thread pool within one process, so a process-global
+/// mutex is sufficient. Poisoning is deliberately ignored: one panicking test must not cascade into
+/// unrelated failures.
+///
+/// This is a test-isolation measure only. The equivalent production hazard -- two `miden`
+/// invocations in different project directories both triggering an install -- is handled by the
+/// `MIDENUP_HOME` advisory lock.
+pub fn mutating_test_guard() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+}
+
+use std::path::{Path, PathBuf};
+
+/// A fully offline channel fixture: no network, no `cargo install`.
+///
+/// Most install tests assert on *layout and state* -- which files landed where, what the symlinks
+/// point at, what was recorded. None of that needs a real toolchain, but building one dominates
+/// their runtime: a single `midenup install stable` compiles several crates from source and pulls
+/// real release binaries over the network.
+///
+/// This writes a manifest whose artifacts are `file://` paths to tiny local stand-ins, so those
+/// tests exercise exactly the same code paths in milliseconds. Tests that genuinely need a real
+/// binary -- running it, or checking Cargo/git/path authority handling -- should keep using the
+/// real manifest.
+pub struct OfflineFixture {
+    /// `file://`-style URI to hand to `test_setup`.
+    pub manifest_uri: String,
+    /// Where the fixture's artifacts and manifest live.
+    pub dir: PathBuf,
+}
+
+impl OfflineFixture {
+    /// Builds a channel containing one of each installable shape.
+    ///
+    /// * `vm`     -- a prebuilt executable, so `bin/` and `opt/` are exercised
+    /// * `core`   -- a prebuilt package, so `lib/` is exercised
+    /// * `assets` -- an asset, so `etc/<component>/` is exercised
+    ///
+    /// Artifacts are target-agnostic so the fixture is not tied to the host triple.
+    pub fn build(root: &Path, channel: &str) -> Self {
+        let dir = root.join("offline-fixture");
+        std::fs::create_dir_all(&dir).expect("failed to create fixture dir");
+
+        // A stand-in executable that behaves well enough to be run with `--help`.
+        let vm_binary = dir.join("miden-vm");
+        std::fs::write(&vm_binary, "#!/bin/sh\nexit 0\n").expect("failed to write fixture binary");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&vm_binary, std::fs::Permissions::from_mode(0o755))
+                .expect("failed to chmod fixture binary");
+        }
+
+        let core_package = dir.join("core.masp");
+        std::fs::write(&core_package, b"fixture-package").expect("failed to write fixture package");
+
+        let asset = dir.join("config.yml");
+        std::fs::write(&asset, b"fixture: true\n").expect("failed to write fixture asset");
+
+        let uri = |path: &Path| format!("file://{}", path.display());
+
+        let manifest = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": [{
+                "name": channel,
+                "components": [
+                    {
+                        "name": "vm",
+                        "version": {"kind": "registry", "version": "0.1.0"},
+                        "kind": "executable",
+                        "installation_method": {"kind": "prebuilt"},
+                        "installed-executable": "miden-vm",
+                        "profiles": ["minimal"],
+                        "artifacts": {"miden-vm": {"uri": uri(&vm_binary)}}
+                    },
+                    {
+                        "name": "core",
+                        "version": {"kind": "registry", "version": "0.1.0"},
+                        "kind": "package",
+                        "profiles": ["minimal"],
+                        "artifacts": {"core.masp": {"uri": uri(&core_package)}}
+                    },
+                    {
+                        "name": "assets",
+                        "version": {"kind": "registry", "version": "0.1.0"},
+                        "kind": "asset",
+                        "profiles": ["complete"],
+                        "artifacts": {"config.yml": {"uri": uri(&asset)}}
+                    }
+                ]
+            }]
+        });
+
+        let manifest_path = dir.join("channel-manifest.json");
+        std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
+            .expect("failed to write fixture manifest");
+
+        Self {
+            manifest_uri: format!("file://{}", manifest_path.display()),
+            dir,
+        }
+    }
+}
+
+/// Local `path`- and `git`-sourced crates, for exercising those authorities cheaply.
+///
+/// Installing from a path or a git revision is inherently a `cargo install`, so these tests cannot
+/// avoid a build. What they *can* avoid is building something real: the behaviour under test is
+/// whether midenup records a path's modification time and a git revision, and re-triggers an
+/// install when either changes. A dependency-free crate proves that just as well as cloning an
+/// entire component repository, and does it in about a second.
+pub struct SourceFixture {
+    /// A crate on disk, for `Authority::Path`.
+    pub path_crate: PathBuf,
+    /// A git repository, for `Authority::Git`.
+    pub git_repo: PathBuf,
+    /// Two commits in `git_repo`, oldest first, so an update can be triggered by moving between
+    /// them.
+    pub revisions: Vec<String>,
+}
+
+impl SourceFixture {
+    pub fn build(root: &Path) -> Self {
+        let path_crate = root.join("path-source");
+        write_trivial_crate(&path_crate, "fixture-vm", "miden-vm");
+
+        let git_repo = root.join("git-source");
+        write_trivial_crate(&git_repo, "fixture-client", "miden-client");
+        let revisions = init_repo_with_two_commits(&git_repo);
+
+        Self { path_crate, git_repo, revisions }
+    }
+
+    /// A `file://` URL for the git repository, which cargo and `git` both accept.
+    pub fn git_url(&self) -> String {
+        format!("file://{}", self.git_repo.display())
+    }
+}
+
+/// Writes a dependency-free crate producing a single binary.
+fn write_trivial_crate(dir: &Path, package: &str, binary: &str) {
+    std::fs::create_dir_all(dir.join("src")).expect("failed to create fixture crate dir");
+    std::fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"{package}\"\nversion = \"0.1.0\"\nedition = \
+             \"2021\"\n\n[[bin]]\nname = \"{binary}\"\npath = \"src/main.rs\"\n"
+        ),
+    )
+    .expect("failed to write fixture Cargo.toml");
+    std::fs::write(dir.join("src").join("main.rs"), "fn main() {}\n")
+        .expect("failed to write fixture main.rs");
+
+    // midenup installs with `--locked`, which requires a lockfile to be present.
+    let status = std::process::Command::new("cargo")
+        .arg("generate-lockfile")
+        .arg("--manifest-path")
+        .arg(dir.join("Cargo.toml"))
+        .status()
+        .expect("failed to run cargo generate-lockfile");
+    assert!(status.success(), "cargo generate-lockfile failed for {}", dir.display());
+}
+
+/// Initializes a git repo with two commits, returning both revisions oldest-first.
+fn init_repo_with_two_commits(dir: &Path) -> Vec<String> {
+    let git = |args: &[&str]| {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .unwrap_or_else(|err| panic!("failed to run git {args:?}: {err}"));
+        assert!(
+            output.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    };
+
+    git(&["init", "--quiet", "--initial-branch=main"]);
+    // Set identity locally so the fixture does not depend on the developer's global git config.
+    git(&["config", "user.email", "fixture@example.invalid"]);
+    git(&["config", "user.name", "Fixture"]);
+
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "first"]);
+    let first = git(&["rev-parse", "HEAD"]);
+
+    std::fs::write(dir.join("CHANGES"), b"second\n").expect("failed to write fixture change");
+    git(&["add", "."]);
+    git(&["commit", "--quiet", "-m", "second"]);
+    let second = git(&["rev-parse", "HEAD"]);
+
+    vec![first, second]
+}
+
+/// Writes a manifest whose `vm` comes from a path and whose `client` comes from a git revision.
+pub fn write_source_manifest(
+    dir: &Path,
+    name: &str,
+    fixture: &SourceFixture,
+    revision: &str,
+) -> String {
+    let manifest = serde_json::json!({
+        "manifest_version": "2.0.0",
+        "date": 1735689600,
+        "channels": [{
+            "name": "0.15.0",
+            "components": [
+                {
+                    "name": "vm",
+                    "version": {"kind": "path", "path": fixture.path_crate.to_str().unwrap()},
+                    "kind": "executable",
+                    "installation_method": {"kind": "cargo", "crate_name": "fixture-vm"},
+                    "installed-executable": "miden-vm",
+                    "profiles": ["minimal"]
+                },
+                {
+                    "name": "client",
+                    "version": {
+                        "kind": "git",
+                        "repository_url": fixture.git_url(),
+                        "revision": revision
+                    },
+                    "kind": "executable",
+                    "installation_method": {"kind": "cargo", "crate_name": "fixture-client"},
+                    "installed-executable": "miden-client",
+                    "profiles": ["minimal"]
+                }
+            ]
+        }]
+    });
+
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap())
+        .expect("failed to write source manifest");
+    format!("file://{}", path.display())
+}
+
+/// A sequence of manifests describing an evolving set of channels, backed by local files.
+///
+/// Update semantics -- a stable version bump, a component appearing or disappearing, a version
+/// moving backwards, an authority changing kind -- are all properties of the *manifest*, not of
+/// the components it names. Real components prove nothing extra and cost minutes, so every
+/// artifact here is a `file://` path to a tiny local stand-in.
+pub struct UpdateFixture {
+    dir: PathBuf,
+}
+
+impl UpdateFixture {
+    pub fn build(root: &Path) -> Self {
+        let dir = root.join("update-fixture");
+        std::fs::create_dir_all(&dir).expect("failed to create update fixture dir");
+
+        // `vm`'s URI carries `%version`, so each version resolves to a distinct file and version
+        // changes are observable on disk.
+        for version in ["0.23.1", "0.23.2", "0.23.3", "0.23.4"] {
+            std::fs::write(dir.join(format!("miden-vm-{version}")), b"#!/bin/sh\nexit 0\n")
+                .expect("failed to write fixture binary");
+        }
+        std::fs::write(dir.join("miden-client"), b"#!/bin/sh\nexit 0\n")
+            .expect("failed to write fixture binary");
+        std::fs::write(dir.join("core.masp"), b"fixture-package")
+            .expect("failed to write fixture package");
+
+        Self { dir }
+    }
+
+    fn uri(&self, name: &str) -> String {
+        format!("file://{}", self.dir.join(name).display())
+    }
+
+    /// An executable whose artifact is versioned, so a version change moves it to another file.
+    fn vm(&self, version: &str) -> serde_json::Value {
+        serde_json::json!({
+            "name": "vm",
+            "version": {"kind": "registry", "version": version},
+            "kind": "executable",
+            "installation_method": {"kind": "prebuilt"},
+            "installed-executable": "miden-vm",
+            "profiles": ["minimal"],
+            "artifacts": {"miden-vm": {"uri": self.uri("miden-vm-%version")}}
+        })
+    }
+
+    /// A package. `authority` lets a channel change its authority *kind*, which is one of the
+    /// changes update must notice.
+    fn core(&self, authority: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "name": "core",
+            "version": authority,
+            "kind": "package",
+            "profiles": ["minimal"],
+            // No `%version` here: a git authority has no semantic version to substitute.
+            "artifacts": {"core.masp": {"uri": self.uri("core.masp")}}
+        })
+    }
+
+    fn client(&self) -> serde_json::Value {
+        serde_json::json!({
+            "name": "client",
+            "version": {"kind": "registry", "version": "0.9.0"},
+            "kind": "executable",
+            "installation_method": {"kind": "prebuilt"},
+            "installed-executable": "miden-client",
+            "profiles": ["minimal"],
+            "artifacts": {"miden-client": {"uri": self.uri("miden-client")}}
+        })
+    }
+
+    fn registry(version: &str) -> serde_json::Value {
+        serde_json::json!({"kind": "registry", "version": version})
+    }
+
+    fn write(&self, name: &str, channels: serde_json::Value) -> String {
+        let manifest = serde_json::json!({
+            "manifest_version": "2.0.0",
+            "date": 1735689600,
+            "channels": channels
+        });
+        let path = self.dir.join(name);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap())
+            .expect("failed to write fixture manifest");
+        format!("file://{}", path.display())
+    }
+
+    /// Only 0.14.0 exists.
+    pub fn initial(&self) -> String {
+        self.write(
+            "manifest-1.json",
+            serde_json::json!([{
+                "name": "0.14.0",
+                "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
+            }]),
+        )
+    }
+
+    /// 0.15.0 is released, so `stable` moves.
+    pub fn with_new_stable(&self) -> String {
+        self.write(
+            "manifest-2.json",
+            serde_json::json!([
+                {
+                    "name": "0.14.0",
+                    "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
+                },
+                {
+                    "name": "0.15.0",
+                    "components": [self.vm("0.23.3"), self.core(Self::registry("0.23.3"))]
+                }
+            ]),
+        )
+    }
+
+    /// Every kind of change at once:
+    ///
+    /// * 0.14.0's `vm` moves *backwards* to 0.23.1 (a downgrade is still a change)
+    /// * 0.14.0's `core` changes authority kind, registry to git
+    /// * 0.14.0 gains `client`
+    /// * 0.15.0 loses `core` entirely
+    /// * 0.16.0 appears but is not installed, so a global update must ignore it
+    pub fn with_every_change(&self) -> String {
+        self.write(
+            "manifest-3.json",
+            serde_json::json!([
+                {
+                    "name": "0.14.0",
+                    "components": [
+                        self.vm("0.23.1"),
+                        self.core(serde_json::json!({
+                            "kind": "git",
+                            "repository_url": "https://example.invalid/core.git",
+                            "revision": "0000000000000000000000000000000000000000"
+                        })),
+                        self.client()
+                    ]
+                },
+                {
+                    "name": "0.15.0",
+                    "components": [self.vm("0.23.4")]
+                },
+                {
+                    "name": "0.16.0",
+                    "components": [self.vm("0.23.4"), self.core(Self::registry("0.23.4"))]
+                }
+            ]),
+        )
+    }
+}

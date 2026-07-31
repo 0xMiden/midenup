@@ -138,3 +138,47 @@ For example, to uninstall toolchain version `0.16.0`, run:
 ```shell title=">_ Terminal"
 midenup uninstall 0.16.0
 ```
+
+This keeps the toolchain's mutable data — the Miden client's database, for instance — and tells you
+where it left it. Removing a toolchain is not a request to delete your data. To remove that too:
+
+```shell title=">_ Terminal"
+midenup uninstall 0.16.0 --purge
+```
+
+## Reclaiming disk space
+
+Installing or updating a toolchain publishes a fresh copy of it and leaves the previous copy in
+place, because another shell may still be running a component out of it. Once you are done with
+those, reclaim them:
+
+```shell title=">_ Terminal"
+midenup gc
+```
+
+This only ever removes installations that nothing refers to any more. It never touches an installed
+toolchain, and it is safe to run at any time.
+
+## Upgrading from an older midenup
+
+The first time a newer `midenup` runs, it converts the record an older one left in `$MIDENUP_HOME`
+into its own format. It carries over which channels you had installed and which components you had
+in each — everything else is re-derived from the published manifest, which is authoritative for it.
+Your toolchains are reinstalled the next time you use them, so that `midenup` knows exactly which
+files it owns. `var/` is untouched throughout.
+
+`midenup show list` marks a toolchain in that state as needing reinstallation until it happens.
+
+:::warning
+The conversion is one-way. Afterwards an older `midenup` will not see your installation and will
+report it as absent. If you need to go back, reinstall your toolchains with the older version.
+:::
+
+## Working offline
+
+Running a component never needs the network. `miden <cmd>` answers from what is recorded locally and
+from the installed toolchain, so an unreachable manifest cannot stop you working.
+
+The upstream manifest is fetched only when something actually needs to know what exists upstream —
+installing, updating, or `midenup list`. Each successful fetch is cached, and if a later fetch
+fails, `midenup` proceeds against that cached copy and tells you it is doing so.

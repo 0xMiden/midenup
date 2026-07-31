@@ -1,3 +1,4 @@
+mod gc;
 mod init;
 mod install;
 mod list;
@@ -13,6 +14,7 @@ use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, Parser, Subcommand};
 
 pub use self::{
+    gc::gc,
     init::{init, setup_midenup},
     install::install,
     list::list,
@@ -20,7 +22,7 @@ pub use self::{
     set::set,
     show::ShowCommand,
     uninstall::uninstall,
-    update::{ComponentUpdate, update},
+    update::update,
 };
 use crate::{channel, config, manifest, options};
 
@@ -42,6 +44,9 @@ pub struct Midenup {
 
 /// What set of behavior the CLI should exhibit
 #[derive(Debug, Subcommand)]
+// Boxing here would mean boxing a clap parse root that is constructed exactly once per process,
+// trading a real ergonomic cost for no measurable benefit.
+#[allow(clippy::large_enum_variant)]
 enum Behavior {
     /// The Miden toolchain installer
     Midenup {
@@ -69,7 +74,7 @@ struct GlobalArgs {
         hide(true),
         value_name = "FILE",
         env = MIDENUP_MANIFEST_URI_ENV,
-        default_value = manifest::Manifest::PUBLISHED_MANIFEST_URI
+        default_value = manifest::VersionedManifest::PUBLISHED_MANIFEST_URI
     )]
     pub manifest_uri: String,
     /// Determines wether the components are installed in debug mode. Useful for
@@ -101,6 +106,11 @@ enum Commands {
         #[clap(flatten)]
         options: options::InstallationOptions,
     },
+    /// Reclaim disk space from toolchain installations nothing refers to any more.
+    ///
+    /// Every change to an installed channel publishes a new copy and leaves the previous one in
+    /// place, because another process may still be running out of it. This removes those.
+    Gc,
     /// List all available toolchains
     List,
     /// Uninstall a Miden toolchain
@@ -108,6 +118,11 @@ enum Commands {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
+
+        /// Also delete this channel's mutable data (`var/<channel>`), such as the client's
+        /// database. Without this flag it is kept, and you are told where it lives.
+        #[arg(long, action, default_value_t = false)]
+        purge: bool,
     },
     /// Show information about the local midenup environment.
     #[command(subcommand)]
@@ -145,39 +160,53 @@ enum Commands {
 }
 
 impl Commands {
+    /// Whether this subcommand writes to `$MIDENUP_HOME`.
+    ///
+    /// Only mutating operations take the advisory lock (spec section 9.9). Making `list` or `show`
+    /// wait behind a long install would be a regression in a tool people run to find out *why*
+    /// something is taking so long.
+    fn is_mutating(&self) -> bool {
+        match self {
+            Self::Init
+            | Self::Install { .. }
+            | Self::Uninstall { .. }
+            | Self::Update { .. }
+            | Self::Gc => true,
+            // Writes `toolchains/default`.
+            Self::Override { .. } => true,
+            // Writes `miden-toolchain.toml` in the working directory, not `$MIDENUP_HOME`.
+            Self::Set { .. } => false,
+            Self::List | Self::Show(_) => false,
+        }
+    }
+
     /// Execute the requested subcommand
     pub fn execute(
         &self,
         config: &config::Config,
-        local_manifest: &mut manifest::Manifest,
+        state: &mut crate::state::LocalState,
     ) -> anyhow::Result<()> {
         match &self {
             Self::Init => {
-                init(config, local_manifest)?;
+                init(config)?;
                 Ok(())
             },
-            Self::List => {
-                list(config, local_manifest);
-                Ok(())
-            },
+            Self::Gc => gc(config, state),
+            Self::List => list(config, state),
             Self::Install { channel, options } => {
-                let Some(channel) = config.manifest.get_channel(channel) else {
+                let manifest = config.upstream_manifest()?;
+                let Some(channel) = manifest.get_channel(channel) else {
                     bail!("channel '{}' doesn't exist or is unavailable", channel);
                 };
-                install(config, channel, local_manifest, options)
+                install(config, channel, state, options)
             },
-            Self::Uninstall { channel, .. } => {
-                let Some(channel) = config.manifest.get_channel(channel) else {
-                    bail!("channel '{}' doesn't exist or is unavailable", channel);
-                };
-                uninstall(config, channel, local_manifest)
-            },
-            Self::Update { channel, options } => {
-                update(config, channel.as_ref(), local_manifest, options)
-            },
-            Self::Show(cmd) => cmd.execute(config, local_manifest),
+            // Deliberately not resolved against upstream: a channel that has been withdrawn is
+            // exactly one a user needs to be able to uninstall (spec section 12.3).
+            Self::Uninstall { channel, purge } => uninstall(config, channel, state, *purge),
+            Self::Update { channel, options } => update(config, channel.as_ref(), state, options),
+            Self::Show(cmd) => cmd.execute(config, state),
             Self::Set { channel } => set(config, channel),
-            Self::Override { channel } => r#override(config, local_manifest, channel),
+            Self::Override { channel } => r#override(config, state, channel),
         }
     }
 }
@@ -217,7 +246,12 @@ impl Midenup {
                     })?;
 
                 let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
-                    .unwrap_or(manifest::Manifest::PUBLISHED_MANIFEST_URI.to_string());
+                    .unwrap_or(manifest::VersionedManifest::PUBLISHED_MANIFEST_URI.to_string());
+
+                // Before the upstream fetch below: an unreachable upstream must not be able to
+                // prevent a local migration (spec section 12.2).
+                crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+
                 config::Config::init(
                     working_directory,
                     midenup_home,
@@ -260,6 +294,9 @@ impl Midenup {
                         )
                     })?;
 
+                // See above: migration precedes any upstream fetch.
+                crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+
                 config::Config::init(
                     working_directory,
                     midenup_home,
@@ -273,29 +310,53 @@ impl Midenup {
 
     /// Execute this session with the provided configuration.
     pub fn execute(&self, config: &config::Config) -> anyhow::Result<()> {
-        let mut local_manifest = config.local_manifest()?;
-
-        self.execute_with_manifest(config, &mut local_manifest)
+        let mut state = config.local_state()?;
+        self.execute_with_state(config, &mut state)
     }
 
     /// Execute this session with the provided configuration and local manifest
-    pub fn execute_with_manifest(
+    pub fn execute_with_state(
         &self,
         config: &config::Config,
-        local_manifest: &mut manifest::Manifest,
+        state: &mut crate::state::LocalState,
     ) -> anyhow::Result<()> {
         use crate::miden_wrapper;
 
+        // Migration first, before recovery and before anything reads local state. `config()`
+        // already ran this ahead of the upstream fetch on the CLI path; it is idempotent and costs
+        // one `stat`, and running it here too means a caller that built its own `Config` -- every
+        // in-process test -- gets the same startup sequence rather than a subtly different one.
+        if let crate::migrate_v1::MigrationOutcome::Migrated { channels } =
+            crate::migrate_v1::migrate_if_needed(&config.midenup_home)?
+        {
+            report_migration(&channels);
+            *state = config.local_state()?;
+        }
+
+        recover(config, state)?;
+
         match &self.behavior {
             Behavior::Miden(argv) => {
-                miden_wrapper::miden_wrapper(argv, config, local_manifest)
+                // No lock: dispatch is read-only until it discovers the toolchain is missing, and
+                // it takes the lock itself at that point (`ensure_current_is_installed`).
+                miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
             },
             Behavior::Midenup { config: global_args, command: subcommand } => {
                 if global_args.version {
                     println!("{}", miden_wrapper::display_version(config));
                 } else if let Some(subcommand) = subcommand {
-                    subcommand.execute(config, local_manifest)?;
+                    let _lock = if subcommand.is_mutating() {
+                        let lock = crate::lock::acquire(&config.midenup_home)?;
+                        // Whoever held the lock may have changed what is installed, so nothing may
+                        // be planned against the state read before waiting for it.
+                        *state = config.local_state()?;
+                        Some(lock)
+                    } else {
+                        None
+                    };
+
+                    subcommand.execute(config, state)?;
                 } else {
                     bail!("no subcommand provided. Run `midenup --help` for usage information.")
                 }
@@ -305,10 +366,66 @@ impl Midenup {
         // After execution we check if need to update the midenup/opt symlink
         // This is done *after* execution because some commands change what the active toolchain
         // (update, set) and some remove the directory entirely (uninstall)
-        config.update_opt_symlinks(config)?;
+        config.update_opt_symlinks(state)?;
 
         Ok(())
     }
+}
+
+fn report_migration(channels: &[semver::Version]) {
+    use colored::Colorize;
+
+    println!(
+        "{}: migrated {} installed toolchain(s) to the new local state format",
+        "info".white().bold(),
+        channels.len()
+    );
+    for channel in channels {
+        println!(
+            "- {channel} will be reinstalled the next time it is used, so that midenup knows \
+             exactly what it owns"
+        );
+    }
+}
+
+/// Completes or discards whatever the previous run left behind, before anything else happens.
+///
+/// A new operation must never be planned against a half-published `MIDENUP_HOME`, so this runs
+/// ahead of every command, including `miden` dispatch.
+///
+/// Divergence -- a state record whose publication is not on disk -- is *reported* here rather than
+/// being fatal. It is a genuine error (spec section 14.3) and is never guessed at or silently
+/// repaired, but the remediation it names is itself a midenup command: making it fatal at startup
+/// would leave the user with a diagnostic they cannot act on. The operation that actually needs
+/// the missing files fails on its own terms.
+fn recover(config: &config::Config, state: &mut crate::state::LocalState) -> anyhow::Result<()> {
+    use colored::Colorize;
+
+    // Recovery mutates, so it takes the lock -- but only when there is something to recover.
+    // Taking it unconditionally would put every `miden` invocation behind it, and the read-only
+    // dispatch path is required to stay lock-free.
+    let _lock = match crate::publish::journal::read(&config.midenup_home)? {
+        Some(_) => {
+            let lock = crate::lock::acquire(&config.midenup_home)?;
+            // Whoever held the lock may already have completed this recovery.
+            *state = config.local_state()?;
+            Some(lock)
+        },
+        None => None,
+    };
+
+    match crate::publish::journal::recover(&config.midenup_home, state) {
+        Ok(None) => {},
+        Ok(Some(operation)) => {
+            println!("{}: recovered an interrupted {operation}", "info".white().bold());
+        },
+        Err(err @ crate::publish::PublishError::DivergentState { .. }) => {
+            eprintln!("{}: {err}", "warning".yellow().bold());
+        },
+        Err(err) => return Err(err.into()),
+    }
+
+    Ok(())
 }
 
 fn get_full_command(argv: &[OsString]) -> String {

@@ -48,9 +48,9 @@ impl Default for GitTarget {
 impl fmt::Display for GitTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            GitTarget::Branch { name, .. } => write!(f, "branch = \"{name}"),
-            GitTarget::Revision { hash } => write!(f, "rev = \"{hash}"),
-            GitTarget::Tag { name: tag } => write!(f, "tag = \"{tag}"),
+            GitTarget::Branch { name, .. } => write!(f, "branch = \"{name}\""),
+            GitTarget::Revision { hash } => write!(f, "rev = \"{hash}\""),
+            GitTarget::Tag { name: tag } => write!(f, "tag = \"{tag}\""),
         }
     }
 }
@@ -66,46 +66,34 @@ impl GitTarget {
 }
 
 /// Represents the canonical versioning authority for a tool or toolchain
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
-#[serde(rename_all = "snake_case")]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Authority {
     /// The authority for this tool/toolchain is a local filesystem path
-    #[serde(untagged)]
     Path {
-        /// The path to the crate.
+        /// The path to the artifact.
         path: PathBuf,
-        /// This is the name of the crate that holds the executable we're going to install.
-        ///
-        /// This has to be specified because cargo needs the name of the crate to handle
-        /// uninstallation.
-        crate_name: String,
         /// Represents the latest modification done inside this directory.
+        #[serde(skip_serializing_if = "Option::is_none")]
         last_modification: Option<SystemTime>,
     },
     /// The authority for this tool/toolchain is a git repository.
-    #[serde(untagged)]
     Git {
-        /// Points to the git repository containting the [crate::channel::Component].
+        /// Points to the git repository containting the [crate::manifest::Component].
         repository_url: String,
-        /// This is the name of the crate that holds the executable we're going to install.
-        ///
-        /// This has to be specified because some repositories hold multiple crates inside them.
-        crate_name: String,
+        /// The subdirectory within the repository which contains the component
+        #[serde(skip_serializing_if = "Option::is_none")]
+        subpath: Option<String>,
         /// If the target is missing from the [crate::manifest::Manifest], then we assume that it
         /// is pointing to the tip of the `main` branch
         #[serde(default)]
         #[serde(flatten)]
         target: GitTarget,
     },
-    /// The authority for this tool/toolchain is crates.io
-    #[serde(untagged)]
-    Cargo {
-        /// The name of the crates.io package under which this tool is provided.
-        ///
-        /// If `None`, then the package name is the same as the component
-        #[serde(skip_serializing_if = "Option::is_none")]
-        package: Option<String>,
-        /// The semantic versioning string for the package to fetch
+    /// The authority for this tool/toolchain is a semantic version resolved in the appropriate
+    /// registry (e.g. crates.io).
+    Registry {
+        /// The semantic versioning string for the package/artifact to fetch
         version: semver::Version,
     },
 }
@@ -121,7 +109,7 @@ impl core::str::FromStr for Authority {
 impl fmt::Display for Authority {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self {
-            Authority::Cargo { version, .. } => write!(f, "{version}"),
+            Authority::Registry { version, .. } => write!(f, "{version}"),
             Authority::Git { repository_url, target, .. } => {
                 write!(f, "{repository_url}:{target}")
             },

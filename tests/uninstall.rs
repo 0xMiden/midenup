@@ -5,12 +5,61 @@ mod common;
 
 use common::*;
 
+/// Uninstalling a toolchain must not delete the user's data with it.
+///
+/// `var/<channel>` holds mutable component-owned state -- the client's database, reached as
+/// `%var(data)`. Removing a toolchain is not a request to delete it, so it is kept unless `--purge`
+/// says otherwise.
+#[test]
+fn integration_uninstall_keeps_var_unless_purge_is_given() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_uninstall_var");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let channel = semver::Version::new(0, 15, 0);
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    // Stand in for whatever the client would have written.
+    let data = midenup::paths::var_dir(&test_env.midenup_home, &channel).join("data");
+    std::fs::create_dir_all(data.parent().unwrap()).unwrap();
+    std::fs::write(&data, b"user-database").unwrap();
+
+    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to uninstall");
+    assert!(data.exists(), "var must be retained without --purge");
+
+    // Reinstall so there is something to uninstall again.
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to reinstall");
+    assert_eq!(
+        std::fs::read(&data).unwrap(),
+        b"user-database",
+        "reinstalling must find the data still there"
+    );
+
+    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0", "--purge"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to purge");
+    assert!(!data.exists(), "--purge must remove var");
+}
+
 /// Integration test to check that installing and uninstalling works.
 ///
 /// Tries to install a toolchain under a [`channel::UserChannel`] (via the `stable` alias) and
 /// also specific versions explicitly.
 #[test]
 fn integration_install_uninstall_test() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_install_uninstall_test";
     let test_env = environment_setup(test_name);
 
@@ -23,7 +72,7 @@ fn integration_install_uninstall_test() {
     // We begin by initializing the midenup directory
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to initialize");
 
     // We check that the basic midenup directory structure is present
@@ -37,7 +86,7 @@ fn integration_install_uninstall_test() {
     // This should install version 0.16.0, since it's the latest available stable toolchain
     // present in FILE
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
     let latest_toolchain = toolchain_dir.join("0.16.0");
@@ -55,7 +104,7 @@ fn integration_install_uninstall_test() {
     // Now we install a separate toolchain.
     let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install 0.15.0");
 
     // This should install toolchain version 0.15.0.
@@ -74,14 +123,16 @@ fn integration_install_uninstall_test() {
     // Besides creating the various directories, the local manifest should also reflect this
     // structure
     local_manifest
-        .get_channels()
+        .installations
+        .iter()
+        .map(|i| i.as_channel())
         .map(|channel| channel.name.clone())
         .eq(installed_toolchains);
 
     // Now, we'll uninstall 0.16.0.
     let command = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to uninstall 0.16.0");
 
     // Afterwards, both the 0.16.0 directory and the `stable` symlink should be deleted.
@@ -100,7 +151,9 @@ fn integration_install_uninstall_test() {
     // Besides creating the various directories, the local manifest should also reflect this
     // structure
     local_manifest
-        .get_channels()
+        .installations
+        .iter()
+        .map(|i| i.as_channel())
         .map(|channel| channel.name.clone())
         .eq(installed_toolchains);
 }

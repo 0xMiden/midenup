@@ -1,8 +1,10 @@
 #![allow(unused)]
 
+pub mod harness;
+
 use std::path::{Path, PathBuf};
 
-use midenup::{config, manifest};
+use midenup::config;
 use tempdir::TempDir;
 
 #[macro_export]
@@ -19,25 +21,11 @@ macro_rules! full_path {
     };
 }
 
-pub type LocalManifest = manifest::Manifest;
+pub type LocalManifest = midenup::state::LocalState;
 
 pub fn test_setup(env: &TestEnvironment, manifest_uri: &str) -> (LocalManifest, config::Config) {
-    let local_manifest = {
-        let local_manifest_path = env.midenup_home.join("manifest").with_extension("json");
-        let local_manifest_uri = format!(
-            "file://{}",
-            local_manifest_path.to_str().expect("Couldn't convert miden directory"),
-        );
-
-        match manifest::Manifest::load_from(local_manifest_uri) {
-            Ok(manifest) => Ok(manifest),
-            Err(manifest::ManifestError::Empty | manifest::ManifestError::Missing(_)) => {
-                Ok(manifest::Manifest::default())
-            },
-            Err(err) => Err(err),
-        }
-        .unwrap_or_else(|_| panic!("Failed to parse manifest {}", local_manifest_path.display()))
-    };
+    let state = midenup::state::LocalState::load(&env.midenup_home.join("state.json"))
+        .unwrap_or_else(|err| panic!("failed to load local state: {err}"));
 
     let config = config::Config::init(
         env.present_working_dir.clone(),
@@ -56,7 +44,7 @@ Error: {}",
         )
     });
 
-    (local_manifest, config)
+    (state, config)
 }
 
 // NOTE: We save this variables in this struct because if they ever go out of scope, the created

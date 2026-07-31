@@ -104,7 +104,6 @@ jobs:
     # benefit that we can re-use the cache from the unit test job for all integration tests
     needs: [unit_tests]
     runs-on: ubuntu-latest
-    if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
@@ -130,3 +129,8 @@ jobs:
         run: make test-build
       - name: Test
         run: make integration-test
+      - name: Pre-release checks
+        # These install real components from the published manifest and run them, so it takes
+        # many minutes. Run them on main or on explicitly labelled PRs
+        if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+        run: make prerelease-test

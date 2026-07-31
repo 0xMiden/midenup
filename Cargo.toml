@@ -2,7 +2,7 @@
 members = [".", "tools/update-manifest"]
 
 [workspace.package]
-version = "0.3.2"
+version = "1.0.0-alpha.1"
 authors = ["Miden contributors"]
 repository = "https://github.com/0xMiden/midenup"
 homepage = "https://github.com/0xMiden/midenup"
@@ -21,7 +21,7 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 clap = { version = "4.5", features = ["derive", "env"] }
 colored = "3.0"
-midenup = { version = "0.3.2", path = "." }
+midenup = { version = "1.0.0-alpha.1", path = "." }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
@@ -47,6 +47,12 @@ path = "src/lib.rs"
 name = "midenup"
 path = "src/main.rs"
 
+[features]
+# Compiles the labelled abort points in the publication protocol (see `src/fault.rs`), so that
+# restart-recovery can be tested at each of them. Never enabled in a released binary: without it
+# there is no way to arm a fault.
+fault-injection = []
+
 [dependencies]
 anyhow.workspace = true
 chrono.workspace = true
@@ -54,6 +60,10 @@ clap.workspace = true
 colored.workspace = true
 curl = "0.4"
 dirs = "6.0"
+# Advisory file locking (`flock`), for the $MIDENUP_HOME lock.
+fs4 = { version = "1.1", default-features = false, features = ["sync"] }
+heck = "0.5"
+petgraph = { version = "0.8", default-features = false, features = ["std", "graphmap"] }
 semver = { version = "1.0", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
@@ -71,6 +81,9 @@ cargo_toml = "0.22"
 
 [dev-dependencies]
 tempdir = "0.3"
+# A local HTTP server, so download behaviour (status handling, redirects, empty bodies) is tested
+# against a real socket rather than a mock of curl.
+tiny_http = "0.12"
 
 [profile.release]
 opt-level = 2

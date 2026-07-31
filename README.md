@@ -135,10 +135,39 @@ For example, to uninstall toolchain version `0.16.0`, run:
 midenup uninstall 0.16.0
 ```
 
+This keeps the toolchain's mutable data — the Miden client's database, for instance — and tells you
+where it left it. To remove that too, pass `--purge`:
+```
+midenup uninstall 0.16.0 --purge
+```
+
 > [!WARNING]
 > It is **strongly discouraged** to delete the toolchain directories manually,
 > since this will most likely generate an invalid environment and `midenup` will
 > probably *not* work as intended.
+
+### Reclaiming disk space
+
+Installing or updating a toolchain publishes a fresh copy of it and leaves the previous copy in
+place, because another shell may still be running a component out of it. Once you are done with
+those, reclaim them with:
+```
+midenup gc
+```
+
+This only ever removes installations nothing refers to any more. It never touches an installed
+toolchain, and it is safe to run at any time.
+
+### Upgrading from an older `midenup`
+
+The first time a newer `midenup` runs, it converts the record an older one left in
+`$MIDENUP_HOME` into its own format. It carries over which channels you had installed and which
+components you had in each, and nothing else — everything else is re-derived from the published
+manifest, which is authoritative for it. Your toolchains are reinstalled the next time you use
+them, so that `midenup` knows exactly which files it owns; `var/` is untouched throughout.
+
+**This is one-way.** After the conversion, an older `midenup` will not see your installation and
+will report it as absent. If you need to go back, reinstall your toolchains with the older version.
 
 ### Uninstalling `midenup`
 
@@ -175,14 +204,34 @@ components = []
 ```
 
 Now, whenever `miden` is called in this directory (or any of its subdirectories), it will use the specified toolchain.
-If the `components` entry is left blank, all the available components for the selected channel will be installed. However, if the list is not empty, only the listed components will be installed.
-For example, with the following `miden-toolchain.toml` file:
+
+The `profile` entry selects a baseline set of components, and `components` names extras on top of
+it. An omitted `profile` means `minimal`, so an empty `components` list installs the minimal
+profile's members -- not everything. To install every component in the channel, ask for the
+`complete` profile:
+
+```toml
+[toolchain]
+channel = "stable"
+profile = "complete"
+components = []
+```
+
+Listing components adds them to the profile's members. With this file:
+
 ```toml
 [toolchain]
 channel = "stable"
 components = ["vm", "midenc", "client"]
 ```
-Only the `vm`, `midenc`, `client` will be installed after `miden` gets executed.
+
+the `minimal` profile is installed, plus `vm`, `midenc` and `client` if they are not already part
+of it.
+
+Activating a project's toolchain only ever *adds* to what is installed for a channel. Two projects
+sharing a channel cannot remove each other's components: if one asks for less, the other's
+components stay. Use `midenup install <channel> --profile <profile>` to deliberately reduce what is
+installed.
 
 
 #### Setting a global default toolchain

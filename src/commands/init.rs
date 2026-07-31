@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use crate::{config::Config, manifest::Manifest, migration, options::DEFAULT_USER_DATA_DIR, utils};
+use crate::{config::Config, options::DEFAULT_USER_DATA_DIR, utils};
 
 #[derive(Error, Debug)]
 pub enum InitializationError {
@@ -12,8 +12,6 @@ pub enum InitializationError {
     FileCreation(PathBuf, String),
     #[error("Failed to create symlink. {0}")]
     Symlink(String),
-    #[error(transparent)]
-    Migration(anyhow::Error),
 }
 
 pub enum InitializationState {
@@ -21,8 +19,8 @@ pub enum InitializationState {
     Initialized,
 }
 
-pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), InitializationError> {
-    let state = setup_midenup(config, local_manifest)?;
+pub fn init(config: &Config) -> Result<(), InitializationError> {
+    let state = setup_midenup(config)?;
 
     match state {
         InitializationState::Initialized => println!(
@@ -53,24 +51,22 @@ pub fn init(config: &Config, local_manifest: &Manifest) -> Result<(), Initializa
 /// $MIDENUP_HOME
 /// |- toolchains/
 /// | |- stable     --> <channel>
-/// | |- <channel>  --> ../installed_toolchains/<channel>-<hash>
-/// |- installed_toolchains/
-/// | |- <channel>-<hash>/
+/// | |- <channel>  --> ../publications/<channel>-<publication-id>
+/// |- publications/
+/// | |- <channel>-<publication-id>/
+/// | | |- receipt.json
 /// | | |- bin/
 /// | | |- lib/
 /// | | | |- std.masp
 /// | | |- opt/
 /// | | |- var/
 /// |- config.toml
-/// |- manifest.json
+/// |- state.json
 /// ```
 ///
 /// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
 /// executable.
-pub fn setup_midenup(
-    config: &Config,
-    local_manifest: &Manifest,
-) -> Result<InitializationState, InitializationError> {
+pub fn setup_midenup(config: &Config) -> Result<InitializationState, InitializationError> {
     let mut state = InitializationState::AlreadyInitialized;
 
     let midenhome_dir = &config.midenup_home;
@@ -80,15 +76,10 @@ pub fn setup_midenup(
         })?;
         state = InitializationState::Initialized;
     }
-    let local_manifest_file = config.midenup_home.join("manifest").with_extension("json");
-    if !local_manifest_file.exists() {
-        std::fs::File::create(&local_manifest_file).map_err(|e| {
-            InitializationError::FileCreation(local_manifest_file.clone(), e.to_string())
-        })?;
-        state = InitializationState::Initialized;
-    }
+    // No `manifest.json` is written here. It was the v1 local manifest, replaced by `state.json`,
+    // and writing an empty one made every fresh installation look like a migration candidate.
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
+    let toolchains_dir = crate::paths::toolchains_dir(&config.midenup_home);
     if !toolchains_dir.exists() {
         std::fs::create_dir_all(&toolchains_dir).map_err(|e| {
             InitializationError::DirectoryCreation(toolchains_dir.clone(), e.to_string())
@@ -96,10 +87,10 @@ pub fn setup_midenup(
         state = InitializationState::Initialized;
     }
 
-    let installed_toolchains_dir = config.midenup_home.join("installed_toolchains");
-    if !installed_toolchains_dir.exists() {
-        std::fs::create_dir_all(&installed_toolchains_dir).map_err(|e| {
-            InitializationError::DirectoryCreation(installed_toolchains_dir.clone(), e.to_string())
+    let publications_dir = crate::paths::publications_dir(&config.midenup_home);
+    if !publications_dir.exists() {
+        std::fs::create_dir_all(&publications_dir).map_err(|e| {
+            InitializationError::DirectoryCreation(publications_dir.clone(), e.to_string())
         })?;
         state = InitializationState::Initialized;
     }
@@ -124,15 +115,25 @@ pub fn setup_midenup(
             state = InitializationState::Initialized;
         }
 
-        // We check if the `miden` executable is accessible via the $PATH. This is most certainly
-        // not going to be the case the first time `midenup` is initialized.
-        let miden_is_accessible = std::process::Command::new("miden")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .stdin(std::process::Stdio::null())
-            .arg("--version")
-            .output()
-            .is_ok();
+        // Is `miden` reachable through `$PATH`? Almost certainly not the first time midenup is
+        // initialized.
+        //
+        // Answered by *looking*, never by executing. Running `miden --version` to find out -- which
+        // is what this did -- executes whatever binary happens to be first on `PATH`, hands it this
+        // process's entire environment, and lets it do whatever it likes with the `MIDENUP_HOME`
+        // that environment names. During a test run it reached the developer's real installation;
+        // between two parallel runs it contended on that installation's advisory lock and blocked
+        // for the full ten-minute timeout.
+        let miden_is_accessible = std::env::var_os("PATH")
+            .map(|path| {
+                std::env::split_paths(&path).any(|dir| {
+                    let candidate = dir.join("miden");
+                    // `symlink_metadata`, not `exists`: the entry midenup itself installs is a
+                    // symlink, and a broken one is not reachable but does answer "is it there".
+                    std::fs::symlink_metadata(&candidate).is_ok() && candidate.exists()
+                })
+            })
+            .unwrap_or(false);
 
         if !miden_is_accessible {
             if std::env::var(DEFAULT_USER_DATA_DIR).is_err() {
@@ -164,9 +165,6 @@ source ~/.zprofile
             );
         }
     }
-
-    migration::run_toolchain_migration(config, local_manifest)
-        .map_err(InitializationError::Migration)?;
 
     Ok(state)
 }

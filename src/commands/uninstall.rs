@@ -1,214 +1,94 @@
-use std::{
-    ffi::OsStr,
-    io::Write,
-    path::{Path, PathBuf},
-};
-
 use anyhow::{Context, bail};
-use thiserror::Error;
 
 use crate::{
-    channel::{Channel, Component, InstalledFile},
+    channel::UserChannel,
     config::Config,
-    manifest::Manifest,
-    version::Authority,
+    paths,
+    publish::JournalEntry,
+    state::{LocalState, PublicationRef},
 };
 
-#[derive(Error, Debug)]
-pub enum UninstallError {
-    #[error("Couldn't delete file at: {0}. {1}")]
-    FailedToDeleteFile(PathBuf, String),
-    #[error("Failed to uninstall package: {0}, with status: {1}. {2}")]
-    FailedToUninstallPackage(String, i32, String),
-    #[error("Internal cargo error: {0}")]
-    InternalCargoError(String),
-    #[error(
-        "midenup failed to delete the install directory with error {0}.
-         However, manual removal should be safe. The install directory's PATH is the following:
-{1}"
-    )]
-    FailedToRemoveToolchainDirectory(String, PathBuf),
-}
-
+/// Removes an installed channel.
+///
+/// Uses the same journalled sequence as install (spec section 9.5), with one difference: the commit
+/// point replaces `toolchains/<channel>` with a **tombstone** rather than repointing it. That is
+/// what lets recovery tell a removal that was committed and interrupted apart from a toolchain
+/// somebody deleted by hand -- the first is completed, the second is reported.
+///
+/// The publication is removed wholesale. There is no per-component removal pass: the publication
+/// directory contains exactly what its receipt says it does and nothing else, so walking components
+/// to delete their files individually could only ever remove less than the directory itself.
+///
+/// `var/<channel>` is **kept** unless `purge` is given. It is the user's data -- the client's
+/// database lives there -- and removing a toolchain is not a request to delete it. The user is told
+/// where it was left.
 pub fn uninstall(
     config: &Config,
-    upstream_channel: &Channel,
-    local_manifest: &mut Manifest,
+    requested: &UserChannel,
+    state: &mut LocalState,
+    purge: bool,
 ) -> anyhow::Result<()> {
-    let Some(local_channel) = local_manifest.get_channel_by_name(&upstream_channel.name).cloned()
-    else {
-        bail!(
-            "Channel {} is not in the local manifest, nothing to uninstall.",
-            upstream_channel.name
-        );
+    // Resolved against local state, never upstream: a channel that has been withdrawn upstream is
+    // precisely one a user needs to be able to remove (spec section 12.3).
+    let installed = config.local_channel(requested, state).and_then(|version| state.get(&version));
+
+    let Some(installation) = installed else {
+        bail!("channel {requested} is not installed, nothing to uninstall");
+    };
+    let channel = installation.channel.clone();
+    let publication = match &installation.publication {
+        PublicationRef::Managed { id, .. } => Some(id.clone()),
+        // Carried over from v1: nothing describes what it owns, so there is no publication to
+        // reclaim. The state record still goes.
+        PublicationRef::NeedsReinstall => None,
     };
 
-    let toolchains_dir = config.midenup_home.join("toolchains");
-    let toolchain_symlink = toolchains_dir.join(format!("{}", &local_channel.name));
+    let home = &config.midenup_home;
+    let entry = JournalEntry::uninstall(channel.clone(), publication);
+    crate::publish::journal::prepare(home, &entry)?;
 
-    let installed_channel_dir = toolchain_symlink.canonicalize();
-
-    // We begin by removing the stable symlink. If uninstallation is
-    // stopped before removing the channel symlink, re-running
-    // `midenup install <channel>` will restore the file.
+    // `stable` is derived, so removing it before the commit costs nothing if the operation is
+    // discarded: the next install or update recomputes it from upstream.
     {
-        let stable_symlink = toolchains_dir.join("stable");
+        let toolchain_link = paths::toolchain_link(home, &channel);
+        let stable_symlink = paths::toolchains_dir(home).join("stable");
 
-        // Only remove the stable symlink if it actually points to the toolchain being uninstalled.
-        // This prevents removing a symlink that was just created for a migrated channel.
-        let symlink_points_to_this_channel = stable_symlink
+        // Only remove it if it actually points at the toolchain being uninstalled -- it may have
+        // just been created for a channel this one migrated into.
+        let points_here = stable_symlink
             .canonicalize()
             .ok()
-            .zip(toolchain_symlink.canonicalize().ok())
-            .map(|(a, b)| a == b)
+            .zip(toolchain_link.canonicalize().ok())
+            .map(|(stable, toolchain)| stable == toolchain)
             .unwrap_or(false);
 
-        if symlink_points_to_this_channel
-            // If it doesn't exist, that probably means that there was a previous
-            // uninstallation attempt that got interrumpted.
-            && stable_symlink.exists()
-        {
-            std::fs::remove_file(stable_symlink).context("Couldn't remove symlink")?;
+        if points_here && std::fs::symlink_metadata(&stable_symlink).is_ok() {
+            std::fs::remove_file(&stable_symlink)?;
         }
     }
 
-    // If cleanup is interrumpted, then `midenup clean` can be used to clean
-    // stale files.
-    if let Ok(installed_channel_dir) = installed_channel_dir {
-        uninstall_components(&installed_channel_dir, &local_channel.components)?;
+    // The commit point: after this the channel is uninstalled, and an interrupted run is completed
+    // rather than rolled back.
+    crate::publish::journal::commit_symlink(home, &entry)?;
 
-        // We now remove the install directory with all the remaining files.
-        std::fs::remove_dir_all(&installed_channel_dir).map_err(|e| {
-            UninstallError::FailedToRemoveToolchainDirectory(
-                e.to_string(),
-                installed_channel_dir.to_path_buf(),
-            )
-        })?;
-    }
+    // Removes the state record, reclaims the publication, clears the tombstone, deletes the
+    // journal.
+    crate::publish::journal::finish(home, &entry, state)?;
 
-    // We remove the symlink, thus making the channel unaccesible.
-    if toolchain_symlink.exists() {
-        std::fs::remove_file(&toolchain_symlink)?;
-    }
-
-    // We remove the channel from the local manifest.
-    // This is what *REALLY* marks the channel as uninstalled.
-    {
-        local_manifest.remove_channel(local_channel.name.clone());
-
-        let local_manifest_path = config.midenup_home.join("manifest").with_extension("json");
-        let mut local_manifest_file =
-            std::fs::File::create(&local_manifest_path).with_context(|| {
-                format!(
-                    "failed to create file for install script at '{}'",
-                    local_manifest_path.display()
-                )
-            })?;
-        local_manifest_file
-            .write_all(
-                serde_json::to_string_pretty(&local_manifest)
-                    .context("Couldn't serialize local manifest")?
-                    .as_bytes(),
-            )
-            .context("Couldn't create local manifest file")?;
-    }
-
-    Ok(())
-}
-
-pub fn uninstall_components(
-    install_dir: &Path,
-    components: &[Component],
-) -> Result<(), UninstallError> {
-    let (installed_libraries, installed_executables): (Vec<&Component>, Vec<&Component>) =
-        components
-            .iter()
-            .partition(|c| matches!(c.get_installed_file(), InstalledFile::Library { .. }));
-
-    for lib in installed_libraries {
-        println!("removing previous version of component {}", &lib.name);
-        let lib_path = install_dir.join("lib").join(lib.name.as_ref()).with_extension("masp");
-        // Only remove the file if it exists - treat inability to determine existence as
-        // non-existent
-        if lib_path.try_exists().unwrap_or(false) {
-            std::fs::remove_file(&lib_path)
-                .map_err(|err| UninstallError::FailedToDeleteFile(lib_path, err.to_string()))?;
-        }
-    }
-
-    for exe in installed_executables {
-        println!("removing previous version of component {}", &exe.name);
-        let opt_path = install_dir.join("opt").join(exe.get_symlink_name());
-        let _ = std::fs::remove_file(&opt_path);
-
-        // Artifacts are only stored in the local manifest if the component was
-        // *actually* installed via it.
-        if exe.artifacts.is_some() {
-            let bin_path = exe.get_installed_file().get_path_from(install_dir);
-            // Only remove the file if it exists - treat inability to determine existence as
-            // non-existent
-            if bin_path.try_exists().unwrap_or(false) {
-                std::fs::remove_file(&bin_path)
-                    .map_err(|err| UninstallError::FailedToDeleteFile(bin_path, err.to_string()))?;
-            }
+    // Only now, and only if asked. Deliberately after the commit: this is the one part of an
+    // uninstall that cannot be undone by reinstalling.
+    let var = paths::var_dir(home, &channel);
+    if var.is_dir() {
+        if purge {
+            std::fs::remove_dir_all(&var)
+                .with_context(|| format!("failed to remove '{}'", var.display()))?;
         } else {
-            match &exe.version {
-                Authority::Cargo { package, .. } => {
-                    let package_name = package.as_deref().unwrap_or(exe.name.as_ref());
-                    uninstall_executable(package_name, install_dir)?;
-                },
-                Authority::Git { crate_name, .. } => {
-                    uninstall_executable(crate_name, install_dir)?;
-                },
-                Authority::Path { crate_name, .. } => {
-                    uninstall_executable(crate_name, install_dir)?;
-                },
-            }
+            println!(
+                "kept your data for {channel} at {}; remove it with `midenup uninstall {channel} \
+                 --purge`",
+                var.display()
+            );
         }
-    }
-
-    Ok(())
-}
-
-pub fn uninstall_executable(name: &str, root_dir: impl AsRef<OsStr>) -> Result<(), UninstallError> {
-    let output = std::process::Command::new("cargo")
-        .arg("uninstall")
-        .arg(name)
-        .arg("--root")
-        .arg(&root_dir)
-        .output()
-        .map_err(|err| UninstallError::InternalCargoError(err.to_string()))?;
-
-    if !output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-
-        // If the uninstall failed because the component is already removed, then treat it as
-        // successful
-        if stdout.contains(&format!("package ID specification `{name}` did not match any packages"))
-        {
-            return Ok(());
-        }
-
-        let mut error = String::with_capacity(stdout.len() + stderr.len());
-        error.push_str("======= stdout =========\n");
-        if stdout.trim().is_empty() {
-            error.push_str(stdout.trim());
-            error.push('\n');
-        }
-        error.push_str("========================\n");
-        error.push_str("======= stderr =========\n");
-        if stderr.trim().is_empty() {
-            error.push_str(stderr.trim());
-            error.push('\n');
-        }
-        error.push_str("========================\n");
-
-        return Err(UninstallError::FailedToUninstallPackage(
-            name.to_string(),
-            output.status.code().unwrap_or(1),
-            error,
-        ));
     }
 
     Ok(())

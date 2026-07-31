@@ -1,17 +1,45 @@
-use std::{ffi::OsString, fmt::Display, string::ToString};
+use std::{collections::VecDeque, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Channel, CliCommands, Component, InstalledFile, resolve_command},
-    manifest::Manifest,
+    channel::Channel,
+    exec::{self, Executable, Resolver},
+    manifest::{Component, ComponentKind, ExecutableComponent},
+    state::LocalState,
     toolchain::Toolchain,
 };
 
+#[derive(Debug, thiserror::Error)]
+enum EnvironmentError {
+    #[error("invalid command '{command}': not a known alias or executable component")]
+    InvalidCommand { command: String },
+    #[error(
+        "the toolchain declared by this project defines an ambiguous alias: {reason}. Remove one \
+         of the components from your miden-toolchain.toml, or name the component directly."
+    )]
+    AmbiguousAlias { reason: String },
+    #[error("'{command}' requires a subcommand, one of: {}", available.join(", "))]
+    MissingSubcommand { command: String, available: Vec<String> },
+    #[error("invalid subcommand '{subcommand}' of '{command}', expected one of: {}", available.join(", "))]
+    InvalidSubcommand {
+        command: String,
+        subcommand: String,
+        available: Vec<String>,
+    },
+    #[error("invalid command '{component}': this names an executable component which is not directly callable, did you mean one of its aliases?: {}", available.join(", "))]
+    Hidden {
+        component: String,
+        available: Vec<String>,
+    },
+    #[error("invalid command '{component}': this names a non-executable component")]
+    NotExecutable { component: String },
+}
+
 /// These are the know help messages variants that midenup is aware of.
-enum HelpMessage {
+enum HelpMessage<'a> {
     /// Show the default help message, similar to the one you would get with clap's "--help" flag.
     Default,
     /// Show a help message specific to the current active [Toolchain].
@@ -27,42 +55,56 @@ enum HelpMessage {
     ///
     /// NOTE: This help message *could* trigger an install if the active [Toolchain] is not
     /// installed.
-    Resolve(String),
+    Resolve {
+        command: &'a str,
+        matches: &'a clap::ArgMatches,
+    },
 }
 
 /// The possible non-help commands that a user's input can be resolved into.
 #[derive(Debug)]
-enum MidenArgument {
+enum MidenArgument<'a> {
+    /// A command defined by a virtual component
+    Command {
+        component: &'a Component,
+        executable: &'a Executable,
+        matches: &'a clap::ArgMatches,
+    },
+    /// A subcommand of a command defined by a virtual component.
+    ///
+    /// Carries the component's `format` as well as the subcommand's own expansion: composition is
+    /// `format ++ subcommand ++ user args` (spec section 13.3), and dropping the prefix would
+    /// execute the subcommand's first word as though it were a program.
+    Subcommand {
+        component: &'a Component,
+        format: &'a Executable,
+        executable: &'a Executable,
+        /// What followed the subcommand. Owned, because it is the tail of a list clap handed us
+        /// rather than a nested `ArgMatches` of its own -- see `resolve_argument`.
+        rest: Vec<OsString>,
+    },
     /// The passed argument was an alias stored in the local [Manifest].
     ///
     /// [AliasResolution] represents the list of commands that need to be executed.
     ///
     /// NOTE: Some of these might need to get resolved.
-    Alias(Component, CliCommands),
-    /// The argument was the name of a component stored in the [Manifest].
-    Component(Component),
+    Alias {
+        component: &'a Component,
+        executable: &'a Executable,
+        matches: &'a clap::ArgMatches,
+    },
+    /// The argument was the name of an executable component stored in the [Manifest].
+    Component {
+        component: &'a Component,
+        spec: &'a ExecutableComponent,
+        matches: &'a clap::ArgMatches,
+    },
 }
 
 /// Struct containing the command to execute and the channel to execute it against.
 struct ExecutionEnvironment<'a> {
-    argument: MidenArgument,
+    argument: MidenArgument<'a>,
     active_channel: &'a Channel,
-}
-
-enum EnvironmentError {
-    UnknownArgument(String),
-    LibraryAsExecutable(String),
-    AliasOnly(String),
-}
-
-impl Display for EnvironmentError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &self {
-            EnvironmentError::UnknownArgument(err) => write!(f, "{err}"),
-            EnvironmentError::LibraryAsExecutable(err) => write!(f, "{err}"),
-            EnvironmentError::AliasOnly(err) => write!(f, "{err}"),
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -85,6 +127,7 @@ enum ChannelType {
     Installed,
     Active,
 }
+
 impl<'a> ToolchainEnvironment<'a> {
     fn new(installed_channel: &'a Channel, active_channel: Option<Channel>) -> Self {
         ToolchainEnvironment { installed_channel, active_channel }
@@ -104,12 +147,35 @@ impl<'a> ToolchainEnvironment<'a> {
 
     /// Parses the user's input and returns the required [ExecutionEnvironment] to execute the
     /// requested command.
-    fn resolve(&self, argument: String) -> Result<ExecutionEnvironment<'_>, EnvironmentError> {
+    fn resolve(
+        &'a self,
+        argument: &'a str,
+        matches: &'a clap::ArgMatches,
+    ) -> Result<ExecutionEnvironment<'a>, EnvironmentError> {
+        // Alias conflicts are scoped to the view (spec section 8.5).
+        //
+        // Within the active view a conflict is a real ambiguity: this project asked for both
+        // components, and `miden <alias>` has no defensible answer. Across the *superset* it is
+        // not: the installed set accretes components from every project that ever activated this
+        // channel, so two components no project uses together could otherwise make every single
+        // command fail. That one is a warning, and the component in the view wins by being
+        // resolved first.
+        if let Some(active_channel) = self.active_channel.as_ref() {
+            active_channel
+                .get_aliases()
+                .map_err(|err| EnvironmentError::AmbiguousAlias { reason: err.to_string() })?;
+        } else if let Err(err) = self.installed_channel.get_aliases() {
+            eprintln!(
+                "{}: {err}. Naming the component directly resolves it unambiguously.",
+                "warning".yellow().bold()
+            );
+        }
+
         // Local function that tries to parse an argument given a channel's state.
         let fallback_motive = if let Some(active_channel) = self.active_channel.as_ref() {
-            match resolve_argument(active_channel, &argument) {
+            match resolve_argument(active_channel, argument, matches) {
                 Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
-                Err(EnvironmentError::UnknownArgument(_)) => {
+                Err(EnvironmentError::InvalidCommand { .. }) => {
                     FallbackMotive::ArgumentNotInActiveChannel
                 },
                 Err(e) => return Err(e),
@@ -118,25 +184,29 @@ impl<'a> ToolchainEnvironment<'a> {
             FallbackMotive::NoActiveChannel
         };
 
-        // We know try to resolve the argument with the installed channel.
+        // We now try to resolve the argument with the installed channel.
         {
-            let miden_argument = resolve_argument(self.installed_channel, &argument)?;
+            let miden_argument = resolve_argument(self.installed_channel, argument, matches)?;
 
             let not_found_in_active =
                 matches!(fallback_motive, FallbackMotive::ArgumentNotInActiveChannel);
 
             let warning_message = match (&miden_argument, not_found_in_active) {
-                (MidenArgument::Alias(comp, _), true) => Some(format!(
-                    "{}: {} is an alias from component {}, which is installed but is not part of \
-                     the current active toolchain.",
+                (MidenArgument::Alias { component, .. }, true) => Some(format!(
+                    "{}: '{argument}' is an alias from component {}, which is installed but is \
+                     not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
-                    argument,
-                    comp.name,
+                    component.name,
                 )),
-                (MidenArgument::Component(comp), true) => Some(format!(
-                    "{}: {} is installed, but it is not part of the current active toolchain.",
+                (
+                    MidenArgument::Command { component, .. }
+                    | MidenArgument::Subcommand { component, .. }
+                    | MidenArgument::Component { component, .. },
+                    true,
+                ) => Some(format!(
+                    "{}: '{}' is installed, but it is not part of the current active toolchain.",
                     "WARNING".yellow().bold(),
-                    comp.name,
+                    component.name,
                 )),
                 _ => None,
             };
@@ -156,12 +226,7 @@ impl<'a> ToolchainEnvironment<'a> {
             .0
             .components
             .iter()
-            .filter(|c| {
-                matches!(
-                    c.get_installed_file(),
-                    InstalledFile::Executable { binary_name: _, alias_only: false }
-                )
-            })
+            .filter(|c| c.is_callable())
             .map(|c| format!("  {}\n", c.name.bold()))
             .collect::<String>()
     }
@@ -171,10 +236,9 @@ impl<'a> ToolchainEnvironment<'a> {
             .0
             .components
             .iter()
-            .filter_map(|comp| match comp.get_installed_file() {
-                InstalledFile::Library { library_name, .. } => {
-                    let display_name = format!("  {}\n", library_name);
-                    Some(display_name)
+            .filter_map(|comp| match comp.kind() {
+                ComponentKind::Package | ComponentKind::LegacyPackage { .. } => {
+                    Some(comp.name.as_ref())
                 },
                 _ => None,
             })
@@ -182,22 +246,23 @@ impl<'a> ToolchainEnvironment<'a> {
     }
 
     fn get_aliases_display(&self) -> String {
-        let aliases = self.get_active_channel().0.get_aliases();
-        let mut keys: Vec<_> = aliases.keys().collect();
-        keys.sort();
-        keys.iter().map(|alias| format!("  {}\n", alias.bold())).collect::<String>()
+        let aliases = self.get_active_channel().0.get_alias_names();
+        aliases
+            .into_iter()
+            .map(|alias| format!("  {}\n", alias.bold()))
+            .collect::<String>()
     }
 }
 
 /// These are the possible types of subcommands that `miden` is aware of.
-enum MidenSubcommand {
+enum MidenSubcommand<'a> {
     /// Aliases that correspond to a tuple of a known component + a set of prefixed arguments.
     ///
     /// For more information, see [MidenAliases].
     ///
     /// NOTE: With the exception of [`HelpMessage::Default`], this command *could* trigger an
     /// install if the active [Toolchain] is not installed.
-    Help(HelpMessage),
+    Help(HelpMessage<'a>),
     /// Displays midenup cargo version ang git revision hash.
     Version,
     /// The user passed in a subcommand that needs to be resolved using the currently active
@@ -211,7 +276,10 @@ enum MidenSubcommand {
     /// If it's none of those, then we error out.
     ///
     /// NOTE: This command *could* trigger an install if the active [Toolchain] is not installed.
-    Resolve(String),
+    Resolve {
+        command: &'a str,
+        matches: &'a clap::ArgMatches,
+    },
 }
 
 /// Identifies the `--help` flag argument in clap
@@ -247,7 +315,7 @@ fn build_miden_command() -> clap::Command {
 }
 
 /// Converts clap [ArgMatches] into a [MidenSubcommand].
-fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand {
+fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand<'_> {
     if matches.get_flag(CLAP_HELP_FLAG) {
         return MidenSubcommand::Help(HelpMessage::Default);
     }
@@ -262,11 +330,16 @@ fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand {
                 // `miden help toolchain`.
                 Some("toolchain") => MidenSubcommand::Help(HelpMessage::Toolchain),
                 // `miden help <alias/component>`.
-                Some(other) => MidenSubcommand::Help(HelpMessage::Resolve(other.to_string())),
+                Some(other) => MidenSubcommand::Help(HelpMessage::Resolve {
+                    command: other,
+                    matches: sub_matches,
+                }),
             }
         },
         // `miden <alias/compoent>`.
-        Some((comp_or_alias, _)) => MidenSubcommand::Resolve(comp_or_alias.to_string()),
+        Some((comp_or_alias, matches)) => {
+            MidenSubcommand::Resolve { command: comp_or_alias, matches }
+        },
         // `miden` alone.
         None => MidenSubcommand::Help(HelpMessage::Default),
     }
@@ -275,14 +348,11 @@ fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand {
 pub fn miden_wrapper(
     argv: &[OsString],
     config: &Config,
-    local_manifest: &mut Manifest,
+    state: &mut LocalState,
 ) -> anyhow::Result<()> {
     let matches = build_miden_command().get_matches_from(argv);
 
     let parsed_subcommand = parse_matches(&matches);
-
-    // Used in error messages further down.
-    let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
 
     // NOTE: We handle these case first to avoid triggering an install when help related commands
     // are run.
@@ -300,15 +370,21 @@ pub fn miden_wrapper(
 
     // Make sure we know the current toolchain so we can modify the PATH appropriately
     let (toolchain, _justification, partial_channel) =
-        Toolchain::ensure_current_is_installed(config, local_manifest)?;
+        Toolchain::ensure_current_is_installed(config, state)?;
 
-    let toolchain_environment = {
-        let installed_channel = local_manifest
-            .get_channel(&toolchain.channel)
-            .context("Couldn't find active toolchain in the manifest.")?;
-
-        ToolchainEnvironment::new(installed_channel, partial_channel)
+    // Resolved entirely from local state. `state.json` records what is installed, and
+    // `toolchains/stable` records the last answer upstream gave about what `stable` means, so
+    // dispatch never needs the network to find its own toolchain (spec section 13.1).
+    let installed_channel = {
+        let active = config
+            .local_channel(&toolchain.channel, state)
+            .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
+        state
+            .get(&active)
+            .map(|installation| installation.as_channel())
+            .with_context(|| format!("channel '{active}' is not installed"))?
     };
+    let toolchain_environment = ToolchainEnvironment::new(&installed_channel, partial_channel);
 
     // Whether the user requested help for a specific alias or component (e.g. `miden help
     // compile`). If true, we append "--help" to the resolved command's arguments further down.
@@ -321,51 +397,85 @@ pub fn miden_wrapper(
 
             return Ok(());
         },
-        MidenSubcommand::Help(HelpMessage::Resolve(_)) => true,
+        MidenSubcommand::Help(HelpMessage::Resolve { .. }) => true,
         _ => false,
     };
 
     // We obtain the target executable and prefixes that are associated with the passed subcommand.
-    let (target_exe, prefix_args, active_channel) = match parsed_subcommand {
+    let (target_exe, args, active_channel) = match parsed_subcommand {
         MidenSubcommand::Version
         | MidenSubcommand::Help(HelpMessage::Default)
         | MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
         // Resolution, either for help or for actual execution is the same. The only difference is
         // wheter we append "--help" at the end and if we process additional arguments.
-        MidenSubcommand::Help(HelpMessage::Resolve(resolve))
-        | MidenSubcommand::Resolve(resolve) => {
-            match toolchain_environment.resolve(resolve.clone()) {
-                Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Alias(component, alias_resolutions),
-                    active_channel,
-                }) => {
-                    let commands =
-                        resolve_command(&alias_resolutions, active_channel, &component, config)?;
+        MidenSubcommand::Help(HelpMessage::Resolve {
+            command: resolve,
+            matches: subcommand_matches,
+        })
+        | MidenSubcommand::Resolve {
+            command: resolve,
+            matches: subcommand_matches,
+        } => {
+            match toolchain_environment.resolve(resolve, subcommand_matches) {
+                Ok(environment) => {
+                    let active_channel = environment.active_channel;
+                    let resolver = resolver_for(config, active_channel);
 
-                    // SAFETY: Safe under the assumption that every alias has an associated command.
-                    let mut commands = std::collections::VecDeque::from(commands);
-                    let command = commands.pop_front().unwrap();
-                    let aliased_arguments = commands;
+                    // Since we're using "allow_external_subcommands" all the remaining arguments
+                    // are stored in the empty string "".
+                    // Source: https://docs.rs/clap/latest/clap/struct.Command.html#method.allow_external_subcommands
+                    let user_args = |matches: &clap::ArgMatches| -> Vec<OsString> {
+                        let mut args: Vec<OsString> =
+                            requested_help.then(|| OsString::from("--help")).into_iter().collect();
+                        if let Some(extra) = matches.get_many::<OsString>("") {
+                            args.extend(extra.cloned());
+                        }
+                        args
+                    };
 
-                    (command, aliased_arguments, active_channel)
+                    let argv = match environment.argument {
+                        MidenArgument::Subcommand { component, format, executable, rest } => {
+                            let mut args: Vec<OsString> = requested_help
+                                .then(|| OsString::from("--help"))
+                                .into_iter()
+                                .collect();
+                            args.extend(rest);
+
+                            exec::compose(component, format, Some(executable), args, &resolver)?
+                        },
+                        MidenArgument::Command { component, executable, matches }
+                        | MidenArgument::Alias { component, executable, matches } => exec::compose(
+                            component,
+                            executable,
+                            None,
+                            user_args(matches),
+                            &resolver,
+                        )?,
+                        MidenArgument::Component { component, spec, matches } => {
+                            let format = spec
+                                .call_format
+                                .clone()
+                                .unwrap_or_else(Executable::default_call_format);
+                            exec::compose(component, &format, None, user_args(matches), &resolver)?
+                        },
+                    };
+
+                    let mut argv = VecDeque::from(argv);
+                    let arg0 = argv.pop_front().expect("composition never yields an empty argv");
+                    (arg0, Vec::from(argv), active_channel)
                 },
-                Ok(ExecutionEnvironment {
-                    argument: MidenArgument::Component(component),
-                    active_channel,
-                }) => {
-                    let mut call_convention = std::collections::VecDeque::from(resolve_command(
-                        &component.get_call_format(),
-                        active_channel,
-                        &component,
-                        config,
-                    )?);
-
-                    // SAFETY: Safe under the assumption that every call_format has at least one
-                    // argument
-                    let command = call_convention.pop_front().unwrap();
-                    let args = call_convention;
-
-                    (command, args, active_channel)
+                // `miden help <command>` on a component whose verbs live in `subcommands` has
+                // exactly one useful answer, and it is the list. Reporting "requires a subcommand"
+                // as a failure would be telling the user what they asked to be told, and exiting
+                // non-zero for it.
+                Err(EnvironmentError::MissingSubcommand { command, available })
+                    if requested_help =>
+                {
+                    println!("{}", format!("Subcommands of `miden {command}`:").bold());
+                    for subcommand in available {
+                        println!("  {subcommand}");
+                    }
+                    return Ok(());
                 },
                 Err(err) => {
                     let help_message = toolchain_help(&toolchain_environment);
@@ -381,34 +491,21 @@ pub fn miden_wrapper(
         },
     };
 
-    // This is either --help in case the user requested for help or the
-    // remaining arguments passed by the user.
-    let remaining_args = if requested_help {
-        vec![std::ffi::OsStr::new("--help").to_os_string()]
-    } else {
-        matches
-        .subcommand()
-        // Since we're using "allow_external_subcommands" all the remaining
-        // arguments are stored in the empty string "".
-        // Source: https://docs.rs/clap/latest/clap/struct.Command.html#method.allow_external_subcommands
-        .and_then(|(_, sub_matches)| sub_matches.get_many::<OsString>(""))
-        .map(|vals| vals.map(OsString::clone).collect())
-        .unwrap_or_default()
-    };
-
-    let args = prefix_args.into_iter().chain(remaining_args).collect::<Vec<_>>();
-
-    let mut command = config
-        .execute_command(active_channel, &target_exe, &args)
-        .with_context(|| format!("failed to run '{user_input}'"))?;
+    let mut command =
+        config.execute_command(active_channel, &target_exe, &args).with_context(|| {
+            let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+            format!("failed to run '{user_input}'")
+        })?;
 
     let status = command.wait().with_context(|| {
+        let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
         format!("error occurred while waiting for '{user_input}' to finish executing")
     })?;
 
     if status.success() {
         Ok(())
     } else {
+        let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
         bail!("'{}' failed with status {}", user_input, status.code().unwrap_or(1))
     }
 }
@@ -422,7 +519,7 @@ pub fn display_version(config: &Config) -> String {
 
     let midenup_version = env!(
         "CARGO_PKG_VERSION",
-        "CARGO_PKG_VERSION environment variable not set.This should be set by cargo by default; \
+        "CARGO_PKG_VERSION environment variable not set. This should be set by cargo by default; \
          however, if not, it can be manually set using the `version` field in the Cargo.toml file"
     );
     let cargo_version = {
@@ -446,10 +543,11 @@ pub fn display_version(config: &Config) -> String {
 
     let toolchain_version = Toolchain::current(config)
         .and_then(|(toolchain, _)| {
+            // `midenup --version` is informational and must not reach for the network.
+            let state = config.local_state()?;
             config
-                .manifest
-                .get_channel(&toolchain.channel)
-                .map(|channel| channel.name.to_string())
+                .local_channel(&toolchain.channel, &state)
+                .map(|channel| channel.to_string())
                 .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
         })
         .inspect_err(|err| {
@@ -545,47 +643,127 @@ fn default_help() -> String {
 }
 
 /// Function that tries to resolve `argument` inside the `channel`.
-fn resolve_argument(channel: &Channel, argument: &str) -> Result<MidenArgument, EnvironmentError> {
-    let mut resolution = Err(EnvironmentError::UnknownArgument(format!(
-        "Failed to resolve '{}': Neither known alias or component.",
-        argument
-    )));
+/// Where this invocation's `%`-expressions resolve to.
+///
+/// Built once, from the active publication and this channel's `var/`, so that every expression in
+/// every alias of one invocation resolves against the same toolchain.
+fn resolver_for(config: &Config, channel: &Channel) -> Resolver {
+    Resolver::new(
+        crate::paths::toolchain_link(&config.midenup_home, &channel.name),
+        &config.midenup_home,
+        &channel.name,
+    )
+}
 
+fn resolve_argument<'a>(
+    channel: &'a Channel,
+    argument: &'a str,
+    matches: &'a clap::ArgMatches,
+) -> Result<MidenArgument<'a>, EnvironmentError> {
     for comp in channel.components.iter() {
-        if let Some(associated_command) = comp.aliases.get(argument) {
-            return Ok(MidenArgument::Alias(comp.clone(), associated_command.to_owned()));
-        } else if comp.name == argument {
-            match comp.get_installed_file() {
-                InstalledFile::Executable { alias_only: false, binary_name: _ } => {
-                    resolution = Ok(MidenArgument::Component(comp.clone()));
-                    break;
-                },
-                InstalledFile::Executable { alias_only: true, binary_name: _ } => {
-                    let aliases = comp
-                        .aliases
-                        .keys()
-                        .map(|alias| format!("'{}'", alias))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    resolution = Err(EnvironmentError::AliasOnly(format!(
-                        "'{}' is not intended to be called via 'miden', but rather by its \
-                         aliases: {aliases}",
-                        comp.name
-                    )));
-                    break;
-                },
-                InstalledFile::Library { library_name, library_struct: _ } => {
-                    return Err(EnvironmentError::LibraryAsExecutable(format!(
-                        "'{}' installs the {} library. It is not intended to be executed as a \
-                         binary.",
-                        comp.name, library_name
-                    )));
-                },
-            }
+        match comp.kind() {
+            // Defines no commands or aliases this build can resolve.
+            ComponentKind::Unsupported { .. } => continue,
+            ComponentKind::Command {
+                command_name: name,
+                format,
+                aliases,
+                subcommands,
+            } => {
+                let name = name.as_deref().unwrap_or(comp.name.as_ref());
+                if name == argument {
+                    if subcommands.is_empty() {
+                        return Ok(MidenArgument::Command {
+                            component: comp,
+                            executable: format,
+                            matches,
+                        });
+                    }
+
+                    // The subcommand is the first *user* argument, not a nested clap subcommand.
+                    // `miden` allows external subcommands, so clap parses `miden node up` as the
+                    // external subcommand `node` with `up` in its trailing-argument bucket and
+                    // never descends further. Reading `matches.subcommand()` here therefore always
+                    // saw `None`: every declared subcommand map was dead, and the shipped `node`
+                    // component -- whose `format` is empty and whose verbs live entirely in that
+                    // map -- composed `miden node up` into an attempt to execute `up`.
+                    let mut user = matches.get_many::<OsString>("").into_iter().flatten();
+
+                    let Some(requested) = user.next() else {
+                        return Err(EnvironmentError::MissingSubcommand {
+                            command: name.to_string(),
+                            available: subcommands.keys().cloned().collect(),
+                        });
+                    };
+                    let requested = requested.to_string_lossy().into_owned();
+
+                    return match subcommands.get(&requested) {
+                        Some(exe) => Ok(MidenArgument::Subcommand {
+                            component: comp,
+                            format,
+                            executable: exe,
+                            rest: user.cloned().collect(),
+                        }),
+                        None => Err(EnvironmentError::InvalidSubcommand {
+                            command: name.to_string(),
+                            subcommand: requested,
+                            available: subcommands.keys().cloned().collect(),
+                        }),
+                    };
+                } else if let Some(aliased) = aliases.get(argument) {
+                    return Ok(MidenArgument::Alias {
+                        component: comp,
+                        executable: aliased,
+                        matches,
+                    });
+                }
+            },
+            ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. }
+                if spec.hide =>
+            {
+                if let Some(aliased) = spec.aliases.get(argument) {
+                    return Ok(MidenArgument::Alias {
+                        component: comp,
+                        executable: aliased,
+                        matches,
+                    });
+                }
+            },
+            ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. } => {
+                if comp.name.as_ref() == argument {
+                    return Ok(MidenArgument::Component { component: comp, spec, matches });
+                } else if let Some(aliased) = spec.aliases.get(argument) {
+                    return Ok(MidenArgument::Alias {
+                        component: comp,
+                        executable: aliased,
+                        matches,
+                    });
+                }
+            },
+            ComponentKind::Package | ComponentKind::LegacyPackage { .. } | ComponentKind::Asset => {
+            },
         }
     }
 
-    resolution
+    if let Some(comp) = channel.get_component(argument) {
+        match comp.kind() {
+            ComponentKind::Command { .. } => unreachable!(),
+            ComponentKind::Unsupported { .. } => {
+                return Err(EnvironmentError::NotExecutable { component: comp.name.to_string() });
+            },
+            ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. } => {
+                return Err(EnvironmentError::Hidden {
+                    component: comp.name.to_string(),
+                    available: spec.aliases.keys().cloned().collect(),
+                });
+            },
+            ComponentKind::Package | ComponentKind::LegacyPackage { .. } | ComponentKind::Asset => {
+                return Err(EnvironmentError::NotExecutable { component: comp.name.to_string() });
+            },
+        }
+    }
+
+    Err(EnvironmentError::InvalidCommand { command: argument.to_string() })
 }
 
 /// Why the active channel falls back on the installed channel.

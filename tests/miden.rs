@@ -9,6 +9,7 @@ use common::*;
 /// not installed, and then installing it before executing the passed in command.
 #[test]
 fn integration_miden_test() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_miden_test";
     let test_env = environment_setup(test_name);
 
@@ -24,7 +25,7 @@ fn integration_miden_test() {
     // case of the manifest present in FILE, that is version 0.16.0.
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
     // After this, `midenup` should:
@@ -54,14 +55,14 @@ fn integration_miden_test() {
     // to 0.15.0.
     let command = Midenup::try_parse_from(["midenup", "override", "0.15.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to override toolchain");
 
     // This should also trigger an install, since toolchain 0.15.0 is missing and is now the
     // active toolchain.
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
     let older_toolchain = toolchain_dir.join("0.15.0");
@@ -74,13 +75,13 @@ fn integration_miden_test() {
     // the manifest present in FILE, that is version 0.16.0.
     let command = Midenup::try_parse_from(["midenup", "set", "0.14.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to set local toolchain");
 
     // This should also trigger an install, since toolchain 0.14.0 is now missing
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
     let oldest_toolchain = toolchain_dir.join("0.14.0");
@@ -96,7 +97,9 @@ fn integration_miden_test() {
     // Besides creating the various directories, the local manifest should also reflect this
     // structure
     local_manifest
-        .get_channels()
+        .installations
+        .iter()
+        .map(|i| i.as_channel())
         .map(|channel| channel.name.clone())
         .eq(installed_toolchains);
 }
@@ -111,6 +114,7 @@ fn integration_miden_test() {
 /// - recognize if the list gets expanded and install the missing components
 #[test]
 fn integration_miden_toolchain_toml() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "integration_miden_toolchain_toml";
     let test_env = environment_setup(test_name);
 
@@ -126,7 +130,7 @@ fn integration_miden_toolchain_toml() {
     // left empty.
     let command = Midenup::try_parse_from(["midenup", "set", "0.16.0"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to set local toolchain");
 
     // There should now be a `miden-toolchain.toml` file in the PWD.
@@ -136,14 +140,13 @@ fn integration_miden_toolchain_toml() {
     // `miden` should now install the minimal profile components for 0.16.0
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
     let toolchain_dir = test_env.midenup_home.join("toolchains");
     assert!(toolchain_dir.exists());
 
-    let installed_channel =
-        local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
+    let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
     assert_eq!(installed_channel.components.len(), 1);
 
     // Now, we'll add the optional debugger component to the list.
@@ -156,37 +159,37 @@ fn integration_miden_toolchain_toml() {
     // - The core library as it is a dependency for the debugger
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
-    let installed_channel = local_manifest
-        .get_channel_by_name(&semver::Version::new(0, 16, 0))
-        .unwrap()
-        .clone();
+    let installed_channel =
+        local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap().as_channel();
 
     // VM, debugger and core library
     assert_eq!(installed_channel.components.len(), 3);
 
-    // Now, we try updating the installed toolchain. This should only update the installed
-    // components and ignore the rest.
+    // Now, we try updating the installed toolchain. An update re-resolves the *recorded* intent,
+    // which is `minimal` plus the project's `debug`, so it must not pull in anything else.
     let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update stable toolchain");
 
     // No components should have been added
+    let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
     assert_eq!(installed_channel.components.len(), 3);
 
-    // Finally, we attempt to install the entire stable toolchain, which should install the
-    // remaining components.
-    let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
+    // Finally, we install the entire stable toolchain. This needs `--profile complete`: an install
+    // without one records the *minimal* profile, and would shrink the installation rather than
+    // grow it (spec section 8.1 -- a direct install replaces intent).
+    let command =
+        Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable toolchain");
 
     // Now, the entire toolchain should be installed
-    let installed_channel =
-        local_manifest.get_channel_by_name(&semver::Version::new(0, 16, 0)).unwrap();
+    let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
     assert_eq!(installed_channel.components.len(), 4);
 }
 
@@ -195,6 +198,7 @@ fn integration_miden_toolchain_toml() {
 #[test]
 #[should_panic]
 fn integration_midenup_catches_installation_failure() {
+    let _guard = common::harness::mutating_test_guard();
     let test_name = "midenup_catches_installation_failure";
     let test_env = environment_setup(test_name);
 
@@ -206,9 +210,65 @@ fn integration_midenup_catches_installation_failure() {
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     command
-        .execute_with_manifest(&config, &mut local_manifest)
+        .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
     // After install is executed, the local manifest should be present
     let manifest = test_env.midenup_home.join("manifest").with_extension("json");
     assert!(manifest.exists());
+}
+
+/// Two projects on one channel must not take components away from each other.
+///
+/// This is the whole point of recording intent as a union: activating a project's toolchain file
+/// adds what that project needs, but a project asking for *less* must never shrink the shared
+/// installation. A direct `midenup install` is the only thing allowed to shrink it.
+#[test]
+fn integration_activation_unions_intent_across_projects() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_activation_unions_intent");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let channel = semver::Version::new(0, 15, 0);
+
+    // Project A wants the `assets` component on top of the minimal profile.
+    let mut options = midenup::options::InstallationOptions {
+        profile: midenup::profile::Profile::Minimal,
+        components: vec!["assets".to_string()],
+        ..Default::default()
+    };
+    let upstream = config
+        .upstream_manifest()
+        .unwrap()
+        .get_channel_by_name(&channel)
+        .unwrap()
+        .clone();
+    midenup::commands::install(&config, &upstream, &mut state, &options)
+        .expect("failed to install for project A");
+
+    assert!(state.get(&channel).unwrap().intent.roots.contains("assets"));
+
+    // Project B activates with only the minimal profile -- expressed here as the union that
+    // activation performs. It must not remove project A's component.
+    options.intent_update = Some(midenup::options::IntentUpdate::Union(
+        midenup::resolve::Intent::new(&[midenup::profile::Profile::Minimal], &[]),
+    ));
+    options.components = Vec::new();
+    midenup::commands::install(&config, &upstream, &mut state, &options)
+        .expect("failed to activate for project B");
+
+    assert!(
+        state.get(&channel).unwrap().intent.roots.contains("assets"),
+        "activating a project that wants less must not drop another project's component"
+    );
+
+    // A direct install, by contrast, states what the user wants now -- and may shrink.
+    options.intent_update = None;
+    midenup::commands::install(&config, &upstream, &mut state, &options)
+        .expect("failed to install directly");
+
+    assert!(
+        !state.get(&channel).unwrap().intent.roots.contains("assets"),
+        "a direct install replaces intent, so it is allowed to shrink"
+    );
 }

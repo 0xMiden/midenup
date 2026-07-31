@@ -5,7 +5,7 @@ use crate::{
     channel::UserChannel,
     commands,
     config::Config,
-    manifest::Manifest,
+    state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
     utils,
 };
@@ -17,10 +17,10 @@ use crate::{
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 pub fn r#override(
     config: &Config,
-    local_manifest: &Manifest,
+    _state: &LocalState,
     channel: &UserChannel,
 ) -> anyhow::Result<()> {
-    commands::setup_midenup(config, local_manifest)?;
+    commands::setup_midenup(config)?;
 
     // We check which toolchain is active in order to inform the user in case the `override` command
     // won't take effect.
@@ -33,7 +33,7 @@ pub fn r#override(
         // always be using the stable toolchain, even after updates occur.
         UserChannel::Stable => toolchains_dir.join("stable"),
         _ => {
-            let inner_channel = config.manifest.get_channel(channel).context(
+            let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
                 "failed to set {channel} as the system default. Try installing it:
         midenup install {channel}",
             )?;

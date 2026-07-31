@@ -6,8 +6,9 @@ use std::{
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
-    channel::{self, Component, UserChannel},
-    manifest::Manifest,
+    channel::{self, UserChannel},
+    manifest::{Component, ComponentKind, Manifest, VersionedManifest},
+    profile::Profile,
     version::Authority,
 };
 
@@ -31,7 +32,11 @@ enum Command {
     /// Check that the manifest is valid
     Check,
     /// Format the manifest
-    Format,
+    Format {
+        /// Writes the formatted manifest to stdout, rather than rewriting the file
+        #[arg(long, default_value_t = false)]
+        stdout: bool,
+    },
     /// Updates the timestamp of the manifest to the current time in UTC
     Touch,
     /// Clone the a toolchain to a new toolchain for further modification
@@ -54,15 +59,15 @@ enum Command {
         /// The version/authority of the new component
         #[arg(long, value_name = "SPEC", value_parser)]
         authority: Authority,
-        /// If provided, sets the rustup channel required by this component
-        #[arg(long, value_name = "VERSION")]
-        rustup_channel: Option<String>,
-        /// The set of other components implicitly required by this component
+        /// The component kind and associated metadata
+        #[arg(long, value_name = "SPEC", value_parser)]
+        kind: ComponentKind,
+        /// Profiles that should include this component by default
+        #[arg(long = "profile", value_name = "PROFILE", value_parser)]
+        profiles: Vec<Profile>,
+        /// Specify other components this component implicitly requires
         #[arg(long, value_delimiter = ',', value_name = "VERSION")]
         requires: Vec<String>,
-        /// The set of Cargo features required to build/install this component
-        #[arg(long, value_delimiter = ',', value_name = "VERSION")]
-        features: Vec<String>,
     },
     /// Remove a component from a toolchain
     RemoveComponent {
@@ -83,9 +88,24 @@ enum Command {
         /// Updates the version/authority of the component
         #[arg(long, value_name = "SPEC", value_parser)]
         authority: Authority,
-        /// Marks this component as optional
+        /// The component kind and associated metadata, as a JSON merge patch
+        ///
+        /// The parser is explicit because clap resolves `serde_json::Value` through its
+        /// `From<String>` impl -- which yields `Value::String` -- before ever considering
+        /// `FromStr`. A string patch then *replaces* the target under RFC 7386 rather than
+        /// merging into it.
+        #[arg(long, value_name = "SPEC", value_parser = parse_json_object)]
+        kind: Option<serde_json::Value>,
+        /// Adds profiles that should include this component by default
         #[arg(long, value_name = "SPEC", value_parser)]
-        optional: Option<bool>,
+        profiles: Vec<Profile>,
+        #[arg(
+            hide(true),
+            long,
+            default_value = "true",
+            default_value_if("profiles", ArgPredicate::IsPresent, Some("false"))
+        )]
+        keep_existing_profiles: bool,
         /// Adds other components as implicitly required by this component
         #[arg(long, value_delimiter = ',', value_name = "VERSION")]
         requires: Vec<String>,
@@ -96,17 +116,27 @@ enum Command {
             default_value_if("requires", ArgPredicate::IsPresent, Some("false"))
         )]
         keep_existing_requires: bool,
-        /// Adds Cargo features required to build/install this component
-        #[arg(long, value_delimiter = ',', value_name = "VERSION")]
-        features: Vec<String>,
-        #[arg(
-            hide(true),
-            long,
-            default_value = "true",
-            default_value_if("features", ArgPredicate::IsPresent, Some("false"))
-        )]
-        keep_existing_features: bool,
     },
+}
+
+/// Parses a CLI argument as a JSON object.
+fn parse_json_object(raw: &str) -> Result<serde_json::Value, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(raw).map_err(|err| format!("invalid JSON: {err}"))?;
+    if !value.is_object() {
+        return Err(format!(
+            "expected a JSON object, got {}",
+            match &value {
+                serde_json::Value::Null => "null",
+                serde_json::Value::Bool(_) => "a boolean",
+                serde_json::Value::Number(_) => "a number",
+                serde_json::Value::String(_) => "a string",
+                serde_json::Value::Array(_) => "an array",
+                serde_json::Value::Object(_) => unreachable!(),
+            }
+        ));
+    }
+    Ok(value)
 }
 
 fn main() -> ExitCode {
@@ -119,7 +149,9 @@ fn main() -> ExitCode {
     match cli.execute() {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("error: {err}");
+            // `{err:#}` renders the whole context chain. Plain `{err}` prints only the outermost
+            // message, which routinely reduced a precise diagnostic to "failed to write manifest".
+            eprintln!("error: {err:#}");
             ExitCode::FAILURE
         },
     }
@@ -127,10 +159,33 @@ fn main() -> ExitCode {
 
 impl Cli {
     fn execute(&self) -> anyhow::Result<()> {
-        let mut manifest = Manifest::load_from_file(&self.manifest_path)?;
+        let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
         match &self.command {
-            Command::Check => Ok(()),
-            Command::Format => write_manifest(&manifest, &self.manifest_path),
+            Command::Check => {
+                // Structural validation first: it reports every problem in one pass, which is
+                // what an authoring tool should do. Loading the manifest does NOT run this --
+                // see the module docs on src/manifest/validate.rs.
+                if let Err(errors) = midenup::manifest::validate::validate_manifest(&manifest) {
+                    for error in errors.iter() {
+                        eprintln!("error: {error}");
+                    }
+                    bail!("manifest failed validation with {} error(s)", errors.len());
+                }
+
+                // Then confirm each channel actually resolves. Unlike the previous
+                // `component_graph` call this topologically sorts, so requirement cycles are
+                // detected -- `check` used to build the graph and never sort it.
+                for channel in manifest.get_channels() {
+                    midenup::resolve::resolve(
+                        channel,
+                        &midenup::resolve::Intent::new(&[Profile::Complete], &[]),
+                    )
+                    .with_context(|| format!("channel {} is not installable", channel.name))?;
+                }
+                Ok(())
+            },
+            Command::Format { stdout: false } => write_manifest(&manifest, &self.manifest_path),
+            Command::Format { stdout: true } => write_manifest_to_stdout(&manifest),
             Command::Touch => {
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
@@ -163,10 +218,19 @@ impl Cli {
                 channel,
                 name,
                 authority,
-                rustup_channel,
+                kind,
+                profiles,
                 requires,
-                features,
             } => {
+                // `legacy-package` exists only so that channels 0.9-0.15, which ship packages
+                // extracted from Rust crates, remain installable. It is closed to new authoring:
+                // packages are prebuilt from here on.
+                if matches!(kind, ComponentKind::LegacyPackage { .. }) {
+                    bail!(
+                        "'legacy-package' is deprecated and closed to new channels - packages \
+                         must ship prebuilt artifacts; use 'package' instead"
+                    );
+                }
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
                 };
@@ -174,22 +238,27 @@ impl Cli {
                     bail!(
                         "component '{name}' already exists for toolchain '{}' - use \
                          update-component to modify it",
-                        &channel.name
+                        channel.name
                     );
                 }
-                let mut component = Component::new(name.clone(), authority.clone());
-                component.rustup_channel = rustup_channel.clone();
-                component.optional = true;
-                component.features = features.clone();
+                let component = Component {
+                    name: name.clone().into(),
+                    version: authority.clone(),
+                    kind: kind.clone(),
+                    profiles: profiles.clone(),
+                    requires: requires.clone(),
+                    artifacts: Default::default(),
+                    // A newly authored component has no fields this build does not understand.
+                    extra: Default::default(),
+                };
                 for required in requires {
                     if channel.get_component(required).is_none() {
                         bail!(
                             "cannot require componennt '{required}': unknown component for \
                              toolchain '{}'",
-                            &channel.name
+                            channel.name
                         );
                     }
-                    component.requires.push(required.clone());
                 }
                 channel.components.push(component);
                 manifest.update_last_modified();
@@ -200,8 +269,24 @@ impl Cli {
                     bail!("unknown toolchain '{channel}'")
                 };
                 if channel.get_component(name.as_str()).is_none() {
-                    bail!("unknown component '{name}' for toolchain '{}'", &channel.name);
+                    bail!("unknown component '{name}' for toolchain '{}'", channel.name);
                 }
+
+                // Removing a component that something else still requires would leave the channel
+                // unresolvable, which install would only discover much later.
+                let dependents: Vec<&str> = channel
+                    .components
+                    .iter()
+                    .filter(|c| c.name != name.as_str() && c.requires.iter().any(|r| r == name))
+                    .map(|c| c.name.as_ref())
+                    .collect();
+                if !dependents.is_empty() {
+                    bail!(
+                        "cannot remove component '{name}': it is still required by {}",
+                        dependents.join(", ")
+                    );
+                }
+
                 channel.components.retain_mut(|c| c.name != name.as_str());
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
@@ -210,11 +295,11 @@ impl Cli {
                 channel,
                 name,
                 authority,
-                optional,
+                kind,
+                profiles,
+                keep_existing_profiles,
                 requires,
-                features,
                 keep_existing_requires,
-                keep_existing_features,
             } => {
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
@@ -224,7 +309,7 @@ impl Cli {
                         bail!(
                             "cannot require componennt '{required}': unknown component for \
                              toolchain '{}'",
-                            &channel.name
+                            channel.name
                         );
                     }
                 }
@@ -232,34 +317,33 @@ impl Cli {
                     bail!(
                         "unknown component '{name}' for toolchain '{}' - use add-component to \
                          create it",
-                        &channel.name
+                        channel.name
                     );
                 };
-                let prev_version = match &component.version {
-                    Authority::Cargo { version, .. } => Some(version.clone()),
-                    _ => None,
-                };
-                let version = match authority {
-                    Authority::Cargo { version, .. } => Some(version.clone()),
-                    _ => None,
-                };
                 component.version = authority.clone();
-                if let Some(prev_version) = prev_version.as_ref()
-                    && let Some(version) = version.as_ref()
-                    && let Some(artifacts) = component.artifacts.as_mut()
-                {
-                    artifacts.replace_version(prev_version, version);
-                } else if prev_version.is_some() {
-                    component.artifacts = None;
-                }
-                if let Some(optional) = *optional {
-                    component.optional = optional;
-                }
-                if !*keep_existing_features {
-                    component.features = features.clone();
+                if !*keep_existing_profiles {
+                    component.profiles = profiles.clone();
                 }
                 if !*keep_existing_requires {
                     component.requires = requires.clone();
+                }
+                if let Some(kind) = kind.clone() {
+                    // `json_patch::merge(target, patch)` applies `patch` onto `target`. The
+                    // existing value is the target and the user's partial is the patch -- the
+                    // reverse silently discarded every requested change.
+                    let mut merged = serde_json::to_value(component.kind.clone())?;
+                    json_patch::merge(&mut merged, &kind);
+                    match serde_json::from_value::<ComponentKind>(merged) {
+                        Ok(merged) => {
+                            component.kind = merged;
+                        },
+                        Err(err) => {
+                            bail!(
+                                "invalid component update: modified json failed to parse with: \
+                                 {err}"
+                            );
+                        },
+                    }
                 }
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
@@ -268,7 +352,25 @@ impl Cli {
     }
 }
 
+/// Writes `manifest`, but only if it parses and validates once read back from disk.
+///
+/// A plain `fs::write` cannot do this: it commits the bytes before anything has confirmed they are
+/// a usable manifest, so a mutation that produces something unparseable destroys the file it was
+/// editing. Here the destination is replaced by a single rename, and every failure before that
+/// leaves the original byte-for-byte intact.
 fn write_manifest(manifest: &Manifest, manifest_path: &Path) -> anyhow::Result<()> {
-    let formatted = serde_json::to_vec_pretty(manifest).context("failed to format manifest")?;
-    std::fs::write(manifest_path, formatted).context("failed to write manifest")
+    midenup::utils::atomic::write_validated(manifest_path, manifest, |written| {
+        let reparsed = VersionedManifest::parse_str(written)
+            .map_err(|err| format!("the result would not parse as a manifest: {err}"))?;
+        midenup::manifest::validate::validate_manifest(&reparsed).map_err(|errors| {
+            let detail: Vec<String> = errors.iter().map(|e| format!("\n  - {e}")).collect();
+            format!("the result would not be a valid manifest:{}", detail.concat())
+        })
+    })
+    .context("failed to write manifest")
+}
+
+fn write_manifest_to_stdout(manifest: &Manifest) -> anyhow::Result<()> {
+    let mut stdout = std::io::stdout();
+    serde_json::to_writer_pretty(&mut stdout, manifest).context("failed to format manifest")
 }

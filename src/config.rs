@@ -1,14 +1,16 @@
 use std::{
+    borrow::Cow,
     ffi::{OsStr, OsString},
     path::PathBuf,
 };
 
-use anyhow::{Context, bail};
+use anyhow::Context;
+use colored::Colorize;
 
 use crate::{
-    artifact::TargetTriple,
     channel::Channel,
-    manifest::{Manifest, ManifestError},
+    manifest::{Manifest, VersionedManifest},
+    state::LocalState,
     toolchain::Toolchain,
     utils,
 };
@@ -40,7 +42,12 @@ pub struct Config {
     /// `MIDENUP_MANIFEST_URI=file://your-custom-manifest.json midenup`
     ///
     /// For more information about the Manifest's fields and format, see [Manifest].
-    pub manifest: Manifest,
+    ///
+    /// Fetched lazily, on the first operation that actually needs it. `miden <cmd>` against an
+    /// installed toolchain needs nothing from upstream (spec section 13.1), and fetching
+    /// unconditionally put a network round trip in front of every single component invocation.
+    manifest_uri: String,
+    manifest: std::cell::OnceCell<Manifest>,
     /// This flag is used to detect/distinguish when midenup is being used in tests.
     ///
     /// At the time of writing, this is mostly done to install debug builds of the various miden
@@ -51,7 +58,7 @@ pub struct Config {
     /// This is used to determine which artifact to download. If, for whatever reason (which should
     /// be rare), we fail to obtain the system's target triple, then we leave it as `None`. In
     /// those cases, we will simply install everything from source.
-    pub target: TargetTriple,
+    pub target: Cow<'static, str>,
 }
 
 impl Config {
@@ -62,53 +69,118 @@ impl Config {
         manifest_uri: impl AsRef<str>,
         debug: bool,
     ) -> anyhow::Result<Config> {
-        let manifest = Manifest::load_from(manifest_uri)?;
+        let target = Cow::Borrowed(env!("TARGET"));
 
-        let target = {
-            let target = env!("TARGET");
-            TargetTriple::Custom(target.to_string())
-        };
-
-        let config = Config {
+        Ok(Config {
             working_directory,
             midenup_home,
             cargo_home,
-            manifest,
+            manifest_uri: manifest_uri.as_ref().to_string(),
+            manifest: std::cell::OnceCell::new(),
             debug,
             target,
+        })
+    }
+
+    /// The upstream manifest, fetched on first use.
+    ///
+    /// Only an operation that genuinely needs to know what exists upstream should call this:
+    /// installing, updating, or listing what is available. Everything dispatch does -- finding the
+    /// active toolchain, resolving a command, running it -- is answered by `state.json` and the
+    /// active publication.
+    ///
+    /// A successful fetch is cached verbatim. A failed one falls back to that cache and says so:
+    /// an operation that can proceed against a manifest from an hour ago is better served by doing
+    /// that loudly than by failing because a network was briefly unavailable.
+    pub fn upstream_manifest(&self) -> anyhow::Result<&Manifest> {
+        if let Some(manifest) = self.manifest.get() {
+            return Ok(manifest);
+        }
+
+        let manifest = self.fetch_upstream_manifest()?;
+        Ok(self.manifest.get_or_init(|| manifest))
+    }
+
+    fn fetch_upstream_manifest(&self) -> anyhow::Result<Manifest> {
+        let cache = crate::paths::manifest_cache(&self.midenup_home);
+
+        let fetch_error = match VersionedManifest::read_from(&self.manifest_uri) {
+            Ok(contents) => match VersionedManifest::parse_str(&contents) {
+                Ok(manifest) => {
+                    // Best effort: a manifest we could not cache is still a manifest we can use.
+                    let _ = std::fs::create_dir_all(&self.midenup_home);
+                    let _ = std::fs::write(&cache, &contents);
+                    return Ok(manifest);
+                },
+                Err(err) => err,
+            },
+            Err(err) => err,
         };
 
-        Ok(config)
-    }
+        let cached = VersionedManifest::load_from_file(&cache).with_context(|| {
+            format!("unable to fetch the toolchain manifest from '{}'", self.manifest_uri)
+        });
 
-    /// Get the [Manifest] for locally installed toolchains
-    pub fn local_manifest(&self) -> anyhow::Result<Manifest> {
-        let local_manifest_path = self.midenup_home.join("manifest").with_extension("json");
-        let local_manifest_uri = format!(
-            "file://{}",
-            local_manifest_path.to_str().context("Couldn't convert miden directory")?,
-        );
-        match Manifest::load_from(local_manifest_uri) {
-            Ok(manifest) => Ok(manifest),
-            Err(ManifestError::Empty | ManifestError::Missing(_)) => Ok(Manifest::default()),
-            Err(err) => Err(err),
+        match cached {
+            Ok(manifest) => {
+                eprintln!(
+                    "{}: could not reach '{}' ({fetch_error}); using the cached manifest from                      '{}', which may be out of date",
+                    "warning".yellow().bold(),
+                    self.manifest_uri,
+                    cache.display(),
+                );
+                Ok(manifest)
+            },
+            // Report the *fetch* failure: it is the one the user can act on. The absent cache is a
+            // consequence of never having fetched successfully, not an independent problem.
+            Err(_) => Err(anyhow::Error::new(fetch_error).context(format!(
+                "unable to fetch the toolchain manifest from '{}', and no cached copy is available",
+                self.manifest_uri
+            ))),
         }
-        .context("unable to load local manifest")
     }
 
-    pub fn update_opt_symlinks(&self, config: &Config) -> anyhow::Result<()> {
+    #[inline]
+    pub fn target(&self) -> &str {
+        self.target.as_ref()
+    }
+
+    /// Where local installation state lives.
+    pub fn state_path(&self) -> PathBuf {
+        crate::paths::state_path(&self.midenup_home)
+    }
+
+    /// Reads what this machine has installed.
+    pub fn local_state(&self) -> anyhow::Result<LocalState> {
+        LocalState::load(&self.state_path()).context("unable to load local state")
+    }
+
+    /// Writes local installation state, refusing to commit anything that cannot be read back.
+    pub fn write_local_state(&self, state: &LocalState) -> anyhow::Result<()> {
+        state.save(&self.state_path()).context("unable to write local state")
+    }
+
+    /// Points `$MIDENUP_HOME/opt` at the active toolchain's shims.
+    ///
+    /// Runs after every command, including `miden` dispatch, so it resolves the active channel from
+    /// *local* state: asking upstream what `stable` means would put a network round trip after
+    /// every component invocation, which is exactly what section 13.1 forbids.
+    pub fn update_opt_symlinks(&self, state: &LocalState) -> anyhow::Result<()> {
         let (current_toolchain, _) = Toolchain::current(self)?;
 
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
 
-        let Some(active_channel) = self.manifest.get_channel(&current_toolchain.channel) else {
-            bail!("channel '{}' doesn't exist or is unavailable", current_toolchain.channel);
+        let Some(active_channel) = self.local_channel(&current_toolchain.channel, state) else {
+            // Nothing installed for it, so there is nothing to point at. Not an error: `midenup
+            // install` runs this on the way to installing exactly that.
+            return Ok(());
         };
+        let toolchain_dir = crate::paths::toolchain_link(&self.midenup_home, &active_channel);
 
         // If the currently active channel doesn't exist, then there's nothing to update regarding
         // the opt/ symlink.
-        if !active_channel.get_channel_dir(config).exists() {
+        if !toolchain_dir.exists() {
             // However, if the opt directory still exists, then we remove it in order to avoid a
             // "dangling symlink". This can happen when an uninstall is issued.
             if std::fs::read_link(&opt_dir).is_ok() {
@@ -122,18 +194,18 @@ impl Config {
             pointing
                 .file_name()
                 .and_then(|toolchain_name| toolchain_name.to_str())
-                .is_some_and(|toolchain_name| toolchain_name != active_channel.name.to_string())
+                .is_some_and(|toolchain_name| toolchain_name != active_channel.to_string())
         } else {
             // If the symlink doesn't exist, update it by creating it.
             true
         };
 
         if update {
-            if std::fs::read_link(&opt_dir).is_ok() {
-                std::fs::remove_file(&opt_dir).context("Couldn't remove 'opt' symlink")?;
-            }
-            let opt_path = active_channel.get_channel_dir(self).join("opt");
-            utils::fs::symlink(&opt_dir, &opt_path).with_context(|| {
+            // Atomically, because this runs at the end of *every* command, including ones that
+            // take no lock: two `miden` invocations would otherwise race to create it and one
+            // would fail with `EEXIST`.
+            let opt_path = toolchain_dir.join("opt");
+            utils::fs::replace_symlink(&opt_dir, &opt_path).with_context(|| {
                 format!(
                     "Failed to create opt/ symlink from {} to {}",
                     opt_dir.display(),
@@ -143,6 +215,45 @@ impl Config {
         }
 
         Ok(())
+    }
+
+    /// Resolves a user-facing channel name against what is *installed*, without upstream.
+    ///
+    /// `stable` is a property of the upstream manifest, but the `toolchains/stable` symlink records
+    /// the last answer upstream gave, and local state records what exists. Between them, dispatch
+    /// can name the active channel offline.
+    pub fn local_channel(
+        &self,
+        channel: &crate::channel::UserChannel,
+        state: &LocalState,
+    ) -> Option<semver::Version> {
+        use crate::channel::UserChannel;
+
+        match channel {
+            UserChannel::Version(version) => Some(version.clone()),
+            UserChannel::Stable => {
+                let derived = std::fs::read_link(
+                    crate::paths::toolchains_dir(&self.midenup_home).join("stable"),
+                )
+                .ok()
+                .and_then(|target| {
+                    target
+                        .file_name()
+                        .and_then(|name| name.to_str())
+                        .and_then(|name| semver::Version::parse(name).ok())
+                });
+
+                derived.or_else(|| {
+                    state.latest_stable().map(|installation| installation.channel.clone())
+                })
+            },
+            // Nightly and ad-hoc channels have no local derivation yet; they are resolved upstream.
+            UserChannel::Nightly | UserChannel::Other(_) => None,
+        }
+    }
+
+    pub fn toolchain_dir(&self, channel: &Channel) -> PathBuf {
+        crate::paths::toolchain_link(&self.midenup_home, &channel.name)
     }
 
     /// Executes a command.
