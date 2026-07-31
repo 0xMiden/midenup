@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Component, ComponentKind};
 use crate::{
-    channel::{ChannelAlias, UpstreamChannel, UpstreamMatch},
+    channel::{ChannelAlias, Network, UpstreamChannel, UpstreamMatch},
     config::Config,
     exec::Executable,
     manifest::{Alias, ManifestError, v2::unknown::Extra},
@@ -39,6 +39,17 @@ pub struct Channel {
     /// The other tag, `partial`, described local state and is now derived (section 8.6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub migrates_from: Option<semver::Version>,
+    /// The network this channel's toolchain targets, if it is pointed at one.
+    ///
+    /// Independent of the `stable` alias: that says which channel is the default choice, this says
+    /// what the channel can be used against. Absent means the channel claims no network, and is
+    /// reachable only by version.
+    ///
+    /// Upstream-only, like the `stable` derivation (section 5): local state records channel
+    /// versions and re-derives everything else, so a stale local copy can never disagree with
+    /// upstream about which channel a network points at.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub network: Option<Network>,
     /// The set of toolchain components available in this channel
     pub components: Vec<Component>,
     /// Fields declared by a newer schema that this build does not recognize.
@@ -59,6 +70,7 @@ impl Channel {
             alias,
             components,
             migrates_from: None,
+            network: None,
             extra: Extra::new(),
         }
     }
@@ -73,17 +85,42 @@ impl Channel {
         self.components.iter_mut().find(|c| c.name == name)
     }
 
-    /// Is this channel a stable release? Does not imply that it has the `stable` alias.
+    /// Whether this channel is *the* stable one.
     ///
-    /// To find out the latest stable [Channel], use [crate::manifest::Manifest::get_latest_stable].
+    /// Declared, never derived: it carries the `stable` alias or it does not. There is no
+    /// version-ordering fallback, because that made publishing a channel indistinguishable from
+    /// promoting it -- a newly added channel became `stable` merely by sorting highest, which is
+    /// how an unreleased toolchain could end up as the target of every default installation.
+    ///
+    /// The consequence is that a manifest declaring no `stable` channel has none, and
+    /// `midenup install stable` says so rather than guessing. That is the intended behavior: only
+    /// the manifest author knows which channel is ready.
+    ///
+    /// To find it across a manifest, use [crate::manifest::Manifest::get_latest_stable].
     pub fn is_stable(&self) -> bool {
-        self.alias.as_ref().is_none_or(|alias| matches!(alias, ChannelAlias::Stable))
+        matches!(self.alias.as_ref(), Some(ChannelAlias::Stable))
     }
 
-    pub fn is_nightly(&self) -> bool {
-        self.alias
-            .as_ref()
-            .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
+    /// The network this channel targets, if any.
+    pub fn network(&self) -> Option<&Network> {
+        self.network.as_ref()
+    }
+
+    /// The names this channel answers to besides its version.
+    ///
+    /// Every one of these is a *moving pointer*: it names whichever channel currently holds it, so
+    /// each gets a derived `toolchains/<name>` symlink and each moves when the manifest says it
+    /// does. Collecting them in one place keeps the install, uninstall and dispatch paths from
+    /// disagreeing about what a channel is reachable as.
+    pub fn pointer_names(&self) -> Vec<String> {
+        let mut names = Vec::new();
+        if self.is_stable() {
+            names.push("stable".to_string());
+        }
+        if let Some(network) = self.network() {
+            names.push(network.to_string());
+        }
+        names
     }
 
     /// Whether this channel installs only part of what `complete` would.
@@ -94,12 +131,6 @@ impl Channel {
     /// component during updates.
     pub fn is_partially_installed(&self, upstream: &Channel) -> bool {
         self.components.len() < upstream.components.len()
-    }
-
-    pub fn is_latest_nightly(&self) -> bool {
-        self.alias
-            .as_ref()
-            .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
     }
 
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
@@ -232,11 +263,6 @@ impl fmt::Display for Channel {
         match &self.alias {
             Some(ChannelAlias::Stable) => write!(f, "stable ({})", self.name),
             Some(ChannelAlias::Tag(tag)) => write!(f, "{}-{}", self.name, tag.as_ref()),
-            Some(ChannelAlias::Nightly(tag)) => {
-                let nightly_suffix =
-                    tag.as_ref().map(|suffix| format!("-{}", suffix)).unwrap_or(String::from(""));
-                write!(f, "nightly-{}{}", self.name, nightly_suffix)
-            },
             None => write!(f, "{}", self.name),
         }
     }

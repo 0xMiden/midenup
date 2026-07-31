@@ -80,6 +80,16 @@ impl ShowCommand {
                             line.push_str(&format!(" {}", "(stable)".bold()));
                         }
 
+                        // Worth stating rather than leaving the user to infer it from an unfamiliar
+                        // version: this is what the channel is *for*, and a channel bound to no
+                        // network and not declared stable is one they installed by version.
+                        if let Some(network) = upstream
+                            .and_then(|m| m.get_channel_by_name(name))
+                            .and_then(|c| c.network())
+                        {
+                            line.push_str(&format!(" {}", format!("[{network}]").cyan()));
+                        }
+
                         // A migrated record describes a pre-publication tree that no receipt
                         // covers, so midenup will not execute against it. Saying so is the whole
                         // point: the user's toolchain still works, but only after it is installed

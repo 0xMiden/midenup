@@ -32,6 +32,16 @@ pub fn r#override(
         // itself and *not* the underlying toolchain directory. In effect, this allows the user to
         // always be using the stable toolchain, even after updates occur.
         UserChannel::Stable => toolchains_dir.join("stable"),
+        // A network name is a moving pointer for the same reason, so it indirects the same way.
+        // Resolving `devnet` to a concrete channel directory here would pin the default to
+        // whichever version happened to be deployed at the time and stop following the
+        // network.
+        //
+        // Only when the derived symlink exists, though: an ad-hoc tag has no derived pointer, and
+        // for those the concrete directory below is the right answer.
+        UserChannel::Other(name) if toolchains_dir.join(name.as_ref()).is_symlink() => {
+            toolchains_dir.join(name.as_ref())
+        },
         _ => {
             let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
                 "failed to set {channel} as the system default. Try installing it:

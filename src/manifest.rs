@@ -212,17 +212,22 @@ impl Manifest {
     }
 
     pub fn add_channel(&mut self, channel: Channel) {
-        // Before adding the new stable channel, remove the stable alias from all the channels that
-        // have it.
+        // Every named pointer -- the `stable` alias, a network -- names exactly one channel, so
+        // binding it to this one un-binds whatever held it before. The pointer moves; the channels
+        // stay. That is what makes promotion a one-line manifest edit rather than a re-authoring.
         //
-        // NOTE: This should be only a single channel, we check for multiple just in case.
-        if self.is_latest_stable(&channel) {
-            for channel in self
-                .channels
-                .iter_mut()
-                .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
-            {
-                channel.alias = None
+        // Note that the condition is the incoming channel's own declaration, never a version
+        // comparison: sorting highest is not a claim to a name.
+        if channel.is_stable() {
+            for existing in self.channels.iter_mut().filter(|c| c.is_stable()) {
+                existing.alias = None;
+            }
+        }
+
+        if let Some(network) = channel.network() {
+            let network = network.clone();
+            for existing in self.channels.iter_mut().filter(|c| c.network() == Some(&network)) {
+                existing.network = None;
             }
         }
 
@@ -233,35 +238,15 @@ impl Manifest {
         self.channels.push(channel);
     }
 
-    /// Determines whether the `channel` is the latest stable version.
+    /// The channel carrying the `stable` alias, if any.
     ///
-    /// This can only be determined by the [Manifest], since this definition is dependant on all the
-    /// other present [Channel]s
-    pub fn is_latest_stable(&self, channel: &Channel) -> bool {
-        self.channels.iter().filter(|c| c.is_stable()).all(|c| {
-            let comparison = channel.name.cmp_precedence(&c.name);
-            matches!(comparison, std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
-        })
-    }
-
-    /// Attempts to fetch the version corresponding to the `stable` [Channel].
+    /// There is no version-ordering fallback. A manifest that declares no stable channel has none,
+    /// and callers say so rather than promoting whichever channel happens to sort highest.
     ///
-    /// By definition this is the latest version.
-    ///
-    /// WARNING: This method is mainly intended to be used with the _upstream_ manifest, not the
-    /// local manifest.  This is because, stable is simply defined to be "the latest non-nightly"
-    /// channel in the [Manifest]. Therefore, in order to have a unified vision of what "stable"
-    /// refers to, refer to the upstream [Manifest].
+    /// WARNING: intended for the _upstream_ manifest. Local state records channel versions, not
+    /// aliases, so `stable` is resolved locally through the derived `toolchains/stable` symlink.
     pub fn get_latest_stable(&self) -> Option<&Channel> {
-        self.channels
-            .iter()
-            .find(|c| matches!(c.alias, Some(ChannelAlias::Stable)))
-            .or_else(|| {
-                self.channels
-                    .iter()
-                    .filter(|c| c.is_stable())
-                    .max_by(|x, y| x.name.cmp_precedence(&y.name))
-            })
+        self.channels.iter().find(|c| c.is_stable())
     }
 
     pub fn get_latest_stable_mut(&mut self) -> Option<&mut Channel> {
@@ -269,34 +254,20 @@ impl Manifest {
         self.get_channel_by_name_mut(&stable_version)
     }
 
-    pub fn get_latest_nightly(&self) -> Option<&Channel> {
-        self.channels.iter().find(|c| c.is_latest_nightly()).or_else(|| {
-            self.channels
-                .iter()
-                .filter(|c| c.is_nightly())
-                .max_by(|x, y| x.name.cmp_precedence(&y.name))
-        })
+    /// The channel pointed at the given network, if any.
+    pub fn get_channel_by_network(&self, network: &crate::channel::Network) -> Option<&Channel> {
+        self.channels.iter().find(|c| c.network() == Some(network))
     }
 
-    pub fn get_latest_nightly_mut(&mut self) -> Option<&mut Channel> {
-        let nightly_version = self.get_latest_nightly().map(|channel| channel.name.clone())?;
-        self.get_channel_by_name_mut(&nightly_version)
-    }
-
-    pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
-        self.channels.iter().find(|c| {
-            c.alias.as_ref().is_some_and(
-                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
-            )
-        })
-    }
-
-    pub fn get_named_nightly_mut(&mut self, name: impl AsRef<str>) -> Option<&mut Channel> {
-        self.channels.iter_mut().find(|c| {
-            c.alias.as_ref().is_some_and(
-                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
-            )
-        })
+    /// The channel a network *name* points at.
+    ///
+    /// Matches on the rendered name rather than a parsed [`crate::channel::Network`] so that a
+    /// network this build does not know about is still selectable: there is no list of known
+    /// networks to fall off.
+    pub fn get_channel_by_network_name(&self, name: &str) -> Option<&Channel> {
+        self.channels
+            .iter()
+            .find(|c| c.network().is_some_and(|n| n.to_string() == name))
     }
 
     pub fn get_channel_by_name(&self, ver: &semver::Version) -> Option<&Channel> {
@@ -312,16 +283,19 @@ impl Manifest {
         match channel {
             UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
             UserChannel::Stable => self.get_latest_stable(),
-            UserChannel::Nightly => self.get_latest_nightly(),
-            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
-                Some(suffix) => self.get_named_nightly(suffix),
-                None => self.channels.iter().find(|c| {
-                    c.alias.as_ref().is_some_and(|alias| {
-                        matches!(alias, ChannelAlias::Tag(t) if t ==
-            tag.as_ref())
-                    })
-                }),
-            },
+            // An ad-hoc name resolves as an explicit tag first, then as a network.
+            //
+            // Tags before networks so that a manifest can always override a name it also uses as a
+            // network; in practice the two namespaces do not overlap.
+            UserChannel::Other(name) => self
+                .channels
+                .iter()
+                .find(|c| {
+                    c.alias.as_ref().is_some_and(
+                        |alias| matches!(alias, ChannelAlias::Tag(t) if t == name.as_ref()),
+                    )
+                })
+                .or_else(|| self.get_channel_by_network_name(name.as_ref())),
         }
     }
 
@@ -329,15 +303,20 @@ impl Manifest {
         match channel {
             UserChannel::Version(v) => self.channels.iter_mut().find(|c| &c.name == v),
             UserChannel::Stable => self.get_latest_stable_mut(),
-            UserChannel::Nightly => self.get_latest_nightly_mut(),
-            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
-                Some(suffix) => self.get_named_nightly_mut(suffix),
-                None => self.channels.iter_mut().find(|c| {
-                    c.alias.as_ref().is_some_and(|alias| {
-                        matches!(alias, ChannelAlias::Tag(t) if t ==
-                    tag.as_ref())
+            // Same order as `get_channel`, resolved to a version first so the borrow checker is not
+            // asked to hold two candidate mutable borrows at once.
+            UserChannel::Other(name) => {
+                let found = self
+                    .channels
+                    .iter()
+                    .find(|c| {
+                        c.alias.as_ref().is_some_and(
+                            |alias| matches!(alias, ChannelAlias::Tag(t) if t == name.as_ref()),
+                        )
                     })
-                }),
+                    .or_else(|| self.get_channel_by_network_name(name.as_ref()))
+                    .map(|c| c.name.clone())?;
+                self.get_channel_by_name_mut(&found)
             },
         }
     }
@@ -351,7 +330,7 @@ impl Manifest {
 mod tests {
     use std::borrow::Cow;
 
-    use super::VersionedManifest;
+    use super::{Channel, Manifest, VersionedManifest};
     use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
 
     /// A converted v1 manifest must report the *v2* version.
@@ -404,6 +383,228 @@ mod tests {
             .expect("Could not convert UserChannel to internal channel representation");
     }
 
+    /// The shipped manifest's networked pre-release channel must not be reachable as `stable`.
+    ///
+    /// The failure mode this guards is silent: if `stable` were derived from version ordering, a
+    /// channel added for `devnet` would become what a bare `midenup install` gets purely by sorting
+    /// highest. `stable` is declared, so a devnet channel simply is not it.
+    #[test]
+    fn the_shipped_devnet_channel_is_not_stable() {
+        let manifest = VersionedManifest::load_from("file://manifest/channel-manifest.json")
+            .expect("Couldn't load manifest");
+
+        let devnet = manifest
+            .get_channel(&UserChannel::Other("devnet".into()))
+            .expect("the shipped manifest points devnet at a channel");
+        let stable = manifest.get_channel(&UserChannel::Stable).expect("and declares a stable one");
+
+        assert_ne!(devnet.name, stable.name, "devnet must not also be the stable channel");
+        assert!(!devnet.is_stable(), "a devnet channel is not stable unless it says so");
+        assert!(stable.is_stable(), "the stable channel declares the alias");
+        assert!(
+            stable.name < devnet.name,
+            "expected devnet to be the newer channel, got stable={} devnet={}",
+            stable.name,
+            devnet.name
+        );
+    }
+
+    /// `stable` is declared. A higher, unaliased channel does not take it.
+    ///
+    /// The property under test is that publishing a channel does not promote it.
+    #[test]
+    fn stable_is_declared_not_derived() {
+        use crate::channel::ChannelAlias;
+
+        let mut manifest = Manifest::default();
+        manifest.add_channel(Channel::new(
+            semver::Version::new(0, 15, 0),
+            Some(ChannelAlias::Stable),
+            vec![],
+        ));
+        // Higher, and released -- but nothing declares it stable, so it is not.
+        manifest.add_channel(Channel::new(semver::Version::new(0, 17, 0), None, vec![]));
+
+        assert_eq!(
+            manifest.get_channel(&UserChannel::Stable).map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 15, 0)),
+            "a newly published channel must not silently become stable"
+        );
+    }
+
+    /// Converting a v1 manifest supplies the `stable` declaration v1 had no way to express.
+    ///
+    /// The live published manifest is v1 and marks no channel stable, so without this every
+    /// existing user would find `midenup install stable` unresolvable. Confined to the
+    /// conversion: a v1 document is frozen, so nominating from one cannot promote a channel
+    /// still in development.
+    #[test]
+    fn converting_a_v1_manifest_nominates_a_stable_channel() {
+        let v1 = r#"{
+            "manifest_version": "1.0.1",
+            "date": 1735689600,
+            "channels": [
+                { "name": "0.14.0", "components": [] },
+                { "name": "0.15.0", "components": [] }
+            ]
+        }"#;
+
+        let manifest = VersionedManifest::parse_str(v1).expect("a v1 manifest must convert");
+        let stable = manifest
+            .get_channel(&UserChannel::Stable)
+            .expect("conversion must nominate a stable channel");
+        assert_eq!(stable.name, semver::Version::new(0, 15, 0), "the highest release wins");
+    }
+
+    /// An explicit v1 declaration is respected rather than recomputed.
+    #[test]
+    fn converting_a_v1_manifest_keeps_an_explicit_stable_alias() {
+        let v1 = r#"{
+            "manifest_version": "1.0.1",
+            "date": 1735689600,
+            "channels": [
+                { "name": "0.14.0", "alias": "stable", "components": [] },
+                { "name": "0.15.0", "components": [] }
+            ]
+        }"#;
+
+        let manifest = VersionedManifest::parse_str(v1).expect("a v1 manifest must convert");
+        assert_eq!(
+            manifest.get_channel(&UserChannel::Stable).map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 14, 0))
+        );
+    }
+
+    /// A *v2* manifest that declares no stable channel has none, rather than nominating one.
+    #[test]
+    fn a_manifest_with_no_stable_alias_has_no_stable_channel() {
+        let mut manifest = Manifest::default();
+        manifest.add_channel(Channel::new(semver::Version::new(0, 15, 0), None, vec![]));
+        manifest.add_channel(Channel::new(semver::Version::new(0, 16, 0), None, vec![]));
+
+        assert!(manifest.get_channel(&UserChannel::Stable).is_none());
+    }
+
+    /// A network name selects the channel it is bound to.
+    #[test]
+    fn a_network_name_resolves_to_its_channel() {
+        use crate::channel::Network;
+
+        let mut manifest = Manifest::default();
+        let mut testnet = Channel::new(semver::Version::new(0, 15, 0), None, vec![]);
+        testnet.network = Some(Network::Testnet);
+        manifest.add_channel(testnet);
+        let mut devnet = Channel::new(semver::Version::new(0, 16, 0), None, vec![]);
+        devnet.network = Some(Network::Devnet);
+        manifest.add_channel(devnet);
+
+        assert_eq!(
+            manifest
+                .get_channel(&UserChannel::Other("devnet".into()))
+                .map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 16, 0))
+        );
+        assert_eq!(
+            manifest
+                .get_channel(&UserChannel::Other("testnet".into()))
+                .map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 15, 0))
+        );
+        assert!(manifest.get_channel(&UserChannel::Other("mainnet".into())).is_none());
+    }
+
+    /// A network this build has no enum variant for is still selectable by name.
+    #[test]
+    fn an_unknown_network_name_still_resolves() {
+        use crate::channel::Network;
+
+        let mut manifest = Manifest::default();
+        let mut channel = Channel::new(semver::Version::new(0, 16, 0), None, vec![]);
+        channel.network = Some(Network::Other("perfnet".into()));
+        manifest.add_channel(channel);
+
+        assert_eq!(
+            manifest
+                .get_channel(&UserChannel::Other("perfnet".into()))
+                .map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 16, 0))
+        );
+    }
+
+    /// An explicit tag wins over a network of the same name.
+    #[test]
+    fn a_tag_takes_precedence_over_a_network_name() {
+        use crate::channel::{ChannelAlias, Network};
+
+        let mut manifest = Manifest::default();
+        let mut networked = Channel::new(semver::Version::new(0, 16, 0), None, vec![]);
+        networked.network = Some(Network::Devnet);
+        manifest.add_channel(networked);
+        manifest.add_channel(Channel::new(
+            semver::Version::new(0, 17, 0),
+            Some(ChannelAlias::Tag("devnet".into())),
+            vec![],
+        ));
+
+        assert_eq!(
+            manifest
+                .get_channel(&UserChannel::Other("devnet".into()))
+                .map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 17, 0))
+        );
+    }
+
+    /// Declaring a new stable channel moves the alias off the previous holder.
+    #[test]
+    fn adding_a_stable_channel_clears_the_previous_one() {
+        use crate::channel::ChannelAlias;
+
+        let mut manifest = Manifest::default();
+        manifest.add_channel(Channel::new(
+            semver::Version::new(0, 15, 0),
+            Some(ChannelAlias::Stable),
+            vec![],
+        ));
+        manifest.add_channel(Channel::new(
+            semver::Version::new(0, 16, 0),
+            Some(ChannelAlias::Stable),
+            vec![],
+        ));
+
+        let stable: Vec<_> = manifest
+            .get_channels()
+            .filter(|c| c.is_stable())
+            .map(|c| c.name.clone())
+            .collect();
+        assert_eq!(stable, vec![semver::Version::new(0, 16, 0)]);
+    }
+
+    /// Pointing a network at a channel un-points whatever held it before.
+    #[test]
+    fn adding_a_channel_moves_its_network_pointer() {
+        use crate::channel::Network;
+
+        let mut manifest = Manifest::default();
+        let mut old = Channel::new(semver::Version::new(0, 15, 0), None, vec![]);
+        old.network = Some(Network::Testnet);
+        manifest.add_channel(old);
+
+        let mut new = Channel::new(semver::Version::new(0, 16, 0), None, vec![]);
+        new.network = Some(Network::Testnet);
+        manifest.add_channel(new);
+
+        assert_eq!(
+            manifest.get_channel_by_network(&Network::Testnet).map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 16, 0))
+        );
+        let pointed: Vec<_> = manifest
+            .get_channels()
+            .filter(|c| c.network() == Some(&Network::Testnet))
+            .map(|c| c.name.clone())
+            .collect();
+        assert_eq!(pointed.len(), 1, "a network points at exactly one channel");
+    }
+
     /// Validates that the *published* channel manifest is parseable.
     /// NOTE: This test is mainly intended for backwards compatibilty reasons.
     #[test]
@@ -418,7 +619,7 @@ mod tests {
 
     /// Validates that non-standard manifest features are parsed correctly, these include:
     ///
-    /// - Non stable channels (custom tags, nightly)
+    /// - Non stable channels (ad-hoc tags)
     /// - Components wwith git and a path as an [[Authority]].
     #[test]
     fn unit_test_manifest_additional() {
@@ -453,14 +654,19 @@ mod tests {
             }
         }
         {
-            let nightly = manifest.get_channel(&UserChannel::Nightly).unwrap_or_else(|| {
-                panic!(
-                    "Could not convert UserChannel to internal channel representation from {FILE}",
-                )
-            });
-            assert_eq!(nightly.alias, Some(ChannelAlias::Nightly(None)));
+            // `nightly` carries no built-in meaning: it is an ordinary tag, resolved by the same
+            // path as any other name a manifest binds to a channel.
+            let tagged = manifest
+                .get_channel(&UserChannel::Other(Cow::Borrowed("nightly")))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Could not convert UserChannel to internal channel representation from \
+                         {FILE}",
+                    )
+                });
+            assert_eq!(tagged.alias, Some(ChannelAlias::Tag(Cow::Borrowed("nightly"))));
             {
-                let client = nightly
+                let client = tagged
                     .get_component("client")
                     .unwrap_or_else(|| panic!("Could not find standard library in {FILE}",));
 

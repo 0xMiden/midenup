@@ -49,9 +49,29 @@ impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
                 name: channel.name,
                 alias: channel.alias,
                 migrates_from,
+                // v1 had no concept of a target network, and one is not inferable: which network a
+                // toolchain was pointed at is an external fact, not a property of the document.
+                network: None,
                 components,
                 extra: Default::default(),
             });
+        }
+
+        // v2 requires the stable channel to declare itself (spec section 5.1), and v1 had no way to
+        // express that: `stable` there *was* the highest non-prerelease channel. Converting has to
+        // supply the equivalent declaration, or every v1 document would come out with no stable
+        // channel and `midenup install stable` would stop resolving.
+        //
+        // Nominating is safe here in a way it would not be as a general rule. A v1 document is
+        // frozen -- nothing is being published into it any more -- so interpreting one cannot
+        // promote a channel that is still under development. v2 stays strictly declared.
+        if !channels.iter().any(|channel| channel.is_stable())
+            && let Some(newest) = channels
+                .iter_mut()
+                .filter(|channel| channel.name.pre.is_empty())
+                .max_by(|a, b| a.name.cmp_precedence(&b.name))
+        {
+            newest.alias = Some(crate::channel::ChannelAlias::Stable);
         }
 
         Ok(v2::Manifest {

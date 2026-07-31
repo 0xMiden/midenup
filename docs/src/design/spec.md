@@ -84,7 +84,8 @@ $MIDENUP_HOME/
 │   └── <channel>/                      # MUTABLE USER DATA - never deleted by install/update
 ├── toolchains/
 │   ├── <channel-version>  -> ../publications/<channel>-<publication-id>
-│   ├── stable             -> <channel-version>       # derived from upstream
+│   ├── stable             -> <channel-version>       # derived from upstream (§5.1)
+│   ├── <network>          -> <channel-version>       # derived from upstream (§5.2)
 │   └── default            -> <channel-version>       # set by `midenup set`
 └── opt -> toolchains/<active-channel>/opt
 ```
@@ -199,6 +200,7 @@ The consequence is that a channel introducing a new component kind stays install
   "name": "0.15.0",
   "alias": "stable",
   "migrates_from": "0.14.0",
+  "network": "testnet",
   "components": [ /* Component */ ]
 }
 ```
@@ -206,15 +208,46 @@ The consequence is that a channel introducing a new component kind stays install
 | Field | Required | Meaning |
 |---|---|---|
 | `name` | yes | semver; the channel's identity |
-| `alias` | no | `stable`, `nightly`, `nightly-<tag>`, or an ad-hoc tag |
+| `alias` | no | `stable`, or an ad-hoc tag |
 | `migrates_from` | no | this channel supersedes the named channel; see §11.4 |
+| `network` | no | the network this channel targets; see §5.2 |
 | `components` | yes | the component set |
 
 **Removed from v1** the `tags` array. `Tags::Partial` was a local-state concern and is replaced by derivation (§8.6). `Tags::Migration { NameChange }` becomes the explicit `migrates_from` field on the upstream channel. Local state never carries channel tags.
 
 **`stable` is upstream-derived.** A channel is *the* stable channel if it carries `alias: "stable"`, otherwise the highest non-prerelease version wins. This is computed from the upstream manifest only. Local state records channel versions; `toolchains/stable` is a derived symlink rebuilt after every successful operation.
 
----
+### 5.1 `stable` is declared
+
+A channel is *the* stable channel when it carries `alias: "stable"`. There is no version-ordering fallback: a manifest that declares no stable channel has none, and `midenup install stable` says so.
+
+This is what keeps **publishing** a channel distinct from **promoting** it. A channel is authored, reviewed and published long before it is ready to be the default, and only the author knows which of those two acts they are performing. Deriving `stable` from "the highest channel with no alias" makes the two indistinguishable, so adding a channel silently redirects every default installation onto it.
+
+`toolchains/stable` is a derived symlink, rebuilt from the upstream manifest after every successful operation. Local state records channel versions, never names.
+
+### 5.2 `network`
+
+`network` names the network a channel's toolchain targets: `devnet`, `testnet`, `mainnet`, or an unrecognized value, which parses into a passthrough variant rather than failing (§4.4).
+
+**A network is how a channel that is not the default gets selected.** A channel still under development is published with the network it is deployed to, and `midenup install devnet` installs it. That is what users want to express — "the toolchain that talks to the network I am pointed at" — and it is a claim that can be checked, because deployment is an external fact rather than a judgement about how finished something is.
+
+It is also the reason a network is the right shape for this. A network binding is singular: one toolchain is deployed to a given network at a time, so the name always has exactly one referent. Any number of channels can be under development simultaneously, so a name meaning "the one being worked on" would have no such guarantee, and requiring that only one exist would impose a rule on how development proceeds rather than describe it.
+
+A channel bound to no network and not declared `stable` is reachable only by exact version (`midenup install 0.16.0`). That is the accurate state: nothing points at it yet.
+
+`network` is **independent of `stable`**. `stable` says which channel is the default choice; `network` says what a channel can be used against. A channel may be both — the stable channel is usually the one on the most conservative network — and neither fact follows from the other, because a release ships before it is deployed.
+
+### 5.3 Named channels
+
+`stable`, a network name and an ad-hoc tag are all **moving pointers**: each names whichever channel currently holds it, and promotion moves the pointer rather than re-authoring the channel.
+
+- A pointer names exactly one channel. Binding it to a new channel un-binds the previous holder; two channels claiming one pointer is a validation error (§14.2).
+- `stable` and networks each get a derived `toolchains/<name>` symlink. That symlink is the *only* local record of the binding, which is what lets `miden` dispatch resolve `stable` or `devnet` with no network access (§13.1). Ad-hoc tags have no derived pointer and are resolved upstream.
+- `midenup set <name>` points `default` at the pointer's symlink rather than at a concrete channel, so the default keeps following the pointer.
+
+Resolution order for a name that is neither `stable` nor a version: an explicit tag, then a network. Tags take precedence so a manifest can always override a name it also uses as a network; in practice the namespaces do not overlap.
+
+There is no `nightly` alias. It carried no behaviour that the ad-hoc tag mechanism does not already provide -- a name bound to a channel, matched as a string -- and no published channel ever used it. A manifest that wants one can still declare `alias: "nightly"`; it resolves as a tag, by the same path as any other name.
 
 ## 6. Artifacts
 
@@ -889,7 +922,11 @@ The following are call disallowed and caught by validation:
 * the §7.7 matrix
 *  a `%target`-less URI in a target-specific artifact
 * malformed `digest`
-* `legacy-package` in a newly authored channel.
+* `legacy-package` in a newly authored channel
+* two channels claiming `stable`
+* two channels claiming the same `network`.
+
+The last two are the only rules here that cannot be decided by looking at a single channel. The `stable` case is the one that matters in practice — `stable` decides what a bare `midenup install` gets, so an ambiguous pointer makes that depend on the order channels happen to appear in.
 
 The `command` rule is of particular note. A command is reachable through **any** of three routes, not just `format`. The shipped `node` component declares no `format` and no `aliases` - only `subcommands`, each carrying its full `docker compose …` invocation - so requiring `format` would reject a valid component.
 
@@ -934,6 +971,7 @@ The authoring tool shares the schema types and validators; it does not reimpleme
 - `add-component` accepts `--profile`.
 - Authoring a `legacy-package` is rejected (§7.4).
 - The tool never writes `manifest_version` by hand; it is emitted by the schema type.
+- `set-alias` sets or clears a channel's alias, and `set-network` its network. `clone-toolchain` copies neither, because a clone has been neither promoted nor deployed. Both move a singular pointer off its previous holder rather than duplicating it, so the result validates by construction.
 
 ---
 

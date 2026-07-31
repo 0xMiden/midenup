@@ -48,6 +48,28 @@ enum Command {
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         to: channel::UserChannel,
     },
+    /// Set or clear a channel's alias
+    ///
+    /// This is how a channel is promoted: `clone-toolchain` never copies an alias, so a new channel
+    /// holds no pointer until one is bound here. Binding `stable` moves it off whichever channel
+    /// held it before.
+    SetAlias {
+        /// The channel to set the alias on
+        #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
+        channel: channel::UserChannel,
+        /// The alias to apply: `stable`, or an ad-hoc tag. Omit to clear the alias.
+        #[arg(long, value_name = "ALIAS", value_parser)]
+        alias: Option<channel::ChannelAlias>,
+    },
+    /// Point a network at a channel, or clear the channel's network
+    SetNetwork {
+        /// The channel to point the network at
+        #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
+        channel: channel::UserChannel,
+        /// The network this channel targets: `devnet`, `testnet`, `mainnet`. Omit to clear it.
+        #[arg(long, value_name = "NETWORK", value_parser)]
+        network: Option<channel::Network>,
+    },
     /// Add a component to a toolchain
     AddComponent {
         /// The channel to add this component to
@@ -195,9 +217,11 @@ impl Cli {
                     bail!("unknown source toolchain '{from}'")
                 };
                 let to = match to {
-                    UserChannel::Stable | UserChannel::Nightly => {
-                        bail!("cannot create toolchains named 'stable' or 'nightly'")
+                    UserChannel::Stable => {
+                        bail!("cannot create a toolchain named 'stable'")
                     },
+                    // Covers network names too: a channel is identified by its version, and the
+                    // names it answers to are bound separately via `set-alias`/`set-network`.
                     UserChannel::Other(_) => {
                         bail!("target toolchain must be named by its semantic version")
                     },
@@ -207,9 +231,46 @@ impl Cli {
                     bail!("toolchain '{to}' already exists");
                 }
                 from.name = to.clone();
-                // Don't clone aliases - that must be done separately
+                // Don't clone aliases - that must be done separately, via `set-alias`. Nor the
+                // network: a clone has not been deployed anywhere.
                 from.alias = None;
+                from.network = None;
                 manifest.add_channel(from);
+                manifest.update_last_modified();
+
+                write_manifest(&manifest, &self.manifest_path)
+            },
+            Command::SetAlias { channel, alias } => {
+                let name = manifest
+                    .get_channel(channel)
+                    .map(|c| c.name.clone())
+                    .with_context(|| format!("unknown toolchain '{channel}'"))?;
+
+                // Route through `add_channel` rather than mutating in place, so that the
+                // "an alias names exactly one channel" bookkeeping applies here too: setting
+                // `stable` on one channel clears it from whichever channel held it before.
+                let mut updated = manifest
+                    .get_channel_by_name(&name)
+                    .cloned()
+                    .expect("channel was just resolved by name");
+                updated.alias = alias.clone();
+                manifest.add_channel(updated);
+                manifest.update_last_modified();
+
+                write_manifest(&manifest, &self.manifest_path)
+            },
+            Command::SetNetwork { channel, network } => {
+                let name = manifest
+                    .get_channel(channel)
+                    .map(|c| c.name.clone())
+                    .with_context(|| format!("unknown toolchain '{channel}'"))?;
+
+                let mut updated = manifest
+                    .get_channel_by_name(&name)
+                    .cloned()
+                    .expect("channel was just resolved by name");
+                updated.network = network.clone();
+                manifest.add_channel(updated);
                 manifest.update_last_modified();
 
                 write_manifest(&manifest, &self.manifest_path)

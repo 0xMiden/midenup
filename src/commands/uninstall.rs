@@ -47,23 +47,35 @@ pub fn uninstall(
     let entry = JournalEntry::uninstall(channel.clone(), publication);
     crate::publish::journal::prepare(home, &entry)?;
 
-    // `stable` is derived, so removing it before the commit costs nothing if the operation is
-    // discarded: the next install or update recomputes it from upstream.
+    // Derived pointers (`stable`, a network name) are recomputed by the next install or update, so
+    // removing them before the commit costs nothing if the operation is discarded.
+    //
+    // Which names pointed here is *not* knowable from local state, which records channel versions
+    // and not names, and upstream may be unreachable. So rather than guessing a list, this removes
+    // whichever pointers actually resolve to the channel being uninstalled. `default` is excluded
+    // because it is the user's explicit choice rather than something derived.
     {
         let toolchain_link = paths::toolchain_link(home, &channel);
-        let stable_symlink = paths::toolchains_dir(home).join("stable");
+        let toolchains_dir = paths::toolchains_dir(home);
+        let target = toolchain_link.canonicalize().ok();
 
-        // Only remove it if it actually points at the toolchain being uninstalled -- it may have
-        // just been created for a channel this one migrated into.
-        let points_here = stable_symlink
-            .canonicalize()
-            .ok()
-            .zip(toolchain_link.canonicalize().ok())
-            .map(|(stable, toolchain)| stable == toolchain)
-            .unwrap_or(false);
+        if let (Some(target), Ok(entries)) = (target, std::fs::read_dir(&toolchains_dir)) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name();
 
-        if points_here && std::fs::symlink_metadata(&stable_symlink).is_ok() {
-            std::fs::remove_file(&stable_symlink)?;
+                // Skip the channel's own version-named link -- the commit point handles that -- and
+                // never touch `default`.
+                if path == toolchain_link || name == "default" {
+                    continue;
+                }
+                if !std::fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_symlink()) {
+                    continue;
+                }
+                if path.canonicalize().ok().as_ref() == Some(&target) {
+                    std::fs::remove_file(&path)?;
+                }
+            }
         }
     }
 

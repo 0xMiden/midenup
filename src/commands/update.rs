@@ -94,9 +94,45 @@ pub fn update(
             }
             Ok(())
         },
-        Some(UserChannel::Nightly) => todo!(),
-        Some(UserChannel::Other(_)) => todo!(),
+        // Every other name -- a network, an ad-hoc tag -- resolves the same way.
+        Some(named @ UserChannel::Other(_)) => update_named_channel(config, named, state, options),
     }
+}
+
+/// Updates the channel a name currently points at.
+///
+/// Local state records channel versions and not names (spec section 5), so the name is resolved
+/// against upstream and the result matched to an installation by version.
+///
+/// A version bump is deliberately *not* handled here. When upstream moves a pointer to a channel
+/// that is not installed, the mechanism for carrying an installation across is `migrates_from`
+/// (section 11.4), which `update_installed_channel` already honors for whichever channel *is*
+/// installed. Treating "the pointer moved" as its own bump path would require knowing which local
+/// channel previously held it, which local state does not record.
+fn update_named_channel(
+    config: &Config,
+    channel: &UserChannel,
+    state: &mut LocalState,
+    options: &UpdateOptions,
+) -> anyhow::Result<()> {
+    let upstream = config.upstream_manifest()?;
+    let Some(upstream_channel) = upstream.get_channel(channel) else {
+        anyhow::bail!(
+            "no channel named '{channel}' exists upstream, so there is nothing to update it \
+             against\nrun 'midenup show list' to see the channels that do"
+        );
+    };
+
+    let Some(installation) = state.get(&upstream_channel.name).cloned() else {
+        anyhow::bail!(
+            "'{channel}' currently names version {version}, which is not installed\nto install \
+             it, run:\n  midenup install {channel}",
+            version = upstream_channel.name,
+        );
+    };
+
+    println!("syncing channel updates for {channel} (installed as {})", installation.channel);
+    update_installed_channel(config, &installation, state, options)
 }
 
 /// How a component changed between what is installed and what upstream now says.

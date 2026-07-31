@@ -50,7 +50,7 @@ A channel is a set of [components](#components) under one version, meant to be u
 ```
 
 - `name` — semantic version; the channel's identity.
-- `alias` — `stable`, `nightly`, `nightly-<tag>`, or an ad-hoc tag.
+- `alias` — `stable`, or an ad-hoc tag.
 - `migrates_from` — this channel supersedes the named one. An installation of that channel is carried here on the next update: its selection transfers verbatim, and its `var/` directory is renamed so client data follows the toolchain.
 
 ### The stable channel

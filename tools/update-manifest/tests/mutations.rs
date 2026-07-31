@@ -362,3 +362,137 @@ fn a_mutation_producing_an_invalid_manifest_is_refused() {
         .collect();
     assert!(leftovers.is_empty(), "no temporary files may be left behind: {leftovers:?}");
 }
+
+/// A cloned channel holds no pointer until one is bound, and binding is what promotes it.
+#[test]
+fn set_alias_promotes_a_cloned_channel_to_stable() {
+    let dir = tempdir::TempDir::new("update-manifest-set-alias-stable").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+
+    run(&path, &["clone-toolchain", "--from", "0.15.0", "--to", "0.16.0"]).unwrap();
+    run(&path, &["set-alias", "--channel", "0.16.0", "--alias", "stable"]).unwrap();
+
+    let manifest = read_manifest(&path);
+    let channels = manifest["channels"].as_array().unwrap();
+    let new = channels.iter().find(|c| c["name"] == "0.16.0").expect("cloned channel");
+    assert_eq!(new["alias"], "stable");
+
+    // The source channel is untouched.
+    let old = channels.iter().find(|c| c["name"] == "0.15.0").expect("source channel");
+    assert!(old.get("alias").is_none(), "the source channel must not gain an alias");
+
+    run(&path, &["check"]).expect("the result must validate");
+}
+
+/// The alias is singular, so setting it moves it rather than duplicating it.
+#[test]
+fn set_alias_moves_the_alias_off_the_previous_holder() {
+    let dir = tempdir::TempDir::new("update-manifest-set-alias-move").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+
+    run(&path, &["clone-toolchain", "--from", "0.15.0", "--to", "0.16.0"]).unwrap();
+    run(&path, &["set-alias", "--channel", "0.16.0", "--alias", "stable"]).unwrap();
+    run(&path, &["clone-toolchain", "--from", "0.16.0", "--to", "0.17.0"]).unwrap();
+    run(&path, &["set-alias", "--channel", "0.17.0", "--alias", "stable"]).unwrap();
+
+    let manifest = read_manifest(&path);
+    let stable: Vec<_> = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["alias"] == "stable")
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(stable, vec!["0.17.0"], "only the newest holder keeps the alias");
+
+    run(&path, &["check"]).expect("the result must validate");
+}
+
+#[test]
+fn set_alias_with_no_value_clears_it() {
+    let dir = tempdir::TempDir::new("update-manifest-set-alias-clear").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+
+    run(&path, &["set-alias", "--channel", "0.15.0", "--alias", "stable"]).unwrap();
+    assert_eq!(read_manifest(&path)["channels"][0]["alias"], "stable");
+
+    run(&path, &["set-alias", "--channel", "0.15.0"]).unwrap();
+    assert!(read_manifest(&path)["channels"][0].get("alias").is_none());
+}
+
+#[test]
+fn set_network_points_a_network_at_a_channel() {
+    let dir = tempdir::TempDir::new("update-manifest-set-network").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+
+    run(&path, &["set-network", "--channel", "0.15.0", "--network", "testnet"]).unwrap();
+    assert_eq!(read_manifest(&path)["channels"][0]["network"], "testnet");
+
+    run(&path, &["set-network", "--channel", "0.15.0"]).unwrap();
+    assert!(read_manifest(&path)["channels"][0].get("network").is_none());
+}
+
+/// A network points at exactly one channel, so re-pointing it un-points the previous one. Without
+/// this, `check` would report an ambiguous network the author never explicitly created.
+#[test]
+fn set_network_moves_the_pointer_off_the_previous_channel() {
+    let dir = tempdir::TempDir::new("update-manifest-set-network-move").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+
+    run(&path, &["set-network", "--channel", "0.15.0", "--network", "devnet"]).unwrap();
+    run(&path, &["clone-toolchain", "--from", "0.15.0", "--to", "0.16.0"]).unwrap();
+    // The clone must not inherit the network: it has not been deployed anywhere.
+    assert!(
+        read_manifest(&path)["channels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["name"] == "0.16.0")
+            .unwrap()
+            .get("network")
+            .is_none(),
+        "a cloned channel must not inherit the source's network"
+    );
+
+    run(&path, &["set-network", "--channel", "0.16.0", "--network", "devnet"]).unwrap();
+
+    let manifest = read_manifest(&path);
+    let pointed: Vec<_> = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|c| c["network"] == "devnet")
+        .map(|c| c["name"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(pointed, vec!["0.16.0"]);
+
+    run(&path, &["check"]).expect("the result must validate");
+}
+
+#[test]
+fn set_alias_on_an_unknown_channel_is_an_error() {
+    let dir = tempdir::TempDir::new("update-manifest-set-alias-unknown").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+
+    let err = run(&path, &["set-alias", "--channel", "9.9.9", "--alias", "stable"])
+        .expect_err("an unknown channel must be rejected");
+    assert!(err.contains("unknown toolchain"), "unexpected error: {err}");
+}

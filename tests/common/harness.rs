@@ -79,6 +79,10 @@ impl OfflineFixture {
             "date": 1735689600,
             "channels": [{
                 "name": channel,
+                // A published v2 manifest declares its stable channel: `stable` is never derived
+                // from version ordering (spec section 5.1), so a fixture that omits this has no
+                // stable channel at all.
+                "alias": "stable",
                 "components": [
                     {
                         "name": "vm",
@@ -222,6 +226,7 @@ pub fn write_source_manifest(
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",
+            "alias": "stable",
             "components": [
                 {
                     "name": "vm",
@@ -346,6 +351,7 @@ impl UpdateFixture {
             "manifest-1.json",
             serde_json::json!([{
                 "name": "0.14.0",
+                "alias": "stable",
                 "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
             }]),
         )
@@ -362,6 +368,7 @@ impl UpdateFixture {
                 },
                 {
                     "name": "0.15.0",
+                    "alias": "stable",
                     "components": [self.vm("0.23.3"), self.core(Self::registry("0.23.3"))]
                 }
             ]),
@@ -374,7 +381,8 @@ impl UpdateFixture {
     /// * 0.14.0's `core` changes authority kind, registry to git
     /// * 0.14.0 gains `client`
     /// * 0.15.0 loses `core` entirely
-    /// * 0.16.0 appears but is not installed, so a global update must ignore it
+    /// * 0.16.0 appears and takes `stable` upstream, but is not installed, so a global update --
+    ///   which does not consult `stable` -- must ignore it
     pub fn with_every_change(&self) -> String {
         self.write(
             "manifest-3.json",
@@ -395,8 +403,11 @@ impl UpdateFixture {
                     "name": "0.15.0",
                     "components": [self.vm("0.23.4")]
                 },
+                // Promoted upstream but not installed here. A *global* update does not consult
+                // `stable`, so the symlink stays on 0.15.0 until `update stable` is run.
                 {
                     "name": "0.16.0",
+                    "alias": "stable",
                     "components": [self.vm("0.23.4"), self.core(Self::registry("0.23.4"))]
                 }
             ]),

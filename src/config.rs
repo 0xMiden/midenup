@@ -231,25 +231,39 @@ impl Config {
 
         match channel {
             UserChannel::Version(version) => Some(version.clone()),
-            UserChannel::Stable => {
-                let derived = std::fs::read_link(
-                    crate::paths::toolchains_dir(&self.midenup_home).join("stable"),
-                )
-                .ok()
-                .and_then(|target| {
-                    target
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .and_then(|name| semver::Version::parse(name).ok())
-                });
-
-                derived.or_else(|| {
-                    state.latest_stable().map(|installation| installation.channel.clone())
-                })
-            },
-            // Nightly and ad-hoc channels have no local derivation yet; they are resolved upstream.
-            UserChannel::Nightly | UserChannel::Other(_) => None,
+            UserChannel::Stable => self
+                .derived_pointer("stable")
+                // A pre-v2 home may have no `stable` symlink yet. The highest installed release is
+                // a reasonable local guess *for dispatch only* -- it never decides what `stable`
+                // means, which is upstream's call.
+                .or_else(|| state.latest_stable().map(|installation| installation.channel.clone()))
+                .filter(|version| state.get(version).is_some()),
+            // A network name resolves through its derived symlink, which is the only local record
+            // that a given installed channel is the one that network points at -- nothing about an
+            // installed 0.16.0 says it was devnet's. This is what keeps `miden` dispatch on a
+            // network-pinned project off the network (section 13.1).
+            //
+            // No fallback to a version-ordering guess: dispatching a devnet-pinned project against
+            // whatever release happens to be newest is worse than admitting we do not know.
+            //
+            // An ad-hoc tag has no derived pointer, so it resolves to `None` here and is looked up
+            // upstream instead.
+            UserChannel::Other(name) => self
+                .derived_pointer(name.as_ref())
+                .filter(|version| state.get(version).is_some()),
         }
+    }
+
+    /// Reads a derived `toolchains/<name>` pointer, if one exists.
+    fn derived_pointer(&self, name: &str) -> Option<semver::Version> {
+        std::fs::read_link(crate::paths::toolchains_dir(&self.midenup_home).join(name))
+            .ok()
+            .and_then(|target| {
+                target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| semver::Version::parse(name).ok())
+            })
     }
 
     pub fn toolchain_dir(&self, channel: &Channel) -> PathBuf {

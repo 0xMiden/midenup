@@ -102,6 +102,22 @@ pub enum ValidationError {
         channel: semver::Version,
         component: String,
     },
+    #[error(
+        "the '{alias}' alias is claimed by {}, but it names exactly one channel",
+        channels.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")
+    )]
+    AmbiguousChannelAlias {
+        alias: &'static str,
+        channels: Vec<semver::Version>,
+    },
+    #[error(
+        "network '{network}' is claimed by {}, but a network points at exactly one channel",
+        channels.iter().map(|c| c.to_string()).collect::<Vec<_>>().join(", ")
+    )]
+    AmbiguousNetwork {
+        network: String,
+        channels: Vec<semver::Version>,
+    },
 }
 
 /// Validates a whole manifest, returning every problem found.
@@ -120,7 +136,40 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
         validate_channel(channel, &mut errors);
     }
 
+    validate_channel_pointers(manifest, &mut errors);
+
     if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Checks the manifest-wide pointers: the `stable` alias and the network bindings.
+///
+/// These are the only rules here that cannot be decided by looking at a single channel.
+/// `Manifest::add_channel` keeps both pointers singular as it authors, so a violation means the
+/// file was edited by hand; catching it is what stops `midenup install stable` from depending on
+/// the order channels happen to appear in.
+fn validate_channel_pointers(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
+    let stable: Vec<_> = manifest
+        .channels
+        .iter()
+        .filter(|c| c.is_stable())
+        .map(|c| c.name.clone())
+        .collect();
+    if stable.len() > 1 {
+        errors.push(ValidationError::AmbiguousChannelAlias { alias: "stable", channels: stable });
+    }
+
+    let mut by_network: HashMap<String, Vec<semver::Version>> = HashMap::new();
+    for channel in manifest.channels.iter() {
+        if let Some(network) = channel.network() {
+            by_network.entry(network.to_string()).or_default().push(channel.name.clone());
+        }
+    }
+    // Sorted so the report is stable across runs rather than following hash order.
+    let mut networks: Vec<_> = by_network.into_iter().filter(|(_, c)| c.len() > 1).collect();
+    networks.sort_by(|a, b| a.0.cmp(&b.0));
+    for (network, channels) in networks {
+        errors.push(ValidationError::AmbiguousNetwork { network, channels });
+    }
 }
 
 fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
@@ -372,6 +421,93 @@ mod tests {
     #[test]
     fn a_valid_manifest_passes() {
         let m = manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]);
+        assert_eq!(validate_manifest(&m), Ok(()));
+    }
+
+    fn plain(major: u64, minor: u64) -> Channel {
+        Channel::new(semver::Version::new(major, minor, 0), None, vec![])
+    }
+
+    fn aliased(major: u64, minor: u64, alias: crate::channel::ChannelAlias) -> Channel {
+        Channel::new(semver::Version::new(major, minor, 0), Some(alias), vec![])
+    }
+
+    /// Two channels claiming `stable` is not a cosmetic duplicate: `stable` decides what a bare
+    /// `midenup install` gets, so an ambiguous pointer makes that depend on channel order.
+    #[test]
+    fn two_stable_channels_are_rejected() {
+        use crate::channel::ChannelAlias;
+
+        let mut m = Manifest::default();
+        m.channels.push(aliased(0, 15, ChannelAlias::Stable));
+        m.channels.push(aliased(0, 16, ChannelAlias::Stable));
+
+        assert!(
+            errors_of(&m).iter().any(|e| matches!(
+                e,
+                ValidationError::AmbiguousChannelAlias { alias: "stable", .. }
+            ))
+        );
+    }
+
+    /// A manifest may declare no stable channel at all -- that is a valid, if unusual, state, and
+    /// nominating one on the author's behalf is the behavior this redesign removed.
+    #[test]
+    fn no_stable_channel_is_not_an_error() {
+        let mut m = Manifest::default();
+        m.channels.push(plain(0, 15));
+        m.channels.push(plain(0, 16));
+
+        assert_eq!(validate_manifest(&m), Ok(()));
+    }
+
+    #[test]
+    fn two_channels_on_one_network_are_rejected() {
+        use crate::channel::Network;
+
+        let mut m = Manifest::default();
+        let mut a = plain(0, 15);
+        a.network = Some(Network::Testnet);
+        let mut b = plain(0, 16);
+        b.network = Some(Network::Testnet);
+        m.channels.push(a);
+        m.channels.push(b);
+
+        assert!(
+            errors_of(&m)
+                .iter()
+                .any(|e| matches!(e, ValidationError::AmbiguousNetwork { .. }))
+        );
+    }
+
+    #[test]
+    fn distinct_networks_coexist() {
+        use crate::channel::Network;
+
+        let mut m = Manifest::default();
+        let mut a = plain(0, 15);
+        a.network = Some(Network::Testnet);
+        let mut b = plain(0, 16);
+        b.network = Some(Network::Devnet);
+        m.channels.push(a);
+        m.channels.push(b);
+
+        assert_eq!(validate_manifest(&m), Ok(()));
+    }
+
+    /// A channel may be both the stable one and bound to a network: the two are independent axes.
+    #[test]
+    fn a_stable_channel_may_also_target_a_network() {
+        use crate::channel::{ChannelAlias, Network};
+
+        let mut m = Manifest::default();
+        let mut stable = aliased(0, 15, ChannelAlias::Stable);
+        stable.network = Some(Network::Mainnet);
+        m.channels.push(stable);
+        let mut devnet = plain(0, 16);
+        devnet.network = Some(Network::Devnet);
+        m.channels.push(devnet);
+
         assert_eq!(validate_manifest(&m), Ok(()));
     }
 

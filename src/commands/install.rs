@@ -136,14 +136,24 @@ pub fn install(
     crate::publish::journal::record(home, &entry, state)?;
     fault::fail_at(fault::FaultPoint::PostRecord)?;
 
-    // 6. DERIVE. `stable` is a property of the upstream manifest, recomputed from it rather than
-    // remembered, so a stale local copy can never disagree with upstream about which channel it
-    // names.
-    if config.upstream_manifest()?.is_latest_stable(channel) {
-        let stable_dir = toolchains_dir.join("stable");
+    // 6. DERIVE. Every name this channel answers to -- `stable`, its network -- is a property of
+    //    the
+    // upstream manifest, recomputed rather than remembered, so a stale local copy can never
+    // disagree with upstream about which channel a name refers to.
+    //
+    // These symlinks are also the *only* local record of those bindings, since local state stores
+    // channel versions and not names. That is what lets `Config::local_channel` resolve `stable` or
+    // `devnet` without touching the network (spec section 13.1).
+    let upstream = config.upstream_manifest()?;
+    let pointer_names = upstream
+        .get_channel_by_name(&channel.name)
+        .map(|upstream_channel| upstream_channel.pointer_names())
+        .unwrap_or_default();
+    for name in pointer_names {
+        let link = toolchains_dir.join(&name);
         let relative_channel_target = PathBuf::from(format!("{}", channel.name));
-        utils::fs::replace_symlink(&stable_dir, &relative_channel_target)
-            .context("failed to point 'stable' at the newly installed channel")?;
+        utils::fs::replace_symlink(&link, &relative_channel_target)
+            .with_context(|| format!("failed to point '{name}' at the newly installed channel"))?;
     }
     fault::fail_at(fault::FaultPoint::PostDerive)?;
 

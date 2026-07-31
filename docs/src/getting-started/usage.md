@@ -30,10 +30,34 @@ If required, a specific toolchain version can also be installed with the `midenu
 midenup install 0.15.0
 ```
 
+### Installing the toolchain for a network
+
+A channel can declare the network its toolchain targets, and that network's name selects it:
+
+```shell title=">_ Terminal"
+midenup install devnet
+```
+
+This is usually what you want when you are working against a specific network, including one that is still being developed against: it installs the whole toolchain that network is running, and it keeps pointing there as that toolchain is updated. The available networks are `devnet`, `testnet` and `mainnet`, though a channel only answers to a network if the manifest says it targets one.
+
+Selecting a network never affects `stable`. Installing `devnet` does not change what `midenup install stable` gives you, and `stable` moves only when the Miden project promotes a channel.
+
+:::warning
+A channel on `devnet` is typically built from pre-release components, so it carries no stability guarantees. Prefer `stable` unless you need to work against that network specifically.
+:::
+
 To list all the currently installed toolchains in the system, run:
 
 ```shell title=">_ Terminal"
 midenup show list
+```
+
+Toolchains are annotated with the alias they hold and the network they target, for example:
+
+```
+Installed toolchains:
+0.15.0 (stable) [testnet]
+0.16.0 [devnet]
 ```
 
 ## Using a toolchain
