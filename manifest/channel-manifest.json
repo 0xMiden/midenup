@@ -1,6 +1,6 @@
 {
   "manifest_version": "2.0.0",
-  "date": 1782923717,
+  "date": 1785523910,
   "channels": [
     {
       "name": "0.9.0",
@@ -1727,7 +1727,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.3.0"
+            "version": "0.5.0"
           }
         },
         {
