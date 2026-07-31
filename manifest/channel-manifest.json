@@ -1,6 +1,6 @@
 {
   "manifest_version": "2.0.0",
-  "date": 1785523910,
+  "date": 1785524285,
   "channels": [
     {
       "name": "0.9.0",
@@ -1414,6 +1414,10 @@
               "%installed-executable",
               "new-account"
             ],
+            "call": [
+              "%installed-executable",
+              "call"
+            ],
             "deploy": [
               "%installed-executable",
               "-s",
@@ -1445,7 +1449,7 @@
                 "aarch64-apple-darwin": {},
                 "x86_64-unknown-linux-gnu": {}
               },
-              "uri": "https://github.com/0xMiden/miden-client/releases/download/v%version/miden-client-%target"
+              "uri": "https://github.com/0xMiden/rust-sdk/releases/download/v%version/miden-client-%target"
             }
           },
           "hide": false,
@@ -1460,7 +1464,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.15.2"
+            "version": "0.15.3"
           }
         },
         {

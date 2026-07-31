@@ -36,3 +36,11 @@ A typical usage of midenup and miden might look like the following:
    ```shell title=">_ Terminal"
    miden client new-account --account-type regular-account-updatable-code -p /path/to/package.masp
    ```
+8. Once the account exists, a procedure exported by the package can be invoked on it with the `miden call` alias. This calls the procedure on the local account and displays both its return value and the resulting account state delta:
+   ```shell title=">_ Terminal"
+   miden call <ACCOUNT_ID>:<PROCEDURE> --package /path/to/package.masp
+   ```
+   For example, to call the `increment_count` procedure exported by a counter contract:
+   ```shell title=">_ Terminal"
+   miden call 0x29b8...f1:increment_count --package /path/to/counter-contract.masp
+   ```
