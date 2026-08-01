@@ -345,9 +345,12 @@ fn integration_install_from_non_cargo() {
 
     // Reads the recorded path mtime and git revision out of local state.
     let recorded = |state: &LocalManifest| {
+        let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet"))
+            .expect("the mainnet symlink must exist");
+        let version = semver::Version::parse(named.file_name().unwrap().to_str().unwrap()).unwrap();
         let channel = state
-            .latest_stable()
-            .expect("no stable channel found; despite having installed stable")
+            .get(&version)
+            .expect("state must record the channel mainnet names")
             .as_channel();
 
         let last_modification = match channel.get_component("vm").unwrap().version {
@@ -458,9 +461,12 @@ fn integration_prerelease_components_are_runnable() {
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
+    let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet"))
+        .expect("the mainnet symlink must exist");
+    let version = semver::Version::parse(named.file_name().unwrap().to_str().unwrap()).unwrap();
     let stable_channel = local_manifest
-        .latest_stable()
-        .expect("No stable channel found after installing stable")
+        .get(&version)
+        .expect("state must record the channel mainnet names")
         .as_channel();
 
     println!("Installed: {}", stable_channel);

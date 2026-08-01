@@ -96,32 +96,35 @@ impl core::str::FromStr for ChannelAlias {
     }
 }
 
-/// User-facing channel reference.
+/// User-facing channel reference: either a specific toolchain, or a name that moves.
 ///
-/// The main difference with this and [Channel] is the definition of "stable". The definition of
-/// "stable" 'under the hood' is the lastest available non-nightly channel. If the user passes
-/// [`UserChannel::Stable`] as the target channel, we then handle the mapping from it to the
-/// underlying [Channel] representation.
-#[derive(Serialize, Default, Debug, Clone)]
-#[serde(rename_all = "snake_case")]
+/// A name is resolved against the manifest's `networks` map, so which names exist is data rather
+/// than code and a new network needs no release of `midenup`. The cost is that an unknown name
+/// parses and fails at lookup, which is why the lookup's diagnostic lists what is declared.
+#[derive(Debug, Clone)]
 pub enum UserChannel {
-    #[default]
-    Stable,
-    Nightly,
-    #[serde(untagged)]
     Version(semver::Version),
-    #[serde(untagged)]
-    Other(Cow<'static, str>),
+    Named(Cow<'static, str>),
+}
+
+impl Default for UserChannel {
+    fn default() -> Self {
+        Self::Named(Cow::Borrowed(DEFAULT_NETWORK))
+    }
 }
 
 impl fmt::Display for UserChannel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Version(version) => write!(f, "{version}"),
-            Self::Stable => f.write_str("stable"),
-            Self::Nightly => f.write_str("nightly"),
-            Self::Other(custom_name) => write!(f, "{custom_name}"),
+            Self::Named(name) => f.write_str(name),
         }
+    }
+}
+
+impl Serialize for UserChannel {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
     }
 }
 
@@ -147,14 +150,74 @@ impl core::str::FromStr for UserChannel {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use anyhow::anyhow;
-
-        match s {
-            "stable" => Ok(Self::Stable),
-            "nightly" => Ok(Self::Nightly),
-            version => semver::Version::parse(version)
-                .map(Self::Version)
-                .map_err(|err| anyhow!("invalid channel version: {err}")),
+        if s.is_empty() {
+            anyhow::bail!("a channel must be named: either a version like '0.15.0', or a network");
         }
+        if let Ok(version) = semver::Version::parse(s) {
+            return Ok(Self::Version(version));
+        }
+        Ok(Self::Named(Cow::Owned(canonical_network(s).to_string())))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use core::str::FromStr;
+
+    use super::*;
+
+    #[test]
+    fn a_semantic_version_is_a_version_and_anything_else_is_a_name() {
+        assert!(matches!(
+            UserChannel::from_str("0.15.0").unwrap(),
+            UserChannel::Version(v) if v == semver::Version::new(0, 15, 0)
+        ));
+        assert!(matches!(
+            UserChannel::from_str("mainnet").unwrap(),
+            UserChannel::Named(name) if name == "mainnet"
+        ));
+    }
+
+    /// The traditional names are user vocabulary, and canonicalizing them at parse time means
+    /// nothing downstream -- display, symlinks, state, diagnostics -- ever sees them.
+    #[test]
+    fn the_traditional_names_canonicalize_to_networks() {
+        for (typed, meant) in [("stable", "mainnet"), ("beta", "testnet"), ("nightly", "devnet")] {
+            assert_eq!(UserChannel::from_str(typed).unwrap().to_string(), meant);
+        }
+    }
+
+    /// An unknown name parses. It has to: which names exist is manifest data, not a fixed set, so
+    /// the diagnostic belongs where the manifest is available.
+    #[test]
+    fn an_unknown_name_parses_and_is_not_rewritten() {
+        assert_eq!(UserChannel::from_str("mainet").unwrap().to_string(), "mainet");
+    }
+
+    #[test]
+    fn the_empty_string_is_not_a_channel() {
+        assert!(UserChannel::from_str("").is_err());
+    }
+
+    #[test]
+    fn the_default_channel_is_mainnet() {
+        assert_eq!(UserChannel::default().to_string(), DEFAULT_NETWORK);
+    }
+
+    /// `midenup set` writes this into `miden-toolchain.toml`, so it must round-trip as the plain
+    /// string a user would have typed.
+    #[test]
+    fn a_channel_serializes_as_the_string_it_came_from() {
+        let named = UserChannel::from_str("mainnet").unwrap();
+        assert_eq!(serde_json::to_string(&named).unwrap(), r#""mainnet""#);
+        let pinned = UserChannel::from_str("0.15.0").unwrap();
+        assert_eq!(serde_json::to_string(&pinned).unwrap(), r#""0.15.0""#);
+    }
+
+    /// A toolchain file written before networks existed keeps working, and means mainnet.
+    #[test]
+    fn a_toolchain_file_saying_stable_means_mainnet() {
+        let parsed: UserChannel = serde_json::from_str(r#""stable""#).unwrap();
+        assert_eq!(parsed.to_string(), "mainnet");
     }
 }

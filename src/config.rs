@@ -219,36 +219,35 @@ impl Config {
 
     /// Resolves a user-facing channel name against what is *installed*, without upstream.
     ///
-    /// `stable` is a property of the upstream manifest, but the `toolchains/stable` symlink records
-    /// the last answer upstream gave, and local state records what exists. Between them, dispatch
-    /// can name the active channel offline.
+    /// Which channel a network names is a property of the upstream manifest, but the
+    /// `toolchains/<network>` symlink records the last answer upstream gave that this machine acted
+    /// on, so dispatch can name the active channel offline.
+    ///
+    /// `_state` is retained because every caller has it and dispatch is where a local authority
+    /// other than the symlink would have to be consulted; nothing local answers this today.
     pub fn local_channel(
         &self,
         channel: &crate::channel::UserChannel,
-        state: &LocalState,
+        _state: &LocalState,
     ) -> Option<semver::Version> {
         use crate::channel::UserChannel;
 
         match channel {
             UserChannel::Version(version) => Some(version.clone()),
-            UserChannel::Stable => {
-                let derived = std::fs::read_link(
-                    crate::paths::toolchains_dir(&self.midenup_home).join("stable"),
-                )
-                .ok()
-                .and_then(|target| {
-                    target
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .and_then(|name| semver::Version::parse(name).ok())
-                });
-
-                derived.or_else(|| {
-                    state.latest_stable().map(|installation| installation.channel.clone())
-                })
-            },
-            // Nightly and ad-hoc channels have no local derivation yet; they are resolved upstream.
-            UserChannel::Nightly | UserChannel::Other(_) => None,
+            // The `toolchains/<network>` symlink records the last answer upstream gave that this
+            // machine acted on. There is deliberately no fallback: "the highest installed version"
+            // is a plausible wrong answer for mainnet, and an unresolvable network should send the
+            // caller upstream, which install and update consult anyway.
+            UserChannel::Named(name) => std::fs::read_link(
+                crate::paths::toolchains_dir(&self.midenup_home).join(name.as_ref()),
+            )
+            .ok()
+            .and_then(|target| {
+                target
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| semver::Version::parse(name).ok())
+            }),
         }
     }
 

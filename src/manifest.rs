@@ -365,34 +365,17 @@ impl Manifest {
     /// Attempts to fetch the [Channel] corresponding to the given [UserChannel]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
         match channel {
-            UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
-            UserChannel::Stable => self.get_latest_stable(),
-            UserChannel::Nightly => self.get_latest_nightly(),
-            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
-                Some(suffix) => self.get_named_nightly(suffix),
-                None => self.channels.iter().find(|c| {
-                    c.alias.as_ref().is_some_and(|alias| {
-                        matches!(alias, ChannelAlias::Tag(t) if t ==
-            tag.as_ref())
-                    })
-                }),
-            },
+            UserChannel::Version(version) => self.get_channel_by_name(version),
+            UserChannel::Named(name) => self.resolve_network(name),
         }
     }
 
     pub fn get_channel_mut(&mut self, channel: &UserChannel) -> Option<&mut Channel> {
         match channel {
-            UserChannel::Version(v) => self.channels.iter_mut().find(|c| &c.name == v),
-            UserChannel::Stable => self.get_latest_stable_mut(),
-            UserChannel::Nightly => self.get_latest_nightly_mut(),
-            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
-                Some(suffix) => self.get_named_nightly_mut(suffix),
-                None => self.channels.iter_mut().find(|c| {
-                    c.alias.as_ref().is_some_and(|alias| {
-                        matches!(alias, ChannelAlias::Tag(t) if t ==
-                    tag.as_ref())
-                    })
-                }),
+            UserChannel::Version(version) => self.get_channel_by_name_mut(version),
+            UserChannel::Named(name) => {
+                let version = self.networks.get(name.as_ref())?.clone();
+                self.get_channel_by_name_mut(&version)
             },
         }
     }
@@ -551,7 +534,7 @@ mod tests {
             .expect("Couldn't load manifest");
 
         let _stable = manifest
-            .get_channel(&UserChannel::Stable)
+            .get_channel(&UserChannel::Named(Cow::Borrowed("mainnet")))
             .expect("Could not convert UserChannel to internal channel representation");
     }
 
@@ -566,7 +549,7 @@ mod tests {
         let manifest = VersionedManifest::load_from(FILE).unwrap();
         {
             let custom_build = manifest
-                .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+                .get_channel(&UserChannel::Named(Cow::Borrowed("custom-dev-build")))
                 .unwrap_or_else(|| {
                     panic!(
                         "Could not convert UserChannel to internal channel representation from \
@@ -592,11 +575,14 @@ mod tests {
             }
         }
         {
-            let nightly = manifest.get_channel(&UserChannel::Nightly).unwrap_or_else(|| {
-                panic!(
-                    "Could not convert UserChannel to internal channel representation from {FILE}",
-                )
-            });
+            let nightly = manifest
+                .get_channel(&UserChannel::Named(Cow::Borrowed("devnet")))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Could not convert UserChannel to internal channel representation from \
+                         {FILE}",
+                    )
+                });
             assert_eq!(nightly.alias, Some(ChannelAlias::Nightly(None)));
             {
                 let client = nightly

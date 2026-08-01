@@ -195,11 +195,12 @@ impl Cli {
                     bail!("unknown source toolchain '{from}'")
                 };
                 let to = match to {
-                    UserChannel::Stable | UserChannel::Nightly => {
-                        bail!("cannot create toolchains named 'stable' or 'nightly'")
-                    },
-                    UserChannel::Other(_) => {
-                        bail!("target toolchain must be named by its semantic version")
+                    UserChannel::Named(name) => {
+                        bail!(
+                            "cannot create a toolchain named '{name}': a toolchain is named by \
+                             its semantic version, and '{name}' is a network name. Use `promote` \
+                             to point a network at a toolchain."
+                        )
                     },
                     UserChannel::Version(v) => v,
                 };

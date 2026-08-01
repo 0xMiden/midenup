@@ -34,49 +34,7 @@ pub fn update(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     match channel_type {
-        Some(UserChannel::Stable) => {
-            let local_stable = state.latest_stable().cloned().context(
-                "No stable version was found. To install it, try running:\nmidenup install \
-                 stable\n",
-            )?;
-
-            println!("syncing channel updates for stable (installed as {})", local_stable.channel);
-
-            let upstream_stable = config
-                .upstream_manifest()?
-                .get_latest_stable()
-                // NOTE: This means that there is no stable toolchain upstream.
-                //
-                // This is most likely an edge-case that shouldn't happen. If it does happen, it
-                // probably means there's an error in midenup's parsing.
-                .context("ERROR: No stable channel found in upstream")?;
-
-            println!(
-                "latest stable is version {} (upstream last updated on {})",
-                upstream_stable.name,
-                config.upstream_manifest()?.last_updated()
-            );
-
-            if upstream_stable.name > local_stable.channel {
-                // A version bump. The installation is carried to the new channel: its intent
-                // transfers verbatim and is re-resolved there, so the new channel gets everything
-                // the old one was asked for -- including components that did not exist yet.
-                let mut upstream = upstream_stable.clone();
-                upstream.sync(config);
-                install_for_update(
-                    config,
-                    &upstream,
-                    state,
-                    IntentUpdate::Replace(local_stable.intent.clone()),
-                    Changes::default(),
-                    options,
-                )
-            } else {
-                // Already on the newest stable, which does not mean there is nothing to do: the
-                // channel's own components may have moved.
-                update_installed_channel(config, &local_stable, state, options)
-            }
-        },
+        Some(UserChannel::Named(name)) => update_network(config, name, state, options),
         Some(UserChannel::Version(version)) => {
             let installation = state
                 .get(version)
@@ -94,9 +52,80 @@ pub fn update(
             }
             Ok(())
         },
-        Some(UserChannel::Nightly) => todo!(),
-        Some(UserChannel::Other(_)) => todo!(),
     }
+}
+
+/// Brings a network to the channel it now names.
+///
+/// A network is a moving name, so what has to be reconciled is *the pointer*, not the channel: if
+/// `networks[name]` has moved, the installation is carried to wherever it now points. This is
+/// deliberately not `migrates_from` lineage. That describes a relationship between two channels and
+/// is what someone tracking a pinned version follows; a user tracking mainnet asked for mainnet,
+/// and their client data belongs to the network rather than to a version.
+///
+/// The comparison is inequality, not "is newer". The pointer is authoritative in both directions:
+/// a rollback is rare, and `update-manifest promote` refuses to author one without an explicit
+/// flag, but once one is published, following it is what tracking the network means.
+fn update_network(
+    config: &Config,
+    name: &str,
+    state: &mut LocalState,
+    options: &UpdateOptions,
+) -> anyhow::Result<()> {
+    let manifest = config.upstream_manifest()?;
+    let target = manifest.network_version(name).cloned().with_context(|| {
+        format!(
+            "unknown channel '{name}'; known networks are {}",
+            manifest.network_names().collect::<Vec<_>>().join(", ")
+        )
+    })?;
+
+    let user_channel = UserChannel::Named(name.to_string().into());
+    let installed = config.local_channel(&user_channel, state).with_context(|| {
+        format!("{name} is not installed. To install it, run:\n    midenup install {name}\n")
+    })?;
+
+    println!("syncing channel updates for {name} (installed as {installed})");
+    println!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
+
+    let installation = state
+        .get(&installed)
+        .cloned()
+        .with_context(|| format!("channel {installed} is not installed"))?;
+
+    if installed == target {
+        // The pointer has not moved, which does not mean there is nothing to do: the channel's own
+        // components may have.
+        return update_installed_channel(config, &installation, state, options);
+    }
+
+    let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
+        format!("network '{name}' names channel {target}, which is not upstream")
+    })?;
+
+    if target < installed {
+        eprintln!(
+            "{}: {name} has moved back from {installed} to {target}. Data under var/{installed} \
+             was written by a newer toolchain and is being carried to {target} as-is.",
+            "warning".yellow().bold(),
+        );
+    }
+
+    upstream.sync(config);
+    install_for_update(
+        config,
+        &upstream,
+        state,
+        // Intent transfers verbatim and is re-resolved against the channel now being tracked, so
+        // it gains components that did not exist there before.
+        IntentUpdate::Replace(installation.intent.clone()),
+        Changes::default(),
+        options,
+    )?;
+
+    // The user's data follows the network it belongs to, rather than being stranded under a channel
+    // version they are no longer tracking. A rename, so it cannot half-happen.
+    carry_var_to(config, &installed, &target)
 }
 
 /// How a component changed between what is installed and what upstream now says.
