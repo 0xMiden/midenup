@@ -119,3 +119,156 @@ fn integration_networks_update_follows_a_rollback_to_an_installed_channel() {
         "client data must be where the active channel will look for it"
     );
 }
+
+/// A promotion moves mainnet to a channel the user does not have. Following it is an update of the
+/// network, so the installation is carried across: intent verbatim, and var/ renamed so client data
+/// follows the toolchain.
+#[test]
+fn integration_networks_update_follows_a_promotion() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_promotion");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.initial());
+    Midenup::try_parse_from(["midenup", "init"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to initialize");
+    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install mainnet");
+
+    // Something the toolchain owns, which must survive the move.
+    let var = test_env.midenup_home.join("var").join("0.14.0");
+    std::fs::create_dir_all(&var).unwrap();
+    std::fs::write(var.join("store.sqlite3"), b"client data").unwrap();
+
+    // mainnet is promoted to 0.15.0.
+    let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to update mainnet");
+
+    assert_eq!(
+        std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.15.0"),
+        "mainnet must name what the manifest now says"
+    );
+    assert_eq!(
+        std::fs::read(test_env.midenup_home.join("var").join("0.15.0").join("store.sqlite3"))
+            .unwrap(),
+        b"client data",
+        "client data must follow the toolchain"
+    );
+    assert!(
+        test_env.midenup_home.join("toolchains").join("0.14.0").exists(),
+        "the previous toolchain is a usable pinned toolchain and must be retained"
+    );
+}
+
+/// The pointer is authoritative in both directions. A rollback is rare and `promote` refuses to
+/// author one without a flag, but once published, following it is what tracking a network means.
+///
+/// **This test reaches 0.15.0 directly, so 0.14.0 is never installed and the update always has work
+/// to do.** That is deliberately the easy half. The hard half -- rolling back to a channel the user
+/// still has, where there is nothing to install and the pointer move is the entire operation -- is
+/// covered by `integration_networks_update_follows_a_rollback_to_an_installed_channel`.
+#[test]
+fn integration_networks_update_follows_a_rollback() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_rollback");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.with_new_stable());
+    Midenup::try_parse_from(["midenup", "init"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to initialize");
+    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install mainnet");
+
+    // mainnet is rolled back to 0.14.0.
+    let (_, config) = test_setup(&test_env, &fixture.initial());
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("following a rollback must succeed");
+
+    assert_eq!(
+        std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.14.0"),
+        "mainnet must follow the pointer backwards"
+    );
+}
+
+/// Updating one network must not disturb another that names a different channel.
+///
+/// The `update devnet` at the end is the point of the test: without it this asserts only what
+/// DERIVE does, which is already covered elsewhere.
+#[test]
+fn integration_networks_update_leaves_other_networks_alone() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_split");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.with_split_networks());
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "install", "devnet"],
+        vec!["midenup", "update", "devnet"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let toolchains = test_env.midenup_home.join("toolchains");
+    assert_eq!(
+        std::fs::read_link(toolchains.join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.14.0"),
+        "updating devnet must leave mainnet where it was"
+    );
+    assert_eq!(
+        std::fs::read_link(toolchains.join("devnet")).unwrap(),
+        std::path::PathBuf::from("0.15.0")
+    );
+}
+
+#[test]
+fn integration_networks_update_of_an_uninstalled_network_says_so() {
+    let test_env = environment_setup("integration_networks_uninstalled");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let err = Midenup::try_parse_from(["midenup", "update", "testnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("updating something that is not installed must fail");
+
+    let rendered = format!("{err:#}");
+    assert!(
+        rendered.contains("midenup install testnet"),
+        "must say how to fix it: {rendered}"
+    );
+}
+
+#[test]
+fn integration_networks_update_of_an_unknown_network_lists_the_known_ones() {
+    let test_env = environment_setup("integration_networks_unknown");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let err = Midenup::try_parse_from(["midenup", "update", "mainet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("an unknown network must fail");
+
+    let rendered = format!("{err:#}");
+    assert!(rendered.contains("mainnet"), "must list what is declared: {rendered}");
+}
