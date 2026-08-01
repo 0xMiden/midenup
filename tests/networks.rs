@@ -1,5 +1,5 @@
 use clap::Parser;
-use midenup::{commands::Midenup, version};
+use midenup::{channel::UserChannel, commands::Midenup, version};
 
 mod common;
 
@@ -425,4 +425,90 @@ fn integration_networks_uninstall_does_not_leave_default_dangling() {
             "with default set to '{selector}', it must be removed or valid, never dangling"
         );
     }
+}
+
+/// `default` must point at the network link, not at the toolchain the network happens to name
+/// today, so that it follows the network as it moves.
+#[test]
+fn integration_networks_override_follows_the_network() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_override");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.initial());
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "override", "mainnet"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let toolchains = test_env.midenup_home.join("toolchains");
+    let default = toolchains.join("default");
+    assert_eq!(
+        std::fs::read_link(&default).unwrap().file_name().unwrap(),
+        "mainnet",
+        "default must name the network, not the channel"
+    );
+
+    let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to update mainnet");
+
+    assert_eq!(
+        default.canonicalize().unwrap(),
+        toolchains.join("0.15.0").canonicalize().unwrap(),
+        "default must have followed mainnet to its new channel"
+    );
+}
+
+/// A synonym is canonicalized on the way in, so what lands in the toolchain file is the network.
+#[test]
+fn integration_networks_set_writes_the_canonical_name() {
+    let test_env = environment_setup("integration_networks_set");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "set", "stable"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to set the toolchain");
+
+    let written =
+        std::fs::read_to_string(test_env.present_working_dir.join("miden-toolchain.toml")).unwrap();
+    assert!(written.contains(r#"channel = "mainnet""#), "got: {written}");
+}
+
+/// The whole point of resolving a network through its symlink: dispatch must name the active
+/// channel with no upstream available at all.
+#[test]
+fn integration_networks_resolve_offline() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_offline");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    // No manifest at all: neither upstream nor a cached copy.
+    std::fs::remove_file(fixture.dir.join("channel-manifest.json")).unwrap();
+    let cache = midenup::paths::manifest_cache(&test_env.midenup_home);
+    let _ = std::fs::remove_file(&cache);
+
+    let (_, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let resolved = config
+        .local_channel(&UserChannel::default())
+        .expect("mainnet must resolve from the symlink with no manifest available");
+    assert_eq!(resolved, semver::Version::new(0, 15, 0));
 }

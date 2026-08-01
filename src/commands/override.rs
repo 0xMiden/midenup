@@ -10,9 +10,11 @@ use crate::{
     utils,
 };
 
-/// This functions sets the system's default toolchain. This is handled similarly to how we handle
-/// the `stable`. We create a symlink called `default` that points to the desired toolchain
-/// directory.
+/// Sets the system-wide default toolchain.
+///
+/// A network name is recorded as a link to the network's own link, rather than to the toolchain it
+/// names today, so that `default` follows the network as it moves. A version is recorded as the
+/// toolchain directory, because that is exactly what pinning a version means.
 // This function requires raw identifier syntax because "override" is a reserved keyword.
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 pub fn r#override(
