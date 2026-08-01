@@ -373,8 +373,9 @@ pub fn miden_wrapper(
         Toolchain::ensure_current_is_installed(config, state)?;
 
     // Resolved entirely from local state. `state.json` records what is installed, and
-    // `toolchains/stable` records the last answer upstream gave about what `stable` means, so
-    // dispatch never needs the network to find its own toolchain (spec section 13.1).
+    // `toolchains/<network>` records the last answer upstream gave about which channel that
+    // network names, so dispatch never needs the network to find its own toolchain (spec section
+    // 13.1).
     let installed_channel = {
         let active = config
             .local_channel(&toolchain.channel)

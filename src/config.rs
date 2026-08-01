@@ -163,8 +163,8 @@ impl Config {
     /// Points `$MIDENUP_HOME/opt` at the active toolchain's shims.
     ///
     /// Runs after every command, including `miden` dispatch, so it resolves the active channel from
-    /// *local* state: asking upstream what `stable` means would put a network round trip after
-    /// every component invocation, which is exactly what section 13.1 forbids.
+    /// *local* state: asking upstream which channel `mainnet` names would put a network round trip
+    /// after every component invocation, which is exactly what section 13.1 forbids.
     pub fn update_opt_symlinks(&self) -> anyhow::Result<()> {
         let (current_toolchain, _) = Toolchain::current(self)?;
 

@@ -150,6 +150,14 @@ pub fn install(
             continue;
         }
 
+        // A network name becomes a path segment under `toolchains/`, and `replace_symlink` renames
+        // over whatever is at that path. Loading a manifest is deliberately permissive, so the
+        // authoring gate in `manifest::validate` cannot be the only thing standing between a
+        // manifest and a symlink written outside `$MIDENUP_HOME`.
+        if crate::plan::validate_artifact_id(network).is_err() {
+            continue;
+        }
+
         let link = paths::network_link(home, network);
         if let Some(warning) = orphaned_var_warning(home, &link, network, &channel.name) {
             eprintln!("{warning}");
@@ -544,9 +552,8 @@ mod tests {
         let link = link_to(home, "mainnet", "0.14.0");
         std::fs::create_dir_all(paths::var_dir(home, &semver::Version::new(0, 14, 0))).unwrap();
 
-        let warning =
-            orphaned_var_warning(home, &link, "mainnet", &semver::Version::new(0, 15, 0))
-                .expect("a moved network with data behind it must be reported");
+        let warning = orphaned_var_warning(home, &link, "mainnet", &semver::Version::new(0, 15, 0))
+            .expect("a moved network with data behind it must be reported");
         assert!(warning.contains("var/0.14.0"), "must name where the data is: {warning}");
         assert!(
             warning.contains("midenup update mainnet"),

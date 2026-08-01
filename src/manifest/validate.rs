@@ -157,6 +157,12 @@ fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
 
         if name.is_empty() {
             errors.push(invalid("a network must have a name".to_string()));
+        } else if let Err(err) = validate_artifact_id(name) {
+            // A network name is joined straight onto `toolchains/` and written with
+            // `replace_symlink`, which renames over whatever is at that path. `../../../.zshrc`
+            // would make an ordinary `midenup install` replace a file outside `$MIDENUP_HOME`.
+            // Same rule as every other name that becomes a path segment, deliberately.
+            errors.push(invalid(err.to_string()));
         } else if semver::Version::parse(name).is_ok() {
             errors.push(invalid(
                 "a network may not be named like a channel, which would make 'midenup install \
@@ -488,6 +494,29 @@ mod tests {
         assert!(errors_of(&manifest).iter().any(
             |e| matches!(e, ValidationError::InvalidNetworkName { name, .. } if name.is_empty())
         ));
+    }
+
+    /// A network name becomes a path segment under `toolchains/`, so one that escapes it would let
+    /// a manifest make an ordinary `midenup install` replace a file anywhere on the machine.
+    #[test]
+    fn a_network_name_that_is_not_a_single_path_segment_is_rejected() {
+        for name in ["../../../.zshrc", "..", "sub/net"] {
+            let src = serde_json::json!({
+                "manifest_version": "3.0.0",
+                "date": 1735689600,
+                "networks": {name: "0.15.0", "mainnet": "0.15.0"},
+                "channels": [{"name": "0.15.0", "components": []}]
+            })
+            .to_string();
+            let manifest = crate::manifest::VersionedManifest::parse_str(&src).expect("must parse");
+            assert!(
+                errors_of(&manifest).iter().any(|e| matches!(
+                    e,
+                    ValidationError::InvalidNetworkName { name: reported, .. } if reported == name
+                )),
+                "'{name}' must be rejected as a network name"
+            );
+        }
     }
 
     /// Deliberately valid: a mainnet hotfix puts mainnet ahead of testnet. There is no ordering

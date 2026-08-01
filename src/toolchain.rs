@@ -54,7 +54,7 @@ pub enum ToolchainJustification {
     MidenToolchainFile { path: PathBuf },
     /// The system's default toolchain was overriden (via `midenup set`).
     Override,
-    /// No toolchain was specified, fallback to stable.
+    /// No toolchain was specified, fallback to the default network.
     Default,
 }
 
@@ -93,7 +93,7 @@ impl Toolchain {
     /// 2. The toolchain that has been set as the system's default. If set, a `default` symlink is
     ///    added to the `midenup` directory.
     ///
-    /// If none of the previous conditions are met, then `stable` will be used.
+    /// If none of the previous conditions are met, then the default network (`mainnet`) is used.
     pub fn current(config: &Config) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
         let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");

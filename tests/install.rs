@@ -36,7 +36,7 @@ fn integration_install_stable() {
     // Which channel a network names is not persisted in local state -- it is a property of the
     // upstream manifest and a derived symlink on disk. Assert on the symlink, and that state
     // records the version it names.
-    let stable_version = config
+    let mainnet_version = config
         .upstream_manifest()
         .unwrap()
         .network_version("mainnet")
@@ -44,13 +44,13 @@ fn integration_install_stable() {
         .clone();
     assert_eq!(
         std::fs::read_link(&mainnet_dir).unwrap().file_name().unwrap(),
-        std::ffi::OsStr::new(&stable_version.to_string()),
-        "the mainnet link must point at the upstream stable channel"
+        std::ffi::OsStr::new(&mainnet_version.to_string()),
+        "the mainnet link must point at the channel upstream says mainnet names"
     );
 
     // Re-read from disk to confirm it was persisted, not merely held in memory.
     let reloaded = midenup::state::LocalState::load(&state_file).expect("state must reload");
-    assert!(reloaded.get(&stable_version).is_some());
+    assert!(reloaded.get(&mainnet_version).is_some());
 }
 
 /// A fresh install must actually place every artifact kind where it belongs.

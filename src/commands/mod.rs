@@ -147,10 +147,12 @@ enum Commands {
     /// Update your installed Miden toolchains.
     Update {
         /// `midenup update`'s behavior differs depending on the specified [CHANNEL]
-        /// - If provided, updates only the specified channel.
         /// - If left blank, then midenup will check for updates in all the downloaded toolchains.
-        /// - If [CHANNEL] = stable, then it will look for the newest available toolchain and set
-        ///   that to be stable.
+        /// - If [CHANNEL] is a version, updates that toolchain against the channel upstream now
+        ///   publishes under that name.
+        /// - If [CHANNEL] is a network (mainnet, testnet, devnet), follows the network to whatever
+        ///   channel it now names: installing it if needed, carrying your component selection
+        ///   across, and moving your data under var/ with it.
         #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<channel::UserChannel>,

@@ -59,7 +59,7 @@ fn integration_update_test() {
     assert!(toolchain_v14.exists(), "the previous toolchain must be retained");
     assert!(toolchain_v15.exists(), "the new stable toolchain must be installed");
     assert!(toolchain_mainnet.is_symlink());
-    assert_eq!(mainnet_points_at(), "0.15.0", "stable must follow the upstream bump");
+    assert_eq!(mainnet_points_at(), "0.15.0", "mainnet must follow the upstream bump");
 
     // A global update touches every *installed* toolchain. The manifest now changes something of
     // each kind at once -- see `UpdateFixture::with_every_change`.
@@ -70,10 +70,10 @@ fn integration_update_test() {
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
 
-    // A global update must not move `stable`, even though 0.16.0 now exists upstream: it updates
+    // A global update must not move mainnet, even though 0.16.0 now exists upstream: it updates
     // what is installed, and 0.16.0 is not.
     assert!(toolchain_mainnet.is_symlink());
-    assert_eq!(mainnet_points_at(), "0.15.0", "a global update must not move stable");
+    assert_eq!(mainnet_points_at(), "0.15.0", "a global update must not move mainnet");
     assert!(!toolchain_v16.exists(), "a global update must not install a new channel");
 
     // A component removed upstream must be removed on disk.

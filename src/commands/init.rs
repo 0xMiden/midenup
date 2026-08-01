@@ -50,7 +50,8 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
 /// ```text,ignore
 /// $MIDENUP_HOME
 /// |- toolchains/
-/// | |- stable     --> <channel>
+/// | |- <network>  --> <channel>       one per network naming this channel
+/// | |- default    --> <channel> | <network>
 /// | |- <channel>  --> ../publications/<channel>-<publication-id>
 /// |- publications/
 /// | |- <channel>-<publication-id>/

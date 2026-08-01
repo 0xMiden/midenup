@@ -481,7 +481,12 @@ mod tests {
                 let prerelease = semver::Prerelease::new("custom-build").unwrap();
                 assert!(matches!(&custom_build.name, semver::Version { pre: _prerelease, .. }));
             }
-            assert_eq!(manifest.network_version("custom-dev-build"), Some(&custom_build.name));
+            // The literal the fixture declares, not `custom_build.name` -- that channel was
+            // looked up *through* this network, so comparing the two would assert nothing.
+            assert_eq!(
+                manifest.network_version("custom-dev-build"),
+                Some(&semver::Version::parse("0.16.0-custom-build").unwrap())
+            );
             {
                 let std_lib = custom_build
                     .get_component("std")
@@ -499,7 +504,12 @@ mod tests {
                          {FILE}",
                     )
                 });
-            assert_eq!(manifest.network_version("devnet"), Some(&nightly.name));
+            // `nightly` is a synonym rewritten to `devnet`, so the v1 alias lands under that
+            // name. Asserted against the fixture's literal version for the reason above.
+            assert_eq!(
+                manifest.network_version("devnet"),
+                Some(&semver::Version::parse("0.15.0-nightly").unwrap())
+            );
             {
                 let client = nightly
                     .get_component("client")
