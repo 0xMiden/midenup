@@ -1,5 +1,5 @@
 use clap::Parser;
-use midenup::commands::Midenup;
+use midenup::{commands::Midenup, version};
 
 mod common;
 
@@ -100,6 +100,18 @@ fn integration_networks_update_follows_a_rollback_to_an_installed_channel() {
         .execute_with_state(&config, &mut state)
         .expect("failed to follow the promotion");
 
+    // The assertions at the bottom describe the state this test started in, so a regression making
+    // the update a no-op would leave them true. Pin the premise before relying on it.
+    assert_eq!(
+        std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.15.0"),
+        "the promotion must have happened, or the rollback below proves nothing"
+    );
+    assert!(
+        test_env.midenup_home.join("var").join("0.15.0").join("store.sqlite3").exists(),
+        "and var/ must have been carried to it"
+    );
+
     // Rolled back. 0.14.0 is still installed with the same intent, so there is nothing to install.
     let (_, config) = test_setup(&test_env, &fixture.initial());
     Midenup::try_parse_from(["midenup", "update", "mainnet"])
@@ -134,10 +146,15 @@ fn integration_networks_update_follows_a_promotion() {
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
-    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+    // Deliberately not the default profile: intent transferring verbatim and intent being
+    // discarded produce the same record for a default install, so only a non-default one can tell
+    // them apart.
+    Midenup::try_parse_from(["midenup", "install", "mainnet", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install mainnet");
+
+    let intent_before = state.get(&semver::Version::new(0, 14, 0)).unwrap().intent.clone();
 
     // Something the toolchain owns, which must survive the move.
     let var = test_env.midenup_home.join("var").join("0.14.0");
@@ -161,6 +178,15 @@ fn integration_networks_update_follows_a_promotion() {
             .unwrap(),
         b"client data",
         "client data must follow the toolchain"
+    );
+    assert!(
+        test_env.midenup_home.join("toolchains").join("0.15.0").exists(),
+        "the promoted channel must actually be installed"
+    );
+    assert_eq!(
+        state.get(&semver::Version::new(0, 15, 0)).unwrap().intent,
+        intent_before,
+        "intent must transfer verbatim to the channel the network now names"
     );
     assert!(
         test_env.midenup_home.join("toolchains").join("0.14.0").exists(),
@@ -205,10 +231,14 @@ fn integration_networks_update_follows_a_rollback() {
     );
 }
 
-/// Updating one network must not disturb another that names a different channel.
+/// Updating one network must not disturb another that names a different channel, and must still
+/// update the channel it does name.
 ///
-/// The `update devnet` at the end is the point of the test: without it this asserts only what
-/// DERIVE does, which is already covered elsewhere.
+/// The `update devnet` calls are the point of the test: without them this asserts only what DERIVE
+/// does, which is already covered elsewhere. The second one runs against a manifest where no
+/// pointer has moved but devnet's channel has changed underneath it -- the case where following the
+/// pointer is a no-op and yet there is work to do. Two unmoved symlinks cannot tell that apart from
+/// doing nothing at all; a component that moved can.
 #[test]
 fn integration_networks_update_leaves_other_networks_alone() {
     let _guard = common::harness::mutating_test_guard();
@@ -228,6 +258,13 @@ fn integration_networks_update_leaves_other_networks_alone() {
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
     }
 
+    // devnet still names 0.15.0, but 0.15.0's vm has been bumped upstream.
+    let (_, config) = test_setup(&test_env, &fixture.with_split_networks_and_a_bumped_component());
+    Midenup::try_parse_from(["midenup", "update", "devnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to update devnet");
+
     let toolchains = test_env.midenup_home.join("toolchains");
     assert_eq!(
         std::fs::read_link(toolchains.join("mainnet")).unwrap(),
@@ -237,6 +274,23 @@ fn integration_networks_update_leaves_other_networks_alone() {
     assert_eq!(
         std::fs::read_link(toolchains.join("devnet")).unwrap(),
         std::path::PathBuf::from("0.15.0")
+    );
+
+    let vm_authority = &state
+        .get(&semver::Version::new(0, 15, 0))
+        .expect("devnet's channel must be installed")
+        .components
+        .iter()
+        .find(|component| component.name == "vm")
+        .expect("vm must be part of 0.15.0")
+        .version;
+    assert!(
+        matches!(
+            vm_authority,
+            version::Authority::Registry { version } if *version == semver::Version::new(0, 23, 4)
+        ),
+        "a pointer that has not moved still has to pick up the channel's own changes, got \
+         {vm_authority:#?}"
     );
 }
 

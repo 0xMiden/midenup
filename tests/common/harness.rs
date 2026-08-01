@@ -411,6 +411,19 @@ impl UpdateFixture {
 
     /// mainnet stays on 0.14.0 while devnet moves to 0.15.0: two networks, two channels.
     pub fn with_split_networks(&self) -> String {
+        self.write_split("manifest-split.json", "0.23.3")
+    }
+
+    /// The same two networks pointing at the same two channels, with 0.15.0's `vm` bumped.
+    ///
+    /// Nothing a network names has moved here, so following the pointer is a no-op -- and yet the
+    /// channel devnet names is not up to date. This is the only way to tell "the pointer has not
+    /// moved" apart from "there is nothing to do".
+    pub fn with_split_networks_and_a_bumped_component(&self) -> String {
+        self.write_split("manifest-split-bumped.json", "0.23.4")
+    }
+
+    fn write_split(&self, name: &str, devnet_vm: &str) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
@@ -422,11 +435,11 @@ impl UpdateFixture {
                 },
                 {
                     "name": "0.15.0",
-                    "components": [self.vm("0.23.3"), self.core(Self::registry("0.23.3"))]
+                    "components": [self.vm(devnet_vm), self.core(Self::registry("0.23.3"))]
                 }
             ]
         });
-        let path = self.dir.join("manifest-split.json");
+        let path = self.dir.join(name);
         std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap())
             .expect("failed to write fixture manifest");
         format!("file://{}", path.display())
