@@ -1,4 +1,5 @@
 use anyhow::{Context, bail};
+use colored::Colorize;
 
 use crate::{
     channel::UserChannel,
@@ -54,46 +55,18 @@ pub fn uninstall(
     // has to work offline, and a network may have moved upstream since this machine last looked --
     // in which case upstream would not name the link that is actually here.
     {
-        let toolchains = paths::toolchains_dir(home);
-        let toolchain_link = paths::toolchain_link(home, &channel);
         let channel_name = channel.to_string();
-        let mut removed_links = Vec::new();
 
-        if let Ok(entries) = std::fs::read_dir(&toolchains) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                // The channel's own link points into `publications/`; a network link's target is
-                // the bare version. That difference is what distinguishes them.
-                if path == toolchain_link {
-                    continue;
-                }
-                let Ok(target) = std::fs::read_link(&path) else {
+        if let Ok(entries) = std::fs::read_dir(paths::toolchains_dir(home)) {
+            for dir_entry in entries.flatten() {
+                let Ok(target) = std::fs::read_link(dir_entry.path()) else {
                     continue;
                 };
+                // A network link's target is the bare version. The channel's own link points into
+                // `publications/`, so this never matches it and it needs no special case.
                 if target == std::path::Path::new(&channel_name) {
-                    std::fs::remove_file(&path)?;
-                    if let Some(name) = entry.file_name().to_str() {
-                        removed_links.push(name.to_string());
-                    }
+                    std::fs::remove_file(dir_entry.path())?;
                 }
-            }
-        }
-
-        // `default` may point at a network link, so that it follows the network as it moves, or
-        // straight at the toolchain directory when a version was pinned. Both dangle once this
-        // channel is gone, and neither used to be handled -- which is what `midenup override
-        // stable` followed by an uninstall used to leave behind.
-        let default = toolchains.join("default");
-        if let Ok(target) = std::fs::read_link(&default) {
-            let names_removed_link = target
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| removed_links.iter().any(|removed| removed == name));
-            let names_this_toolchain = target == toolchain_link
-                || target.file_name() == std::path::Path::new(&channel_name).file_name();
-
-            if names_removed_link || names_this_toolchain {
-                std::fs::remove_file(&default)?;
             }
         }
     }
@@ -101,6 +74,22 @@ pub fn uninstall(
     // The commit point: after this the channel is uninstalled, and an interrupted run is completed
     // rather than rolled back.
     crate::publish::journal::commit_symlink(home, &entry)?;
+
+    // `default` is the user's `midenup override` choice, not a derived link, so nothing would
+    // recompute it -- which is why it is removed after the commit point rather than with the
+    // network links. Either override form dangles once the channel is gone: one names a network
+    // link that has just been removed, the other names the toolchain directory the commit
+    // tombstoned. Testing for dangling covers both, and repairs one left over from any earlier
+    // cause.
+    let default = paths::toolchains_dir(home).join("default");
+    if std::fs::symlink_metadata(&default).is_ok() && default.canonicalize().is_err() {
+        std::fs::remove_file(&default)?;
+        println!(
+            "{}: removed the 'default' override, which named {channel}. Set a new one with:\n    \
+             midenup override <channel>",
+            "info".white().bold()
+        );
+    }
 
     // Removes the state record, reclaims the publication, clears the tombstone, deletes the
     // journal.

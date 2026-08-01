@@ -355,6 +355,47 @@ fn integration_networks_uninstall_removes_every_naming_link() {
     }
 }
 
+/// The links are found by scanning `toolchains/`, so the risk is removing too many. With two
+/// networks naming two different channels, uninstalling one must leave the other's link both
+/// present and resolving.
+#[test]
+fn integration_networks_uninstall_leaves_other_channels_alone() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_uninstall_split");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+    let (mut state, config) = test_setup(&test_env, &fixture.with_split_networks());
+
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "install", "devnet"],
+        vec!["midenup", "uninstall", "0.15.0"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let toolchains = test_env.midenup_home.join("toolchains");
+    assert!(
+        std::fs::symlink_metadata(toolchains.join("devnet")).is_err(),
+        "devnet named the uninstalled channel and must be gone"
+    );
+    assert!(
+        std::fs::symlink_metadata(toolchains.join("mainnet")).is_ok(),
+        "mainnet names a different channel and must survive the uninstall"
+    );
+    assert!(
+        toolchains.join("mainnet").canonicalize().is_ok(),
+        "and it must still resolve, not be left dangling"
+    );
+    assert!(
+        toolchains.join("0.14.0").exists(),
+        "the channel mainnet names must still be installed"
+    );
+}
+
 /// Regression, both directions: `default` may point at a network link or straight at a toolchain
 /// directory, and uninstalling the channel used to leave it dangling either way.
 #[test]
