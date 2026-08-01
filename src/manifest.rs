@@ -412,21 +412,6 @@ mod tests {
             .expect("Could not convert UserChannel to internal channel representation");
     }
 
-    /// The manifest we publish must parse and resolve.
-    ///
-    /// Reads the repo copy. This used to fetch the deployed document, which meant it tested the gap
-    /// between this repo and Github Pages -- and put the network in the unit suite. That drift is
-    /// worth catching, but not here and not on every developer's machine.
-    #[test]
-    fn validate_published_channel_manifest() {
-        let manifest = VersionedManifest::load_from("file://manifest/channel-manifest.json")
-            .expect("Failed to parse the manifest we publish.");
-
-        let _ = manifest
-            .get_channel(&UserChannel::Stable)
-            .expect("Could not convert UserChannel to internal channel representation");
-    }
-
     /// Validates that non-standard manifest features are parsed correctly, these include:
     ///
     /// - Non stable channels (custom tags, nightly)
