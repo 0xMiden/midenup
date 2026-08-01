@@ -423,11 +423,23 @@ impl UpdateFixture {
         self.write_split("manifest-split-bumped.json", "0.23.4")
     }
 
+    /// mainnet is promoted onto the channel devnet already names: two networks, one channel.
+    ///
+    /// The design's headline case, and the one where `var/` cannot follow -- it is keyed by
+    /// channel, so both networks necessarily share `var/0.15.0` from here on.
+    pub fn with_networks_on_one_channel(&self) -> String {
+        self.write_split_at("manifest-shared.json", "0.15.0", "0.23.3")
+    }
+
     fn write_split(&self, name: &str, devnet_vm: &str) -> String {
+        self.write_split_at(name, "0.14.0", devnet_vm)
+    }
+
+    fn write_split_at(&self, name: &str, mainnet: &str, devnet_vm: &str) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
-            "networks": {"devnet": "0.15.0", "mainnet": "0.14.0"},
+            "networks": {"devnet": "0.15.0", "mainnet": mainnet},
             "channels": [
                 {
                     "name": "0.14.0",

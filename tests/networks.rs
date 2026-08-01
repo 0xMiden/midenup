@@ -194,6 +194,106 @@ fn integration_networks_update_follows_a_promotion() {
     );
 }
 
+/// A promotion onto a channel the user already has data under.
+///
+/// mainnet is on 0.14.0 and devnet on 0.15.0, both installed and both used, so `var/0.14.0` and
+/// `var/0.15.0` both exist. mainnet is then promoted onto 0.15.0. `var/` is keyed by channel, so
+/// from here the two networks necessarily share one directory -- but the mainnet store must not be
+/// destroyed or merged on the way there. It stays where a user can find it.
+#[test]
+fn integration_networks_update_onto_a_channel_that_already_has_data_keeps_both() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_shared_var");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.with_split_networks());
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "install", "devnet"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    // Distinguishable, so that "the old one survived" cannot be confused with "the new one was
+    // renamed over it".
+    let var = test_env.midenup_home.join("var");
+    for (channel, contents) in [("0.14.0", &b"mainnet store"[..]), ("0.15.0", &b"devnet store"[..])]
+    {
+        std::fs::create_dir_all(var.join(channel)).unwrap();
+        std::fs::write(var.join(channel).join("store.sqlite3"), contents).unwrap();
+    }
+
+    let (_, config) = test_setup(&test_env, &fixture.with_networks_on_one_channel());
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to follow the promotion onto devnet's channel");
+
+    assert_eq!(
+        std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.15.0"),
+        "mainnet must name what the manifest now says"
+    );
+    assert_eq!(
+        std::fs::read(var.join("0.14.0").join("store.sqlite3")).unwrap(),
+        b"mainnet store",
+        "the orphaned mainnet store must be left where the user can find it, not destroyed"
+    );
+    assert_eq!(
+        std::fs::read(var.join("0.15.0").join("store.sqlite3")).unwrap(),
+        b"devnet store",
+        "and the channel's own data must not be replaced by it"
+    );
+}
+
+/// `install <network>` performs the same pointer move as `update <network>` but deliberately does
+/// not carry `var/`: an install must not mutate data it did not create. It warns instead, and this
+/// pins the half that is checkable -- that nothing moved.
+#[test]
+fn integration_networks_install_of_a_moved_network_does_not_carry_var() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_install_moved");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.initial());
+    for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let var = test_env.midenup_home.join("var");
+    std::fs::create_dir_all(var.join("0.14.0")).unwrap();
+    std::fs::write(var.join("0.14.0").join("store.sqlite3"), b"client data").unwrap();
+
+    // mainnet is promoted, and the user reaches for `install` rather than `update`.
+    let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
+    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install the promoted channel");
+
+    assert_eq!(
+        std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.15.0"),
+        "install still moves the pointer, or there is nothing to warn about"
+    );
+    assert_eq!(
+        std::fs::read(var.join("0.14.0").join("store.sqlite3")).unwrap(),
+        b"client data",
+        "install must leave the data it did not create exactly where it was"
+    );
+    assert!(
+        !var.join("0.15.0").exists(),
+        "and must not fabricate a store for the channel it just installed"
+    );
+}
+
 /// The pointer is authoritative in both directions. A rollback is rare and `promote` refuses to
 /// author one without a flag, but once published, following it is what tracking a network means.
 ///
@@ -585,4 +685,75 @@ fn integration_networks_resolve_offline() {
         .local_channel(&UserChannel::default())
         .expect("mainnet must resolve from the symlink with no manifest available");
     assert_eq!(resolved, semver::Version::new(0, 14, 0));
+}
+
+/// A network's pointer must never name a channel whose `var/` has not arrived yet.
+///
+/// Requires the `fault-injection` feature (`make recovery-test`), because the property is about
+/// what an *interrupted* update leaves behind and only an armed abort point can produce that. The
+/// abort is at `post-derive`, which is exactly the window: DERIVE has run, the carry has not.
+///
+/// The invariant asserted is deliberately the general one -- whatever channel mainnet names, the
+/// data is under it -- rather than "the link still says 0.14.0". It is the property that makes the
+/// ordering safe, and it holds at every point in the operation.
+#[cfg(feature = "fault-injection")]
+#[test]
+fn integration_recovery_networks_pointer_moves_only_after_var_is_carried() {
+    use midenup::fault::{FAULT_POINT_ENV, FaultPoint};
+
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_carry_order");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.initial());
+    for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let var = test_env.midenup_home.join("var");
+    std::fs::create_dir_all(var.join("0.14.0")).unwrap();
+    std::fs::write(var.join("0.14.0").join("store.sqlite3"), b"client data").unwrap();
+
+    // Safety: integration tests run one process per test under nextest, and the mutating guard
+    // serializes the rest. Nothing else in this process reads the variable concurrently.
+    unsafe { std::env::set_var(FAULT_POINT_ENV, FaultPoint::PostDerive.as_str()) };
+
+    let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("the update must stop at the injected fault point");
+
+    let mainnet = test_env.midenup_home.join("toolchains").join("mainnet");
+    let named = std::fs::read_link(&mainnet).expect("the mainnet link must survive the abort");
+    assert!(
+        var.join(&named).join("store.sqlite3").exists(),
+        "mainnet names {}, but the client store is not under it -- the pointer moved ahead of the \
+         carry, and no later run can tell",
+        named.display()
+    );
+
+    // And the interrupted run must be finishable, which is the whole reason the pointer is left
+    // behind rather than ahead.
+    unsafe { std::env::remove_var(FAULT_POINT_ENV) };
+
+    let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("re-running must finish the job");
+
+    assert_eq!(
+        std::fs::read_link(&mainnet).unwrap(),
+        std::path::PathBuf::from("0.15.0"),
+        "the retry must complete the promotion"
+    );
+    assert_eq!(
+        std::fs::read(var.join("0.15.0").join("store.sqlite3")).unwrap(),
+        b"client data",
+        "and the data must have followed it"
+    );
 }

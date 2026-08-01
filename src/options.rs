@@ -54,6 +54,18 @@ pub struct InstallationOptions {
     /// this explicitly.
     #[arg(skip)]
     pub intent_update: Option<IntentUpdate>,
+    /// The network this installation is reconciling, whose link it must therefore *not* derive.
+    ///
+    /// `midenup update <network>` moves that pointer itself, and only once `var/` has been carried
+    /// across, so that an interruption leaves the next run able to finish the job. Letting DERIVE
+    /// write it would move it *before* the carry: an interruption in between would then leave the
+    /// network naming a channel whose data is still under the old one, and the next run would see
+    /// `installed == target`, take the early return, and never carry it.
+    ///
+    /// Only the named network is suppressed. Any other network naming the same channel is not
+    /// being reconciled by this command and still gets its link.
+    #[arg(skip)]
+    pub reconciling: Option<String>,
 }
 
 /// Optional update settings.
@@ -100,6 +112,7 @@ impl From<UpdateOptions> for InstallationOptions {
             held_back: Vec::new(),
             // An update re-resolves what is already recorded; it does not restate intent.
             intent_update: Some(IntentUpdate::Preserve),
+            reconciling: None,
         }
     }
 }
