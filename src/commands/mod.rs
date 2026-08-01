@@ -196,7 +196,17 @@ impl Commands {
             Self::Install { channel, options } => {
                 let manifest = config.upstream_manifest()?;
                 let Some(channel) = manifest.get_channel(channel) else {
-                    bail!("channel '{}' doesn't exist or is unavailable", channel);
+                    // Which names exist is manifest data now, so a typo has to be answerable with
+                    // what was actually declared rather than "doesn't exist or is unavailable".
+                    match channel {
+                        channel::UserChannel::Named(name) => bail!(
+                            "unknown channel '{name}'; known networks are {}",
+                            manifest.network_names().collect::<Vec<_>>().join(", ")
+                        ),
+                        channel::UserChannel::Version(version) => {
+                            bail!("there is no toolchain {version} in the channel manifest")
+                        },
+                    }
                 };
                 install(config, channel, state, options)
             },

@@ -42,6 +42,50 @@ fn manifest_with(components: serde_json::Value) -> serde_json::Value {
     })
 }
 
+/// A manifest with two toolchains, `mainnet` naming the older one.
+///
+/// This is the shape `promote` exists to change: a network that has somewhere to move to.
+fn fixture() -> (tempdir::TempDir, std::path::PathBuf) {
+    let dir = tempdir::TempDir::new("update-manifest-promote").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "components": [cargo_executable("vm", "miden-vm")]},
+                {"name": "0.16.0", "components": [cargo_executable("vm", "miden-vm")]}
+            ]
+        }),
+    );
+    (dir, path)
+}
+
+/// The same, except that toolchain 0.16.0 cannot be resolved: `client` requires a component that
+/// is not in the channel.
+fn fixture_with_dangling_requirement() -> (tempdir::TempDir, std::path::PathBuf) {
+    let dir = tempdir::TempDir::new("update-manifest-promote-dangling").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "components": [cargo_executable("vm", "miden-vm")]},
+                {"name": "0.16.0", "components": [
+                    {"name": "client", "version": {"kind": "registry", "version": "0.16.0"},
+                     "kind": "executable", "requires": ["ghost"], "profiles": ["minimal"],
+                     "installation_method": {"kind": "cargo", "crate_name": "c"},
+                     "installed-executable": "miden-client"}
+                ]}
+            ]
+        }),
+    );
+    (dir, path)
+}
+
 fn cargo_executable(name: &str, installed: &str) -> serde_json::Value {
     serde_json::json!({
         "name": name,
@@ -362,4 +406,82 @@ fn a_mutation_producing_an_invalid_manifest_is_refused() {
         .filter(|n| n != "channel-manifest.json")
         .collect();
     assert!(leftovers.is_empty(), "no temporary files may be left behind: {leftovers:?}");
+}
+
+#[test]
+fn promote_moves_a_network() {
+    let (_temp, path) = fixture();
+    run(&path, &["promote", "mainnet", "0.16.0"]).expect("must promote");
+
+    assert_eq!(read_manifest(&path)["networks"]["mainnet"], "0.16.0");
+}
+
+#[test]
+fn promote_creates_a_network_that_does_not_exist_yet() {
+    let (_temp, path) = fixture();
+    let output = run(&path, &["promote", "devnet", "0.16.0"]).expect("must create");
+    assert!(output.contains("created network 'devnet'"), "got: {output}");
+
+    assert_eq!(read_manifest(&path)["networks"]["devnet"], "0.16.0");
+}
+
+#[test]
+fn promote_reports_a_move_distinctly_from_a_creation() {
+    let (_temp, path) = fixture();
+    let output = run(&path, &["promote", "mainnet", "0.16.0"]).unwrap();
+    assert!(output.contains("moved 'mainnet' from 0.15.0 to 0.16.0"), "got: {output}");
+}
+
+#[test]
+fn promote_refuses_a_channel_that_is_not_in_the_manifest() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "mainnet", "9.9.9"]).expect_err("must refuse");
+    assert!(err.contains("9.9.9"), "the diagnostic must name the channel: {err}");
+}
+
+/// A network must never name a toolchain that cannot be installed: every user tracking it would
+/// discover that only at install time.
+#[test]
+fn promote_refuses_a_channel_that_does_not_resolve() {
+    let (_temp, path) = fixture_with_dangling_requirement();
+    let err = run(&path, &["promote", "mainnet", "0.16.0"]).expect_err("must refuse");
+    assert!(err.contains("not installable"), "got: {err}");
+}
+
+#[test]
+fn promote_refuses_to_move_a_network_backwards_without_the_flag() {
+    let (_temp, path) = fixture();
+    run(&path, &["promote", "mainnet", "0.16.0"]).unwrap();
+
+    let err = run(&path, &["promote", "mainnet", "0.15.0"]).expect_err("must refuse");
+    assert!(err.contains("--allow-downgrade"), "the diagnostic must say how: {err}");
+
+    run(&path, &["promote", "mainnet", "0.15.0", "--allow-downgrade"]).expect("must allow it");
+    assert_eq!(read_manifest(&path)["networks"]["mainnet"], "0.15.0");
+}
+
+#[test]
+fn promote_refuses_a_network_named_like_a_channel() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "0.16.0", "0.16.0"]).expect_err("must refuse");
+    assert!(err.contains("ambiguous"), "got: {err}");
+}
+
+#[test]
+fn promote_refuses_a_reserved_synonym() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "stable", "0.16.0"]).expect_err("must refuse");
+    assert!(err.contains("mainnet"), "must name what to use instead: {err}");
+}
+
+/// The no-op path must not rewrite the document: a `promote` that changes nothing should produce
+/// no diff at all, timestamp included.
+#[test]
+fn promote_to_the_current_version_writes_nothing() {
+    let (_temp, path) = fixture();
+    let before = std::fs::read(&path).unwrap();
+
+    let output = run(&path, &["promote", "mainnet", "0.15.0"]).expect("must succeed");
+    assert!(output.contains("nothing to do"), "got: {output}");
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be untouched");
 }

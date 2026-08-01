@@ -7,7 +7,7 @@ use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
     channel::{self, UserChannel},
-    manifest::{Component, ComponentKind, Manifest, VersionedManifest},
+    manifest::{Component, ComponentKind, Manifest, Promotion, VersionedManifest},
     profile::Profile,
     version::Authority,
 };
@@ -47,6 +47,21 @@ enum Command {
         /// The name of the channel that will be created
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         to: channel::UserChannel,
+    },
+    /// Point a release network at a toolchain
+    ///
+    /// Does not deploy anything. It records which toolchain `midenup install <NETWORK>` resolves
+    /// to from now on.
+    Promote {
+        /// The network to move, e.g. `mainnet`
+        #[arg(required(true), value_name = "NETWORK")]
+        network: String,
+        /// The toolchain the network should name
+        #[arg(required(true), value_name = "CHANNEL")]
+        channel: semver::Version,
+        /// Allow the network to move to an older toolchain than it names now
+        #[arg(long, default_value_t = false)]
+        allow_downgrade: bool,
     },
     /// Add a component to a toolchain
     AddComponent {
@@ -211,6 +226,59 @@ impl Cli {
                 manifest.add_channel(from);
                 manifest.update_last_modified();
 
+                write_manifest(&manifest, &self.manifest_path)
+            },
+            Command::Promote { network, channel, allow_downgrade } => {
+                if semver::Version::parse(network).is_ok() {
+                    bail!(
+                        "'{network}' cannot be a network name: it would be ambiguous with a \
+                         toolchain of the same name"
+                    );
+                }
+                let canonical = channel::canonical_network(network);
+                if canonical != network {
+                    bail!(
+                        "'{network}' is a synonym that midenup rewrites to '{canonical}' before \
+                         any lookup, so a network declared under it could never be reached. \
+                         Promote '{canonical}' instead."
+                    );
+                }
+
+                let Some(target) = manifest.get_channel_by_name(channel).cloned() else {
+                    bail!("cannot promote '{network}': there is no toolchain {channel}")
+                };
+
+                // A network must never name a toolchain that cannot be installed. Every user
+                // tracking it would otherwise discover that only at install time.
+                midenup::resolve::resolve(
+                    &target,
+                    &midenup::resolve::Intent::new(&[Profile::Complete], &[]),
+                )
+                .with_context(|| format!("toolchain {channel} is not installable"))?;
+
+                if let Some(current) = manifest.network_version(network)
+                    && channel < current
+                    && !allow_downgrade
+                {
+                    bail!(
+                        "'{network}' names {current}; moving it back to {channel} hands every \
+                         user tracking it a toolchain older than the one their data was written \
+                         by. Pass --allow-downgrade if that is intended."
+                    );
+                }
+
+                match manifest.promote(network, channel.clone()) {
+                    Promotion::Created { at } => println!("created network '{network}' at {at}"),
+                    Promotion::Moved { from, to } => {
+                        println!("moved '{network}' from {from} to {to}")
+                    },
+                    Promotion::Unchanged => {
+                        println!("'{network}' already names {channel}; nothing to do");
+                        return Ok(());
+                    },
+                }
+
+                manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
             },
             Command::AddComponent {

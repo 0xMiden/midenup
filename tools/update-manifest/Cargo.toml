@@ -23,6 +23,7 @@ clap.workspace = true
 colored.workspace = true
 json-patch = "4.2"
 midenup.workspace = true
+semver = { version = "1.0", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
