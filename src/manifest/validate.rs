@@ -102,6 +102,18 @@ pub enum ValidationError {
         channel: semver::Version,
         component: String,
     },
+    #[error("network '{network}' names channel {version}, which is not in this manifest")]
+    DanglingNetwork {
+        network: String,
+        version: semver::Version,
+    },
+    #[error("network name '{name}' is invalid: {reason}")]
+    InvalidNetworkName { name: String, reason: String },
+    #[error(
+        "this manifest declares no '{0}' network, which is the channel midenup uses when nothing \
+         else selects one"
+    )]
+    MissingDefaultNetwork(&'static str),
 }
 
 /// Validates a whole manifest, returning every problem found.
@@ -120,7 +132,52 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
         validate_channel(channel, &mut errors);
     }
 
+    validate_networks(manifest, &mut errors);
+
     if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Rules over the `networks` map.
+///
+/// Deliberately no ordering invariant between networks. It is tempting to require that devnet be at
+/// least testnet, and testnet at least mainnet, but a mainnet hotfix legitimately inverts it, and a
+/// validator that has to be overridden during an incident is worse than no validator.
+fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
+    use crate::channel::{DEFAULT_NETWORK, canonical_network};
+
+    if !manifest.networks.contains_key(DEFAULT_NETWORK) {
+        errors.push(ValidationError::MissingDefaultNetwork(DEFAULT_NETWORK));
+    }
+
+    let known: BTreeSet<&semver::Version> = manifest.channels.iter().map(|c| &c.name).collect();
+
+    for (name, version) in manifest.networks.iter() {
+        let invalid =
+            |reason: String| ValidationError::InvalidNetworkName { name: name.clone(), reason };
+
+        if name.is_empty() {
+            errors.push(invalid("a network must have a name".to_string()));
+        } else if semver::Version::parse(name).is_ok() {
+            errors.push(invalid(
+                "a network may not be named like a channel, which would make 'midenup install \
+                 <name>' ambiguous"
+                    .to_string(),
+            ));
+        } else if canonical_network(name) != name {
+            errors.push(invalid(format!(
+                "'{name}' is rewritten to '{}' before any lookup, so a network declared under it \
+                 could never be reached",
+                canonical_network(name)
+            )));
+        }
+
+        if !known.contains(version) {
+            errors.push(ValidationError::DanglingNetwork {
+                network: name.clone(),
+                version: version.clone(),
+            });
+        }
+    }
 }
 
 fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
@@ -369,9 +426,65 @@ mod tests {
         validate_manifest(m).err().unwrap_or_default()
     }
 
+    fn with_mainnet(mut m: Manifest) -> Manifest {
+        m.promote(crate::channel::DEFAULT_NETWORK, semver::Version::new(0, 15, 0));
+        m
+    }
+
     #[test]
     fn a_valid_manifest_passes() {
-        let m = manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]);
+        let m =
+            with_mainnet(manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]));
+        assert_eq!(validate_manifest(&m), Ok(()));
+    }
+
+    #[test]
+    fn a_network_naming_an_absent_channel_is_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.promote("testnet", semver::Version::new(9, 9, 9));
+        assert!(errors_of(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::DanglingNetwork { network, version }
+                if network == "testnet" && *version == semver::Version::new(9, 9, 9)
+        )));
+    }
+
+    /// `midenup install 0.15.0` must be unambiguous, so a network may not be named like a channel.
+    #[test]
+    fn a_network_named_like_a_version_is_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.promote("0.15.0", semver::Version::new(0, 15, 0));
+        assert!(errors_of(&m).iter().any(
+            |e| matches!(e, ValidationError::InvalidNetworkName { name, .. } if name == "0.15.0")
+        ));
+    }
+
+    /// `stable` is rewritten to `mainnet` before any lookup happens, so a network declared under
+    /// that name could never be reached.
+    #[test]
+    fn a_network_named_after_a_synonym_is_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.promote("stable", semver::Version::new(0, 15, 0));
+        assert!(errors_of(&m).iter().any(
+            |e| matches!(e, ValidationError::InvalidNetworkName { name, .. } if name == "stable")
+        ));
+    }
+
+    #[test]
+    fn a_manifest_without_mainnet_is_rejected() {
+        assert!(
+            errors_of(&manifest(vec![]))
+                .iter()
+                .any(|e| matches!(e, ValidationError::MissingDefaultNetwork(_)))
+        );
+    }
+
+    #[test]
+    fn several_networks_naming_one_channel_are_valid() {
+        let mut m =
+            with_mainnet(manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]));
+        m.promote("testnet", semver::Version::new(0, 15, 0));
+        m.promote("devnet", semver::Version::new(0, 15, 0));
         assert_eq!(validate_manifest(&m), Ok(()));
     }
 
