@@ -47,23 +47,54 @@ pub fn uninstall(
     let entry = JournalEntry::uninstall(channel.clone(), publication);
     crate::publish::journal::prepare(home, &entry)?;
 
-    // `stable` is derived, so removing it before the commit costs nothing if the operation is
-    // discarded: the next install or update recomputes it from upstream.
+    // Network links are derived, so removing them before the commit costs nothing if the operation
+    // is discarded: the next install or update recomputes them from upstream.
+    //
+    // Found by scanning rather than by asking upstream which networks name this channel. Uninstall
+    // has to work offline, and a network may have moved upstream since this machine last looked --
+    // in which case upstream would not name the link that is actually here.
     {
+        let toolchains = paths::toolchains_dir(home);
         let toolchain_link = paths::toolchain_link(home, &channel);
-        let stable_symlink = paths::toolchains_dir(home).join("stable");
+        let channel_name = channel.to_string();
+        let mut removed_links = Vec::new();
 
-        // Only remove it if it actually points at the toolchain being uninstalled -- it may have
-        // just been created for a channel this one migrated into.
-        let points_here = stable_symlink
-            .canonicalize()
-            .ok()
-            .zip(toolchain_link.canonicalize().ok())
-            .map(|(stable, toolchain)| stable == toolchain)
-            .unwrap_or(false);
+        if let Ok(entries) = std::fs::read_dir(&toolchains) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                // The channel's own link points into `publications/`; a network link's target is
+                // the bare version. That difference is what distinguishes them.
+                if path == toolchain_link {
+                    continue;
+                }
+                let Ok(target) = std::fs::read_link(&path) else {
+                    continue;
+                };
+                if target == std::path::Path::new(&channel_name) {
+                    std::fs::remove_file(&path)?;
+                    if let Some(name) = entry.file_name().to_str() {
+                        removed_links.push(name.to_string());
+                    }
+                }
+            }
+        }
 
-        if points_here && std::fs::symlink_metadata(&stable_symlink).is_ok() {
-            std::fs::remove_file(&stable_symlink)?;
+        // `default` may point at a network link, so that it follows the network as it moves, or
+        // straight at the toolchain directory when a version was pinned. Both dangle once this
+        // channel is gone, and neither used to be handled -- which is what `midenup override
+        // stable` followed by an uninstall used to leave behind.
+        let default = toolchains.join("default");
+        if let Ok(target) = std::fs::read_link(&default) {
+            let names_removed_link = target
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| removed_links.iter().any(|removed| removed == name));
+            let names_this_toolchain = target == toolchain_link
+                || target.file_name() == std::path::Path::new(&channel_name).file_name();
+
+            if names_removed_link || names_this_toolchain {
+                std::fs::remove_file(&default)?;
+            }
         }
     }
 

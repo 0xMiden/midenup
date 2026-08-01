@@ -326,3 +326,62 @@ fn integration_networks_update_of_an_unknown_network_lists_the_known_ones() {
     let rendered = format!("{err:#}");
     assert!(rendered.contains("mainnet"), "must list what is declared: {rendered}");
 }
+
+/// Uninstalling a channel three networks name must remove all three links, not just one.
+#[test]
+fn integration_networks_uninstall_removes_every_naming_link() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_uninstall");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "uninstall", "0.15.0"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    for network in ["mainnet", "testnet", "devnet"] {
+        assert!(
+            std::fs::symlink_metadata(test_env.midenup_home.join("toolchains").join(network))
+                .is_err(),
+            "{network} must not be left pointing at an uninstalled channel"
+        );
+    }
+}
+
+/// Regression, both directions: `default` may point at a network link or straight at a toolchain
+/// directory, and uninstalling the channel used to leave it dangling either way.
+#[test]
+fn integration_networks_uninstall_does_not_leave_default_dangling() {
+    let _guard = common::harness::mutating_test_guard();
+
+    for selector in ["mainnet", "0.15.0"] {
+        let test_env = environment_setup("integration_networks_default");
+        let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+        let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+        for args in [
+            vec!["midenup", "init"],
+            vec!["midenup", "install", "mainnet"],
+            vec!["midenup", "override", selector],
+            vec!["midenup", "uninstall", "0.15.0"],
+        ] {
+            Midenup::try_parse_from(args.clone())
+                .unwrap()
+                .execute_with_state(&config, &mut state)
+                .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+        }
+
+        let default = test_env.midenup_home.join("toolchains").join("default");
+        assert!(
+            std::fs::symlink_metadata(&default).is_err() || default.canonicalize().is_ok(),
+            "with default set to '{selector}', it must be removed or valid, never dangling"
+        );
+    }
+}
