@@ -89,10 +89,10 @@ Add instructions here
 After initializing `midenup`, install the Miden toolchain:
 
 ```bash title=">_ Terminal"
-midenup install stable
+midenup install mainnet
 ```
 
-This installs the latest stable versions of all Miden components that work together.
+This installs the toolchain currently deployed to mainnet: the versions of all Miden components that work together on that network.
 
 ## Verify Installation
 
@@ -106,7 +106,7 @@ midenup show active-toolchain
 <summary>Expected output</summary>
 
 ```text
-stable
+mainnet
 ```
 
 </details>

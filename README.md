@@ -49,24 +49,28 @@ After initializing `midenup`, the first thing you will want to do is actually
 install a toolchain so you can work with the various Miden components. There
 are two ways to do this:
 
-1. Installing a release channel, e.g. `stable`, which will install the latest
-stable versions of all components that work together. When updating a release
-channel, breaking changes can occur if there were breaking changes between
-stable releases of any of the toolchain components. The upside is that you
-stay up to date with changes upstream, without having to think about version
-management.
-2. Installing a specific toolchain version, e.g. `0.15.0`, which will install
-the latest versions of all components which are compatible with that version of
-the toolchain.
+1. Installing a release network, e.g. `mainnet`, which installs the toolchain currently deployed to
+that network. When a network is promoted to a newer toolchain, `midenup update mainnet` follows it,
+carrying your component selection and your client data across.
+2. Installing a specific toolchain version, e.g. `0.15.0`, which pins you to that toolchain
+regardless of what the networks do.
 
 In both cases, you simply run `midenup install <TOOLCHAIN>`.
 
-When getting started, it is recommended that you install the `stable` toolchain, like so:
+The networks are:
+
+| Network   | Also accepted as | What it is                        |
+|-----------|------------------|-----------------------------------|
+| `mainnet` | `stable`         | The toolchain deployed to mainnet |
+| `testnet` | `beta`           | The toolchain deployed to testnet |
+| `devnet`  | `nightly`        | The newest published toolchain    |
+
+When getting started, it is recommended that you install the `mainnet` toolchain, like so:
 ```
-midenup install stable
+midenup install mainnet
 ```
 
-`midenup` also assumes stable to be the default toolchain if not overridden in
+`midenup` also assumes `mainnet` to be the default toolchain if not overridden in
 the current working directory or by the user's default toolchain (for more
 information on how to configure the active toolchain, see [Configuring the active
 toolchain](#configuring-the-active-toolchain)).
@@ -76,14 +80,16 @@ toolchain](#configuring-the-active-toolchain)).
 To update a given toolchain, you can use the `midenup update <TOOLCHAIN>`
 command. This command's behavior differs slightly depending on how it is called.
 
-#### Updating stable
+#### Updating a network
 
-To update stable to the latest release, run:
+To bring a network up to the toolchain it now runs, run:
 ```
-midenup update stable
+midenup update mainnet
 ```
 
-This will check if there's a newer stable release and will update the toolchain accordingly.
+This follows the network's pointer wherever it has moved, carrying your component selection and your
+client data across. If the pointer has not moved, it still picks up any changes to the components of
+the toolchain it names.
 
 #### Updating a specific toolchain
 
@@ -185,7 +191,7 @@ midenup show home
 2. If not, `miden` will check if a toolchain has been set as the system's
    default (more details in the [Configuring the active toolchain](#configuring-the-active-toolchain) section).
 
-If none of the previous conditions are met, then `stable` will be used.
+If none of the previous conditions are met, then `mainnet` will be used.
 
 #### Setting a project specific toolchain
 
@@ -199,9 +205,14 @@ This procedure will generate a `miden-toolchain.toml` file in the directory wher
 
 ```toml
 [toolchain]
-channel = "stable"
+channel = "0.16.0"
 components = []
 ```
+
+The `channel` entry may also name a network, e.g. `channel = "mainnet"`, in which case the project
+follows that network as it moves. A file written before the networks were named, saying `channel =
+"stable"`, still works and means `mainnet`: `stable`, `beta` and `nightly` are accepted as synonyms
+for `mainnet`, `testnet` and `devnet`.
 
 Now, whenever `miden` is called in this directory (or any of its subdirectories), it will use the specified toolchain.
 
@@ -212,7 +223,7 @@ profile's members -- not everything. To install every component in the channel, 
 
 ```toml
 [toolchain]
-channel = "stable"
+channel = "mainnet"
 profile = "complete"
 components = []
 ```
@@ -221,7 +232,7 @@ Listing components adds them to the profile's members. With this file:
 
 ```toml
 [toolchain]
-channel = "stable"
+channel = "mainnet"
 components = ["vm", "midenc", "client"]
 ```
 
@@ -246,10 +257,8 @@ system. `midenup` (via `miden`) will handle installation as soon as you use any
 component from the newly selected toolchain.
 
 > [!NOTE]
-> If `stable` is set as the active toolchain, `midenup` will use the latest
-> available `stable` toolchain.
-> If you desire to pinpoint a specific release as the default, then use the
-> version name explicitly.
+> If a network such as `mainnet` is set as the active toolchain, `midenup` follows that network as
+> it moves. To pin a specific release instead, name its version.
 
 ## Development
 
@@ -257,7 +266,7 @@ Internally, `midenup` relies on a _channel manifest_, which describes the availa
 
 Locally, you can override the channel manifest URI, for testing or development purposes, by setting the `MIDENUP_MANIFEST_URI` environment variable. The URI must begin with either `file://` or `https://` at this time, but we could in theory support other URIs in the future if found useful.
 
-The manifest format is described by the `Manifest` struct in `src/manifest.rs`, and supports a variety of features that we haven't currently fully implemented, but which are intended to allow for handy functionality such as defining toolchains that pull components from the local filesystem, or from a Git repository.
+The manifest format is described by the `Manifest` struct in `src/manifest/v3/mod.rs`, and supports a variety of features that we haven't currently fully implemented, but which are intended to allow for handy functionality such as defining toolchains that pull components from the local filesystem, or from a Git repository.
 
 For now, a simple `make build` and `make test` is all you need to work on `midenup` itself, though there is not yet much in the way of tests.
 

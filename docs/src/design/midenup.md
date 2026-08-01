@@ -21,10 +21,15 @@ $MIDENUP_HOME/
 │   └── <channel>/                      mutable user data; never touched by install or update
 ├── toolchains/
 │   ├── <channel>  -> ../publications/<channel>-<publication-id>
-│   ├── stable     -> <channel>
-│   └── default    -> <channel>
+│   ├── <network>  -> <channel>            one link per network naming an installed channel
+│   └── default    -> <channel> | <network>
 └── opt -> toolchains/<active-channel>/opt
 ```
+
+There is one `<network>` link per network — `mainnet`, `testnet`, `devnet` — and it exists only once
+that network's channel is installed here, so it can never dangle. Several of them may name the same
+channel. The link records the last answer upstream gave that this machine acted on, which is what
+lets `miden` name the active channel offline.
 
 Two things worth noting:
 
@@ -42,7 +47,7 @@ Installation is not atomic — it touches a staged tree, a symlink, `state.json`
 3. VERIFY    structural check; write receipt.json
 4. COMMIT    repoint toolchains/<channel>            <- the commit point
 5. RECORD    commit state.json
-6. DERIVE    rebuild toolchains/stable and opt
+6. DERIVE    repoint every toolchains/<network> naming this channel, and opt
 7. CLEAN     release the old publication; delete the journal
 ```
 
@@ -68,6 +73,8 @@ Update decides two things and delegates the rest:
 2. **Which selection the result is recorded under.** An update re-resolves the *persisted* intent against the new upstream channel, so a `minimal` installation gains components newly tagged `minimal`, and a roots-only installation gains new dependencies of its roots but not unrelated new profile members.
 
 Everything else — resolving, planning, staging, publishing — is the same code path as a fresh install. A change that touches only selection or runtime metadata skips it entirely and commits a single `state.json` write: republishing an identical tree to record an alias would be pure cost.
+
+**Updating a network reconciles the pointer, not the channel.** `midenup update mainnet` looks at what the manifest now has `mainnet` naming. If that has moved, the installation is carried there: the recorded selection transfers verbatim and is re-resolved against the channel now being tracked, `var/` is renamed so client data follows the network rather than being stranded under a version nobody is tracking any more, and the `toolchains/mainnet` link is repointed last. The comparison is inequality rather than "is newer" — the pointer is authoritative in both directions — so a promotion that moves a network *back* is followed too, with a warning that data written by a newer toolchain is being carried across as-is.
 
 An explicit root that no longer exists upstream **blocks** the update and preserves the installation. The schema has no rename declaration, so guessing is not an option.
 

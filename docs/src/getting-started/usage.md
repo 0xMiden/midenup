@@ -5,13 +5,19 @@
 In order to get started with `midenup`, a toolchain should be installed. A toolchain is simply a collection of miden programs (e.g. the vm, the client, the compiler, etc).
 Toolchains are installed via "Channels", which are a specific release of a toolchain with instructions on how to obtain it.
 
-Most users will want to install the latest stable toolchain from the official midenup channel, like so:
+Most users will want the toolchain that is deployed to a particular network, and can name the network rather than a version:
+
+| Network   | Also accepted as | What it is                        |
+|-----------|------------------|-----------------------------------|
+| `mainnet` | `stable`         | The toolchain deployed to mainnet |
+| `testnet` | `beta`           | The toolchain deployed to testnet |
+| `devnet`  | `nightly`        | The newest published toolchain    |
 
 ```shell title=">_ Terminal"
-midenup install stable
+midenup install mainnet
 ```
 
-This command will install the stable toolchain using the [official midenup channel](https://0xmiden.github.io/midenup/channel-manifest.json).
+This command will install the toolchain mainnet currently runs, using the [official midenup channel](https://0xmiden.github.io/midenup/channel-manifest.json). Which toolchain that is comes from the manifest, so when a network is promoted to a newer toolchain, `midenup update mainnet` follows it.
 However, midenup also supports "custom channels", where one can create a customized version of a toolchain. In order to use a custom channel, `midenup` must called with the`MIDENUP_MANIFEST_URI` environment variable, like so:
 
 ```shell title=">_ Terminal"
@@ -71,7 +77,7 @@ This displays the following information:
 
 ## Activating a toolchain
 
-`midenup`, and by extension `miden`, have a notion of an 'active toolchain'. This value represents the toolchain that is going to be used in the current working directory. Unless configured otherwise, `midenup` will always default to using the latest stable toolchain.
+`midenup`, and by extension `miden`, have a notion of an 'active toolchain'. This value represents the toolchain that is going to be used in the current working directory. Unless configured otherwise, `midenup` will always default to the toolchain deployed to `mainnet`.
 
 To check what the active toolchain is, the following command can be run:
 
@@ -83,7 +89,7 @@ There are currently 2 main mechanisms to alter the active toolchain: setting a s
 
 1. Directory local toolchains.
 2. System default.
-3. Fallback: If none of the above are detected, `midenup` will fallback to the `stable` toolchain as default.
+3. Fallback: If none of the above are detected, `midenup` will fallback to the `mainnet` toolchain as default.
 
 ### System wide active toolchain
 
@@ -92,6 +98,8 @@ The `midenup override <toolchain>` command will set the passed toolchain as the 
 ```shell title=">_ Terminal"
 midenup override 0.15.0
 ```
+
+A network name works here too: `midenup override mainnet` follows mainnet as it moves, whereas naming a version pins the default to that release.
 
 To check this, use `midenup show active-toolchain`.
 
@@ -122,13 +130,17 @@ midenup update
 
 then `midenup` will look for updates on every installed toolchain.
 
-### Updating stable
+### Updating a network
 
-If the latest installed "stable" toolchain in the system is older than the latest available version present upstream, the system can be brought up to date with the following command:
+When a network is promoted to a different toolchain, an installation that tracks that network is brought to it with:
 
 ```shell title=">_ Terminal"
-midenup update stable
+midenup update mainnet
 ```
+
+This follows the network's pointer wherever it has moved. Your component selection transfers verbatim and is re-resolved against the toolchain now being tracked, and your client data under `var/` is carried across with it, so it follows the network rather than being left behind under a version you no longer use. A network that has been moved *back* to an older toolchain is followed too, with a warning.
+
+If the network's pointer has not moved, this still picks up any changes to the components of the toolchain it names.
 
 ## Uninstalling a toolchain
 
