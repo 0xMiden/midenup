@@ -377,7 +377,7 @@ pub fn miden_wrapper(
     // dispatch never needs the network to find its own toolchain (spec section 13.1).
     let installed_channel = {
         let active = config
-            .local_channel(&toolchain.channel, state)
+            .local_channel(&toolchain.channel)
             .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
         state
             .get(&active)
@@ -544,9 +544,8 @@ pub fn display_version(config: &Config) -> String {
     let toolchain_version = Toolchain::current(config)
         .and_then(|(toolchain, _)| {
             // `midenup --version` is informational and must not reach for the network.
-            let state = config.local_state()?;
             config
-                .local_channel(&toolchain.channel, &state)
+                .local_channel(&toolchain.channel)
                 .map(|channel| channel.to_string())
                 .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
         })

@@ -81,17 +81,19 @@ fn update_network(
     })?;
 
     let user_channel = UserChannel::Named(name.to_string().into());
-    let installed = config.local_channel(&user_channel, state).with_context(|| {
+    let installed = config.local_channel(&user_channel).with_context(|| {
         format!("{name} is not installed. To install it, run:\n    midenup install {name}\n")
+    })?;
+
+    let installation = state.get(&installed).cloned().with_context(|| {
+        format!(
+            "toolchains/{name} names {installed}, which is not in local state; reinstall with: \
+             midenup install {name}"
+        )
     })?;
 
     println!("syncing channel updates for {name} (installed as {installed})");
     println!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
-
-    let installation = state
-        .get(&installed)
-        .cloned()
-        .with_context(|| format!("channel {installed} is not installed"))?;
 
     if installed == target {
         // The pointer has not moved, which does not mean there is nothing to do: the channel's own
@@ -125,7 +127,16 @@ fn update_network(
 
     // The user's data follows the network it belongs to, rather than being stranded under a channel
     // version they are no longer tracking. A rename, so it cannot half-happen.
-    carry_var_to(config, &installed, &target)
+    carry_var_to(config, &installed, &target)?;
+
+    // DERIVE runs only inside `commands::install`, and an update whose target is already installed
+    // can come back as `Work::Nothing` -- the same-intent rollback case. Moving the pointer is what
+    // this command exists to do, so it is done here rather than left to a side effect of
+    // installing. After the carry, so that an interruption leaves the next run able to finish
+    // the job.
+    let link = crate::paths::network_link(&config.midenup_home, name);
+    crate::utils::fs::replace_symlink(&link, Path::new(&target.to_string()))
+        .with_context(|| format!("failed to point '{name}' at {target}"))
 }
 
 /// How a component changed between what is installed and what upstream now says.

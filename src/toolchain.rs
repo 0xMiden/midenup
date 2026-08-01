@@ -73,7 +73,7 @@ fn active_view(
     channel: &UserChannel,
     intent: &Intent,
 ) -> Option<Channel> {
-    let version = config.local_channel(channel, state)?;
+    let version = config.local_channel(channel)?;
     let installation = state.get(&version).filter(|installation| installation.is_managed())?;
 
     let installed = installation.as_channel();

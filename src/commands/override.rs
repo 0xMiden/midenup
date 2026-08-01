@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
@@ -30,7 +30,34 @@ pub fn r#override(
     let channel_dir = match channel {
         // A network name is indirected through its own symlink rather than resolved to a toolchain
         // directory, so that `default` keeps following the network as it moves.
-        UserChannel::Named(name) => toolchains_dir.join(name.as_ref()),
+        UserChannel::Named(name) => {
+            let link = crate::paths::network_link(&config.midenup_home, name.as_ref());
+
+            // Unvalidated, a typo pointed `default` at a link that does not exist and reported
+            // success -- and could then not be corrected, because a dangling link is not
+            // `exists()`, so the removal below was skipped and the next override hit `EEXIST`.
+            match config.upstream_manifest() {
+                Ok(manifest) => {
+                    if !manifest.network_names().any(|network| network == name.as_ref()) {
+                        bail!(
+                            "unknown channel '{name}'; known networks are {}",
+                            manifest.network_names().collect::<Vec<_>>().join(", ")
+                        );
+                    }
+                },
+                // Upstream may be unreachable, and a network this machine has already acted on is
+                // recorded by its own link, which is enough to accept the name offline.
+                Err(err) if link.symlink_metadata().is_err() => {
+                    return Err(err.context(format!(
+                        "cannot check whether '{name}' is a known network, and no \
+                         toolchains/{name} link exists locally"
+                    )));
+                },
+                Err(_) => {},
+            }
+
+            link
+        },
         UserChannel::Version(_) => {
             let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
                 "failed to set {channel} as the system default. Try installing it:
@@ -41,7 +68,9 @@ pub fn r#override(
     };
 
     let default_path = toolchains_dir.join("default");
-    if default_path.exists() {
+    // `symlink_metadata`, not `exists`: the latter follows the link, so a `default` left dangling
+    // by an earlier mistake was never removed and every later override failed with `EEXIST`.
+    if std::fs::symlink_metadata(&default_path).is_ok() {
         std::fs::remove_file(&default_path)
             .context("failed to remove 'default' toolchain symlink")?;
     }

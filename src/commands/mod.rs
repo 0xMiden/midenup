@@ -366,7 +366,7 @@ impl Midenup {
         // After execution we check if need to update the midenup/opt symlink
         // This is done *after* execution because some commands change what the active toolchain
         // (update, set) and some remove the directory entirely (uninstall)
-        config.update_opt_symlinks(state)?;
+        config.update_opt_symlinks()?;
 
         Ok(())
     }
