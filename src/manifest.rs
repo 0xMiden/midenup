@@ -197,6 +197,22 @@ impl VersionedManifest {
     }
 }
 
+/// What a call to [`Manifest::promote`] did.
+///
+/// Returned rather than printed so the caller decides how to report it: `update-manifest` prints a
+/// sentence, tests assert on the variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Promotion {
+    Created {
+        at: semver::Version,
+    },
+    Moved {
+        from: semver::Version,
+        to: semver::Version,
+    },
+    Unchanged,
+}
+
 impl Manifest {
     pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
@@ -307,6 +323,45 @@ impl Manifest {
         self.channels.iter_mut().find(|c| &c.name == ver)
     }
 
+    /// The channel version a network currently names, whether or not that channel exists here.
+    pub fn network_version(&self, name: &str) -> Option<&semver::Version> {
+        self.networks.get(name)
+    }
+
+    /// The channel a network currently names.
+    ///
+    /// `None` covers two different situations -- an undeclared network, and one naming a channel
+    /// that is not in this document -- because a caller can do nothing different about them.
+    /// `validate_manifest` is what distinguishes and reports the second.
+    pub fn resolve_network(&self, name: &str) -> Option<&Channel> {
+        self.get_channel_by_name(self.networks.get(name)?)
+    }
+
+    /// Every network naming `version`. Usually one; more once a toolchain is shared.
+    pub fn networks_for(&self, version: &semver::Version) -> impl Iterator<Item = &str> {
+        self.networks
+            .iter()
+            .filter(move |(_, named)| *named == version)
+            .map(|(name, _)| name.as_str())
+    }
+
+    /// Every declared network name, in order. For diagnostics that have to list what is available.
+    pub fn network_names(&self) -> impl Iterator<Item = &str> {
+        self.networks.keys().map(String::as_str)
+    }
+
+    /// Points `name` at `version`, creating the network if it does not exist.
+    ///
+    /// Says nothing about whether `version` is a channel in this manifest, or whether moving there
+    /// is a downgrade. Both are policy, and both belong to the caller that has a user to refuse.
+    pub fn promote(&mut self, name: &str, version: semver::Version) -> Promotion {
+        match self.networks.insert(name.to_string(), version.clone()) {
+            None => Promotion::Created { at: version },
+            Some(previous) if previous == version => Promotion::Unchanged,
+            Some(previous) => Promotion::Moved { from: previous, to: version },
+        }
+    }
+
     /// Attempts to fetch the [Channel] corresponding to the given [UserChannel]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
         match channel {
@@ -399,6 +454,94 @@ mod tests {
             matches!(&err, super::ManifestError::UnsupportedVersion(v) if *v == semver::Version::new(1, 0, 0)),
             "expected UnsupportedVersion(1.0.0), got: {err}"
         );
+    }
+
+    /// The state right after a testnet toolchain is promoted to mainnet: one channel, two names.
+    /// This is the case the old per-channel `alias` field could not represent at all.
+    #[test]
+    fn two_networks_may_name_one_channel() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": { "mainnet": "0.15.0", "testnet": "0.15.0", "devnet": "0.16.0" },
+            "channels": [
+                { "name": "0.15.0", "components": [] },
+                { "name": "0.16.0", "components": [] },
+            ]
+        })
+        .to_string();
+
+        let manifest = VersionedManifest::parse_str(&src).expect("must parse");
+
+        assert_eq!(manifest.network_version("mainnet"), Some(&semver::Version::new(0, 15, 0)));
+        assert_eq!(
+            manifest.resolve_network("testnet").map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 15, 0))
+        );
+
+        let mut sharing: Vec<&str> =
+            manifest.networks_for(&semver::Version::new(0, 15, 0)).collect();
+        sharing.sort_unstable();
+        assert_eq!(sharing, vec!["mainnet", "testnet"]);
+
+        assert!(manifest.resolve_network("nope").is_none());
+    }
+
+    /// A pointer naming a channel that is not in the document resolves to nothing rather than
+    /// panicking. Validation is what reports it.
+    #[test]
+    fn a_dangling_network_resolves_to_nothing() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": { "mainnet": "9.9.9" },
+            "channels": [{ "name": "0.15.0", "components": [] }]
+        })
+        .to_string();
+
+        let manifest = VersionedManifest::parse_str(&src).expect("parsing must stay permissive");
+        assert_eq!(manifest.network_version("mainnet"), Some(&semver::Version::new(9, 9, 9)));
+        assert!(manifest.resolve_network("mainnet").is_none());
+    }
+
+    #[test]
+    fn promote_distinguishes_creation_movement_and_a_no_op() {
+        let mut manifest = super::Manifest::default();
+        manifest
+            .channels
+            .push(super::Channel::new(semver::Version::new(0, 15, 0), None, vec![]));
+        manifest
+            .channels
+            .push(super::Channel::new(semver::Version::new(0, 16, 0), None, vec![]));
+
+        assert!(matches!(
+            manifest.promote("mainnet", semver::Version::new(0, 15, 0)),
+            super::Promotion::Created { at } if at == semver::Version::new(0, 15, 0)
+        ));
+        assert!(matches!(
+            manifest.promote("mainnet", semver::Version::new(0, 15, 0)),
+            super::Promotion::Unchanged
+        ));
+        assert!(matches!(
+            manifest.promote("mainnet", semver::Version::new(0, 16, 0)),
+            super::Promotion::Moved { from, to }
+                if from == semver::Version::new(0, 15, 0) && to == semver::Version::new(0, 16, 0)
+        ));
+    }
+
+    /// The map is a `BTreeMap` so that `update-manifest format` is deterministic.
+    #[test]
+    fn networks_serialize_in_key_order() {
+        let mut manifest = super::Manifest::default();
+        manifest.promote("testnet", semver::Version::new(0, 15, 0));
+        manifest.promote("mainnet", semver::Version::new(0, 15, 0));
+        manifest.promote("devnet", semver::Version::new(0, 15, 0));
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let devnet = json.find("devnet").expect("devnet must be present");
+        let mainnet = json.find("mainnet").expect("mainnet must be present");
+        let testnet = json.find("testnet").expect("testnet must be present");
+        assert!(devnet < mainnet && mainnet < testnet, "keys must be emitted in order: {json}");
     }
 
     /// Validates that the current channel manifest is parseable.

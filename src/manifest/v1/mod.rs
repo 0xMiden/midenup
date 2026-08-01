@@ -59,6 +59,7 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
             // Stamping the v1 constant here left converted manifests claiming to be v1.0.1.
             manifest_version: v3::MANIFEST_VERSION,
             date: value.date,
+            networks: Default::default(),
             channels,
             extra: Default::default(),
         })

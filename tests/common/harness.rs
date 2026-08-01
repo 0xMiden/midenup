@@ -77,6 +77,7 @@ impl OfflineFixture {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
+            "networks": {"devnet": channel, "mainnet": channel, "testnet": channel},
             "channels": [{
                 "name": channel,
                 "components": [
@@ -220,6 +221,7 @@ pub fn write_source_manifest(
     let manifest = serde_json::json!({
         "manifest_version": "3.0.0",
         "date": 1735689600,
+        "networks": {"mainnet": "0.15.0"},
         "channels": [{
             "name": "0.15.0",
             "components": [
@@ -328,10 +330,11 @@ impl UpdateFixture {
         serde_json::json!({"kind": "registry", "version": version})
     }
 
-    fn write(&self, name: &str, channels: serde_json::Value) -> String {
+    fn write(&self, name: &str, mainnet: &str, channels: serde_json::Value) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
+            "networks": {"mainnet": mainnet},
             "channels": channels
         });
         let path = self.dir.join(name);
@@ -344,6 +347,7 @@ impl UpdateFixture {
     pub fn initial(&self) -> String {
         self.write(
             "manifest-1.json",
+            "0.14.0",
             serde_json::json!([{
                 "name": "0.14.0",
                 "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
@@ -355,6 +359,7 @@ impl UpdateFixture {
     pub fn with_new_stable(&self) -> String {
         self.write(
             "manifest-2.json",
+            "0.15.0",
             serde_json::json!([
                 {
                     "name": "0.14.0",
@@ -378,6 +383,7 @@ impl UpdateFixture {
     pub fn with_every_change(&self) -> String {
         self.write(
             "manifest-3.json",
+            "0.16.0",
             serde_json::json!([
                 {
                     "name": "0.14.0",

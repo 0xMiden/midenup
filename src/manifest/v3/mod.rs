@@ -2,7 +2,7 @@ mod channel;
 mod component;
 pub mod unknown;
 
-use std::path::Path;
+use std::{collections::BTreeMap, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,22 @@ pub struct Manifest {
     pub(super) manifest_version: semver::Version,
     /// The UTC timestamp at which this manifest was generated
     pub(super) date: i64,
+    /// Which channel each release network currently runs.
+    ///
+    /// A network is a *moving name* for a channel: `mainnet` names whichever toolchain is deployed
+    /// to mainnet today, and `update-manifest promote` is what moves it. Several networks may name
+    /// one channel, which is the normal state once a testnet toolchain is promoted to mainnet --
+    /// the per-channel `alias` field this replaces could not express that at all.
+    ///
+    /// Deliberately not derived. Which toolchain a network runs is a deployment fact; mainnet may
+    /// lag testnet by several releases, and a hotfix may put it ahead. No ordering over version
+    /// numbers can express that.
+    ///
+    /// `#[serde(default)]` because parsing does not validate. That a manifest declares `mainnet`
+    /// is a rule in `validate::validate_manifest`, not a precondition for reading the
+    /// document.
+    #[serde(default)]
+    pub(super) networks: BTreeMap<String, semver::Version>,
     /// The channels described in this manifest
     pub(super) channels: Vec<Channel>,
     /// Fields declared by a newer schema that this build does not recognize.
@@ -80,6 +96,7 @@ impl Default for Manifest {
         Self {
             manifest_version: MANIFEST_VERSION,
             date,
+            networks: BTreeMap::new(),
             channels: vec![],
             extra: Extra::new(),
         }
