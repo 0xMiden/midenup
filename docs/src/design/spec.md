@@ -529,6 +529,15 @@ Local state does not record a "partial" flag. When the upstream manifest is avai
 
 Components with no physical output (`command` with zero artifacts) count as installed for membership purposes and are exempt from physical verification (§9.6).
 
+The same rule governs the network annotation in `midenup show list`. Each installed channel is
+listed with the networks that name it - `0.15.0 (mainnet, testnet)` - as a list, since several
+networks naming one channel is normal. Which networks name a channel is upstream's answer, so when
+upstream is unavailable the annotation is omitted entirely rather than derived locally: a local
+guess would be exactly the derivation networks exist to eliminate, and a stale one would tell a user
+they are on mainnet when they are not. The other markers are unchanged: `(needs reinstallation)` is
+derived from local state alone - a migrated record with no publication - and is always shown, while
+`(partially installed)` and `(unavailable upstream)` need upstream and are omitted with it.
+
 ---
 
 ## 9. Installation
@@ -958,6 +967,7 @@ The following are call disallowed and caught by validation:
 * malformed `digest`
 * `legacy-package` in a newly authored channel
 * a network naming a channel that is not in the document
+* a network with an empty name
 * a network named like a channel, or after one of the synonyms in §5.1
 * a manifest that declares no `mainnet` network.
 
@@ -990,7 +1000,7 @@ Each variant carries the file path, the offending identifier, and a remediation 
 | `LockTimeout { holder_pid }` | another operation held the lock too long |
 | `DanglingNetwork { network, version }` | a network names a channel absent from the manifest |
 | `InvalidNetworkName { name, reason }` | a network is named like a channel, or after a synonym |
-| `MissingDefaultNetwork { name }` | the manifest declares no `mainnet` |
+| `MissingDefaultNetwork(network)` | the manifest declares no `mainnet` |
 
 `DivergentState` and `NeedsReinstall` both name the exact recovery command.
 
@@ -1083,7 +1093,7 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 
 ### End to end
 
-`mainnet` install -> two project toolchains -> same-version update -> promotion of the network to a new toolchain -> channel migration -> uninstall, asserting physical layout at every step.
+A version install (`0.15.0`) -> two project toolchains activating additively -> an in-place update of that same channel -> a bare `midenup update` following a `migrates_from` successor -> `gc` -> uninstall, asserting physical layout at every step.
 
 ### Fault injection
 

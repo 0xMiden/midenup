@@ -11,7 +11,7 @@ Most users will want the toolchain that is deployed to a particular network, and
 |-----------|------------------|-----------------------------------|
 | `mainnet` | `stable`         | The toolchain deployed to mainnet |
 | `testnet` | `beta`           | The toolchain deployed to testnet |
-| `devnet`  | `nightly`        | The newest published toolchain    |
+| `devnet`  | `nightly`        | The toolchain deployed to devnet  |
 
 ```shell title=">_ Terminal"
 midenup install mainnet
@@ -129,6 +129,11 @@ midenup update
 ```
 
 then `midenup` will look for updates on every installed toolchain.
+
+Note that this form works through the toolchains you have installed, *by version*, and does not
+consult the network pointers at all: a toolchain your network was promoted to is not installed yet,
+so a bare `midenup update` will never bring you to it. Following a promotion means naming the
+network, as below.
 
 ### Updating a network
 

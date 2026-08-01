@@ -9,7 +9,9 @@ You must ensure that all components in a toolchain are compatible with the given
 Authoring a toolchain and publishing it are two separate steps. A toolchain in the manifest reaches
 nobody until a *network* is pointed at it: `mainnet`, `testnet` and `devnet` each name the toolchain
 that network runs, and `midenup install mainnet` installs whatever `mainnet` names today. Moving
-that pointer is the `promote` step below, and it is the step that makes a release visible to users.
+that pointer is the `promote` step below, and it is what makes a release *reachable* — but only once
+the edited manifest itself is published, which is a separate step again (see [Publishing](#publishing)
+at the end).
 
 ## Prerequisites
 
@@ -45,7 +47,7 @@ In typical cases, this is just a matter of bumping the version of each affected 
 ```
 bin/update-manifest --manifest-path manifest/channel-manifest.json \
     update-component $COMPONENT \
-    --channel $CHANNEL
+    --channel $CHANNEL \
     --authority=$COMPONENT_VERSION
 ```
 
@@ -57,7 +59,7 @@ For newly added components, see the `add-component` subcommand.
 
 For removed components, see the `remove-component` subcommand.
 
-## Publishing: pointing a network at a toolchain
+## Pointing a network at a toolchain
 
 A toolchain in the manifest is installable by version, but nobody tracking a network sees it until
 that network names it:
@@ -112,6 +114,25 @@ one.
 
 There is deliberately no ordering rule between networks: a mainnet hotfix can legitimately put
 mainnet ahead of testnet.
+
+## Publishing
+
+Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
+check-manifest` deploys nothing, and no user has seen any of it yet.
+
+What users fetch is the copy of `manifest/` deployed to GitHub Pages, and
+`.github/workflows/publish-manifest.yml` runs that deployment on any push to `main` touching
+`manifest/**`. So the release lands the way every other change does:
+
+```
+git add manifest/channel-manifest.json
+git commit
+```
+
+then open a pull request for review. Merging to `main` triggers the Pages deployment, and *that* is
+the point at which the new toolchain and the promotion become reachable. Until the merge,
+`midenup install mainnet` on any machine still resolves to whatever the deployed manifest says —
+a promotion that only exists locally has shipped to nobody.
 
 [^1]: A release refers to a tagged version of the Miden protocol. That version tag serves as the
 reference point for assembling a compatible toolchain, as all related components (VM, client, node,

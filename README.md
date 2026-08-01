@@ -63,7 +63,7 @@ The networks are:
 |-----------|------------------|-----------------------------------|
 | `mainnet` | `stable`         | The toolchain deployed to mainnet |
 | `testnet` | `beta`           | The toolchain deployed to testnet |
-| `devnet`  | `nightly`        | The newest published toolchain    |
+| `devnet`  | `nightly`        | The toolchain deployed to devnet  |
 
 When getting started, it is recommended that you install the `mainnet` toolchain, like so:
 ```
