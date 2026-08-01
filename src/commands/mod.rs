@@ -251,6 +251,8 @@ impl Midenup {
                 // Before the upstream fetch below: an unreachable upstream must not be able to
                 // prevent a local migration (spec section 12.2).
                 crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+                crate::migrate_networks::migrate_if_needed(&midenup_home)
+                    .context("failed to migrate the toolchains directory to the network layout")?;
 
                 config::Config::init(
                     working_directory,
@@ -296,6 +298,8 @@ impl Midenup {
 
                 // See above: migration precedes any upstream fetch.
                 crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+                crate::migrate_networks::migrate_if_needed(&midenup_home)
+                    .context("failed to migrate the toolchains directory to the network layout")?;
 
                 config::Config::init(
                     working_directory,
@@ -332,6 +336,8 @@ impl Midenup {
             report_migration(&channels);
             *state = config.local_state()?;
         }
+        crate::migrate_networks::migrate_if_needed(&config.midenup_home)
+            .context("failed to migrate the toolchains directory to the network layout")?;
 
         recover(config, state)?;
 
