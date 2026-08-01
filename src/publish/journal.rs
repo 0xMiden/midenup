@@ -11,7 +11,7 @@
 //! 3. VERIFY    structural check; write receipt.json
 //! 4. COMMIT    repoint toolchains/<channel>          <- THE COMMIT POINT
 //! 5. RECORD    commit state.json
-//! 6. DERIVE    rebuild toolchains/stable and opt
+//! 6. DERIVE    rebuild the network links and opt
 //! 7. CLEAN     release the old publication; delete the journal
 //! ```
 //!

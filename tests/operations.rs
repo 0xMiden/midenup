@@ -157,6 +157,7 @@ impl Fixture {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
             "channels": [{
                 "name": "0.15.0",
                 "components": components
@@ -620,6 +621,11 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         "with upstream available it must be derived and shown: {}",
         String::from_utf8_lossy(&shown.stdout)
     );
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains("(mainnet"),
+        "and so must the networks naming the channel: {}",
+        String::from_utf8_lossy(&shown.stdout)
+    );
 
     // With upstream unavailable it is not shown -- and never guessed at. The cached manifest would
     // answer, so it goes too.
@@ -633,4 +639,5 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         "the installed channel must still be listed: {stdout}"
     );
     assert!(!stdout.contains("partial"), "but its partial status must not be: {stdout}");
+    assert!(!stdout.contains("mainnet"), "nor the networks naming it: {stdout}");
 }

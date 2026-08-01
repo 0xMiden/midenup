@@ -139,6 +139,8 @@ fn integration_install_uninstall_test() {
     // Afterwards, both the 0.16.0 directory and the `mainnet` link should be deleted.
     // But, 0.15.0 should still remain
     assert!(!latest_toolchain.exists());
+    // Passes on a dangling link: uninstall still only removes a link named `stable`. Tighten this
+    // to `symlink_metadata().is_err()` once it removes network links.
     assert!(!mainnet_dir.exists());
     assert!(older_toolchain.exists());
 

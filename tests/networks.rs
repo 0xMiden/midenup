@@ -58,8 +58,13 @@ fn integration_networks_stable_still_installs_mainnet() {
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
+    let toolchains = test_env.midenup_home.join("toolchains");
     assert!(
-        test_env.midenup_home.join("toolchains").join("mainnet").is_symlink(),
+        toolchains.join("mainnet").is_symlink(),
         "installing 'stable' must produce the mainnet link, not one named stable"
+    );
+    assert!(
+        toolchains.join("stable").symlink_metadata().is_err(),
+        "no link named stable may be written"
     );
 }
