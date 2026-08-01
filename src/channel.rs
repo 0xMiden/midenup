@@ -48,54 +48,6 @@ pub fn canonical_network(name: &str) -> &str {
         .unwrap_or(name)
 }
 
-/// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
-/// These are only used for locally installed [`Channel`]s.
-#[derive(Serialize, Debug, PartialEq, Eq, Clone, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum ChannelAlias {
-    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a time.
-    Stable,
-    /// Represents either `nightly` or `nightly-$SUFFIX`
-    Nightly(Option<Cow<'static, str>>),
-    /// An ad-hoc named alias for a channel. This can be used to tag custom channels with names such
-    /// as `0.15.0-stable`.
-    #[serde(untagged)]
-    Tag(Cow<'static, str>),
-}
-
-impl<'de> serde::de::Deserialize<'de> for ChannelAlias {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Unexpected;
-        use serde_untagged::UntaggedEnumVisitor;
-
-        UntaggedEnumVisitor::new()
-            .string(|s| {
-                s.parse::<ChannelAlias>().map_err(|err| {
-                    serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
-                })
-            })
-            .deserialize(deserializer)
-    }
-}
-
-impl core::str::FromStr for ChannelAlias {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "stable" => Ok(Self::Stable),
-            "nightly" => Ok(Self::Nightly(None)),
-            tag => match tag.strip_prefix("nightly-") {
-                Some(suffix) => Ok(Self::Nightly(Some(Cow::Owned(suffix.to_string())))),
-                None => Ok(Self::Tag(Cow::Owned(tag.to_string()))),
-            },
-        }
-    }
-}
-
 /// User-facing channel reference: either a specific toolchain, or a name that moves.
 ///
 /// A name is resolved against the manifest's `networks` map, so which names exist is data rather

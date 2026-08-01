@@ -48,13 +48,12 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
                 super::v1::channel::Tags::Partial => None,
             });
 
-            if let Some(alias) = channel.alias.clone() {
+            if let Some(alias) = channel.alias {
                 aliases.push((alias, channel.name.clone()));
             }
 
             channels.push(v3::Channel {
                 name: channel.name,
-                alias: channel.alias,
                 migrates_from,
                 components,
                 extra: Default::default(),
@@ -72,17 +71,13 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
         };
 
         for (alias, channel) in aliases {
-            // `crate::channel::…`, not `channel::…`: the enum still lives in `crate::channel` at
-            // this point, and `v1/channel.rs`'s `use` of it is private, so naming it through the
-            // v1 module is `E0603: enum import ChannelAlias is private`. T7 moves the enum here
-            // and flips these four paths.
             let network = match alias {
-                crate::channel::ChannelAlias::Stable => crate::channel::DEFAULT_NETWORK.to_string(),
-                crate::channel::ChannelAlias::Nightly(None) => {
+                channel::ChannelAlias::Stable => crate::channel::DEFAULT_NETWORK.to_string(),
+                channel::ChannelAlias::Nightly(None) => {
                     crate::channel::canonical_network("nightly").to_string()
                 },
-                crate::channel::ChannelAlias::Nightly(Some(suffix)) => format!("nightly-{suffix}"),
-                crate::channel::ChannelAlias::Tag(tag) => {
+                channel::ChannelAlias::Nightly(Some(suffix)) => format!("nightly-{suffix}"),
+                channel::ChannelAlias::Tag(tag) => {
                     let network = crate::channel::canonical_network(&tag);
                     // A tag that parses as a semantic version -- v1 documented `0.15.0-stable` as
                     // exactly that -- cannot become a network: a channel argument that parses as a

@@ -337,7 +337,6 @@ mod tests {
 
         let channel = Channel::new(
             semver::Version::new(0, 15, 0),
-            None,
             vec![
                 component(
                     "vm",

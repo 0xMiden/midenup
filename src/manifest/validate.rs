@@ -418,7 +418,7 @@ mod tests {
 
     fn manifest(components: Vec<Component>) -> Manifest {
         let mut m = Manifest::default();
-        m.channels.push(Channel::new(semver::Version::new(0, 15, 0), None, components));
+        m.channels.push(Channel::new(semver::Version::new(0, 15, 0), components));
         m
     }
 
@@ -495,7 +495,7 @@ mod tests {
     #[test]
     fn mainnet_ahead_of_testnet_is_valid() {
         let mut m = manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]);
-        m.channels.push(Channel::new(semver::Version::new(0, 16, 0), None, vec![]));
+        m.channels.push(Channel::new(semver::Version::new(0, 16, 0), vec![]));
         m.promote(crate::channel::DEFAULT_NETWORK, semver::Version::new(0, 16, 0));
         m.promote("testnet", semver::Version::new(0, 15, 0));
         assert_eq!(validate_manifest(&m), Ok(()));
@@ -522,7 +522,7 @@ mod tests {
     #[test]
     fn duplicate_channels_are_rejected() {
         let mut m = manifest(vec![]);
-        m.channels.push(Channel::new(semver::Version::new(0, 15, 0), None, vec![]));
+        m.channels.push(Channel::new(semver::Version::new(0, 15, 0), vec![]));
         assert!(errors_of(&m).iter().any(|e| matches!(e, ValidationError::DuplicateChannel(_))));
     }
 

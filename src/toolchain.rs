@@ -79,11 +79,7 @@ fn active_view(
     let installed = installation.as_channel();
     let resolved = crate::resolve::resolve(&installed, intent).ok()?;
 
-    Some(Channel::new(
-        installed.name.clone(),
-        installed.alias.clone(),
-        resolved.into_iter().cloned().collect(),
-    ))
+    Some(Channel::new(installed.name.clone(), resolved.into_iter().cloned().collect()))
 }
 
 impl Toolchain {
@@ -200,7 +196,6 @@ impl Toolchain {
 
         let upstream_view = Some(Channel::new(
             channel.name.clone(),
-            channel.alias.clone(),
             resolved.iter().map(|component| (*component).clone()).collect(),
         ));
 

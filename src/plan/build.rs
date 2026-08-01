@@ -760,7 +760,7 @@ mod tests {
     }
 
     fn channel(components: Vec<Component>) -> Channel {
-        Channel::new(semver::Version::new(0, 15, 0), None, components)
+        Channel::new(semver::Version::new(0, 15, 0), components)
     }
 
     fn plan_of(components: Vec<Component>) -> Result<InstallationPlan, PlanError> {

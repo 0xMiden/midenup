@@ -243,7 +243,7 @@ mod tests {
             });
         }
 
-        Channel::new(semver::Version::new(0, 15, 0), None, components)
+        Channel::new(semver::Version::new(0, 15, 0), components)
     }
 
     fn names(resolved: &[&Component]) -> Vec<String> {

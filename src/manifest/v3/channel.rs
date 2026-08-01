@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Component, ComponentKind};
 use crate::{
-    channel::{ChannelAlias, UpstreamChannel, UpstreamMatch},
+    channel::{UpstreamChannel, UpstreamMatch},
     config::Config,
     exec::Executable,
     manifest::{Alias, ManifestError, v3::unknown::Extra},
@@ -23,10 +23,6 @@ pub struct Channel {
     /// Channels are identified by their name. The name corresponds to the channel's version.
     /// The version can contain suffixes such as "-custom", "-beta".
     pub name: semver::Version,
-    /// This is used to tag special channels. Most notably, the current "stable" channel is marked
-    /// with the [`ChannelAlias::Stable`] alias.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub alias: Option<ChannelAlias>,
     /// The channel this one supersedes, if any.
     ///
     /// An installation of the named channel is carried here when it is updated: intent transfers
@@ -49,14 +45,9 @@ pub struct Channel {
 }
 
 impl Channel {
-    pub fn new(
-        name: semver::Version,
-        alias: Option<ChannelAlias>,
-        components: Vec<Component>,
-    ) -> Self {
+    pub fn new(name: semver::Version, components: Vec<Component>) -> Self {
         Self {
             name,
-            alias,
             components,
             migrates_from: None,
             extra: Extra::new(),
@@ -73,19 +64,6 @@ impl Channel {
         self.components.iter_mut().find(|c| c.name == name)
     }
 
-    /// Is this channel a stable release? Does not imply that it has the `stable` alias.
-    ///
-    /// To find out the latest stable [Channel], use [crate::manifest::Manifest::get_latest_stable].
-    pub fn is_stable(&self) -> bool {
-        self.alias.as_ref().is_none_or(|alias| matches!(alias, ChannelAlias::Stable))
-    }
-
-    pub fn is_nightly(&self) -> bool {
-        self.alias
-            .as_ref()
-            .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(_)))
-    }
-
     /// Whether this channel installs only part of what `complete` would.
     ///
     /// Derived, never recorded (spec section 8.6): local state has no "partial" flag, because one
@@ -94,12 +72,6 @@ impl Channel {
     /// component during updates.
     pub fn is_partially_installed(&self, upstream: &Channel) -> bool {
         self.components.len() < upstream.components.len()
-    }
-
-    pub fn is_latest_nightly(&self) -> bool {
-        self.alias
-            .as_ref()
-            .is_some_and(|alias| matches!(alias, ChannelAlias::Nightly(None)))
     }
 
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
@@ -229,15 +201,6 @@ impl Channel {
 
 impl fmt::Display for Channel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.alias {
-            Some(ChannelAlias::Stable) => write!(f, "stable ({})", self.name),
-            Some(ChannelAlias::Tag(tag)) => write!(f, "{}-{}", self.name, tag.as_ref()),
-            Some(ChannelAlias::Nightly(tag)) => {
-                let nightly_suffix =
-                    tag.as_ref().map(|suffix| format!("-{}", suffix)).unwrap_or(String::from(""));
-                write!(f, "nightly-{}{}", self.name, nightly_suffix)
-            },
-            None => write!(f, "{}", self.name),
-        }
+        write!(f, "{}", self.name)
     }
 }

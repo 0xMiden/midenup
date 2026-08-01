@@ -39,9 +39,8 @@ fn integration_install_stable() {
     let stable_version = config
         .upstream_manifest()
         .unwrap()
-        .get_latest_stable()
-        .expect("upstream must declare a stable channel")
-        .name
+        .network_version("mainnet")
+        .expect("upstream must declare a mainnet network")
         .clone();
     assert_eq!(
         std::fs::read_link(&mainnet_dir).unwrap().file_name().unwrap(),

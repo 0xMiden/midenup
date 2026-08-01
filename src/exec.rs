@@ -596,7 +596,7 @@ mod tests {
     fn a_spawned_component_is_given_its_toolchain_environment() {
         let temp = tempdir::TempDir::new("exec-env").unwrap();
         let home = temp.path().join("midenup");
-        let channel = crate::manifest::Channel::new(CHANNEL, None, vec![]);
+        let channel = crate::manifest::Channel::new(CHANNEL, vec![]);
         let sysroot = crate::paths::toolchain_link(&home, &CHANNEL);
         std::fs::create_dir_all(sysroot.join("opt")).unwrap();
 

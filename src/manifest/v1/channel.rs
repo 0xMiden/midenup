@@ -1,9 +1,59 @@
-use std::hash::Hash;
+use std::{borrow::Cow, hash::Hash};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::Component;
-use crate::channel::ChannelAlias;
+
+/// A special alias a channel could carry.
+///
+/// A **v1-only** concept, kept here because v1 documents in the wild carry it. v3 replaces it with
+/// the manifest's top-level `networks` map: an alias could say a channel was `stable` *or*
+/// `nightly` *or* a tag, and never that one toolchain was on two networks at once.
+#[derive(Serialize, Debug, PartialEq, Eq, Clone, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum ChannelAlias {
+    /// Represents `stable`. Only one [Channel] can be marked as `stable` at a time.
+    Stable,
+    /// Represents either `nightly` or `nightly-$SUFFIX`
+    Nightly(Option<Cow<'static, str>>),
+    /// An ad-hoc named alias for a channel. This can be used to tag custom channels with names such
+    /// as `0.15.0-stable`.
+    #[serde(untagged)]
+    Tag(Cow<'static, str>),
+}
+
+impl<'de> serde::de::Deserialize<'de> for ChannelAlias {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Unexpected;
+        use serde_untagged::UntaggedEnumVisitor;
+
+        UntaggedEnumVisitor::new()
+            .string(|s| {
+                s.parse::<ChannelAlias>().map_err(|err| {
+                    serde::de::Error::invalid_value(Unexpected::Str(s), &err.to_string().as_str())
+                })
+            })
+            .deserialize(deserializer)
+    }
+}
+
+impl core::str::FromStr for ChannelAlias {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "stable" => Ok(Self::Stable),
+            "nightly" => Ok(Self::Nightly(None)),
+            tag => match tag.strip_prefix("nightly-") {
+                Some(suffix) => Ok(Self::Nightly(Some(Cow::Owned(suffix.to_string())))),
+                None => Ok(Self::Tag(Cow::Owned(tag.to_string()))),
+            },
+        }
+    }
+}
 
 /// Tags used to identify special qualities of a specific channel.
 ///

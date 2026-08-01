@@ -9,7 +9,7 @@ use thiserror::Error;
 
 pub use self::v3::*;
 use self::version::Compatibility;
-use crate::channel::{ChannelAlias, UserChannel};
+use crate::channel::UserChannel;
 
 pub type Alias = String;
 
@@ -228,91 +228,10 @@ impl Manifest {
     }
 
     pub fn add_channel(&mut self, channel: Channel) {
-        // Before adding the new stable channel, remove the stable alias from all the channels that
-        // have it.
-        //
-        // NOTE: This should be only a single channel, we check for multiple just in case.
-        if self.is_latest_stable(&channel) {
-            for channel in self
-                .channels
-                .iter_mut()
-                .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
-            {
-                channel.alias = None
-            }
-        }
-
         // NOTE: If the channel already exists in the manifest, remove the old version. This happens
         // when updating
         self.channels.retain(|c| c.name != channel.name);
-
         self.channels.push(channel);
-    }
-
-    /// Determines whether the `channel` is the latest stable version.
-    ///
-    /// This can only be determined by the [Manifest], since this definition is dependant on all the
-    /// other present [Channel]s
-    pub fn is_latest_stable(&self, channel: &Channel) -> bool {
-        self.channels.iter().filter(|c| c.is_stable()).all(|c| {
-            let comparison = channel.name.cmp_precedence(&c.name);
-            matches!(comparison, std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
-        })
-    }
-
-    /// Attempts to fetch the version corresponding to the `stable` [Channel].
-    ///
-    /// By definition this is the latest version.
-    ///
-    /// WARNING: This method is mainly intended to be used with the _upstream_ manifest, not the
-    /// local manifest.  This is because, stable is simply defined to be "the latest non-nightly"
-    /// channel in the [Manifest]. Therefore, in order to have a unified vision of what "stable"
-    /// refers to, refer to the upstream [Manifest].
-    pub fn get_latest_stable(&self) -> Option<&Channel> {
-        self.channels
-            .iter()
-            .find(|c| matches!(c.alias, Some(ChannelAlias::Stable)))
-            .or_else(|| {
-                self.channels
-                    .iter()
-                    .filter(|c| c.is_stable())
-                    .max_by(|x, y| x.name.cmp_precedence(&y.name))
-            })
-    }
-
-    pub fn get_latest_stable_mut(&mut self) -> Option<&mut Channel> {
-        let stable_version = self.get_latest_stable().map(|channel| channel.name.clone())?;
-        self.get_channel_by_name_mut(&stable_version)
-    }
-
-    pub fn get_latest_nightly(&self) -> Option<&Channel> {
-        self.channels.iter().find(|c| c.is_latest_nightly()).or_else(|| {
-            self.channels
-                .iter()
-                .filter(|c| c.is_nightly())
-                .max_by(|x, y| x.name.cmp_precedence(&y.name))
-        })
-    }
-
-    pub fn get_latest_nightly_mut(&mut self) -> Option<&mut Channel> {
-        let nightly_version = self.get_latest_nightly().map(|channel| channel.name.clone())?;
-        self.get_channel_by_name_mut(&nightly_version)
-    }
-
-    pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
-        self.channels.iter().find(|c| {
-            c.alias.as_ref().is_some_and(
-                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
-            )
-        })
-    }
-
-    pub fn get_named_nightly_mut(&mut self, name: impl AsRef<str>) -> Option<&mut Channel> {
-        self.channels.iter_mut().find(|c| {
-            c.alias.as_ref().is_some_and(
-                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
-            )
-        })
     }
 
     pub fn get_channel_by_name(&self, ver: &semver::Version) -> Option<&Channel> {
@@ -390,7 +309,7 @@ mod tests {
     use std::borrow::Cow;
 
     use super::VersionedManifest;
-    use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
+    use crate::{channel::UserChannel, version::Authority};
 
     /// A converted v1 manifest must report the *v3* version.
     #[test]
@@ -492,10 +411,10 @@ mod tests {
         let mut manifest = super::Manifest::default();
         manifest
             .channels
-            .push(super::Channel::new(semver::Version::new(0, 15, 0), None, vec![]));
+            .push(super::Channel::new(semver::Version::new(0, 15, 0), vec![]));
         manifest
             .channels
-            .push(super::Channel::new(semver::Version::new(0, 16, 0), None, vec![]));
+            .push(super::Channel::new(semver::Version::new(0, 16, 0), vec![]));
 
         assert!(matches!(
             manifest.promote("mainnet", semver::Version::new(0, 15, 0)),
@@ -562,10 +481,7 @@ mod tests {
                 let prerelease = semver::Prerelease::new("custom-build").unwrap();
                 assert!(matches!(&custom_build.name, semver::Version { pre: _prerelease, .. }));
             }
-            assert_eq!(
-                custom_build.alias,
-                Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build")))
-            );
+            assert_eq!(manifest.network_version("custom-dev-build"), Some(&custom_build.name));
             {
                 let std_lib = custom_build
                     .get_component("std")
@@ -583,7 +499,7 @@ mod tests {
                          {FILE}",
                     )
                 });
-            assert_eq!(nightly.alias, Some(ChannelAlias::Nightly(None)));
+            assert_eq!(manifest.network_version("devnet"), Some(&nightly.name));
             {
                 let client = nightly
                     .get_component("client")

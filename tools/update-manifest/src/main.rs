@@ -208,8 +208,6 @@ impl Cli {
                     bail!("toolchain '{to}' already exists");
                 }
                 from.name = to.clone();
-                // Don't clone aliases - that must be done separately
-                from.alias = None;
                 manifest.add_channel(from);
                 manifest.update_last_modified();
 
