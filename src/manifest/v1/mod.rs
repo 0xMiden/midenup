@@ -83,7 +83,16 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
                 },
                 crate::channel::ChannelAlias::Nightly(Some(suffix)) => format!("nightly-{suffix}"),
                 crate::channel::ChannelAlias::Tag(tag) => {
-                    crate::channel::canonical_network(&tag).to_string()
+                    let network = crate::channel::canonical_network(&tag);
+                    // A tag that parses as a semantic version -- v1 documented `0.15.0-stable` as
+                    // exactly that -- cannot become a network: a channel argument that parses as a
+                    // version is looked up as a version, so nothing could ever reach the entry, and
+                    // validation rejects such a name. The channel itself is still converted; only
+                    // the unreachable network entry is dropped.
+                    if semver::Version::parse(network).is_ok() {
+                        continue;
+                    }
+                    network.to_string()
                 },
             };
             manifest.promote(&network, channel);
@@ -169,6 +178,18 @@ mod tests {
         let manifest = VersionedManifest::parse_str(&src).expect("must convert");
         assert_eq!(manifest.network_version("testnet"), Some(&semver::Version::new(0, 15, 0)));
         assert!(manifest.network_version("beta").is_none());
+    }
+
+    /// v1 documented `0.15.0-stable` as an example channel alias, and that parses as a semantic
+    /// version. Carrying it across would create a network entry that nothing can reach -- a channel
+    /// argument that parses as a version is looked up as a version -- and that validation rejects.
+    #[test]
+    fn a_version_shaped_alias_does_not_become_a_network() {
+        let src = v1(serde_json::json!([channel("0.15.0", Some("0.15.0-stable"))]));
+        let manifest = VersionedManifest::parse_str(&src).expect("must still convert");
+        assert!(manifest.network_version("0.15.0-stable").is_none());
+        // The fallback still applies, so the document is not left without a mainnet.
+        assert_eq!(manifest.network_version("mainnet"), Some(&semver::Version::new(0, 15, 0)));
     }
 
     /// v1 derived stable as the highest channel when nothing carried the alias. Reproducing that

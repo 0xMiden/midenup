@@ -460,14 +460,45 @@ mod tests {
     }
 
     /// `stable` is rewritten to `mainnet` before any lookup happens, so a network declared under
-    /// that name could never be reached.
+    /// that name could never be reached. The same holds for every traditional synonym.
     #[test]
     fn a_network_named_after_a_synonym_is_rejected() {
-        let mut m = with_mainnet(manifest(vec![]));
-        m.promote("stable", semver::Version::new(0, 15, 0));
-        assert!(errors_of(&m).iter().any(
-            |e| matches!(e, ValidationError::InvalidNetworkName { name, .. } if name == "stable")
+        for synonym in ["stable", "beta", "nightly"] {
+            let mut m = with_mainnet(manifest(vec![]));
+            m.promote(synonym, semver::Version::new(0, 15, 0));
+            assert!(
+                errors_of(&m).iter().any(
+                    |e| matches!(e, ValidationError::InvalidNetworkName { name, .. } if name == synonym)
+                ),
+                "'{synonym}' must be rejected as a network name"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_network_name_is_rejected() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"": "0.15.0", "mainnet": "0.15.0"},
+            "channels": [{"name": "0.15.0", "components": []}]
+        })
+        .to_string();
+        let manifest = crate::manifest::VersionedManifest::parse_str(&src).expect("must parse");
+        assert!(errors_of(&manifest).iter().any(
+            |e| matches!(e, ValidationError::InvalidNetworkName { name, .. } if name.is_empty())
         ));
+    }
+
+    /// Deliberately valid: a mainnet hotfix puts mainnet ahead of testnet. There is no ordering
+    /// invariant between networks, and this test exists so that adding one fails.
+    #[test]
+    fn mainnet_ahead_of_testnet_is_valid() {
+        let mut m = manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]);
+        m.channels.push(Channel::new(semver::Version::new(0, 16, 0), None, vec![]));
+        m.promote(crate::channel::DEFAULT_NETWORK, semver::Version::new(0, 16, 0));
+        m.promote("testnet", semver::Version::new(0, 15, 0));
+        assert_eq!(validate_manifest(&m), Ok(()));
     }
 
     #[test]
