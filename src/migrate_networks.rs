@@ -4,12 +4,18 @@
 //! aliases, so `state.json` needs no change at all and `state_version` stays where it is. What
 //! needs attention is only what is derived on disk.
 //!
-//! Runs alongside [`crate::migrate_v1::migrate_if_needed`], under the same home lock, and is
-//! idempotent: two `stat` calls when there is nothing to do.
+//! Runs alongside [`crate::migrate_v1::migrate_if_needed`], and *without* the home lock: it is on
+//! the `miden` dispatch path, which must not wait on that lock, so every operation here is written
+//! to tolerate another process having done it first.
+//!
+//! Idempotent, and two `stat` calls when there is nothing to do, because the manifest cache is
+//! only read when a home is actually being converted.
 //!
 //! Deletable once alpha installations are gone.
 
 use std::path::{Path, PathBuf};
+
+use anyhow::Context;
 
 use crate::{channel::DEFAULT_NETWORK, paths};
 
@@ -32,12 +38,27 @@ pub fn migrate_if_needed(home: &Path) -> anyhow::Result<Outcome> {
     // `symlink_metadata`, not `exists`: a link whose target has been removed still has to be
     // renamed, and `exists` follows the link and answers false for it.
     if std::fs::symlink_metadata(&legacy).is_ok() && std::fs::symlink_metadata(&mainnet).is_err() {
-        std::fs::rename(&legacy, &mainnet)?;
-        repoint_default(home)?;
-        migrated = true;
+        match std::fs::rename(&legacy, &mainnet) {
+            Ok(()) => {
+                // Only an alpha home can be holding a cache this build cannot read, and only here
+                // do we know we are looking at one. Checking on every startup would mean parsing
+                // the cached manifest twice per command on the dispatch path, for an answer that
+                // is almost always "nothing to do".
+                drop_stale_manifest_cache(home)?;
+                migrated = true;
+            },
+            // Another process migrated between the check and here. Deliberately unlocked: dispatch
+            // must not wait on the home lock, so losing a race is expected rather than exceptional.
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {},
+            Err(err) => {
+                return Err(err).context("failed to rename the legacy 'stable' link");
+            },
+        }
     }
 
-    if drop_stale_manifest_cache(home)? {
+    // Not conditional on the rename above: a run interrupted between the two would otherwise leave
+    // `default` dangling forever. One `read_link` when there is nothing to do.
+    if repoint_default(home)? {
         migrated = true;
     }
 
@@ -51,13 +72,15 @@ pub fn migrate_if_needed(home: &Path) -> anyhow::Result<Outcome> {
 /// `midenup override stable` pointed `default` at the `stable` link rather than at a toolchain
 /// directory, so that it would follow the channel as it moved. Renaming that link without
 /// repointing `default` leaves it dangling.
-fn repoint_default(home: &Path) -> anyhow::Result<()> {
+///
+/// Returns whether it changed anything.
+fn repoint_default(home: &Path) -> anyhow::Result<bool> {
     let default = paths::toolchains_dir(home).join("default");
     let Ok(target) = std::fs::read_link(&default) else {
-        return Ok(());
+        return Ok(false);
     };
     if target.file_name().and_then(|name| name.to_str()) != Some(LEGACY_LINK) {
-        return Ok(());
+        return Ok(false);
     }
 
     let replacement = if target.is_absolute() {
@@ -65,28 +88,38 @@ fn repoint_default(home: &Path) -> anyhow::Result<()> {
     } else {
         PathBuf::from(DEFAULT_NETWORK)
     };
-    crate::utils::fs::replace_symlink(&default, &replacement)
+    crate::utils::fs::replace_symlink(&default, &replacement)?;
+    Ok(true)
 }
 
 /// Removes a cached manifest this build cannot read.
 ///
 /// It would be rejected by the version check anyway; dropping it turns a confusing version error on
 /// the first offline command into an ordinary refetch.
-fn drop_stale_manifest_cache(home: &Path) -> anyhow::Result<bool> {
+///
+/// A v1 cache is *not* stale: [`crate::manifest::VersionedManifest::parse_str`] runs it through the
+/// v1 converter, so deleting it would cost the offline capability this exists to preserve.
+fn drop_stale_manifest_cache(home: &Path) -> anyhow::Result<()> {
     let cache = paths::manifest_cache(home);
     let Ok(contents) = std::fs::read_to_string(&cache) else {
-        return Ok(false);
+        return Ok(());
     };
 
-    let current = crate::manifest::v3::MANIFEST_VERSION.major;
     let readable = crate::manifest::version::read_version_header(&contents, "manifest_version")
-        .is_ok_and(|header| header.version.major == current);
+        .is_ok_and(|header| {
+            header.version.major == crate::manifest::v3::MANIFEST_VERSION.major
+                || header.version == crate::manifest::v1::MANIFEST_VERSION
+        });
     if readable {
-        return Ok(false);
+        return Ok(());
     }
 
-    std::fs::remove_file(&cache)?;
-    Ok(true)
+    match std::fs::remove_file(&cache) {
+        Ok(()) => Ok(()),
+        // Another process dropped it first; see the rename in `migrate_if_needed`.
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(err).context("failed to remove the stale manifest cache"),
+    }
 }
 
 #[cfg(test)]
@@ -153,6 +186,59 @@ mod tests {
             .unwrap();
         migrate_if_needed(&home).unwrap();
         assert!(crate::paths::manifest_cache(&home).exists());
+    }
+
+    /// A v1 cache reads perfectly well through the v1 converter, so dropping it would strictly lose
+    /// offline capability for the alpha user this migration exists to help.
+    #[test]
+    fn a_v1_manifest_cache_is_kept() {
+        let (_temp, home) = alpha_home();
+        std::fs::write(crate::paths::manifest_cache(&home), r#"{"manifest_version":"1.0.1"}"#)
+            .unwrap();
+        migrate_if_needed(&home).unwrap();
+        assert!(crate::paths::manifest_cache(&home).exists());
+    }
+
+    /// `exists` follows the link and answers false for one whose target is gone, which would leave
+    /// the legacy name in place forever.
+    #[test]
+    fn a_dangling_legacy_link_is_still_renamed() {
+        let temp = tempdir::TempDir::new("migrate-networks-dangling").unwrap();
+        let home = temp.path().join("midenup");
+        let toolchains = crate::paths::toolchains_dir(&home);
+        std::fs::create_dir_all(&toolchains).unwrap();
+        std::os::unix::fs::symlink("0.15.0", toolchains.join("stable")).unwrap();
+
+        assert_eq!(migrate_if_needed(&home).unwrap(), Outcome::Migrated);
+        assert!(
+            std::fs::symlink_metadata(crate::paths::network_link(&home, "mainnet")).is_ok(),
+            "the link must be renamed even though its target is gone"
+        );
+    }
+
+    /// `default` may name the legacy link relatively, in which case the replacement must stay
+    /// relative rather than becoming an absolute path into this home.
+    #[test]
+    fn a_relative_default_link_follows_the_rename() {
+        let (_temp, home) = alpha_home();
+        let default = crate::paths::toolchains_dir(&home).join("default");
+        std::fs::remove_file(&default).unwrap();
+        std::os::unix::fs::symlink("stable", &default).unwrap();
+
+        migrate_if_needed(&home).unwrap();
+        assert_eq!(std::fs::read_link(&default).unwrap(), PathBuf::from("mainnet"));
+    }
+
+    /// `midenup override 0.15.0` pins a version directly; that is not the link being renamed.
+    #[test]
+    fn a_default_link_naming_a_version_is_left_alone() {
+        let (_temp, home) = alpha_home();
+        let default = crate::paths::toolchains_dir(&home).join("default");
+        std::fs::remove_file(&default).unwrap();
+        std::os::unix::fs::symlink("0.15.0", &default).unwrap();
+
+        migrate_if_needed(&home).unwrap();
+        assert_eq!(std::fs::read_link(&default).unwrap(), PathBuf::from("0.15.0"));
     }
 
     #[test]
