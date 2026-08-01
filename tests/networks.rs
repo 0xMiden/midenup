@@ -466,6 +466,13 @@ fn integration_networks_override_follows_the_network() {
         toolchains.join("0.15.0").canonicalize().unwrap(),
         "default must have followed mainnet to its new channel"
     );
+    // Canonicalizing to the right place is also true of a `default` rewritten to point straight at
+    // the toolchain directory, which would stop following mainnet on the *next* promotion.
+    assert_eq!(
+        std::fs::read_link(&default).unwrap().file_name().unwrap(),
+        "mainnet",
+        "default must still name the network, not the channel it currently resolves to"
+    );
 }
 
 /// A synonym is canonicalized on the way in, so what lands in the toolchain file is the network.
@@ -487,13 +494,24 @@ fn integration_networks_set_writes_the_canonical_name() {
 
 /// The whole point of resolving a network through its symlink: dispatch must name the active
 /// channel with no upstream available at all.
+///
+/// Two channels are installed and the network is left naming the *older* of them, so that the
+/// symlink is the only place the answer can come from. With a single installed channel the expected
+/// version is simultaneously the symlink's target, the only installation, and the highest one, and
+/// an implementation answering from `state.json` or from the highest `toolchains/<semver>` entry
+/// would pass just as well. Here those answer 0.15.0 and the symlink answers 0.14.0.
 #[test]
 fn integration_networks_resolve_offline() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_networks_offline");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
-    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
 
+    // Captured up front: these calls write the manifests, and the files are deleted below.
+    let initial = fixture.initial();
+    let with_new_stable = fixture.with_new_stable();
+
+    // mainnet names 0.15.0, so that is what gets installed.
+    let (mut state, config) = test_setup(&test_env, &with_new_stable);
     for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
         Midenup::try_parse_from(args.clone())
             .unwrap()
@@ -501,14 +519,40 @@ fn integration_networks_resolve_offline() {
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
     }
 
-    // No manifest at all: neither upstream nor a cached copy.
-    std::fs::remove_file(fixture.dir.join("channel-manifest.json")).unwrap();
-    let cache = midenup::paths::manifest_cache(&test_env.midenup_home);
-    let _ = std::fs::remove_file(&cache);
+    // Rolled back to 0.14.0, which installs it alongside 0.15.0 and moves the pointer back.
+    let (_, config) = test_setup(&test_env, &initial);
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to follow the rollback");
 
-    let (_, config) = test_setup(&test_env, &fixture.manifest_uri);
+    // The premise the assertion below rests on: the version the network names is not the highest
+    // one installed, so the two cannot be confused.
+    let toolchains = test_env.midenup_home.join("toolchains");
+    assert!(toolchains.join("0.14.0").exists(), "0.14.0 must be installed");
+    assert!(
+        toolchains.join("0.15.0").exists(),
+        "and 0.15.0 must still be, as the higher one"
+    );
+    assert_eq!(
+        std::fs::read_link(toolchains.join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.14.0"),
+        "mainnet must name the older channel, or this proves nothing"
+    );
+
+    // No manifest at all: neither upstream nor a cached copy. The fixture keeps its manifests under
+    // `test_env.tmp_dir`, and the two above are every one it has written.
+    for uri in [&initial, &with_new_stable] {
+        let path = uri.strip_prefix("file://").expect("the fixture serves manifests from disk");
+        std::fs::remove_file(path).unwrap();
+    }
+    let cache = midenup::paths::manifest_cache(&test_env.midenup_home);
+    assert!(cache.exists(), "the install must have cached the manifest");
+    std::fs::remove_file(&cache).unwrap();
+
+    let (_, config) = test_setup(&test_env, &initial);
     let resolved = config
         .local_channel(&UserChannel::default())
         .expect("mainnet must resolve from the symlink with no manifest available");
-    assert_eq!(resolved, semver::Version::new(0, 15, 0));
+    assert_eq!(resolved, semver::Version::new(0, 14, 0));
 }
