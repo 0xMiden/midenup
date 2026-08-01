@@ -27,6 +27,27 @@ impl UpstreamChannel {
     }
 }
 
+/// The network `midenup` uses when nothing else selects a channel.
+pub const DEFAULT_NETWORK: &str = "mainnet";
+
+/// Traditional release-train names, accepted as input and rewritten to the network they mean.
+///
+/// Hardcoded rather than manifest-declared on purpose. These are about user vocabulary, not
+/// deployment, and they do not change. Expressing them as data would mean either `promote` moving
+/// two keys in lockstep, or letting a map value hold an indirection -- with the cycle detection
+/// that implies, and the ability for a manifest author to make `stable` mean anything.
+const SYNONYMS: &[(&str, &str)] =
+    &[("stable", "mainnet"), ("beta", "testnet"), ("nightly", "devnet")];
+
+/// Rewrites a traditional name to the network it means. Any other name is returned unchanged.
+pub fn canonical_network(name: &str) -> &str {
+    SYNONYMS
+        .iter()
+        .find(|(synonym, _)| *synonym == name)
+        .map(|(_, network)| *network)
+        .unwrap_or(name)
+}
+
 /// A special alias/tag that a channel can posses. For more information see [`Channel::alias`].
 /// These are only used for locally installed [`Channel`]s.
 #[derive(Serialize, Debug, PartialEq, Eq, Clone, Hash)]
