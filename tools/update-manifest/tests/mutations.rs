@@ -19,7 +19,9 @@ fn run(path: &Path, args: &[&str]) -> Result<String, String> {
     if output.status.success() {
         Ok(stdout)
     } else {
-        Err(stderr)
+        // Both streams: a failure has to be judged on everything the tool said, including any
+        // outcome it announced on stdout before erroring out.
+        Err(format!("{stdout}{stderr}"))
     }
 }
 
@@ -484,4 +486,13 @@ fn promote_to_the_current_version_writes_nothing() {
     let output = run(&path, &["promote", "mainnet", "0.15.0"]).expect("must succeed");
     assert!(output.contains("nothing to do"), "got: {output}");
     assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be untouched");
+}
+
+/// The printed line is the only safeguard a reviewer has, so it must never describe a promotion
+/// that the write then rejected.
+#[test]
+fn promote_does_not_announce_a_promotion_it_failed_to_write() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "", "0.16.0"]).expect_err("an empty network name is invalid");
+    assert!(!err.contains("created network"), "must not claim to have created it: {err}");
 }

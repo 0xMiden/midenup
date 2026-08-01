@@ -267,19 +267,25 @@ impl Cli {
                     );
                 }
 
-                match manifest.promote(network, channel.clone()) {
+                let promotion = manifest.promote(network, channel.clone());
+                if matches!(promotion, Promotion::Unchanged) {
+                    println!("'{network}' already names {channel}; nothing to do");
+                    return Ok(());
+                }
+
+                manifest.update_last_modified();
+                write_manifest(&manifest, &self.manifest_path)?;
+
+                // Reported only once the write has committed: the printed line is what a reviewer
+                // checks a promotion against, so it must never describe a change that failed.
+                match promotion {
                     Promotion::Created { at } => println!("created network '{network}' at {at}"),
                     Promotion::Moved { from, to } => {
                         println!("moved '{network}' from {from} to {to}")
                     },
-                    Promotion::Unchanged => {
-                        println!("'{network}' already names {channel}; nothing to do");
-                        return Ok(());
-                    },
+                    Promotion::Unchanged => unreachable!("handled above"),
                 }
-
-                manifest.update_last_modified();
-                write_manifest(&manifest, &self.manifest_path)
+                Ok(())
             },
             Command::AddComponent {
                 channel,

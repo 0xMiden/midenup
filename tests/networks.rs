@@ -327,6 +327,36 @@ fn integration_networks_update_of_an_unknown_network_lists_the_known_ones() {
     assert!(rendered.contains("mainnet"), "must list what is declared: {rendered}");
 }
 
+#[test]
+fn integration_networks_install_of_an_unknown_network_lists_the_known_ones() {
+    let test_env = environment_setup("integration_networks_install_unknown_name");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let err = Midenup::try_parse_from(["midenup", "install", "mainet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("an unknown network must fail");
+
+    let rendered = format!("{err:#}");
+    assert!(rendered.contains("mainnet"), "must list what is declared: {rendered}");
+}
+
+#[test]
+fn integration_networks_install_of_an_unknown_version_names_that_version() {
+    let test_env = environment_setup("integration_networks_install_unknown_version");
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let err = Midenup::try_parse_from(["midenup", "install", "9.9.9"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("an unknown toolchain must fail");
+
+    let rendered = format!("{err:#}");
+    assert!(rendered.contains("9.9.9"), "must name the version asked for: {rendered}");
+}
+
 /// Uninstalling a channel three networks name must remove all three links, not just one.
 #[test]
 fn integration_networks_uninstall_removes_every_naming_link() {
