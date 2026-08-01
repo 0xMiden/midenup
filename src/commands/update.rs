@@ -559,7 +559,7 @@ mod tests {
 
     // No test here changes `initialization`, deliberately: it lives in the same struct as the
     // aliases below and travels the same path, so it would prove nothing extra -- and naming the
-    // field in a command module would trip the guard in `manifest::v2::component` that keeps it
+    // field in a command module would trip the guard in `manifest::v3::component` that keeps it
     // from ever acquiring an execution path.
 
     const TARGET: &str = "aarch64-apple-darwin";

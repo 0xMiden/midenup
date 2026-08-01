@@ -47,7 +47,7 @@ pub enum PublicationRef {
     },
     /// Carried forward from a v1 manifest, with no publication behind it yet.
     ///
-    /// The pre-v2 layout is not described by any receipt, so `midenup` cannot know what it owns.
+    /// The pre-v3 layout is not described by any receipt, so `midenup` cannot know what it owns.
     /// Such a record is never executed against; the next operation touching the channel reinstalls
     /// it. Produced only by migration.
     NeedsReinstall,

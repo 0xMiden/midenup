@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn parsing_does_not_validate() {
         let src = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.13.3", "components": [{
                 "name": "midenc",

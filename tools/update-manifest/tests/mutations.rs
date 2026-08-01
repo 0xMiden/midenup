@@ -35,7 +35,7 @@ fn read_manifest(path: &Path) -> serde_json::Value {
 
 fn manifest_with(components: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{"name": "0.15.0", "components": components}]
     })

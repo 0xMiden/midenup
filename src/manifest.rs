@@ -1,5 +1,5 @@
 pub(crate) mod v1;
-pub(crate) mod v2;
+pub(crate) mod v3;
 pub mod validate;
 pub mod version;
 
@@ -7,7 +7,7 @@ use std::path::Path;
 
 use thiserror::Error;
 
-pub use self::v2::*;
+pub use self::v3::*;
 use self::version::Compatibility;
 use crate::channel::{ChannelAlias, UserChannel};
 
@@ -85,8 +85,8 @@ impl VersionedManifest {
 
         let header = version::read_version_header(content, "manifest_version")?;
 
-        let mut manifest = match version::classify(&header.version, v2::MANIFEST_VERSION.major) {
-            Compatibility::Supported => v2::Manifest::parse_str(content)?,
+        let mut manifest = match version::classify(&header.version, v3::MANIFEST_VERSION.major) {
+            Compatibility::Supported => v3::Manifest::parse_str(content)?,
             Compatibility::RequiresNewer { found } => {
                 return Err(ManifestError::OutdatedMidenup(found));
             },
@@ -354,24 +354,20 @@ mod tests {
     use super::VersionedManifest;
     use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
 
-    /// A converted v1 manifest must report the *v2* version.
-    ///
-    /// Two separate defects made the in-memory version meaningless: `v2::Manifest` declared
-    /// `manifest_version` as `skip_deserializing` with a default, and the v1 converter stamped the
-    /// v1 constant. Together they meant every downstream version check was a tautology.
+    /// A converted v1 manifest must report the *v3* version.
     #[test]
-    fn converted_v1_manifest_reports_the_v2_version() {
+    fn converted_v1_manifest_reports_the_v3_version() {
         const FILE: &str = "file://tests/data/v1_manifest/channel-manifest.json";
         let manifest = VersionedManifest::load_from(FILE).expect("v1.0.1 must still be readable");
-        assert_eq!(manifest.manifest_version(), &super::v2::MANIFEST_VERSION);
+        assert_eq!(manifest.manifest_version(), &super::v3::MANIFEST_VERSION);
     }
 
     #[test]
     fn a_newer_major_version_asks_for_a_newer_midenup() {
-        let err = VersionedManifest::parse_str(r#"{"manifest_version":"3.0.0","channels":[]}"#)
-            .expect_err("a v3 manifest must be rejected");
+        let err = VersionedManifest::parse_str(r#"{"manifest_version":"4.0.0","channels":[]}"#)
+            .expect_err("a v4 manifest must be rejected");
         assert!(
-            matches!(&err, super::ManifestError::OutdatedMidenup(v) if v.major == 3),
+            matches!(&err, super::ManifestError::OutdatedMidenup(v) if v.major == 4),
             "expected OutdatedMidenup, got: {err}"
         );
     }
@@ -379,8 +375,20 @@ mod tests {
     /// A newer *minor* is additive by construction, so it must remain readable.
     #[test]
     fn a_newer_minor_version_is_accepted() {
-        VersionedManifest::parse_str(r#"{"manifest_version":"2.9.3","date":1,"channels":[]}"#)
+        VersionedManifest::parse_str(r#"{"manifest_version":"3.9.3","date":1,"channels":[]}"#)
             .expect("a newer minor must be readable");
+    }
+
+    /// v2 is not readable, and that is the point: it has no networks map, so a v2 document and a v3
+    /// build would silently disagree about which channel mainnet names.
+    #[test]
+    fn a_v2_manifest_is_rejected() {
+        let err = VersionedManifest::parse_str(r#"{"manifest_version":"2.0.0","channels":[]}"#)
+            .expect_err("v2 is below the supported floor");
+        assert!(
+            matches!(&err, super::ManifestError::UnsupportedVersion(v) if *v == semver::Version::new(2, 0, 0)),
+            "expected UnsupportedVersion(2.0.0), got: {err}"
+        );
     }
 
     #[test]
@@ -404,12 +412,15 @@ mod tests {
             .expect("Could not convert UserChannel to internal channel representation");
     }
 
-    /// Validates that the *published* channel manifest is parseable.
-    /// NOTE: This test is mainly intended for backwards compatibilty reasons.
+    /// The manifest we publish must parse and resolve.
+    ///
+    /// Reads the repo copy. This used to fetch the deployed document, which meant it tested the gap
+    /// between this repo and Github Pages -- and put the network in the unit suite. That drift is
+    /// worth catching, but not here and not on every developer's machine.
     #[test]
     fn validate_published_channel_manifest() {
-        let manifest = VersionedManifest::load_from(VersionedManifest::PUBLISHED_MANIFEST_URI)
-            .expect("Failed to parse upstream manifest.");
+        let manifest = VersionedManifest::load_from("file://manifest/channel-manifest.json")
+            .expect("Failed to parse the manifest we publish.");
 
         let _ = manifest
             .get_channel(&UserChannel::Stable)

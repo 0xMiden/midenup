@@ -75,7 +75,7 @@ impl OfflineFixture {
         let uri = |path: &Path| format!("file://{}", path.display());
 
         let manifest = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
             "channels": [{
                 "name": channel,
@@ -218,7 +218,7 @@ pub fn write_source_manifest(
     revision: &str,
 ) -> String {
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",
@@ -330,7 +330,7 @@ impl UpdateFixture {
 
     fn write(&self, name: &str, channels: serde_json::Value) -> String {
         let manifest = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
             "channels": channels
         });

@@ -271,7 +271,7 @@ fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
 
     let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",
@@ -514,7 +514,7 @@ fn integration_a_path_source_that_moves_during_the_build_is_refused() {
 
     let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",

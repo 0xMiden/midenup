@@ -7,7 +7,7 @@ use crate::channel::ChannelAlias;
 
 /// Tags used to identify special qualities of a specific channel.
 ///
-/// A **v1-only** concept, kept here because v1 documents in the wild carry it. v2 has neither:
+/// A **v1-only** concept, kept here because v1 documents in the wild carry it. v3 has neither:
 /// `Migration` became the explicit `migrates_from` field on the upstream channel, and `Partial`
 /// described local state, which now derives it from the installed component set (spec section 8.6).
 #[derive(Deserialize, Debug, Clone, Hash)]

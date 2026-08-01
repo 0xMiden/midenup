@@ -25,27 +25,27 @@ impl Default for Manifest {
     }
 }
 
-impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
+impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
     type Error = ManifestError;
 
     fn try_from(value: Manifest) -> Result<Self, Self::Error> {
-        use crate::manifest::v2;
+        use crate::manifest::v3;
 
-        let mut channels = Vec::<v2::Channel>::with_capacity(value.channels.len());
+        let mut channels = Vec::<v3::Channel>::with_capacity(value.channels.len());
 
         for channel in value.channels {
-            let mut components = Vec::<v2::Component>::with_capacity(channel.components.len());
+            let mut components = Vec::<v3::Component>::with_capacity(channel.components.len());
             for component in channel.components {
                 components.push(component.try_into()?);
             }
             // `Partial` is dropped: it recorded local state in a document that describes upstream,
-            // and v2 derives it. `Migration` becomes the explicit field.
+            // and v3 derives it. `Migration` becomes the explicit field.
             let migrates_from = channel.tags.iter().find_map(|tag| match tag {
                 super::v1::channel::Tags::Migration { old_channel } => Some(old_channel.clone()),
                 super::v1::channel::Tags::Partial => None,
             });
 
-            channels.push(v2::Channel {
+            channels.push(v3::Channel {
                 name: channel.name,
                 alias: channel.alias,
                 migrates_from,
@@ -54,10 +54,10 @@ impl TryFrom<Manifest> for crate::manifest::v2::Manifest {
             });
         }
 
-        Ok(v2::Manifest {
-            // The output of this conversion is a v2 manifest, so it declares the v2 version.
+        Ok(v3::Manifest {
+            // The output of this conversion is a v3 manifest, so it declares the v3 version.
             // Stamping the v1 constant here left converted manifests claiming to be v1.0.1.
-            manifest_version: v2::MANIFEST_VERSION,
+            manifest_version: v3::MANIFEST_VERSION,
             date: value.date,
             channels,
             extra: Default::default(),

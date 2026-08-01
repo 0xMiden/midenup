@@ -129,7 +129,7 @@ fn convert_aliases(
         .collect()
 }
 
-impl TryFrom<Component> for crate::manifest::v2::Component {
+impl TryFrom<Component> for crate::manifest::v3::Component {
     type Error = ManifestError;
 
     fn try_from(v1: Component) -> Result<Self, Self::Error> {
@@ -301,7 +301,7 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
             },
         };
 
-        Ok(crate::manifest::v2::Component {
+        Ok(crate::manifest::v3::Component {
             name,
             version: authority,
             kind,

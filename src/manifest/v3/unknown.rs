@@ -133,7 +133,7 @@ mod manifest_round_trip_tests {
 
     fn source() -> serde_json::Value {
         serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
             "future_top_level": {"a": 1},
             "channels": [{

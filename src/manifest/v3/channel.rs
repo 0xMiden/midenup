@@ -11,7 +11,7 @@ use crate::{
     channel::{ChannelAlias, UpstreamChannel, UpstreamMatch},
     config::Config,
     exec::Executable,
-    manifest::{Alias, ManifestError, v2::unknown::Extra},
+    manifest::{Alias, ManifestError, v3::unknown::Extra},
 };
 
 /// Represents a specific release channel for a toolchain.

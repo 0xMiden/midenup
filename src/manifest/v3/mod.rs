@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub use self::{channel::*, component::*, unknown::*};
 use super::ManifestError;
 
-pub const MANIFEST_VERSION: semver::Version = semver::Version::new(2, 0, 0);
+pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 0, 0);
 
 /// The global manifest of all known channels and their toolchains
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -46,7 +46,7 @@ impl Manifest {
         Self::parse_str(&manifest_contents)
     }
 
-    /// Parses a v2 [Manifest] from `content`, and returns it in canonical form.
+    /// Parses a v3 [Manifest] from `content`, and returns it in canonical form.
     pub fn parse_str(content: &str) -> Result<Self, ManifestError> {
         let mut manifest = serde_json::from_str::<Self>(content)
             .map_err(|err| ManifestError::Invalid(format!("failed to parse manifest: {err}")))?;
