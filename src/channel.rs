@@ -37,7 +37,7 @@ pub const DEFAULT_NETWORK: &str = "mainnet";
 /// two keys in lockstep, or letting a map value hold an indirection -- with the cycle detection
 /// that implies, and the ability for a manifest author to make `stable` mean anything.
 const SYNONYMS: &[(&str, &str)] =
-    &[("stable", "mainnet"), ("beta", "testnet"), ("nightly", "devnet")];
+    &[("stable", DEFAULT_NETWORK), ("beta", "testnet"), ("nightly", "devnet")];
 
 /// Rewrites a traditional name to the network it means. Any other name is returned unchanged.
 pub fn canonical_network(name: &str) -> &str {

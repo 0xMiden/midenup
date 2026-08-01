@@ -78,9 +78,13 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
             // and flips these four paths.
             let network = match alias {
                 crate::channel::ChannelAlias::Stable => crate::channel::DEFAULT_NETWORK.to_string(),
-                crate::channel::ChannelAlias::Nightly(None) => "devnet".to_string(),
+                crate::channel::ChannelAlias::Nightly(None) => {
+                    crate::channel::canonical_network("nightly").to_string()
+                },
                 crate::channel::ChannelAlias::Nightly(Some(suffix)) => format!("nightly-{suffix}"),
-                crate::channel::ChannelAlias::Tag(tag) => tag.to_string(),
+                crate::channel::ChannelAlias::Tag(tag) => {
+                    crate::channel::canonical_network(&tag).to_string()
+                },
             };
             manifest.promote(&network, channel);
         }
@@ -154,6 +158,17 @@ mod tests {
             manifest.network_version("nightly-experimental"),
             Some(&semver::Version::new(0, 15, 0))
         );
+    }
+
+    /// v1 had no notion of testnet, so a channel could carry a bare `beta` tag. v3 treats `beta` as
+    /// a synonym for `testnet` and rewrites it before any lookup, so the converter has to land the
+    /// network under the name a lookup will actually use.
+    #[test]
+    fn a_beta_alias_becomes_the_testnet_network() {
+        let src = v1(serde_json::json!([channel("0.15.0", Some("beta"))]));
+        let manifest = VersionedManifest::parse_str(&src).expect("must convert");
+        assert_eq!(manifest.network_version("testnet"), Some(&semver::Version::new(0, 15, 0)));
+        assert!(manifest.network_version("beta").is_none());
     }
 
     /// v1 derived stable as the highest channel when nothing carried the alias. Reproducing that
