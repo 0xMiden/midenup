@@ -45,9 +45,9 @@ fn integration_miden_test() {
     assert!(latest_toolchain.exists());
 
     // Symlink check
-    let stable_dir = toolchain_dir.join("stable");
-    assert!(stable_dir.exists());
-    assert!(stable_dir.is_symlink());
+    let mainnet_dir = toolchain_dir.join("mainnet");
+    assert!(mainnet_dir.exists());
+    assert!(mainnet_dir.is_symlink());
 
     // Global default
 

@@ -55,14 +55,14 @@ fn integration_channel_migration_test() {
     // Check 2: The 0.20.3 directory has been entirely deleted
     assert!(!toolchain_dir.join("0.20.3").exists());
 
-    // Check 3: The stable symlink points to the new channel directory
-    let stable_symlink = toolchain_dir.join("stable");
-    assert!(stable_symlink.exists(), "stable symlink should exist after migration");
-    let symlink_target = std::fs::read_link(&stable_symlink).expect("stable should be a symlink");
+    // Check 3: The mainnet link points to the new channel directory
+    let mainnet_symlink = toolchain_dir.join("mainnet");
+    assert!(mainnet_symlink.exists(), "the mainnet link should exist after migration");
+    let symlink_target = std::fs::read_link(&mainnet_symlink).expect("mainnet should be a symlink");
     assert_eq!(
         symlink_target.file_name(),
         toolchain_dir.join("0.13.0").file_name(),
-        "stable symlink should point to the migrated channel"
+        "the mainnet link should point to the migrated channel"
     );
 }
 

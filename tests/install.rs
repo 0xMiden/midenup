@@ -29,12 +29,13 @@ fn integration_install_stable() {
     let state_file = test_env.midenup_home.join("state").with_extension("json");
     assert!(state_file.exists(), "install must write local state");
 
-    let stable_dir = test_env.midenup_home.join("toolchains").join("stable");
-    assert!(stable_dir.exists());
-    assert!(stable_dir.is_symlink());
+    let mainnet_dir = test_env.midenup_home.join("toolchains").join("mainnet");
+    assert!(mainnet_dir.exists());
+    assert!(mainnet_dir.is_symlink());
 
-    // `stable` is not persisted in local state -- it is a property of the upstream manifest and a
-    // derived symlink on disk. Assert on the symlink, and that state records the version it names.
+    // Which channel a network names is not persisted in local state -- it is a property of the
+    // upstream manifest and a derived symlink on disk. Assert on the symlink, and that state
+    // records the version it names.
     let stable_version = config
         .upstream_manifest()
         .unwrap()
@@ -43,9 +44,9 @@ fn integration_install_stable() {
         .name
         .clone();
     assert_eq!(
-        std::fs::read_link(&stable_dir).unwrap().file_name().unwrap(),
+        std::fs::read_link(&mainnet_dir).unwrap().file_name().unwrap(),
         std::ffi::OsStr::new(&stable_version.to_string()),
-        "the stable symlink must point at the upstream stable channel"
+        "the mainnet link must point at the upstream stable channel"
     );
 
     // Re-read from disk to confirm it was persisted, not merely held in memory.
@@ -71,7 +72,7 @@ fn integration_install_places_every_artifact_kind() {
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
-    let root = test_env.midenup_home.join("toolchains").join("stable");
+    let root = test_env.midenup_home.join("toolchains").join("mainnet");
 
     assert!(
         root.join("bin").join("miden-vm").exists(),
@@ -108,7 +109,7 @@ fn integration_install_creates_default_symlinks() {
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
-    let opt = test_env.midenup_home.join("toolchains").join("stable").join("opt");
+    let opt = test_env.midenup_home.join("toolchains").join("mainnet").join("opt");
     assert!(
         opt.join("miden vm").symlink_metadata().is_ok(),
         "missing default shim for 'vm' in {}",

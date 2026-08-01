@@ -28,10 +28,10 @@ pub fn r#override(
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let channel_dir = match channel {
-        // If a user sets `stable` to be the default; then we need to point to the `stable` symlink
-        // itself and *not* the underlying toolchain directory. In effect, this allows the user to
-        // always be using the stable toolchain, even after updates occur.
-        UserChannel::Stable => toolchains_dir.join("stable"),
+        // If a user sets `stable` to be the default; then we need to point to the network link it
+        // is a synonym for, and *not* the underlying toolchain directory. In effect, this allows
+        // the user to always be using that network's toolchain, even after updates occur.
+        UserChannel::Stable => toolchains_dir.join(crate::channel::DEFAULT_NETWORK),
         _ => {
             let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
                 "failed to set {channel} as the system default. Try installing it:

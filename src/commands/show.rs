@@ -63,11 +63,10 @@ impl ShowCommand {
             },
             Self::List => {
                 // Installed toolchains are recorded locally, so this works with no network at all.
-                // Upstream only adds *markers* -- which channel is stable, which installations are
-                // partial or no longer published -- so when it is unavailable they are simply
-                // omitted rather than guessed at (spec section 8.6).
+                // Upstream only adds *markers* -- which networks name a channel, which
+                // installations are partial or no longer published -- so when it is unavailable
+                // they are simply omitted rather than guessed at (spec section 8.6).
                 let upstream = config.upstream_manifest().ok();
-                let stable_toolchain = upstream.and_then(|manifest| manifest.get_latest_stable());
 
                 let toolchains_display: Vec<_> = state
                     .installations
@@ -76,8 +75,18 @@ impl ShowCommand {
                         let name = &installation.channel;
                         let mut line = format!("{name}");
 
-                        if stable_toolchain.as_ref().is_some_and(|stable| &stable.name == name) {
-                            line.push_str(&format!(" {}", "(stable)".bold()));
+                        // Several networks may name one channel, so this is a list rather than a
+                        // single marker. Omitted entirely when upstream is unavailable: which
+                        // networks name a channel is upstream's answer, and guessing it locally is
+                        // exactly the derivation this release removes.
+                        let networks: Vec<&str> = upstream
+                            .map(|manifest| manifest.networks_for(name).collect())
+                            .unwrap_or_default();
+                        if !networks.is_empty() {
+                            line.push_str(&format!(
+                                " {}",
+                                format!("({})", networks.join(", ")).bold()
+                            ));
                         }
 
                         // A migrated record describes a pre-publication tree that no receipt

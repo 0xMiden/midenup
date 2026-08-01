@@ -13,8 +13,8 @@
 //! |     |- bin/ lib/ etc/ opt/
 //! |- toolchains/
 //! |  |- <channel>   -> ../publications/<channel>-<publication-id>
-//! |  |- stable      -> <channel>
-//! |  |- default     -> <channel>
+//! |  |- <network>   -> <channel>          one per network naming this channel
+//! |  |- default     -> <channel> | <network>
 //! |- opt            -> toolchains/<active>/opt
 //! ```
 
@@ -36,7 +36,7 @@ pub fn manifest_cache(home: &Path) -> PathBuf {
     home.join("channel-manifest").with_extension("json")
 }
 
-/// The directory of `toolchains/<channel>` symlinks, plus the derived `stable` and `default`.
+/// The directory of `toolchains/<channel>` symlinks, plus the derived network links and `default`.
 pub fn toolchains_dir(home: &Path) -> PathBuf {
     home.join("toolchains")
 }
@@ -47,6 +47,15 @@ pub fn toolchains_dir(home: &Path) -> PathBuf {
 /// what lets the publication behind it be replaced atomically.
 pub fn toolchain_link(home: &Path, channel: &semver::Version) -> PathBuf {
     toolchains_dir(home).join(channel.to_string())
+}
+
+/// A network's symlink: `toolchains/<network>` -> `<channel>`.
+///
+/// Records the last answer upstream gave about this network *that this machine acted on*. It is
+/// deliberately not repointed at a channel that is not installed, which would leave it dangling;
+/// `midenup update <network>` is what advances it.
+pub fn network_link(home: &Path, network: &str) -> PathBuf {
+    toolchains_dir(home).join(network)
 }
 
 /// Where installed trees live.

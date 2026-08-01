@@ -39,7 +39,6 @@ pub fn install(
     commands::setup_midenup(config)?;
 
     let home = &config.midenup_home;
-    let toolchains_dir = paths::toolchains_dir(home);
 
     // Every install produces a *new* publication, named opaquely. Nothing may infer identity from
     // the name: a name derived from the plan key would invite treating equal keys as equal bytes,
@@ -136,14 +135,19 @@ pub fn install(
     crate::publish::journal::record(home, &entry, state)?;
     fault::fail_at(fault::FaultPoint::PostRecord)?;
 
-    // 6. DERIVE. `stable` is a property of the upstream manifest, recomputed from it rather than
-    // remembered, so a stale local copy can never disagree with upstream about which channel it
-    // names.
-    if config.upstream_manifest()?.is_latest_stable(channel) {
-        let stable_dir = toolchains_dir.join("stable");
-        let relative_channel_target = PathBuf::from(format!("{}", channel.name));
-        utils::fs::replace_symlink(&stable_dir, &relative_channel_target)
-            .context("failed to point 'stable' at the newly installed channel")?;
+    // 6. DERIVE. Which channel a network names is a property of the upstream manifest, recomputed
+    // from it rather than remembered, so a stale local copy can never disagree with upstream. A
+    // loop rather than a conditional because several networks may name one channel -- the state
+    // right after a testnet toolchain is promoted to mainnet.
+    //
+    // Only the channel being installed gets links. Repointing a network at a channel that is not
+    // installed would leave a dangling symlink; `midenup update <network>` is what advances it.
+    let relative_channel_target = PathBuf::from(format!("{}", channel.name));
+    for network in config.upstream_manifest()?.networks_for(&channel.name) {
+        let link = paths::network_link(home, network);
+        utils::fs::replace_symlink(&link, &relative_channel_target).with_context(|| {
+            format!("failed to point '{network}' at the newly installed channel")
+        })?;
     }
     fault::fail_at(fault::FaultPoint::PostDerive)?;
 

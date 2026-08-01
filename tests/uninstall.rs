@@ -92,14 +92,15 @@ fn integration_install_uninstall_test() {
     let latest_toolchain = toolchain_dir.join("0.16.0");
     assert!(latest_toolchain.exists());
 
-    // Besides it should create the `stable` symlink
-    let stable_dir = toolchain_dir.join("stable");
-    assert!(stable_dir.exists());
-    assert!(stable_dir.is_symlink());
+    // Besides it should create the `mainnet` link
+    let mainnet_dir = toolchain_dir.join("mainnet");
+    assert!(mainnet_dir.exists());
+    assert!(mainnet_dir.is_symlink());
 
-    // Stable should point to 0.16.0
-    let stable_toolchain = std::fs::read_link(&stable_dir).expect("Failed to read stable symlink");
-    assert_eq!(stable_toolchain.file_name(), latest_toolchain.file_name());
+    // mainnet should point to 0.16.0
+    let mainnet_toolchain =
+        std::fs::read_link(&mainnet_dir).expect("Failed to read the mainnet link");
+    assert_eq!(mainnet_toolchain.file_name(), latest_toolchain.file_name());
 
     // Now we install a separate toolchain.
     let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
@@ -112,7 +113,7 @@ fn integration_install_uninstall_test() {
     assert!(older_toolchain.exists());
 
     // Besides this new toolchain, all the other directories should still exists.
-    assert!(stable_dir.exists());
+    assert!(mainnet_dir.exists());
     assert!(latest_toolchain.exists());
 
     let installed_toolchains = ["0.15.0", "0.16.0"].iter().map(|version| {
@@ -135,10 +136,10 @@ fn integration_install_uninstall_test() {
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to uninstall 0.16.0");
 
-    // Afterwards, both the 0.16.0 directory and the `stable` symlink should be deleted.
+    // Afterwards, both the 0.16.0 directory and the `mainnet` link should be deleted.
     // But, 0.15.0 should still remain
     assert!(!latest_toolchain.exists());
-    assert!(!stable_dir.exists());
+    assert!(!mainnet_dir.exists());
     assert!(older_toolchain.exists());
 
     // Similarly, the local manifest should now also reflect the that the older toolchain got
