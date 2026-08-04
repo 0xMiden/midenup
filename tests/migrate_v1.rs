@@ -45,17 +45,6 @@ fn write_v1_manifest(env: &TestEnvironment, contents: &str) {
     std::fs::write(v1_manifest_path(&env.midenup_home), contents).unwrap();
 }
 
-fn run_midenup(env: &TestEnvironment, manifest_uri: &str, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_midenup"))
-        .args(args)
-        .current_dir(&env.present_working_dir)
-        .env("MIDENUP_HOME", &env.midenup_home)
-        .env("CARGO_HOME", &env.cargo_home)
-        .env("MIDENUP_MANIFEST_URI", manifest_uri)
-        .output()
-        .expect("failed to run midenup")
-}
-
 fn state_of(home: &Path) -> LocalState {
     LocalState::load(&paths::state_path(home)).expect("state.json must be readable")
 }

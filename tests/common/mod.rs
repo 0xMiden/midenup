@@ -23,6 +23,22 @@ macro_rules! full_path {
 
 pub type LocalManifest = midenup::state::LocalState;
 
+/// Runs the real `midenup` binary against a test environment.
+pub fn run_midenup(
+    env: &TestEnvironment,
+    manifest_uri: &str,
+    args: &[&str],
+) -> std::process::Output {
+    std::process::Command::new(env!("CARGO_BIN_EXE_midenup"))
+        .args(args)
+        .current_dir(&env.present_working_dir)
+        .env("MIDENUP_HOME", &env.midenup_home)
+        .env("CARGO_HOME", &env.cargo_home)
+        .env("MIDENUP_MANIFEST_URI", manifest_uri)
+        .output()
+        .expect("failed to run midenup")
+}
+
 pub fn test_setup(env: &TestEnvironment, manifest_uri: &str) -> (LocalManifest, config::Config) {
     let state = midenup::state::LocalState::load(&env.midenup_home.join("state.json"))
         .unwrap_or_else(|err| panic!("failed to load local state: {err}"));

@@ -42,6 +42,8 @@ To list all the currently installed toolchains in the system, run:
 midenup show list
 ```
 
+Each toolchain is listed with the networks that run it, and a network that has since moved to a different toolchain is listed with the command that catches you up: `0.14.0 (mainnet is now 0.15.0 upstream -- run midenup update mainnet)`.
+
 ## Using a toolchain
 
 The `miden help toolchain` can be run to display a quick summary of what the currently active toolchain offers.
