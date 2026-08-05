@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{BTreeMap, HashMap},
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::SystemTime,
 };
 
@@ -144,12 +144,6 @@ pub fn install(
     // installed would leave a dangling symlink; `midenup update <network>` is what advances it.
     let relative_channel_target = PathBuf::from(format!("{}", channel.name));
     for network in config.upstream_manifest()?.networks_for(&channel.name) {
-        // The network `midenup update <network>` is reconciling moves its own pointer, after the
-        // `var/` carry. See `InstallationOptions::reconciling`.
-        if options.reconciling.as_deref() == Some(network) {
-            continue;
-        }
-
         // A network name becomes a path segment under `toolchains/`, and `replace_symlink` renames
         // over whatever is at that path. Loading a manifest is deliberately permissive, so the
         // authoring gate in `manifest::validate` cannot be the only thing standing between a
@@ -159,9 +153,6 @@ pub fn install(
         }
 
         let link = paths::network_link(home, network);
-        if let Some(warning) = orphaned_var_warning(home, &link, network, &channel.name) {
-            eprintln!("{warning}");
-        }
         utils::fs::replace_symlink(&link, &relative_channel_target).with_context(|| {
             format!("failed to point '{network}' at the newly installed channel")
         })?;
@@ -172,42 +163,6 @@ pub fn install(
     crate::publish::journal::clean(home, &entry)?;
 
     Ok(())
-}
-
-/// The warning owed to a user whose network is about to name a different channel while their data
-/// is still under the one it named before.
-///
-/// **Deliberately a warning rather than a carry.** Carrying would make an install mutate data it
-/// did not create, and `install` has no notion of "the channel you were on" -- only `update
-/// <network>` does, which is why that is where the carry lives. Before networks existed the two
-/// commands agreed by both doing nothing; now they perform the same pointer move, so the difference
-/// has to be said out loud rather than left silent.
-///
-/// `None` when there is nothing to say: no link yet (a first install), a link already naming this
-/// channel (a no-op), or no `var/` under the channel it named.
-fn orphaned_var_warning(
-    home: &Path,
-    link: &Path,
-    network: &str,
-    channel: &semver::Version,
-) -> Option<String> {
-    use colored::Colorize;
-
-    // Read before it is replaced: afterwards nothing records what it named.
-    let previous = std::fs::read_link(link).ok()?;
-    let previous = semver::Version::parse(previous.to_str()?).ok()?;
-    if previous == *channel {
-        return None;
-    }
-    if !paths::var_dir(home, &previous).is_dir() {
-        return None;
-    }
-
-    Some(format!(
-        "{}: {network} now names {channel}; your data for {previous} is still at \
-         var/{previous}.\n         Run 'midenup update {network}' to carry it across.",
-        "warning".yellow().bold(),
-    ))
 }
 
 /// What this operation wants installed.
@@ -530,60 +485,4 @@ pub fn get_installed_cargo_binaries(
     }
 
     Ok(installed)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn link_to(home: &Path, network: &str, channel: &str) -> PathBuf {
-        let link = paths::network_link(home, network);
-        std::fs::create_dir_all(link.parent().unwrap()).unwrap();
-        std::os::unix::fs::symlink(channel, &link).unwrap();
-        link
-    }
-
-    /// The silent case this exists for: the network moves off a channel the user has data under,
-    /// and `install` will not carry it.
-    #[test]
-    fn a_network_moving_off_a_channel_with_data_is_reported() {
-        let tmp = tempdir::TempDir::new("midenup-orphan").unwrap();
-        let home = tmp.path();
-        let link = link_to(home, "mainnet", "0.14.0");
-        std::fs::create_dir_all(paths::var_dir(home, &semver::Version::new(0, 14, 0))).unwrap();
-
-        let warning = orphaned_var_warning(home, &link, "mainnet", &semver::Version::new(0, 15, 0))
-            .expect("a moved network with data behind it must be reported");
-        assert!(warning.contains("var/0.14.0"), "must name where the data is: {warning}");
-        assert!(
-            warning.contains("midenup update mainnet"),
-            "must say how to carry it across: {warning}"
-        );
-    }
-
-    /// No noise on a first install, a no-op, or a channel the user never accumulated data under.
-    #[test]
-    fn nothing_is_reported_when_there_is_nothing_to_say() {
-        let tmp = tempdir::TempDir::new("midenup-orphan").unwrap();
-        let home = tmp.path();
-        let target = semver::Version::new(0, 15, 0);
-
-        let absent = paths::network_link(home, "mainnet");
-        assert_eq!(orphaned_var_warning(home, &absent, "mainnet", &target), None);
-
-        let link = link_to(home, "mainnet", "0.14.0");
-        assert_eq!(
-            orphaned_var_warning(home, &link, "mainnet", &target),
-            None,
-            "a moved network with no data behind it has nothing to say"
-        );
-
-        let unmoved = link_to(home, "testnet", "0.15.0");
-        std::fs::create_dir_all(paths::var_dir(home, &target)).unwrap();
-        assert_eq!(
-            orphaned_var_warning(home, &unmoved, "testnet", &target),
-            None,
-            "a link that already names this channel is a no-op"
-        );
-    }
 }

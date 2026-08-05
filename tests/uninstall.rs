@@ -1,5 +1,5 @@
 use clap::Parser;
-use midenup::commands::Midenup;
+use midenup::{channel::UserChannel, commands::Midenup};
 
 mod common;
 
@@ -25,7 +25,9 @@ fn integration_uninstall_keeps_var_unless_purge_is_given() {
         .expect("failed to install");
 
     // Stand in for whatever the client would have written.
-    let data = midenup::paths::var_dir(&test_env.midenup_home, &channel).join("data");
+    let data =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(channel.clone()))
+            .join("data");
     std::fs::create_dir_all(data.parent().unwrap()).unwrap();
     std::fs::write(&data, b"user-database").unwrap();
 
@@ -51,6 +53,66 @@ fn integration_uninstall_keeps_var_unless_purge_is_given() {
         .execute_with_state(&config, &mut state)
         .expect("failed to purge");
     assert!(!data.exists(), "--purge must remove var");
+}
+
+/// A purge removes the store belonging to the selector the user named, and only that one.
+///
+/// `var/` is keyed by selector, so `uninstall mainnet --purge` is a request to remove the mainnet
+/// store, and `uninstall <version> --purge` is a request to remove that pinned version's. A network
+/// outlives every channel it names, so removing a channel must never take a network's data with it
+/// -- even the channel that network currently names.
+#[test]
+fn integration_uninstall_purges_the_store_of_the_selector_it_was_given() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_uninstall_purge_selector");
+
+    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let var = test_env.midenup_home.join("var");
+    let seed = |selector: &str| {
+        std::fs::create_dir_all(var.join(selector)).unwrap();
+        std::fs::write(var.join(selector).join("data"), selector.as_bytes()).unwrap();
+    };
+
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "install", "0.15.0"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+    seed("mainnet");
+    seed("0.15.0");
+
+    // The channel mainnet names, purged. mainnet's own store is not this channel's to remove.
+    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0", "--purge"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to purge the channel");
+    assert!(!var.join("0.15.0").exists(), "the pinned selector's store must be purged");
+    assert_eq!(
+        std::fs::read(var.join("mainnet").join("data")).unwrap(),
+        b"mainnet",
+        "a channel going away is not a request to delete the data of a network that named it"
+    );
+
+    // Now the network itself, by name.
+    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to reinstall");
+    Midenup::try_parse_from(["midenup", "uninstall", "mainnet", "--purge"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to purge the network");
+    assert!(
+        !var.join("mainnet").exists(),
+        "purging by network name must remove that network's store"
+    );
 }
 
 /// Integration test to check that installing and uninstalling works.

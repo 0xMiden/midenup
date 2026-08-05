@@ -1,5 +1,6 @@
 use std::{borrow::Cow, fmt};
 
+use anyhow::Context;
 use serde::Serialize;
 
 use crate::config::Config;
@@ -53,6 +54,9 @@ pub fn canonical_network(name: &str) -> &str {
 /// A name is resolved against the manifest's `networks` map, so which names exist is data rather
 /// than code and a new network needs no release of `midenup`. The cost is that an unknown name
 /// parses and fails at lookup, which is why the lookup's diagnostic lists what is declared.
+///
+/// A selector is also the key `var/` is stored under, so its `Display` form is joined onto a path.
+/// [`FromStr`](core::str::FromStr) is what guarantees that is safe.
 #[derive(Debug, Clone)]
 pub enum UserChannel {
     Version(semver::Version),
@@ -108,7 +112,16 @@ impl core::str::FromStr for UserChannel {
         if let Ok(version) = semver::Version::parse(s) {
             return Ok(Self::Version(version));
         }
-        Ok(Self::Named(Cow::Owned(canonical_network(s).to_string())))
+
+        // A name becomes a single path segment: `var/<name>` and `toolchains/<name>`. A name can
+        // reach here from a project's `miden-toolchain.toml`, which is untrusted input, so the same
+        // gate the manifest's network names pass through applies here -- there is then no way to
+        // hold a `Named` selector that is not a safe segment.
+        let name = canonical_network(s);
+        crate::plan::validate_artifact_id(name)
+            .with_context(|| format!("'{name}' cannot name a channel"))?;
+
+        Ok(Self::Named(Cow::Owned(name.to_string())))
     }
 }
 
@@ -149,6 +162,26 @@ mod tests {
     #[test]
     fn the_empty_string_is_not_a_channel() {
         assert!(UserChannel::from_str("").is_err());
+    }
+
+    /// A selector is joined onto `$MIDENUP_HOME` as a single segment -- `var/<selector>` and
+    /// `toolchains/<selector>` -- and one can arrive from a project's `miden-toolchain.toml`.
+    /// Rejecting it here is what makes every such join safe by construction.
+    #[test]
+    fn a_name_that_is_not_a_single_path_segment_is_not_a_channel() {
+        for bad in ["../../evil", "a/b", ".", "..", "a\\b", "-flag", "with\0nul"] {
+            assert!(UserChannel::from_str(bad).is_err(), "must reject {bad:?}");
+        }
+        for good in ["mainnet", "testnet", "devnet", "some-future-net", "0.15.0"] {
+            assert!(UserChannel::from_str(good).is_ok(), "must accept {good:?}");
+        }
+    }
+
+    /// The rejection has to survive deserialization too: `miden-toolchain.toml` is read through
+    /// `Deserialize`, never through `FromStr` directly.
+    #[test]
+    fn a_toolchain_file_cannot_name_a_traversal() {
+        assert!(serde_json::from_str::<UserChannel>(r#""../../evil""#).is_err());
     }
 
     #[test]

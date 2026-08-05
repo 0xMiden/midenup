@@ -1,5 +1,5 @@
 use clap::Parser;
-use midenup::commands::Midenup;
+use midenup::{channel::UserChannel, commands::Midenup};
 
 mod common;
 
@@ -91,7 +91,8 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
     let intent_before = state.get(&old).expect("0.20.3 must be installed").intent.clone();
 
     // Stand in for whatever the client would have written.
-    let old_var = midenup::paths::var_dir(&test_env.midenup_home, &old);
+    let old_var =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(old.clone()));
     std::fs::create_dir_all(&old_var).unwrap();
     std::fs::write(old_var.join("data"), b"client-db").unwrap();
 
@@ -108,7 +109,8 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
     assert_eq!(migrated.intent, intent_before, "intent must transfer verbatim");
     assert!(state.get(&old).is_none(), "the old channel's record must be gone");
 
-    let new_var = midenup::paths::var_dir(&test_env.midenup_home, &new);
+    let new_var =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(new.clone()));
     assert_eq!(
         std::fs::read(new_var.join("data")).unwrap(),
         b"client-db",

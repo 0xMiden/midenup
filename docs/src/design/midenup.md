@@ -18,7 +18,8 @@ $MIDENUP_HOME/
 │       ├── receipt.json                what this publication owns
 │       ├── bin/  lib/  etc/  opt/
 ├── var/
-│   └── <channel>/                      mutable user data; never touched by install or update
+│   └── <selector>/                     mutable user data; keyed by the network or version the
+│                                       user selected; never touched by install or update
 ├── toolchains/
 │   ├── <channel>  -> ../publications/<channel>-<publication-id>
 │   ├── <network>  -> <channel>            one link per network naming an installed channel
@@ -35,7 +36,7 @@ Two things worth noting:
 
 **A publication is immutable.** It is written once, verified, published, and never modified. Changing what is installed produces a *new* publication and repoints one symlink. Nothing infers anything from a publication's name: the id is opaque and randomly generated, precisely so that no code can be tempted to treat two equal names as two equal directories.
 
-**`var/` is outside the publication.** It holds mutable component-owned state — most importantly the Miden client's database, referenced from the manifest as `%var(data)`. Install, update and republication never read, write, move or delete it. The one exception is channel migration, which renames* `var/<old>` to `var/<new>` so client data follows the toolchain it belongs to.
+**`var/` is outside the publication, and keyed by the selector.** It holds mutable component-owned state — most importantly the Miden client's database, referenced from the manifest as `%var(data)`. Its key is what the *user selected* — `var/mainnet`, `var/0.15.0` — not the channel that selector resolves to. Networks are logically distinct even when several of them name one toolchain, which is the usual state of affairs: your mainnet accounts and your testnet notes are not one database. A selector also does not move when a pointer moves, so a network's store stays exactly where it is as the network advances. Install, update, republication and pointer moves never read, write, move or delete it. The one exception is channel migration, which renames `var/<old>` to `var/<new>` — both pinned-version selectors, and migration is what retires one.
 
 ## Installation
 
@@ -74,7 +75,7 @@ Update decides two things and delegates the rest:
 
 Everything else — resolving, planning, staging, publishing — is the same code path as a fresh install. A change that touches only selection or runtime metadata skips it entirely and commits a single `state.json` write: republishing an identical tree to record an alias would be pure cost.
 
-**Updating a network reconciles the pointer, not the channel.** `midenup update mainnet` looks at what the manifest now has `mainnet` naming. If that has moved, the installation is carried there: the recorded selection transfers verbatim and is re-resolved against the channel now being tracked, `var/` is renamed so client data follows the network rather than being stranded under a version nobody is tracking any more, and the `toolchains/mainnet` link is repointed last. The comparison is inequality rather than "is newer" — the pointer is authoritative in both directions — so a promotion that moves a network *back* is followed too, with a warning that data written by a newer toolchain is being carried across as-is.
+**Updating a network reconciles the pointer, not the channel.** `midenup update mainnet` looks at what the manifest now has `mainnet` naming. If that has moved, the installation is carried there: the recorded selection transfers verbatim and is re-resolved against the channel now being tracked, and the `toolchains/mainnet` link is repointed. Your data is not part of that: `var/mainnet` is keyed by the network, so it is already where the newly named toolchain will look for it. The comparison is inequality rather than "is newer" — the pointer is authoritative in both directions — so a promotion that moves a network *back* is followed too, with a heads-up that it has moved backwards.
 
 An explicit root that no longer exists upstream **blocks** the update and preserves the installation. The schema has no rename declaration, so guessing is not an option.
 

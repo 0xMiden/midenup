@@ -38,6 +38,15 @@ pub fn migrate_if_needed(home: &Path) -> anyhow::Result<Outcome> {
     // `symlink_metadata`, not `exists`: a link whose target has been removed still has to be
     // renamed, and `exists` follows the link and answers false for it.
     if std::fs::symlink_metadata(&legacy).is_ok() && std::fs::symlink_metadata(&mainnet).is_err() {
+        // Before the rename, deliberately: the legacy link is the only marker that this home
+        // predates network-keyed `var/`, and it survives until the rename. Doing this first means a
+        // run interrupted in between is retried in full by the next one, and -- more importantly --
+        // that a home with no legacy link is never touched, so a store under a version the user
+        // pinned is never mistaken for one to move.
+        if adopt_var_for_default_network(home, &legacy)? {
+            migrated = true;
+        }
+
         match std::fs::rename(&legacy, &mainnet) {
             Ok(()) => {
                 // Only an alpha home can be holding a cache this build cannot read, and only here
@@ -90,6 +99,67 @@ fn repoint_default(home: &Path) -> anyhow::Result<bool> {
     };
     crate::utils::fs::replace_symlink(&default, &replacement)?;
     Ok(true)
+}
+
+/// Gives the default network the store that a pre-network home wrote under the channel key.
+///
+/// `var/` is keyed by the toolchain selector ([`paths::var_dir`]), so a network's state lives at
+/// `var/<network>`. Such a home has its state at `var/<version>` instead, and would otherwise
+/// present the default network with an empty store while the real one sat under a key nothing
+/// selects.
+///
+/// **Only the default network.** Such a home had exactly one store no matter how many networks
+/// named the channel, and under this model that one store is the default network's -- it is what
+/// the user was actually working against. The others were never separate and start empty, which is
+/// the honest outcome: giving each a copy would present one set of accounts as three independent
+/// stores.
+///
+/// `legacy` is both where the version comes from and the proof that this home is one to convert --
+/// see the call site. A `var/<version>` in a home without that link is a store under a version the
+/// user pinned, and pinning already keys on the version, so it is already where it belongs.
+///
+/// Returns whether it changed anything.
+fn adopt_var_for_default_network(home: &Path, legacy: &Path) -> anyhow::Result<bool> {
+    let Ok(named) = std::fs::read_link(legacy) else {
+        return Ok(false);
+    };
+    let Some(named) = named.file_name() else {
+        return Ok(false);
+    };
+
+    let source = home.join("var").join(named);
+    let destination = home.join("var").join(DEFAULT_NETWORK);
+    // Both conditions are the idempotency check as well as the precondition: a second run finds no
+    // source, and a home that already has a network-keyed store is never overwritten by one.
+    if !source.is_dir() || destination.exists() {
+        return Ok(false);
+    }
+
+    match std::fs::rename(&source, &destination) {
+        Ok(()) => {
+            println!(
+                "moved your {DEFAULT_NETWORK} data from {} to {}: it is now keyed by the network \
+                 rather than by the toolchain version.",
+                source.display(),
+                destination.display()
+            );
+            Ok(true)
+        },
+        // Another process got there first, or between the check and here: the source is gone, or
+        // the destination it just created is in the way. Deliberately unlocked; see the rename in
+        // `migrate_if_needed`.
+        Err(err)
+            if matches!(
+                err.kind(),
+                std::io::ErrorKind::NotFound
+                    | std::io::ErrorKind::AlreadyExists
+                    | std::io::ErrorKind::DirectoryNotEmpty
+            ) =>
+        {
+            Ok(false)
+        },
+        Err(err) => Err(err).context("failed to move the default network's data"),
+    }
 }
 
 /// Removes a cached manifest this build cannot read.
@@ -268,6 +338,87 @@ mod tests {
             std::fs::read_link(crate::paths::network_link(&home, "mainnet")).unwrap(),
             PathBuf::from("0.16.0")
         );
+    }
+
+    /// Seeds the store a pre-network home would have written, under the channel key.
+    fn seed_var(home: &Path, key: &str) {
+        let dir = home.join("var").join(key);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("store.sqlite3"), key.as_bytes()).unwrap();
+    }
+
+    fn var_store(home: &Path, key: &str) -> Option<Vec<u8>> {
+        std::fs::read(home.join("var").join(key).join("store.sqlite3")).ok()
+    }
+
+    /// The one store such a home has is the default network's, and it has to arrive at the key the
+    /// default network is now resolved under or it would be invisible.
+    #[test]
+    fn the_single_store_becomes_the_default_networks() {
+        let (_temp, home) = alpha_home();
+        seed_var(&home, "0.15.0");
+
+        assert_eq!(migrate_if_needed(&home).unwrap(), Outcome::Migrated);
+        assert_eq!(var_store(&home, DEFAULT_NETWORK).as_deref(), Some(&b"0.15.0"[..]));
+        assert!(
+            !home.join("var").join("0.15.0").exists(),
+            "the old key must not be left holding a second copy"
+        );
+    }
+
+    /// The other networks were never separate stores in such a home, so they start empty rather
+    /// than each receiving a copy of the same accounts.
+    #[test]
+    fn the_other_networks_start_empty() {
+        let (_temp, home) = alpha_home();
+        seed_var(&home, "0.15.0");
+        migrate_if_needed(&home).unwrap();
+
+        for network in ["testnet", "devnet"] {
+            assert!(
+                !home.join("var").join(network).exists(),
+                "{network} must not be given a copy of the default network's store"
+            );
+        }
+    }
+
+    #[test]
+    fn adopting_the_store_is_idempotent() {
+        let (_temp, home) = alpha_home();
+        seed_var(&home, "0.15.0");
+        migrate_if_needed(&home).unwrap();
+
+        assert_eq!(migrate_if_needed(&home).unwrap(), Outcome::NothingToDo);
+        assert_eq!(var_store(&home, DEFAULT_NETWORK).as_deref(), Some(&b"0.15.0"[..]));
+    }
+
+    /// A home that already has a network-keyed store is not a home that needs converting, and the
+    /// store it has is the authority.
+    #[test]
+    fn an_existing_network_store_is_not_overwritten() {
+        let (_temp, home) = alpha_home();
+        seed_var(&home, "0.15.0");
+        seed_var(&home, DEFAULT_NETWORK);
+
+        migrate_if_needed(&home).unwrap();
+        assert_eq!(var_store(&home, DEFAULT_NETWORK).as_deref(), Some(&b"mainnet"[..]));
+        assert_eq!(
+            var_store(&home, "0.15.0").as_deref(),
+            Some(&b"0.15.0"[..]),
+            "and the one that could not move stays where the user can find it"
+        );
+    }
+
+    /// A store under a version no network names was selected by pinning that version, and pinning
+    /// keys on the version -- so it is already where it belongs.
+    #[test]
+    fn a_pinned_store_is_left_alone() {
+        let (_temp, home) = alpha_home();
+        seed_var(&home, "0.9.0");
+
+        migrate_if_needed(&home).unwrap();
+        assert_eq!(var_store(&home, "0.9.0").as_deref(), Some(&b"0.9.0"[..]));
+        assert!(!home.join("var").join(DEFAULT_NETWORK).exists());
     }
 
     #[test]

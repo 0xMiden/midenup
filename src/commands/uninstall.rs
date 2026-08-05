@@ -20,9 +20,15 @@ use crate::{
 /// directory contains exactly what its receipt says it does and nothing else, so walking components
 /// to delete their files individually could only ever remove less than the directory itself.
 ///
-/// `var/<channel>` is **kept** unless `purge` is given. It is the user's data -- the client's
-/// database lives there -- and removing a toolchain is not a request to delete it. The user is told
-/// where it was left.
+/// `var/` is **kept** unless `purge` is given. It is the user's data -- the client's database lives
+/// there -- and removing a toolchain is not a request to delete it. The user is told where it was
+/// left.
+///
+/// What a purge removes is keyed by `requested`, exactly as the user spelled it, because that is
+/// how the store is keyed ([`crate::paths::var_dir`]): `uninstall mainnet --purge` removes
+/// `var/mainnet`, and `uninstall 0.15.0 --purge` removes `var/0.15.0`. Removing a channel therefore
+/// never touches a network's store, which is correct -- the network outlives any channel it names,
+/// and its data belongs to the network.
 pub fn uninstall(
     config: &Config,
     requested: &UserChannel,
@@ -97,15 +103,15 @@ pub fn uninstall(
 
     // Only now, and only if asked. Deliberately after the commit: this is the one part of an
     // uninstall that cannot be undone by reinstalling.
-    let var = paths::var_dir(home, &channel);
+    let var = paths::var_dir(home, requested);
     if var.is_dir() {
         if purge {
             std::fs::remove_dir_all(&var)
                 .with_context(|| format!("failed to remove '{}'", var.display()))?;
         } else {
             println!(
-                "kept your data for {channel} at {}; remove it with `midenup uninstall {channel} \
-                 --purge`",
+                "kept your data for {requested} at {}; remove it with `midenup uninstall \
+                 {requested} --purge`",
                 var.display()
             );
         }

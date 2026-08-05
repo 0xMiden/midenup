@@ -60,8 +60,11 @@ pub fn update(
 /// A network is a moving name, so what has to be reconciled is *the pointer*, not the channel: if
 /// `networks[name]` has moved, the installation is carried to wherever it now points. This is
 /// deliberately not `migrates_from` lineage. That describes a relationship between two channels and
-/// is what someone tracking a pinned version follows; a user tracking mainnet asked for mainnet,
-/// and their client data belongs to the network rather than to a version.
+/// is what someone tracking a pinned version follows; a user tracking mainnet asked for mainnet.
+///
+/// Only the pointer and the installation move. The network's `var/` is keyed by the network, not by
+/// the channel ([`crate::paths::var_dir`]), so it is already where the new channel will look for it
+/// and there is nothing here to carry.
 ///
 /// The comparison is inequality, not "is newer". The pointer is authoritative in both directions:
 /// a rollback is rare, and `update-manifest promote` refuses to author one without an explicit
@@ -122,31 +125,14 @@ fn update_network(
         IntentUpdate::Replace(installation.intent.clone()),
         Changes::default(),
         options,
-        // This command owns the pointer move, so DERIVE must not make it: see below.
-        Some(name),
     )?;
 
-    // The user's data follows the network it belongs to, rather than being stranded under a channel
-    // version they are no longer tracking. A rename, so it cannot half-happen.
-    let carried = carry_var_to(&config.midenup_home, &installed, &target)?;
-
-    // Said only when it is true. A backwards move onto a channel that already has data carries
-    // nothing, and claiming otherwise is how a user loses track of where their store went.
-    if target < installed && carried == VarCarry::Moved {
-        eprintln!(
-            "{}: data under var/{installed} was written by a newer toolchain and has been carried \
-             to var/{target} as-is.",
-            "warning".yellow().bold(),
-        );
-    }
-
+    // DERIVE writes this link too, and writing it twice is a rename onto the same target -- but
     // DERIVE runs only inside `commands::install`, and an update whose target is already installed
-    // can come back as `Work::Nothing` -- the same-intent rollback case. Moving the pointer is what
-    // this command exists to do, so it is done here rather than left to a side effect of
-    // installing, and DERIVE is told to leave this network alone (`InstallationOptions::
-    // reconciling`) so that this is the *only* move. After the carry, so that an interruption
-    // leaves the next run able to finish the job: the pointer still names the old channel, so the
-    // next run sees the move as outstanding rather than already done.
+    // with the same intent comes back as `Work::Nothing` without going there. That is the rollback
+    // case, where moving the pointer is the entire operation, so it is done unconditionally here.
+    // Nothing has to precede or follow it: a network's `var/` is keyed by the network and does not
+    // move with the pointer.
     let link = crate::paths::network_link(&config.midenup_home, name);
     crate::utils::fs::replace_symlink(&link, Path::new(&target.to_string()))
         .with_context(|| format!("failed to point '{name}' at {target}"))
@@ -247,8 +233,6 @@ fn update_installed_channel(
                 IntentUpdate::Preserve,
                 changes,
                 options,
-                // Reconciling a channel against upstream, not a network pointer.
-                None,
             )
         },
     }
@@ -297,14 +281,15 @@ fn migrate(
         IntentUpdate::Replace(installation.intent.clone()),
         Changes::default(),
         options,
-        // A migration is between two channels; no network pointer is being reconciled, so DERIVE
-        // advances whatever names the new channel as usual.
-        None,
     )?;
 
-    // The sole exception to "nothing touches `var/`": the user's data follows the toolchain it
-    // belongs to, rather than being stranded under a channel name that no longer exists. A rename,
-    // so it is atomic and cannot half-happen.
+    // A migration is the one operation that changes what a *pinned* selector means: the channel the
+    // user pinned ceases to exist and is superseded by another. `var/<pinned version>` is keyed by
+    // that selector, so it has to follow, or it would be stranded under a name nothing can select
+    // any more. A rename, so it is atomic and cannot half-happen.
+    //
+    // A network selector is unaffected: `var/<network>` is not keyed by either channel, so it is
+    // neither the source nor the destination here.
     carry_var_to(&config.midenup_home, &installation.channel, &upstream.name)?;
 
     // Not purged: the data has already been renamed to the new channel, and purging would delete a
@@ -365,7 +350,6 @@ fn install_for_update(
     intent_update: IntentUpdate,
     changes: Changes,
     options: &UpdateOptions,
-    reconciling: Option<&str>,
 ) -> anyhow::Result<()> {
     let logical_only = changes.logical_only;
     let install_options = InstallationOptions {
@@ -373,7 +357,6 @@ fn install_for_update(
         stale: changes.stale,
         held_back: changes.held_back,
         intent_update: Some(intent_update),
-        reconciling: reconciling.map(str::to_string),
         ..Default::default()
     };
 
@@ -473,50 +456,31 @@ fn record_logical_changes(
     config.write_local_state(state)
 }
 
-/// What a carry did, which the caller cannot infer and the user must not have to guess.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum VarCarry {
-    /// `var/<from>` was renamed to `var/<to>`.
-    Moved,
-    /// There was no `var/<from>` to move.
-    NothingToMove,
-    /// `var/<to>` already had data of its own, so nothing was moved.
-    ///
-    /// The case worth naming. `var/` is keyed by channel, so once two networks name one channel
-    /// they necessarily share one directory -- that part is inherent. What is not inherent is doing
-    /// it silently: the old directory is still on disk, holding the store the user was using, and
-    /// nothing else would ever tell them.
-    DestinationExists,
-}
-
-/// Moves `var/<from>` to `var/<to>`, so client data follows the toolchain it belongs to.
+/// Renames `var/<from>` to `var/<to>` for a channel migration, the sole caller.
 ///
-/// An existing destination is left alone: the target channel already has data of its own, and
-/// silently merging or replacing it would be worse than leaving the old directory where a user can
-/// find it. That is reported rather than passed over -- the headline case, a testnet toolchain
-/// promoted to mainnet, lands here whenever the user had both installed.
-fn carry_var_to(
-    home: &Path,
-    from: &semver::Version,
-    to: &semver::Version,
-) -> anyhow::Result<VarCarry> {
+/// Both keys are pinned-version selectors, and migration is the only thing that retires one. See
+/// the call site in [`migrate`] for why nothing else may move a `var/` directory.
+///
+/// An existing destination is left alone rather than merged into or replaced: the user has selected
+/// `to` directly at some point and has data under it, and the old directory is more useful left
+/// where they can find it than silently folded into another store.
+fn carry_var_to(home: &Path, from: &semver::Version, to: &semver::Version) -> anyhow::Result<()> {
     if from == to {
-        return Ok(VarCarry::NothingToMove);
+        return Ok(());
     }
 
-    let source = crate::paths::var_dir(home, from);
-    let destination = crate::paths::var_dir(home, to);
+    let source = crate::paths::var_dir(home, &UserChannel::Version(from.clone()));
+    let destination = crate::paths::var_dir(home, &UserChannel::Version(to.clone()));
     if !source.is_dir() {
-        return Ok(VarCarry::NothingToMove);
+        return Ok(());
     }
     if destination.exists() {
         eprintln!(
-            "{}: var/{from} was left in place: {to} already has data at var/{to}. `var/` is keyed \
-             by channel, so everything that names {to} now shares that directory; your {from} \
-             data is still at var/{from}.",
+            "{}: var/{from} was left in place: you already have data at var/{to}, and the two are \
+             not merged.",
             "warning".yellow().bold(),
         );
-        return Ok(VarCarry::DestinationExists);
+        return Ok(());
     }
 
     if let Some(parent) = destination.parent() {
@@ -525,9 +489,7 @@ fn carry_var_to(
     }
     std::fs::rename(&source, &destination).with_context(|| {
         format!("failed to move '{}' to '{}'", source.display(), destination.display())
-    })?;
-
-    Ok(VarCarry::Moved)
+    })
 }
 
 enum InteractiveResult {
@@ -750,64 +712,6 @@ mod tests {
         let mut new = base();
         new.requires = vec!["core".to_string()];
         assert_eq!(classify_pair(base(), new), ChangeClass::GraphOnly);
-    }
-
-    fn seed_var(home: &Path, channel: &semver::Version) {
-        let dir = crate::paths::var_dir(home, channel);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("store.sqlite3"), channel.to_string()).unwrap();
-    }
-
-    /// The headline case: two networks come to name one channel, and `var/` is keyed by channel, so
-    /// the older directory cannot follow. It must be left intact and the outcome reported, not
-    /// passed over as if the carry had happened.
-    #[test]
-    fn a_carry_onto_a_channel_that_already_has_data_declines_and_says_so() {
-        let tmp = tempdir::TempDir::new("midenup-carry").unwrap();
-        let home = tmp.path();
-        let (from, to) = (semver::Version::new(0, 14, 0), semver::Version::new(0, 15, 0));
-        seed_var(home, &from);
-        seed_var(home, &to);
-
-        assert_eq!(carry_var_to(home, &from, &to).unwrap(), VarCarry::DestinationExists);
-        assert_eq!(
-            std::fs::read_to_string(crate::paths::var_dir(home, &from).join("store.sqlite3"))
-                .unwrap(),
-            "0.14.0",
-            "the declined source must be left exactly where it was"
-        );
-        assert_eq!(
-            std::fs::read_to_string(crate::paths::var_dir(home, &to).join("store.sqlite3"))
-                .unwrap(),
-            "0.15.0",
-            "and the destination must not have been merged into"
-        );
-    }
-
-    #[test]
-    fn a_carry_with_data_only_at_the_source_moves_it() {
-        let tmp = tempdir::TempDir::new("midenup-carry").unwrap();
-        let home = tmp.path();
-        let (from, to) = (semver::Version::new(0, 14, 0), semver::Version::new(0, 15, 0));
-        seed_var(home, &from);
-
-        assert_eq!(carry_var_to(home, &from, &to).unwrap(), VarCarry::Moved);
-        assert!(!crate::paths::var_dir(home, &from).exists());
-        assert_eq!(
-            std::fs::read_to_string(crate::paths::var_dir(home, &to).join("store.sqlite3"))
-                .unwrap(),
-            "0.14.0"
-        );
-    }
-
-    #[test]
-    fn a_carry_with_nothing_to_move_reports_that() {
-        let tmp = tempdir::TempDir::new("midenup-carry").unwrap();
-        let home = tmp.path();
-        let (from, to) = (semver::Version::new(0, 14, 0), semver::Version::new(0, 15, 0));
-
-        assert_eq!(carry_var_to(home, &from, &to).unwrap(), VarCarry::NothingToMove);
-        assert_eq!(carry_var_to(home, &to, &to).unwrap(), VarCarry::NothingToMove);
     }
 
     #[test]

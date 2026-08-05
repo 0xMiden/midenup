@@ -49,7 +49,7 @@ A channel is a set of [components](#components) under one version, meant to be u
 ```
 
 - `name` — semantic version; the channel's identity.
-- `migrates_from` — this channel supersedes the named one. An installation of that channel is carried here on the next update: its selection transfers verbatim, and its `var/` directory is renamed so client data follows the toolchain.
+- `migrates_from` — this channel supersedes the named one. An installation of that channel is carried here on the next update: its selection transfers verbatim, and `var/<old>` is renamed to `var/<new>` so that a user who pinned the retired version keeps their data — it is the one operation that retires a selector.
 
 ## Networks
 

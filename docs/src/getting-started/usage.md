@@ -143,7 +143,7 @@ When a network is promoted to a different toolchain, an installation that tracks
 midenup update mainnet
 ```
 
-This follows the network's pointer wherever it has moved. Your component selection transfers verbatim and is re-resolved against the toolchain now being tracked, and your client data under `var/` is carried across with it, so it follows the network rather than being left behind under a version you no longer use. A network that has been moved *back* to an older toolchain is followed too, with a warning.
+This follows the network's pointer wherever it has moved. Your component selection transfers verbatim and is re-resolved against the toolchain now being tracked. Your client data stays put: it is stored under the network you selected (`var/mainnet`), not under the toolchain version, so it follows the network without anything having to move. A network that has been moved *back* to an older toolchain is followed too, with a heads-up.
 
 If the network's pointer has not moved, this still picks up any changes to the components of the toolchain it names.
 

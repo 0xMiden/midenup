@@ -5,7 +5,7 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::Channel,
+    channel::{Channel, UserChannel},
     exec::{self, Executable, Resolver},
     manifest::{Component, ComponentKind, ExecutableComponent},
     state::LocalState,
@@ -420,7 +420,7 @@ pub fn miden_wrapper(
             match toolchain_environment.resolve(resolve, subcommand_matches) {
                 Ok(environment) => {
                     let active_channel = environment.active_channel;
-                    let resolver = resolver_for(config, active_channel);
+                    let resolver = resolver_for(config, active_channel, &toolchain.channel);
 
                     // Since we're using "allow_external_subcommands" all the remaining arguments
                     // are stored in the empty string "".
@@ -642,16 +642,19 @@ fn default_help() -> String {
     )
 }
 
-/// Function that tries to resolve `argument` inside the `channel`.
 /// Where this invocation's `%`-expressions resolve to.
 ///
-/// Built once, from the active publication and this channel's `var/`, so that every expression in
+/// Built once, from the active publication and this selector's `var/`, so that every expression in
 /// every alias of one invocation resolves against the same toolchain.
-fn resolver_for(config: &Config, channel: &Channel) -> Resolver {
+///
+/// The two arguments are deliberately not the same thing: files come from the *channel* the
+/// selector resolves to, while `%var` is keyed by the `selector` itself, so that two networks on
+/// one channel keep separate state.
+fn resolver_for(config: &Config, channel: &Channel, selector: &UserChannel) -> Resolver {
     Resolver::new(
         crate::paths::toolchain_link(&config.midenup_home, &channel.name),
         &config.midenup_home,
-        &channel.name,
+        selector,
     )
 }
 

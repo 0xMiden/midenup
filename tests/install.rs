@@ -1,7 +1,9 @@
 use std::{ffi::OsString, fs::OpenOptions};
 
 use clap::Parser;
-use midenup::{commands::Midenup, manifest::ComponentKind, miden_wrapper, version};
+use midenup::{
+    channel::UserChannel, commands::Midenup, manifest::ComponentKind, miden_wrapper, version,
+};
 
 mod common;
 
@@ -235,7 +237,8 @@ fn integration_var_survives_update_and_republication() {
         .expect("failed to install");
 
     // Stand in for whatever the client would have written under `%var(data)`.
-    let var = midenup::paths::var_dir(&test_env.midenup_home, &channel);
+    let var =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(channel.clone()));
     std::fs::create_dir_all(&var).unwrap();
     std::fs::write(var.join("data"), b"user-database").unwrap();
 

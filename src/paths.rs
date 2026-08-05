@@ -15,12 +15,15 @@
 //! |  |- <channel>   -> ../publications/<channel>-<publication-id>
 //! |  |- <network>   -> <channel>          one per network naming this channel
 //! |  |- default     -> <channel> | <network>
+//! |- var/
+//! |  |- <selector>/                       mutable state, keyed by what the user selected:
+//! |                                       a network name, or a pinned version
 //! |- opt            -> toolchains/<active>/opt
 //! ```
 
 use std::path::{Path, PathBuf};
 
-use crate::state::PublicationId;
+use crate::{channel::UserChannel, state::PublicationId};
 
 /// Local installation state: the sole logical authority on what is installed.
 pub fn state_path(home: &Path) -> PathBuf {
@@ -63,16 +66,25 @@ pub fn publications_dir(home: &Path) -> PathBuf {
     home.join("publications")
 }
 
-/// Mutable, component-owned state for a channel: `%var`.
+/// Mutable, component-owned state: `%var`. The Miden client's database lives here (`%var(data)`).
 ///
-/// Outside the publication, and keyed by channel rather than by publication, because a publication
-/// is replaced wholesale on every change. The Miden client's database lives here (`%var(data)`);
-/// with `var/` inside the publication, every toolchain update destroyed it.
+/// Outside the publication, because a publication is replaced wholesale on every change and this
+/// must survive that.
 ///
-/// Install, update and republication never read, write, move or delete this. The only exception is
-/// channel migration, which renames it so client data follows the toolchain.
-pub fn var_dir(home: &Path, channel: &semver::Version) -> PathBuf {
-    home.join("var").join(channel.to_string())
+/// **Keyed by the toolchain selector the user chose, not by the channel it resolves to.** A network
+/// is a moving name, so `mainnet` and `testnet` are distinct stores even in the periods when both
+/// name one channel -- which is the shipped default, and which mainnet accounts and testnet notes
+/// must never be pooled by. The selector is also stable under a pointer move: when `mainnet`
+/// advances to a new channel its store is still `var/mainnet`, so there is nothing to carry and no
+/// window in which a pointer and a store disagree. A pinned `0.15.0` keys on the version, and that
+/// too is the identity the user chose.
+///
+/// Nothing may move or delete this: not install, not update, not republication, not a pointer move.
+/// The two exceptions are explicit and are the whole list -- `uninstall --purge`, and channel
+/// migration, where the channel a pinned user selected ceases to exist and their data has to follow
+/// it.
+pub fn var_dir(home: &Path, selector: &UserChannel) -> PathBuf {
+    home.join("var").join(selector.to_string())
 }
 
 /// Where an in-flight physical operation records its intent.

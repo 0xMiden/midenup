@@ -217,20 +217,23 @@ pub enum InvalidExecutable {
 pub struct Resolver {
     /// The active publication, reached through `toolchains/<channel>`.
     sysroot: PathBuf,
-    /// `$MIDENUP_HOME/var/<channel>`: mutable state, deliberately *outside* the publication, so it
-    /// survives every republication of the toolchain (spec section 3.2).
+    /// `$MIDENUP_HOME/var/<selector>`: mutable state, deliberately *outside* the publication, so
+    /// it survives every republication of the toolchain (spec section 3.2).
     var: PathBuf,
 }
 
 impl Resolver {
+    /// `selector` is what the user chose -- a network name or a pinned version -- not the channel
+    /// it resolves to. Two networks sharing a channel must still reach their own `%var`, and a
+    /// network's `%var` must not change when its pointer moves. See [`crate::paths::var_dir`].
     pub fn new(
         sysroot: impl Into<PathBuf>,
         home: &std::path::Path,
-        channel: &semver::Version,
+        selector: &crate::channel::UserChannel,
     ) -> Self {
         Self {
             sysroot: sysroot.into(),
-            var: crate::paths::var_dir(home, channel),
+            var: crate::paths::var_dir(home, selector),
         }
     }
 
@@ -408,7 +411,11 @@ mod tests {
         }
 
         fn resolver(&self) -> Resolver {
-            Resolver::new(self.sysroot.clone(), &self.home, &CHANNEL)
+            Resolver::new(
+                self.sysroot.clone(),
+                &self.home,
+                &crate::channel::UserChannel::Version(CHANNEL),
+            )
         }
 
         fn write(&self, relative: &str) -> std::path::PathBuf {
@@ -567,6 +574,41 @@ mod tests {
         assert!(
             env.home.join("var").join("0.15.0").is_dir(),
             "`%var` is created on demand: nothing else may touch it"
+        );
+    }
+
+    /// Two networks routinely name one channel -- all three do in the shipped manifest -- and their
+    /// state must stay apart regardless. `%var` keys on what the user selected, so a user working
+    /// on mainnet and on testnet has two client databases, not one holding both.
+    #[test]
+    fn two_networks_naming_one_channel_do_not_share_var() {
+        let env = Env::new();
+        let node = node();
+        let var_of = |name: &'static str| {
+            let resolver = Resolver::new(
+                env.sysroot.clone(),
+                &env.home,
+                &crate::channel::UserChannel::Named(std::borrow::Cow::Borrowed(name)),
+            );
+            resolver.resolve(&Expr::VarPath(Some("data".into())), &node).unwrap()
+        };
+
+        assert_eq!(var_of("mainnet"), OsString::from(env.home.join("var/mainnet/data")));
+        assert_eq!(var_of("testnet"), OsString::from(env.home.join("var/testnet/data")));
+        assert_ne!(
+            var_of("mainnet"),
+            var_of("testnet"),
+            "the sysroot is identical here: only the selector keeps the stores apart"
+        );
+    }
+
+    /// The other half of the same rule: a pinned selector keys on the version the user pinned.
+    #[test]
+    fn a_pinned_selector_keys_var_on_its_version() {
+        let env = Env::new();
+        assert_eq!(
+            env.resolver().resolve(&Expr::VarPath(Some("data".into())), &node()).unwrap(),
+            OsString::from(env.home.join("var/0.15.0/data"))
         );
     }
 

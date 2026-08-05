@@ -82,7 +82,8 @@ $MIDENUP_HOME/
 │       ├── etc/<component>/
 │       └── opt/
 ├── var/
-│   └── <channel>/                      # MUTABLE USER DATA - never deleted by install/update
+│   └── <selector>/                     # MUTABLE USER DATA - never deleted by install/update
+│                                       # keyed by what the user selected: a network, or a version
 ├── toolchains/
 │   ├── <channel-version>  -> ../publications/<channel>-<publication-id>
 │   ├── <network>          -> <channel-version>       # one per network; derived from upstream
@@ -100,14 +101,19 @@ This previously said the old publication is *removed* as a post-commit cleanup s
 This was confirmed with a concurrent-activation test on macOS that failed roughly one in five runs with `Killed: 9`, and zero failures once we switched to the current specification behavior. Once the symlink is repointed, nothing can start using the old publication, and leaving it unreferenced will cause it to be picked up by `gc` the next time it is run. Note that an explicit `uninstall` _does_ removes its publication, since we're honoring a direct user request in that case.
 :::
 
-### 3.2 `var/` is outside the publication
+### 3.2 `var/` is outside the publication, and keyed by the selector
 
-`var/` holds mutable component-owned state - most importantly the Miden client's local database, referenced from the manifest as `%var(data)`. It is keyed by channel, not by publication.
+`var/` holds mutable component-owned state - most importantly the Miden client's local database, referenced from the manifest as `%var(data)`. It is outside the publication because a publication is replaced wholesale on every change and this must survive that.
 
-- Install, update, and republication **never** read, write, move, or delete `var/`.
-- The sole exception is channel migration, which **renames** `var/<old>` to `var/<new>` so client data follows the toolchain (§11.4).
-- `midenup uninstall <channel>` removes the publication and the state record. It removes `var/<channel>` **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives.
-- `%var` resolves to `$MIDENUP_HOME/var/<channel>`, created on demand at dispatch time.
+It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/testnet`, `var/0.15.0` - and not by the channel that selector resolves to. Two consequences, both intended:
+
+- **Networks are logically distinct even when they share a toolchain.** Several networks routinely name one channel, so a channel key would pool a user's mainnet accounts and their testnet notes into one database. The selector is the identity the user is working under, and that is what their data belongs to.
+- **A selector does not move when a pointer moves.** `mainnet` advancing to a new channel leaves its store exactly where it was, so nothing is ever carried between keys and no operation has to order a pointer move against a data move.
+
+- Install, update, republication, and pointer moves **never** read, write, move, or delete `var/`.
+- The sole exception is channel migration (§11.4), which **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
+- `midenup uninstall <selector>` removes the publication and the state record. It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
+- `%var` resolves to `$MIDENUP_HOME/var/<selector>`, created on demand at dispatch time.
 
 Previously, `var/` lived inside the publication, and every toolchain update would destroy the user's client data.
 
@@ -743,11 +749,11 @@ Update re-resolves the **persisted intent** against the new upstream channel:
 
 When an upstream channel declares `migrates_from: <old>` and `<old>` is installed, the installation is carried to the new channel: intent transfers verbatim, is resolved against the new channel, the new publication is installed, and the old one is removed after the new state record commits. A root missing in the new channel blocks the migration.
 
-`var/<old-channel>` is **renamed** to `var/<new-channel>` as part of the migration, so client data follows the toolchain.
+`var/<old-channel>` is **renamed** to `var/<new-channel>` as part of the migration. Both are pinned-version selectors, and migration is the one operation that retires one, so the data would otherwise be stranded under a key nothing can select. A network's store is unaffected.
 
 ### 11.5 Uninstall
 
-Uninstall consults the receipt for the exact owned paths, tolerates hidden executables with no symlink, and uses the tombstoned unpublish sequence (§9.5). It removes the publication, the state record, and the derived symlinks. `var/<channel>` is retained unless `--purge` is given.
+Uninstall consults the receipt for the exact owned paths, tolerates hidden executables with no symlink, and uses the tombstoned unpublish sequence (§9.5). It removes the publication, the state record, and the derived symlinks. `var/<selector>` - keyed by the selector as given - is retained unless `--purge` is given.
 
 Every `toolchains/<network>` link naming the channel is removed, before the commit point: they are derived, so a discarded operation costs nothing and the next install or update recomputes them. They are found by *scanning* the toolchains directory rather than by asking upstream which networks name this channel, because uninstall must work offline, and a network may have moved upstream since this machine last acted on it - in which case upstream would not name the link that is actually here. `default` is removed after the commit point instead, and only if it has been left dangling: it is the user's `midenup override` choice rather than a derived link, so nothing would recompute it.
 
@@ -764,7 +770,7 @@ Because the superset only grows, `midenup install <channel> --profile <p>` is th
 `midenup update <network>` reconciles **the pointer**, not the channel. It reads what `networks[<network>]` names upstream and compares it with the channel `toolchains/<network>` names here:
 
 - **Unmoved** - fall through to the ordinary same-version update (§11.1, §11.3) of that channel. A network standing still does not mean its channel has.
-- **Moved** - the installation is carried to the channel the network now names: intent transfers verbatim and is re-resolved against it, so it gains components that did not exist there before; `var/<old>` is **renamed** to `var/<new>`, so client data follows the network rather than being stranded under a version nobody is tracking; and `toolchains/<network>` is repointed last, after the carry, so that an interrupted run leaves the next one able to finish the job.
+- **Moved** - the installation is carried to the channel the network now names: intent transfers verbatim and is re-resolved against it, so it gains components that did not exist there before, and `toolchains/<network>` is repointed. `var/<network>` is **not** touched: it is keyed by the network, so it is already where the newly named channel will look for it. Nothing has to be ordered against the pointer move, and an interrupted run has nothing outstanding to finish beyond the move itself.
 
 This is deliberately **not** `migrates_from` lineage (§11.4). That describes a relationship between two channels and is what someone tracking a pinned version follows. A user tracking `mainnet` asked for `mainnet`, and their data belongs to the network rather than to a version.
 
@@ -823,7 +829,7 @@ The next operation touching that channel resolves this:
 - If that install cannot proceed - upstream unreachable, or a migrated root no longer exists in the channel - the command fails with `NeedsReinstall`, naming the exact recovery command. It never falls back to executing against the unmanaged tree.
 
 `midenup show` displays the channel as needing reinstallation until this completes.
-`var/<channel>` is preserved across the reinstall, since it lives outside publications.
+`var/<selector>` is preserved across the reinstall, since it lives outside publications.
 
 If a migrated channel no longer exists in the upstream manifest at all, the record is retained and reported by `midenup show` as unavailable. It is not deleted - the user may still want `var/` and an explicit uninstall.
 
@@ -906,8 +912,8 @@ Resolved against the active publication at dispatch time:
 | `%lib` | `<sysroot>/lib` |
 | `%lib(<name>)` | `<sysroot>/lib/<name>` |
 | `%etc(<path>)` | `<sysroot>/etc/<path>` |
-| `%var` | `$MIDENUP_HOME/var/<channel>` |
-| `%var(<name>)` | `$MIDENUP_HOME/var/<channel>/<name>` |
+| `%var` | `$MIDENUP_HOME/var/<selector>` |
+| `%var(<name>)` | `$MIDENUP_HOME/var/<selector>/<name>` |
 
 `%lib` and `%etc` resolve into the **immutable publication**; `%var` resolves **outside** it (§3.2). A `%etc` or `%lib` path that does not exist in the active publication is an error naming the component that declared it - not a silently passed argument.
 
@@ -1081,13 +1087,13 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 * 404, 500, and empty-body downloads publish nothing; a declared Cargo fallback recovers;
 * unsupported target fails plan construction without touching the filesystem;
 * two Cargo-backed components install, update, and uninstall independently without disturbing each other's binaries;
-* `var/<channel>` survives update, republication, and migration; is removed only under `--purge`;
+* `var/<selector>` survives update, republication, and pointer moves; two networks on one channel keep separate stores; is removed only under `--purge`, and then only for the selector named;
 * v1.0.1 migration with an unreachable upstream still commits `state.json`;
 * v1.0.0 is rejected and the file is byte-for-byte unchanged;
 * an `unsupported` component parses, shows, and is installable-around, but errors when selected;
 * installing a channel that several networks name writes a link for each of them, and uninstalling it removes all of them while leaving other channels' links resolving;
 * a synonym reaches the same channel as the network it names, and produces the network's link;
-* `update <network>` follows a promotion the user does not have installed, and follows a rollback both to a channel they do have and to one they do not, carrying `var/` in each case;
+* `update <network>` follows a promotion the user does not have installed, and follows a rollback both to a channel they do have and to one they do not, leaving `var/<network>` in place in each case;
 * `update <network>` leaves other networks alone, and still updates its own channel when the pointer has not moved;
 * an unknown network name is answered with the networks the manifest declares.
 
