@@ -147,6 +147,14 @@ This follows the network's pointer wherever it has moved. Your component selecti
 
 If the network's pointer has not moved, this still picks up any changes to the components of the toolchain it names.
 
+:::note
+A network and a pinned version are separate selections, so they get separate client databases. Work
+under `mainnet` is stored in `var/mainnet` and work under a pinned `0.15.0` in `var/0.15.0`, even
+during the periods when `mainnet` names 0.15.0 — the accounts you created while tracking the network
+are not the ones a project pinned to the version sees, and vice versa. Pick one and stay with it for
+a given project, and you will always be looking at the same data.
+:::
+
 ## Uninstalling a toolchain
 
 A toolchain can be uninstalled via the `midenup uninstall <TOOLCHAIN>` command.

@@ -56,7 +56,8 @@ pub fn canonical_network(name: &str) -> &str {
 /// parses and fails at lookup, which is why the lookup's diagnostic lists what is declared.
 ///
 /// A selector is also the key `var/` is stored under, so its `Display` form is joined onto a path.
-/// [`FromStr`](core::str::FromStr) is what guarantees that is safe.
+/// A `Version` is safe by semver's own grammar, which admits no path separator; a `Named` is safe
+/// because [`FromStr`](core::str::FromStr) rejects any name that is not a single path segment.
 #[derive(Debug, Clone)]
 pub enum UserChannel {
     Version(semver::Version),

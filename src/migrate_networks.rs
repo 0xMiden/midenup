@@ -39,10 +39,9 @@ pub fn migrate_if_needed(home: &Path) -> anyhow::Result<Outcome> {
     // renamed, and `exists` follows the link and answers false for it.
     if std::fs::symlink_metadata(&legacy).is_ok() && std::fs::symlink_metadata(&mainnet).is_err() {
         // Before the rename, deliberately: the legacy link is the only marker that this home
-        // predates network-keyed `var/`, and it survives until the rename. Doing this first means a
-        // run interrupted in between is retried in full by the next one, and -- more importantly --
-        // that a home with no legacy link is never touched, so a store under a version the user
-        // pinned is never mistaken for one to move.
+        // predates network-keyed `var/`, it names the version the store is under, and it survives
+        // only until the rename. Doing this first means a run interrupted in between is retried in
+        // full by the next one, and that a home with no legacy link is never touched at all.
         if adopt_var_for_default_network(home, &legacy)? {
             migrated = true;
         }
@@ -114,9 +113,18 @@ fn repoint_default(home: &Path) -> anyhow::Result<bool> {
 /// the honest outcome: giving each a copy would present one set of accounts as three independent
 /// stores.
 ///
-/// `legacy` is both where the version comes from and the proof that this home is one to convert --
-/// see the call site. A `var/<version>` in a home without that link is a store under a version the
-/// user pinned, and pinning already keys on the version, so it is already where it belongs.
+/// `legacy` is where the version comes from, and its absence is proof that a home is not one to
+/// convert -- see the call site.
+///
+/// **Its presence proves less.** An alpha `midenup` wrote that link for whichever channel was the
+/// latest stable, whatever the user typed, so it is there for someone who pinned the newest release
+/// just as it is for someone who asked for `stable`. Such a store is already keyed the way the user
+/// selected it and moving it would hide it. Two forms of that pin, two treatments:
+///
+/// * `midenup override <version>` is recorded in the home, as a `default` naming the version rather
+///   than the legacy link, and is detected here: the adoption is skipped entirely.
+/// * A project's `miden-toolchain.toml` is not visible from the home at all, so the message this
+///   prints on success says how to put the store back.
 ///
 /// Returns whether it changed anything.
 fn adopt_var_for_default_network(home: &Path, legacy: &Path) -> anyhow::Result<bool> {
@@ -126,6 +134,9 @@ fn adopt_var_for_default_network(home: &Path, legacy: &Path) -> anyhow::Result<b
     let Some(named) = named.file_name() else {
         return Ok(false);
     };
+    if default_pins_a_version(home) {
+        return Ok(false);
+    }
 
     let source = home.join("var").join(named);
     let destination = home.join("var").join(DEFAULT_NETWORK);
@@ -139,9 +150,13 @@ fn adopt_var_for_default_network(home: &Path, legacy: &Path) -> anyhow::Result<b
         Ok(()) => {
             println!(
                 "moved your {DEFAULT_NETWORK} data from {} to {}: it is now keyed by the network \
-                 rather than by the toolchain version.",
+                 rather than by the toolchain version.\nIf a project of yours pins {} in \
+                 miden-toolchain.toml, move it back with:  mv {} {}",
                 source.display(),
-                destination.display()
+                destination.display(),
+                named.to_string_lossy(),
+                destination.display(),
+                source.display(),
             );
             Ok(true)
         },
@@ -160,6 +175,19 @@ fn adopt_var_for_default_network(home: &Path, legacy: &Path) -> anyhow::Result<b
         },
         Err(err) => Err(err).context("failed to move the default network's data"),
     }
+}
+
+/// Whether `toolchains/default` names a toolchain directory rather than the legacy link.
+///
+/// That is what `midenup override <version>` wrote, and it is the one deliberate pin a home records
+/// about itself. `default` naming the legacy link is `midenup override stable`, and no `default` at
+/// all is a user who never overrode -- neither says anything about a version.
+fn default_pins_a_version(home: &Path) -> bool {
+    let default = paths::toolchains_dir(home).join("default");
+    let Ok(target) = std::fs::read_link(&default) else {
+        return false;
+    };
+    target.file_name().and_then(|name| name.to_str()) != Some(LEGACY_LINK)
 }
 
 /// Removes a cached manifest this build cannot read.
@@ -406,6 +434,26 @@ mod tests {
             var_store(&home, "0.15.0").as_deref(),
             Some(&b"0.15.0"[..]),
             "and the one that could not move stays where the user can find it"
+        );
+    }
+
+    /// The hard half of the one below: the pinned version is the one the legacy link names, because
+    /// an alpha `midenup` wrote that link for whatever was the latest stable. `default` naming the
+    /// version rather than the link is what says the user chose it, and their store is already
+    /// under the key that selects it.
+    #[test]
+    fn a_store_under_a_pinned_default_is_left_alone() {
+        let (_temp, home) = alpha_home();
+        let default = crate::paths::toolchains_dir(&home).join("default");
+        std::fs::remove_file(&default).unwrap();
+        std::os::unix::fs::symlink("0.15.0", &default).unwrap();
+        seed_var(&home, "0.15.0");
+
+        migrate_if_needed(&home).unwrap();
+        assert_eq!(var_store(&home, "0.15.0").as_deref(), Some(&b"0.15.0"[..]));
+        assert!(
+            !home.join("var").join(DEFAULT_NETWORK).exists(),
+            "a deliberately pinned store must not be moved out from under the pin"
         );
     }
 

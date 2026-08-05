@@ -80,9 +80,11 @@ pub fn publications_dir(home: &Path) -> PathBuf {
 /// too is the identity the user chose.
 ///
 /// Nothing may move or delete this: not install, not update, not republication, not a pointer move.
-/// The two exceptions are explicit and are the whole list -- `uninstall --purge`, and channel
+/// The three exceptions are explicit and are the whole list -- `uninstall --purge`; channel
 /// migration, where the channel a pinned user selected ceases to exist and their data has to follow
-/// it.
+/// it; and the one-time conversion of a pre-network home
+/// ([`crate::migrate_networks`]), which hands the default network the single store such a home kept
+/// under its channel's version.
 pub fn var_dir(home: &Path, selector: &UserChannel) -> PathBuf {
     home.join("var").join(selector.to_string())
 }

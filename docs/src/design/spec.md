@@ -111,7 +111,8 @@ It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/t
 - **A selector does not move when a pointer moves.** `mainnet` advancing to a new channel leaves its store exactly where it was, so nothing is ever carried between keys and no operation has to order a pointer move against a data move.
 
 - Install, update, republication, and pointer moves **never** read, write, move, or delete `var/`.
-- The sole exception is channel migration (§11.4), which **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
+- Exactly two operations move it, and this is the whole list. Channel migration (§11.4) **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
+- The other is the one-time conversion of a pre-network home (§12.5), which **renames** `var/<version>` to `var/mainnet`. Such a home kept a single store under the channel it tracked, and that store is the default network's - unless the home records a pin on that version, in which case the version is already the selector and nothing moves.
 - `midenup uninstall <selector>` removes the publication and the state record. It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
 - `%var` resolves to `$MIDENUP_HOME/var/<selector>`, created on demand at dispatch time.
 
@@ -774,7 +775,7 @@ Because the superset only grows, `midenup install <channel> --profile <p>` is th
 
 This is deliberately **not** `migrates_from` lineage (§11.4). That describes a relationship between two channels and is what someone tracking a pinned version follows. A user tracking `mainnet` asked for `mainnet`, and their data belongs to the network rather than to a version.
 
-The comparison is **inequality, not "is newer"**. The pointer is authoritative in both directions: `update-manifest promote` refuses to author a backwards move without an explicit flag (§15), but once one is published, following it is what tracking a network means. A backwards move warns that data written by a newer toolchain is being carried across as-is.
+The comparison is **inequality, not "is newer"**. The pointer is authoritative in both directions: `update-manifest promote` refuses to author a backwards move without an explicit flag (§15), but once one is published, following it is what tracking a network means. A backwards move is announced, because a network naming an older channel than it did is worth saying out loud; nothing is carried, so there is nothing else to say about it.
 
 Repointing the link is done by this command rather than left to the DERIVE step of the install it performs, because an update whose target is already installed can legitimately have nothing to install - and moving the pointer is the thing this command exists to do.
 
@@ -842,11 +843,16 @@ Migration is one-way. After it commits, `midenup` 0.3.x reading `$MIDENUP_HOME` 
 An installation made before channels were named after networks has a single `toolchains/stable` link where it now needs one link per network (§3.4). Nothing else about it is wrong: **`state_version` stays at 1.0.0**, because local state records channel versions and never a release-train name, so the state document needs no change at all. Only what is derived on disk does.
 
 ```
-1. toolchains/stable exists and toolchains/mainnet does not -> rename it.
+1. toolchains/stable exists and toolchains/mainnet does not:
+   a. var/<the version stable names> -> rename it to var/mainnet, unless
+      toolchains/default names that version rather than the stable link.
+   b. rename toolchains/stable to toolchains/mainnet.
 2. toolchains/default names the old link                    -> repoint it at mainnet.
 3. If (1) converted a home, drop the cached upstream manifest when this build cannot read it.
 ```
 
+- Step 1a runs before 1b because the legacy link is what names the version the store sits under, and 1b is what retires that link. An existing `var/mainnet` means this is not a home to convert, and it is left as it is.
+- The exception in 1a exists because the legacy link was written for whichever channel was the latest stable, regardless of what the user typed - so it is present for someone who pinned the newest release just as it is for someone who asked for `stable`, and moving that user's store would hide it. `toolchains/default` naming the version rather than the link is that user. A pin living in a project's `miden-toolchain.toml` is not visible from the home at all, so the message reporting the move says how to reverse it.
 - Step 2 is not conditional on step 1: a run interrupted between them would otherwise leave `default` dangling forever.
 - Step 3 runs only for a home actually being converted. Only an installation from that era can be holding a cache this build cannot read, and checking on every startup would mean parsing the cached manifest twice per command on the dispatch path for an answer that is almost always "nothing to do". A **v1** cache is not stale - it is run through the v1 converter - so it is kept, which is what preserves the offline capability of §13.1.
 - It runs **without** the home lock, alongside §12.2, because it is on the `miden` dispatch path and that path must not wait on the lock. Every step is therefore idempotent and tolerates another process having done it first.

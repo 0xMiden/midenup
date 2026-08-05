@@ -1,5 +1,7 @@
+use std::ffi::OsString;
+
 use clap::Parser;
-use midenup::{channel::UserChannel, commands::Midenup, version};
+use midenup::{channel::UserChannel, commands::Midenup, config::Config, miden_wrapper, version};
 
 mod common;
 
@@ -152,7 +154,8 @@ fn integration_networks_update_follows_a_promotion() {
 
     let intent_before = state.get(&semver::Version::new(0, 14, 0)).unwrap().intent.clone();
 
-    // mainnet's store, plus a decoy under the channel key it would have been carried between.
+    // mainnet's store, plus a pinned selector's store under the channel key, which no pointer move
+    // may touch.
     let var = test_env.midenup_home.join("var");
     std::fs::create_dir_all(var.join("mainnet")).unwrap();
     std::fs::write(var.join("mainnet").join("store.sqlite3"), b"client data").unwrap();
@@ -261,6 +264,110 @@ fn integration_networks_two_networks_on_one_channel_keep_separate_stores() {
         std::fs::read(var.join("devnet").join("store.sqlite3")).unwrap(),
         b"devnet store",
         "and devnet keeps its own -- neither is merged into or replaced by the other"
+    );
+}
+
+/// The same property, but at dispatch, where it is actually decided.
+///
+/// The test above shows that no `midenup` operation disturbs either store. What makes the two
+/// stores distinct in the first place is that dispatch resolves `%var` from the *selector* the
+/// project named rather than from the channel it resolves to -- and that is a single argument, so
+/// every assertion about which `var/` directories exist would stay true if it were passed the
+/// channel instead. Only running a component can see it.
+///
+/// So: one channel, two projects naming `mainnet` and `testnet`, one component that records the
+/// argv it was composed with, and the two `%var(data)` paths it was handed read back from the log.
+#[test]
+fn integration_networks_dispatch_gives_each_network_its_own_var() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_dispatch_var");
+
+    let fixture_dir = test_env.tmp_dir.path().join("dispatch-fixture");
+    std::fs::create_dir_all(&fixture_dir).unwrap();
+    let log = fixture_dir.join("argv.log");
+    let binary = fixture_dir.join("miden-client");
+    std::fs::write(&binary, format!("#!/bin/sh\necho \"$@\" >> {}\n", log.display())).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let manifest = serde_json::json!({
+        "manifest_version": "3.0.0",
+        "date": 1735689600,
+        "networks": {"mainnet": "0.15.0", "testnet": "0.15.0"},
+        "channels": [{
+            "name": "0.15.0",
+            "components": [{
+                "name": "client",
+                "version": {"kind": "registry", "version": "0.1.0"},
+                "kind": "executable",
+                "installation_method": {"kind": "prebuilt"},
+                "installed-executable": "miden-client",
+                "profiles": ["minimal"],
+                "aliases": {"store": ["%installed-executable", "--store", "%var(data)"]},
+                "artifacts": {"miden-client": {"uri": format!("file://{}", binary.display())}}
+            }]
+        }]
+    });
+    let manifest_path = fixture_dir.join("channel-manifest.json");
+    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+    let manifest_uri = format!("file://{}", manifest_path.display());
+
+    let (mut state, config) = test_setup(&test_env, &manifest_uri);
+    for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let toolchains = test_env.midenup_home.join("toolchains");
+    for network in ["mainnet", "testnet"] {
+        assert_eq!(
+            std::fs::read_link(toolchains.join(network)).unwrap(),
+            std::path::PathBuf::from("0.15.0"),
+            "both networks must name one channel, or there is no sharing here to rule out"
+        );
+    }
+
+    for network in ["mainnet", "testnet"] {
+        let project = test_env.tmp_dir.path().join(format!("{network}-project"));
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::write(
+            project.join("miden-toolchain.toml"),
+            format!("[toolchain]\nchannel = \"{network}\"\ncomponents = [\"client\"]\n"),
+        )
+        .unwrap();
+
+        // Rooted in the project, so `miden-toolchain.toml` discovery finds that project's file --
+        // which is the only thing distinguishing these two invocations.
+        let config = Config::init(
+            project.clone(),
+            test_env.midenup_home.clone(),
+            test_env.cargo_home.clone(),
+            &manifest_uri,
+            true,
+        )
+        .expect("failed to build a config rooted in the project");
+
+        let argv: Vec<OsString> = vec!["miden".into(), "store".into()];
+        miden_wrapper::miden_wrapper(&argv, &config, &mut state)
+            .unwrap_or_else(|err| panic!("dispatch from the {network} project failed: {err:#}"));
+    }
+
+    let recorded: Vec<String> = std::fs::read_to_string(&log)
+        .expect("the component must have run at least once")
+        .lines()
+        .map(str::to_string)
+        .collect();
+
+    let var = test_env.midenup_home.join("var");
+    let expected = |network: &str| format!("--store {}", var.join(network).join("data").display());
+    assert_eq!(
+        recorded,
+        vec![expected("mainnet"), expected("testnet")],
+        "one toolchain, but each project's component is handed its own network's store"
     );
 }
 
