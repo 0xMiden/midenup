@@ -1,8 +1,8 @@
 //! The `$MIDENUP_HOME` layout, in one place.
 //!
-//! Every path under `MIDENUP_HOME` is named by exactly one function here. Spelling a layout path
-//! inline is how `install` and `uninstall` drifted apart: one wrote `lib/<artifact>` and the other
-//! looked for `<artifact>`, and nothing connected the two.
+//! Every path under `MIDENUP_HOME` is named by exactly one function here, so that `install` and
+//! `uninstall` cannot disagree about where anything lives. A layout path spelled inline is a
+//! second answer to that question, with nothing connecting it to this one.
 //!
 //! ```text
 //! $MIDENUP_HOME/

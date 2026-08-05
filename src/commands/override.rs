@@ -35,9 +35,8 @@ pub fn r#override(
         UserChannel::Named(name) => {
             let link = crate::paths::network_link(&config.midenup_home, name.as_ref());
 
-            // Unvalidated, a typo pointed `default` at a link that does not exist and reported
-            // success -- and could then not be corrected, because a dangling link is not
-            // `exists()`, so the removal below was skipped and the next override hit `EEXIST`.
+            // Validated before it is written: unchecked, a typo would point `default` at a
+            // `toolchains/` link that does not exist, and the command would report success.
             match config.upstream_manifest() {
                 Ok(manifest) => {
                     if !manifest.network_names().any(|network| network == name.as_ref()) {
@@ -70,8 +69,8 @@ pub fn r#override(
     };
 
     let default_path = toolchains_dir.join("default");
-    // `symlink_metadata`, not `exists`: the latter follows the link, so a `default` left dangling
-    // by an earlier mistake was never removed and every later override failed with `EEXIST`.
+    // `symlink_metadata`, not `exists`: the latter follows the link, so a dangling `default` would
+    // never be removed here and every later override would fail with `EEXIST`.
     if std::fs::symlink_metadata(&default_path).is_ok() {
         std::fs::remove_file(&default_path)
             .context("failed to remove 'default' toolchain symlink")?;

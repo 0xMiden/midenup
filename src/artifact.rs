@@ -594,10 +594,9 @@ mod digest_tests {
 mod forward_compatibility_tests {
     use super::*;
 
-    /// Spec section 4.4: *every* schema type preserves what this build does not understand.
-    /// `Artifact` was the last one that did not, so a newer publisher adding a field to an
-    /// artifact -- a signature, say -- would have lost it on the first `update-manifest` round
-    /// trip.
+    /// Spec section 4.4: *every* schema type preserves what this build does not understand,
+    /// `Artifact` included. Without that, a newer publisher adding a field to an artifact -- a
+    /// signature, say -- would lose it on the first `update-manifest` round trip.
     #[test]
     fn unknown_artifact_fields_round_trip() {
         for source in [
@@ -619,7 +618,7 @@ mod forward_compatibility_tests {
     }
 
     /// The capture must not duplicate keys that the flattened `substitutions` already consumed --
-    /// the failure mode that made this need hand-written impls in the first place.
+    /// the failure mode the hand-written impls exist to prevent.
     #[test]
     fn flattened_substitutions_are_not_duplicated_into_the_extras() {
         let source = serde_json::json!({

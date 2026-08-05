@@ -122,9 +122,9 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
 /// Uninstalling must not depend on being able to name every file a component installed.
 ///
 /// The publication directory contains exactly what its receipt says it does, so it is removed
-/// wholesale. The previous implementation walked components to delete their files one by one, which
-/// meant every shape it got wrong -- a hidden executable with no shim, two components built from
-/// one Cargo package -- left files behind or panicked.
+/// wholesale rather than by walking components and deleting each one's files. That enumeration
+/// cannot be made reliable: a hidden executable has no shim, two components can be built from one
+/// Cargo package, and every shape it gets wrong leaves files behind or panics.
 #[test]
 fn integration_uninstall_removes_the_publication_wholesale() {
     let _guard = common::harness::mutating_test_guard();

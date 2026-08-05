@@ -280,8 +280,8 @@ enum KnownKind {
         /// The exact filename this package installs as, e.g. `core.masp`.
         ///
         /// A crate-extracted package has no artifact to take a name from, so without this the
-        /// name has to be invented -- and install and uninstall invented it differently. See
-        /// [Component::installed_package_name].
+        /// name has to be derived, and every site that derives it is free to derive it
+        /// differently. See [Component::installed_package_name].
         ///
         /// Spelled in kebab-case to match `installed-executable`, the analogous field naming an
         /// installed file. (`rename_all` on this enum applies to variant names, not fields, which
@@ -656,11 +656,11 @@ impl Component {
 
     /// The exact filename a `legacy-package` component installs as.
     ///
-    /// The schema field is optional, and when absent this falls back to `<component>.masp` --
-    /// which is what install has always written. The point of having a single accessor is that
-    /// install and uninstall can no longer disagree: they previously invented the name
-    /// independently, install from the component name and uninstall from the kebab-cased crate
-    /// name, so uninstalling `protocol` looked for `miden-protocol.masp` and removed nothing.
+    /// The schema field is optional, and when absent this falls back to `<component>.masp`, the
+    /// name install writes. The point of a single accessor is that one place derives the name, so
+    /// install and uninstall cannot disagree about which file a component owns -- in particular,
+    /// the name is derived from the component, never from the crate, which may be spelled
+    /// differently (`protocol` vs `miden-protocol`).
     pub fn installed_package_name(&self) -> Option<String> {
         match self.kind() {
             ComponentKind::LegacyPackage { installed_package, .. } => {
@@ -827,9 +827,9 @@ mod unsupported_tests {
 
     /// A *malformed known* kind must error, not silently degrade into `Unsupported`.
     ///
-    /// This is why dispatch is written by hand: `#[serde(untagged)]` on a fallback variant was
-    /// measured to swallow `{"kind":"executable"}` with a missing `installed-executable`, turning
-    /// a manifest typo into an opaque component that would simply never install.
+    /// This is why dispatch is written by hand: `#[serde(untagged)]` on a fallback variant also
+    /// swallows `{"kind":"executable"}` with a missing `installed-executable`, turning a manifest
+    /// typo into an opaque component that would simply never install.
     #[test]
     fn a_malformed_known_kind_is_an_error_not_an_unsupported_component() {
         let bad = serde_json::json!({
@@ -1017,8 +1017,7 @@ mod legacy_package_tests {
             .clone()
     }
 
-    /// Absent `installed-package` falls back to `<component>.masp`, which is what install has
-    /// always written.
+    /// Absent `installed-package` falls back to `<component>.masp`, the name install writes.
     #[test]
     fn an_absent_installed_package_falls_back_to_the_component_name() {
         assert_eq!(
@@ -1036,9 +1035,9 @@ mod legacy_package_tests {
         );
     }
 
-    /// Regression: install wrote `lib/<component>.masp` while uninstall removed
-    /// `lib/<kebab-crate-name>.masp`, so uninstalling `protocol` looked for
-    /// `miden-protocol.masp` and removed nothing. Both now resolve through one accessor.
+    /// The installed name is `lib/<component>.masp`, never `lib/<kebab-crate-name>.masp`: install
+    /// and uninstall resolve it through one accessor, so `protocol` must not resolve to
+    /// `miden-protocol.masp` at either end.
     #[test]
     fn the_name_does_not_depend_on_the_crate_name() {
         let resolved = component_of(&manifest(None)).installed_package_name().unwrap();

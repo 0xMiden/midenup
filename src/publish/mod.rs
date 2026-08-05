@@ -10,8 +10,8 @@
 //!   treating equal names as equal bytes -- and nothing here verifies bytes ([crate::artifact]
 //!   digests are recorded, never checked). An opaque id makes that mistake impossible to express.
 //! * **The receipt, not the manifest, says what a publication owns.** Uninstall and update-seeding
-//!   both read it. Deriving ownership from the manifest a second time is how the install and
-//!   uninstall paths drifted apart in the first place.
+//!   both read it. Deriving ownership from the manifest a second time would give those paths their
+//!   own answer to a question the install already answered, and two answers can disagree.
 
 pub mod journal;
 

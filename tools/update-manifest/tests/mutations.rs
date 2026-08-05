@@ -110,8 +110,7 @@ fn component<'a>(manifest: &'a serde_json::Value, name: &str) -> &'a serde_json:
 
 /// A partial `--kind` update must change the named fields and preserve the rest.
 ///
-/// Regression: the merge patch was applied in reverse -- the existing value was merged *onto* the
-/// user's new one -- so the old value always won and the command silently did nothing.
+/// The merge applies the user's new value over the existing one, so the new value wins.
 #[test]
 fn partial_kind_update_changes_the_requested_field() {
     let dir = tempdir::TempDir::new("update-manifest-patch").unwrap();
@@ -178,10 +177,9 @@ fn partial_kind_update_can_change_a_nested_field() {
 
 /// A `--kind` argument that is not a JSON object must be rejected, loudly.
 ///
-/// Regression: clap resolved `serde_json::Value` through `From<String>` before `FromStr`, so the
-/// argument arrived as `Value::String("{...}")`. Under RFC 7386 a non-object patch *replaces* the
-/// target, which combined with the reversed merge to produce the worst possible outcome: the
-/// command reported success and silently kept the old value.
+/// Under RFC 7386 a non-object patch *replaces* the target rather than merging into it, so a
+/// `--kind` that arrives as a bare `Value::String` throws the component's kind away instead of
+/// updating one of its fields -- and does so while reporting success.
 #[test]
 fn a_non_object_kind_patch_is_rejected() {
     let dir = tempdir::TempDir::new("update-manifest-nonobject").unwrap();
@@ -239,8 +237,8 @@ fn a_failed_mutation_does_not_write() {
 
 /// `check` must detect a requirement cycle.
 ///
-/// Regression: it called `component_graph`, which built the graph and discarded it without ever
-/// topologically sorting, so cyclic manifests were accepted.
+/// A cycle only shows up when the component graph is topologically sorted; building the graph and
+/// discarding it accepts a cyclic manifest.
 #[test]
 fn check_rejects_a_cyclic_manifest() {
     let dir = tempdir::TempDir::new("update-manifest-cycle").unwrap();

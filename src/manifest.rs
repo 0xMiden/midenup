@@ -177,8 +177,8 @@ impl VersionedManifest {
             transfer.perform().map_err(curl_error)?;
         }
 
-        // *After* the transfer. Read beforehand, curl has no response yet and reports 0, so the
-        // error check never fired and an error page was parsed as though it were the manifest.
+        // *After* the transfer: read beforehand, curl has no response yet and reports 0, which
+        // passes the check below and lets an error page be parsed as though it were the manifest.
         let response_code = handle.response_code().map_err(curl_error)?;
         if !(200..300).contains(&response_code) {
             return Err(ManifestError::DownloadError {

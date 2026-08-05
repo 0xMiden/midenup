@@ -16,9 +16,9 @@ pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 0, 0);
 pub struct Manifest {
     /// The schema version this document declares.
     ///
-    /// Deserialized normally and verified after parsing. It was previously `skip_deserializing`
-    /// with a default, which meant the in-memory value was *always* the current version regardless
-    /// of what the file said -- making every version check downstream a tautology.
+    /// Deserialized normally and verified after parsing, never defaulted: a default would make the
+    /// in-memory value the current version regardless of what the file says, which turns every
+    /// version check downstream into a tautology.
     pub(super) manifest_version: semver::Version,
     /// The UTC timestamp at which this manifest was generated
     pub(super) date: i64,

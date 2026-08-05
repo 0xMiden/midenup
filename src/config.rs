@@ -35,7 +35,8 @@ pub struct Config {
     /// toolchains with their respective components.
     ///
     /// It is usually going to be obtained from `curl`ing the URI present in
-    /// [`crate::manifest::Manifest::PUBLISHED_MANIFEST_URI`], although it could also be obtained
+    /// [`crate::manifest::VersionedManifest::PUBLISHED_MANIFEST_URI`], although it could also be
+    /// obtained
     /// from a different source (be it a local file or a different URL) for debugging purposes. The
     /// source can be specified via the `MIDENUP_MANIFEST_URI` environment variable. For example:
     ///
@@ -45,7 +46,7 @@ pub struct Config {
     ///
     /// Fetched lazily, on the first operation that actually needs it. `miden <cmd>` against an
     /// installed toolchain needs nothing from upstream (spec section 13.1), and fetching
-    /// unconditionally put a network round trip in front of every single component invocation.
+    /// unconditionally would put a network round trip in front of every component invocation.
     manifest_uri: String,
     manifest: std::cell::OnceCell<Manifest>,
     /// This flag is used to detect/distinguish when midenup is being used in tests.

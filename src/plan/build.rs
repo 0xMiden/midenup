@@ -400,8 +400,8 @@ fn plan_component(
                 InstallationMethod::Prebuilt => {
                     let Some((id, uri)) = available.into_iter().next() else {
                         // A prebuilt component with no artifact for this target cannot be
-                        // installed at all -- previously this produced an empty artifact list and
-                        // an install that reported success while placing no files.
+                        // installed at all: an empty artifact list would otherwise become an
+                        // install that reports success while placing no files.
                         return Err(PlanError::TargetUnsupported {
                             component: name,
                             target: target.to_string(),
@@ -794,7 +794,7 @@ mod tests {
 
     /// A prebuilt component with no artifact for this target cannot be installed.
     ///
-    /// Regression: this previously produced an empty artifact list and an install that reported
+    /// Planning must reject it outright: an empty artifact list yields an install that reports
     /// success while placing no files.
     #[test]
     fn a_prebuilt_executable_without_target_support_fails() {

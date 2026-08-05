@@ -268,8 +268,8 @@ impl Resolver {
             },
             // Deliberately not checked for existence, and created on demand. `%var` names *mutable*
             // state the component owns and creates -- `%var(data)` is the client's database
-            // directory, which does not exist until the client makes it. Requiring it made
-            // `miden start-node` fail on every fresh installation.
+            // directory, which does not exist until the client makes it, so requiring it to exist
+            // would fail on every fresh installation.
             Expr::VarPath(file) => {
                 std::fs::create_dir_all(&self.var).map_err(|source| InvalidExecutable::Var {
                     path: self.var.clone(),
@@ -351,10 +351,10 @@ impl Executable {
 /// without subcommands:  resolve(format) ++ argv[1..]
 /// ```
 ///
-/// The `format` prefix used to be dropped whenever a subcommand matched, so a component that
-/// declared both -- `format: ["docker", "compose", "-f", "%etc(...)"]` plus `subcommands: {up:
-/// ["up", "-d"]}` -- executed `up -d` as though it were a program. Nothing shipped in that shape
-/// yet, which is the only reason it was not visible.
+/// The `format` prefix is preserved when a subcommand matches, rather than replaced by it: a
+/// component that declares both -- `format: ["docker", "compose", "-f", "%etc(...)"]` plus
+/// `subcommands: {up: ["up", "-d"]}` -- means "run docker compose with `up -d`", and dropping the
+/// prefix would execute `up -d` as though it were a program.
 pub fn compose(
     component: &Component,
     format: &Executable,
@@ -478,8 +478,8 @@ mod tests {
 
     /// Spec section 13.3: `format ++ subcommand ++ user args`, in that order.
     ///
-    /// Regression: the `format` prefix was dropped whenever a subcommand matched, so `miden node
-    /// up` would have tried to execute `up` as a program.
+    /// The matching subcommand extends the `format` prefix rather than replacing it: without the
+    /// prefix, `miden node up` would try to execute `up` as a program.
     #[test]
     fn subcommand_expansion_follows_format_then_subcommand_then_user_args() {
         let env = Env::new();

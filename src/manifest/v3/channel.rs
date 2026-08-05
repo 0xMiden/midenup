@@ -64,12 +64,10 @@ impl Channel {
         self.components.iter_mut().find(|c| c.name == name)
     }
 
-    /// Whether this channel installs only part of what `complete` would.
+    /// Whether this channel holds fewer components than the `upstream` one it is compared against.
     ///
-    /// Derived, never recorded (spec section 8.6): local state has no "partial" flag, because one
-    /// would be a second answer to a question the component set already answers -- and the two
-    /// drifted apart, which is how a partially installed channel came to suppress every new
-    /// component during updates.
+    /// Derived, never recorded (spec section 8.6): a stored "partial" flag would be a second answer
+    /// to a question the component set already answers, and two answers can disagree.
     pub fn is_partially_installed(&self, upstream: &Channel) -> bool {
         self.components.len() < upstream.components.len()
     }

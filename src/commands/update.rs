@@ -3,13 +3,7 @@
 //! Update owns exactly two decisions: *which components have to be re-acquired*, and *which intent
 //! the result is recorded under*. Everything else -- what the installed set should be, what to
 //! stage, what to publish -- belongs to [`commands::install`], which re-resolves the persisted
-//! intent against the new upstream channel.
-//!
-//! That is a deliberate narrowing. Update used to hand-build the channel to install, and the two
-//! filters it applied there were both wrong: `update stable` intersected the new channel with the
-//! locally installed component *names*, and a partially installed channel suppressed every new
-//! component. Between them, a `minimal` installation could never gain a component newly tagged
-//! `minimal`, and a project-activated toolchain could never gain anything at all.
+//! intent against the new upstream channel. That is a deliberate narrowing.
 
 use std::path::Path;
 
@@ -139,10 +133,6 @@ fn update_network(
 }
 
 /// How a component changed between what is installed and what upstream now says.
-///
-/// Replaces `Component::is_up_to_date`, a hand-written field-by-field comparison that ignored
-/// artifacts, requirements and profiles entirely -- so an artifact URI moving to a new release was
-/// invisible, while adding an alias forced a full reinstall.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeClass {
     /// Its files have to be replaced: authority, kind, installation method, artifacts,
@@ -242,7 +232,6 @@ fn update_installed_channel(
 ///
 /// A channel that has already been migrated into is not migrated again; without this check, an
 /// upstream channel declaring `migrates_from` would re-migrate itself on every update.
-/// See <https://github.com/0xMiden/midenup/issues/193>.
 fn migration_of(
     upstream: &UpstreamChannel,
     installation: &Installation,
@@ -340,9 +329,9 @@ fn changes_for(
 
 /// Runs the install, unless less than that is needed.
 ///
-/// The idempotency check is deliberately made against the *resolved* set rather than against a
-/// hand-built channel: an update with no changed components can still have work to do, because
-/// re-resolving the same intent against a new upstream channel can add or drop components.
+/// The idempotency check is deliberately made against the *resolved* set rather than against the
+/// set of changed components: an update with no changed components can still have work to do,
+/// because re-resolving the same intent against a new upstream channel can add or drop components.
 fn install_for_update(
     config: &Config,
     upstream: &Channel,
@@ -663,8 +652,8 @@ mod tests {
         assert_eq!(classify_pair(base(), base()), ChangeClass::None);
     }
 
-    /// Regression: `is_up_to_date` ignored artifacts entirely, so a component whose artifact moved
-    /// to a new release URL was reported as current and never reinstalled.
+    /// An artifact is a file in the publication, so a component whose artifact URI moves to a new
+    /// release must be reinstalled even though nothing else about it changed.
     #[test]
     fn an_artifact_only_change_is_installation_impacting() {
         let mut new = base();
@@ -696,7 +685,8 @@ mod tests {
         assert_eq!(classify_pair(base(), new), ChangeClass::InstallationImpacting);
     }
 
-    /// Regression: adding an alias forced a full reinstall of an otherwise identical component.
+    /// An alias is resolved at dispatch and no installed file depends on it, so adding one to an
+    /// otherwise identical component must not force a reinstall.
     #[test]
     fn an_alias_only_change_is_runtime_metadata_only() {
         let mut new = base();

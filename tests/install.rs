@@ -57,9 +57,9 @@ fn integration_install_stable() {
 
 /// A fresh install must actually place every artifact kind where it belongs.
 ///
-/// Regression: the existence check tested the pre-created `lib/` directory rather than the
-/// artifact file, so every package download was skipped and reported "already installed" on a
-/// completely fresh install.
+/// What decides whether an artifact still has to be acquired is the artifact file itself, not the
+/// directory it lands in -- those directories are pre-created, so testing one would report every
+/// package as already installed.
 #[test]
 fn integration_install_places_every_artifact_kind() {
     let _guard = common::harness::mutating_test_guard();
@@ -94,9 +94,8 @@ fn integration_install_places_every_artifact_kind() {
 /// `opt/` serves two purposes: the clap `argv[0]` trick, so help renders as `miden vm ...`; and
 /// PATH discoverability, since `opt/` is the only toolchain directory on `PATH`.
 ///
-/// Regression: shims were emitted only when `symlink-name` was set explicitly, so a stable install
-/// produced one shim -- for the single hidden component that declared one -- and none for the
-/// callable components.
+/// Every callable executable gets one, whether or not it declares `symlink-name`: the declaration
+/// chooses the shim's name, it does not decide whether there is one.
 #[test]
 fn integration_install_creates_default_symlinks() {
     let _guard = common::harness::mutating_test_guard();
@@ -220,8 +219,8 @@ fn integration_install_republishes_rather_than_mutating() {
     );
 }
 
-/// `%var(data)` holds the Miden client's database. With `var/` inside the publication -- which is
-/// replaced wholesale on every change -- a toolchain update destroyed it.
+/// `%var(data)` holds the Miden client's database, so it lives outside the publication: a
+/// publication is replaced wholesale on every change, and anything inside one goes with it.
 #[test]
 fn integration_var_survives_update_and_republication() {
     let _guard = common::harness::mutating_test_guard();

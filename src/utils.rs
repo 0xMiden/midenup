@@ -44,10 +44,10 @@ pub mod git {
                 "failed to fetch latest git rev-hash from branch {branch_name}, is git installed?.",
             ))?;
 
-        // A failed `ls-remote` leaves stdout empty. Without checking, this returned Ok("") --
-        // which callers then recorded as though it were a real revision, so update detection
-        // compared "" against "" and concluded the component was current. A branch-tracked
-        // component would never update again after one transient failure.
+        // A failed `ls-remote` leaves stdout empty. Unchecked, this would return Ok(""), which
+        // callers record as though it were a real revision: update detection then compares "" to
+        // "" and concludes the component is current, so a branch-tracked component would never
+        // update again after one transient failure.
         if !check_revision_hash.status.success() {
             anyhow::bail!(
                 "failed to resolve branch '{branch_name}' of '{repository_url}': git ls-remote \
@@ -450,10 +450,10 @@ mod git_tests {
 
     /// A failed or empty `ls-remote` must be an error.
     ///
-    /// Regression: neither the exit status nor empty output was checked, so this returned
-    /// `Ok("")`. Callers recorded that as a revision, and update detection then compared `""`
-    /// against `""` and concluded the component was current -- a branch-tracked component would
-    /// never update again after one transient failure.
+    /// Both the exit status and empty output have to be checked: returning `Ok("")` would be
+    /// recorded as a revision, and update detection would then compare `""` against `""` and
+    /// conclude the component is current -- a branch-tracked component would never update again
+    /// after one transient failure.
     #[test]
     fn a_missing_repository_is_an_error() {
         let temp = tempdir::TempDir::new("git-missing").unwrap();

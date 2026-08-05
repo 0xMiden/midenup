@@ -81,8 +81,9 @@ pub struct Output {
 /// The immutable record of what a publication contains.
 ///
 /// Written once, inside the publication directory, and thereafter the authority on which files
-/// that publication owns. Uninstall and update-seeding both consult it rather than guessing from
-/// the manifest, which is how install and uninstall paths drift apart.
+/// that publication owns. Uninstall and update-seeding both consult it rather than deriving
+/// ownership from the manifest a second time, which would be a second answer to a question the
+/// install path has already answered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Receipt {
     pub publication_id: PublicationId,

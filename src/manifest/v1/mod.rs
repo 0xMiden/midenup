@@ -61,8 +61,8 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
         }
 
         let mut manifest = v3::Manifest {
-            // The output of this conversion is a v3 manifest, so it declares the v3 version.
-            // Stamping the v1 constant here left converted manifests claiming to be v1.0.1.
+            // The output of this conversion is a v3 manifest, so it declares the v3 version: what
+            // is stamped here is the schema of the document produced, not the one it came from.
             manifest_version: v3::MANIFEST_VERSION,
             date: value.date,
             networks: Default::default(),

@@ -686,10 +686,7 @@ fn resolve_argument<'a>(
                     // The subcommand is the first *user* argument, not a nested clap subcommand.
                     // `miden` allows external subcommands, so clap parses `miden node up` as the
                     // external subcommand `node` with `up` in its trailing-argument bucket and
-                    // never descends further. Reading `matches.subcommand()` here therefore always
-                    // saw `None`: every declared subcommand map was dead, and the shipped `node`
-                    // component -- whose `format` is empty and whose verbs live entirely in that
-                    // map -- composed `miden node up` into an attempt to execute `up`.
+                    // never descends further: `matches.subcommand()` is always `None` here.
                     let mut user = matches.get_many::<OsString>("").into_iter().flatten();
 
                     let Some(requested) = user.next() else {

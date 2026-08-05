@@ -77,8 +77,8 @@ impl ShowCommand {
 
                         // Several networks may name one channel, so this is a list rather than a
                         // single marker. Omitted entirely when upstream is unavailable: which
-                        // networks name a channel is upstream's answer, and guessing it locally is
-                        // exactly the derivation this release removes.
+                        // networks name a channel is upstream's answer, never one derived from
+                        // what happens to be on disk here.
                         let networks: Vec<&str> = upstream
                             .map(|manifest| manifest.networks_for(name).collect())
                             .unwrap_or_default();

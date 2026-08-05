@@ -165,7 +165,7 @@ fn main() -> ExitCode {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
             // `{err:#}` renders the whole context chain. Plain `{err}` prints only the outermost
-            // message, which routinely reduced a precise diagnostic to "failed to write manifest".
+            // message, which reduces a precise diagnostic to "failed to write manifest".
             eprintln!("error: {err:#}");
             ExitCode::FAILURE
         },
@@ -187,9 +187,9 @@ impl Cli {
                     bail!("manifest failed validation with {} error(s)", errors.len());
                 }
 
-                // Then confirm each channel actually resolves. Unlike the previous
-                // `component_graph` call this topologically sorts, so requirement cycles are
-                // detected -- `check` used to build the graph and never sort it.
+                // Then confirm each channel actually resolves. Resolution topologically sorts the
+                // component graph, which is what surfaces requirement cycles: merely building the
+                // graph leaves them undetected.
                 for channel in manifest.get_channels() {
                     midenup::resolve::resolve(
                         channel,
@@ -402,8 +402,8 @@ impl Cli {
                 }
                 if let Some(kind) = kind.clone() {
                     // `json_patch::merge(target, patch)` applies `patch` onto `target`. The
-                    // existing value is the target and the user's partial is the patch -- the
-                    // reverse silently discarded every requested change.
+                    // existing value is the target and the user's partial is the patch, so the new
+                    // value wins; reversing the two discards every requested change in silence.
                     let mut merged = serde_json::to_value(component.kind.clone())?;
                     json_patch::merge(&mut merged, &kind);
                     match serde_json::from_value::<ComponentKind>(merged) {

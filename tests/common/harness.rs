@@ -6,9 +6,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 ///
 /// Each test gets an isolated `MIDENUP_HOME`, but installs still run `cargo install` against a
 /// shared `CARGO_HOME` and the shared Cargo registry/package cache. Running several installs
-/// concurrently makes them contend, and which test loses the race varies between runs -- the
-/// observed symptom is a nondeterministic subset of the install tests failing while each one
-/// passes in isolation.
+/// concurrently makes them contend, and which test loses the race varies between runs, so without
+/// this a nondeterministic subset of the install tests fails while each one passes in isolation.
 ///
 /// `cargo test` runs a test binary's tests in a thread pool within one process, so a process-global
 /// mutex is sufficient. Poisoning is deliberately ignored: one panicking test must not cascade into
@@ -425,8 +424,8 @@ impl UpdateFixture {
 
     /// mainnet is promoted onto the channel devnet already names: two networks, one channel.
     ///
-    /// The design's headline case, and the one where `var/` cannot follow -- it is keyed by
-    /// channel, so both networks necessarily share `var/0.15.0` from here on.
+    /// The case that must keep the two networks' `var/` directories apart: they share a toolchain
+    /// but remain distinct networks, so `var/mainnet` and `var/devnet` stay separate stores.
     pub fn with_networks_on_one_channel(&self) -> String {
         self.write_split_at("manifest-shared.json", "0.15.0", "0.23.3")
     }

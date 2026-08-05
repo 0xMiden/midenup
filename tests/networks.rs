@@ -9,9 +9,8 @@ use common::*;
 
 /// Installing a channel that several networks name writes a symlink for each of them.
 ///
-/// This is the state right after a testnet toolchain is promoted to mainnet, and it is what the
-/// per-channel alias could not express: with one alias per channel, only one of these names could
-/// have existed.
+/// This is the state right after a testnet toolchain is promoted to mainnet. Names belong to the
+/// networks rather than to the channel, so one channel can carry all of them at once.
 #[test]
 fn integration_networks_one_install_writes_every_naming_link() {
     let _guard = common::harness::mutating_test_guard();
@@ -103,8 +102,8 @@ fn integration_networks_update_follows_a_rollback_to_an_installed_channel() {
         .execute_with_state(&config, &mut state)
         .expect("failed to follow the promotion");
 
-    // The assertions at the bottom describe the state this test started in, so a regression making
-    // the update a no-op would leave them true. Pin the premise before relying on it.
+    // The assertions at the bottom describe the state this test started in, so an update that did
+    // nothing at all would leave them true. Pin the premise before relying on it.
     assert_eq!(
         std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
         std::path::PathBuf::from("0.15.0"),
@@ -646,8 +645,8 @@ fn integration_networks_uninstall_leaves_other_channels_alone() {
     );
 }
 
-/// Regression, both directions: `default` may point at a network link or straight at a toolchain
-/// directory, and uninstalling the channel used to leave it dangling either way.
+/// Both directions: `default` may point at a network link or straight at a toolchain directory, and
+/// uninstalling the channel must leave it dangling in neither case.
 #[test]
 fn integration_networks_uninstall_does_not_leave_default_dangling() {
     let _guard = common::harness::mutating_test_guard();

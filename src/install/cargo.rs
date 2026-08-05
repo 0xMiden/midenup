@@ -111,8 +111,8 @@ pub fn argv_for(step: &PlanStep, staging_root: &Path, verbose: bool, debug: bool
 
     let mut argv: Vec<OsString> = Vec::new();
 
-    // Optional arguments are *omitted* when unset. The previous implementation rendered them as
-    // empty strings, so cargo received a stray "" argument.
+    // Optional arguments are *omitted* when unset: rendering an unset one anyway would hand cargo
+    // a stray "" argument.
     if let Some(channel) = rustup_channel {
         argv.push(format!("+{channel}").into());
     }
@@ -233,8 +233,8 @@ mod tests {
         argv.iter().map(|a| a.to_string_lossy().into_owned()).collect()
     }
 
-    /// Regression: unset optional arguments were rendered as empty strings, so cargo received a
-    /// stray "" for both the toolchain and the verbosity flag.
+    /// An unset optional argument contributes nothing at all to the argv: no empty entry, and no
+    /// bare toolchain selector, ever reaches cargo.
     #[test]
     fn unset_optional_arguments_are_omitted_entirely() {
         let argv =
@@ -377,9 +377,8 @@ mod tests {
 
     /// A binary another component already installed is not this build's doing.
     ///
-    /// Regression: the check scanned all of `bin/`, so the second component to build in a
-    /// toolchain was always reported as having produced the first one's binary. Only an
-    /// integration test with more than one Cargo component could catch it.
+    /// The check is on the *delta* of `bin/` across the build, so in a toolchain with more than
+    /// one Cargo component each binary is attributed to the build that actually produced it.
     #[test]
     fn binaries_from_earlier_builds_are_not_attributed_to_this_one() {
         let dir = tempdir::TempDir::new("cargo-delta").unwrap();
