@@ -22,7 +22,7 @@ pub fn links(home: &Path) -> BTreeMap<String, semver::Version> {
         let Some(name) = entry.file_name().to_str().map(str::to_string) else {
             continue;
         };
-        // `midenup override` sets "default", is not a network link.
+        // `midenup override` sets "default", it is not a network link.
         if name == "default" {
             continue;
         }
@@ -30,15 +30,27 @@ pub fn links(home: &Path) -> BTreeMap<String, semver::Version> {
             continue;
         };
 
-        // The whole target is parsed as a version, which is what makes this rule sufficient on
-        // its own: a version string cannot contain a separator, so this admits only a
-        // single-segment relative target. Everything else in the directory is excluded by
-        // it -- a channel's own link names `../publications/<channel>-<id>`, a tombstone
-        // names `.uninstalled`, and `default` is absolute under either override form.
-        let Some(channel) = target.to_str().and_then(|target| semver::Version::parse(target).ok())
+        // A network link names a version that lives directly under `toolchains/`, written either
+        // bare or as a full path -- both spellings are in use, the latter by a home carried over
+        // from before the network layout. Both halves of the rule are needed: a tombstone names
+        // `.uninstalled`, which is no version at all, while a channel's own link names
+        // `../publications/<channel>-<id>`, whose file name *does* parse as a version -- one with
+        // the publication id as its prerelease -- so the directory is what rules it out.
+        let Some(channel) = target
+            .file_name()
+            .and_then(|channel| channel.to_str())
+            .and_then(|channel| semver::Version::parse(channel).ok())
         else {
             continue;
         };
+        // Compared as text rather than resolved, so a link whose channel has been removed is still
+        // recognized as the network link it is. A bare `<version>` has an empty parent.
+        let inside_toolchains = target
+            .parent()
+            .is_some_and(|dir| dir.as_os_str().is_empty() || dir == paths::toolchains_dir(home));
+        if !inside_toolchains {
+            continue;
+        }
 
         links.insert(name, channel);
     }
@@ -122,6 +134,24 @@ mod tests {
                 ("testnet".to_string(), "0.15.0".to_string()),
             ]
         );
+    }
+
+    /// A home carried over from before the network layout spells its links absolutely, and the
+    /// channel one of those names is running just as much as any other. A channel's own link
+    /// written the same way stays excluded: it names an entry in `publications/`, not in
+    /// `toolchains/`.
+    #[test]
+    fn an_absolute_link_names_its_channel() {
+        let (_temp, home) = home_with(&[]);
+        let toolchains = paths::toolchains_dir(&home);
+        std::os::unix::fs::symlink(toolchains.join("0.14.0"), toolchains.join("mainnet")).unwrap();
+        std::os::unix::fs::symlink(
+            home.join("publications").join("0.14.0-abc123"),
+            toolchains.join("0.14.0"),
+        )
+        .unwrap();
+
+        assert_eq!(links_of(&home), vec![("mainnet".to_string(), "0.14.0".to_string())]);
     }
 
     /// `midenup override 0.15.0` points `default` at the toolchain directory, absolutely. Parsing

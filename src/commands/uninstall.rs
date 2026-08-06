@@ -60,20 +60,9 @@ pub fn uninstall(
     // Found by scanning rather than by asking upstream which networks name this channel. Uninstall
     // has to work offline, and a network may have moved upstream since this machine last looked --
     // in which case upstream would not name the link that is actually here.
-    {
-        let channel_name = channel.to_string();
-
-        if let Ok(entries) = std::fs::read_dir(paths::toolchains_dir(home)) {
-            for dir_entry in entries.flatten() {
-                let Ok(target) = std::fs::read_link(dir_entry.path()) else {
-                    continue;
-                };
-                // A network link's target is the bare version. The channel's own link points into
-                // `publications/`, so this never matches it and it needs no special case.
-                if target == std::path::Path::new(&channel_name) {
-                    std::fs::remove_file(dir_entry.path())?;
-                }
-            }
+    for (network, linked) in crate::networks::links(home) {
+        if linked == channel {
+            std::fs::remove_file(paths::network_link(home, &network))?;
         }
     }
 
