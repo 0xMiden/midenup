@@ -71,7 +71,7 @@ bin/update-manifest --manifest-path manifest/channel-manifest.json \
 
 This deploys nothing. It records that `midenup install testnet` resolves to `0.15.0` from now on,
 and that `midenup update testnet` should carry existing installations there - along with their
-component selection and their client data.
+component selection and their data.
 
 `promote` is also how a network is created: if the named network is not in the manifest yet, it is
 added.

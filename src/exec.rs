@@ -267,9 +267,9 @@ impl Resolver {
                 self.existing(self.sysroot.join("etc").join(file), component, expr)
             },
             // Deliberately not checked for existence, and created on demand. `%var` names *mutable*
-            // state the component owns and creates -- `%var(data)` is the client's database
-            // directory, which does not exist until the client makes it, so requiring it to exist
-            // would fail on every fresh installation.
+            // state the component owns and creates -- e.g. `%var(data)` could be the client's
+            // database directory, which does not exist until the client makes it, so requiring it
+            // to exist would fail on every fresh installation.
             Expr::VarPath(file) => {
                 std::fs::create_dir_all(&self.var).map_err(|source| InvalidExecutable::Var {
                     path: self.var.clone(),

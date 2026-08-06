@@ -143,7 +143,7 @@ When a network is promoted to a different toolchain, an installation that tracks
 midenup update mainnet
 ```
 
-This follows the network's pointer wherever it has moved. Your component selection transfers verbatim and is re-resolved against the toolchain now being tracked. Your client data stays put: it is stored under the network you selected (`var/mainnet`), not under the toolchain version, so it follows the network without anything having to move. A network that has been moved *back* to an older toolchain is followed too, with a heads-up.
+This follows the network's pointer wherever it has moved. Your component selection transfers verbatim and is re-resolved against the toolchain now being tracked. Network-associated data stays put: it is stored under the network you selected (`var/mainnet`), not under the toolchain version, so it follows the network without anything having to move. A network that has been moved *back* to an older toolchain is followed too, with a heads-up.
 
 If the network's pointer has not moved, this still picks up any changes to the components of the toolchain it names.
 
@@ -164,8 +164,7 @@ For example, to uninstall toolchain version `0.16.0`, run:
 midenup uninstall 0.16.0
 ```
 
-This keeps the toolchain's mutable data — the Miden client's database, for instance — and tells you
-where it left it. Removing a toolchain is not a request to delete your data. To remove that too:
+This keeps the toolchain's mutable data and tells you where it left it. Removing a toolchain is not a request to delete your data. To remove that too:
 
 ```shell title=">_ Terminal"
 midenup uninstall 0.16.0 --purge

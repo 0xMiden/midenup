@@ -51,9 +51,8 @@ are two ways to do this:
 
 1. Installing a release network, e.g. `mainnet`, which installs the toolchain currently deployed to
 that network. When a network is promoted to a newer toolchain, `midenup update mainnet` follows it,
-carrying your component selection and your client data across.
-2. Installing a specific toolchain version, e.g. `0.15.0`, which pins you to that toolchain
-regardless of what the networks do.
+carrying your component selection and any toolchain-managed data across.
+2. Installing a specific toolchain version, e.g. `0.15.0`, which pins you to that toolchain regardless of what the networks do.
 
 In both cases, you simply run `midenup install <TOOLCHAIN>`.
 
@@ -87,9 +86,7 @@ To bring a network up to the toolchain it now runs, run:
 midenup update mainnet
 ```
 
-This follows the network's pointer wherever it has moved, carrying your component selection and your
-client data across. If the pointer has not moved, it still picks up any changes to the components of
-the toolchain it names.
+This follows the network's pointer wherever it has moved, carrying your component selection and toolchain-owned data across. If the pointer has not moved, it still picks up any changes to the components of the toolchain it names.
 
 #### Updating a specific toolchain
 
@@ -141,8 +138,7 @@ For example, to uninstall toolchain version `0.16.0`, run:
 midenup uninstall 0.16.0
 ```
 
-This keeps the toolchain's mutable data — the Miden client's database, for instance — and tells you
-where it left it. To remove that too, pass `--purge`:
+This keeps the toolchain's mutable data and tells you where it left it. To remove that too, pass `--purge`:
 ```
 midenup uninstall 0.16.0 --purge
 ```
@@ -168,7 +164,7 @@ toolchain, and it is safe to run at any time.
 
 The first time a newer `midenup` runs, it converts the record an older one left in
 `$MIDENUP_HOME` into its own format. It carries over which channels you had installed and which
-components you had in each, and nothing else — everything else is re-derived from the published
+components you had in each, and nothing else - everything else is re-derived from the published
 manifest, which is authoritative for it. Your toolchains are reinstalled the next time you use
 them, so that `midenup` knows exactly which files it owns; `var/` is untouched throughout.
 

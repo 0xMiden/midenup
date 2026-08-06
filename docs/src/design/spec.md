@@ -116,7 +116,7 @@ It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/t
 - `midenup uninstall <selector>` removes the publication and the state record. It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
 - `%var` resolves to `$MIDENUP_HOME/var/<selector>`, created on demand at dispatch time.
 
-Previously, `var/` lived inside the publication, and every toolchain update would destroy the user's client data.
+Previously, `var/` lived inside the publication, and every toolchain update would destroy the user's client data (if it was in the toolchain `var` directory).
 
 ### 3.3 `opt/` and the clap display shim
 

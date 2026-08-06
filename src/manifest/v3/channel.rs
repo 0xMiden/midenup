@@ -26,7 +26,7 @@ pub struct Channel {
     /// The channel this one supersedes, if any.
     ///
     /// An installation of the named channel is carried here when it is updated: intent transfers
-    /// verbatim, `var/` is renamed so client data follows, and the old publication is removed once
+    /// verbatim, `var/` is renamed so data follows, and the old publication is removed once
     /// the new state record commits (spec section 11.4).
     ///
     /// Replaces the v1 `tags: [{ migration: { old_channel } }]` array. Migration is a property of
