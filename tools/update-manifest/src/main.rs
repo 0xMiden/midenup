@@ -7,7 +7,7 @@ use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
     channel::{self, UserChannel},
-    manifest::{Component, ComponentKind, Manifest, VersionedManifest},
+    manifest::{Component, ComponentKind, Manifest, Promotion, VersionedManifest},
     profile::Profile,
     version::Authority,
 };
@@ -47,6 +47,21 @@ enum Command {
         /// The name of the channel that will be created
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         to: channel::UserChannel,
+    },
+    /// Point a release network at a toolchain
+    ///
+    /// Does not deploy anything. It records which toolchain `midenup install <NETWORK>` resolves
+    /// to from now on.
+    Promote {
+        /// The network to move, e.g. `mainnet`
+        #[arg(required(true), value_name = "NETWORK")]
+        network: String,
+        /// The toolchain the network should name
+        #[arg(required(true), value_name = "CHANNEL")]
+        channel: semver::Version,
+        /// Allow the network to move to an older toolchain than it names now
+        #[arg(long, default_value_t = false)]
+        allow_downgrade: bool,
     },
     /// Add a component to a toolchain
     AddComponent {
@@ -150,7 +165,7 @@ fn main() -> ExitCode {
         Ok(_) => ExitCode::SUCCESS,
         Err(err) => {
             // `{err:#}` renders the whole context chain. Plain `{err}` prints only the outermost
-            // message, which routinely reduced a precise diagnostic to "failed to write manifest".
+            // message, which reduces a precise diagnostic to "failed to write manifest".
             eprintln!("error: {err:#}");
             ExitCode::FAILURE
         },
@@ -172,9 +187,9 @@ impl Cli {
                     bail!("manifest failed validation with {} error(s)", errors.len());
                 }
 
-                // Then confirm each channel actually resolves. Unlike the previous
-                // `component_graph` call this topologically sorts, so requirement cycles are
-                // detected -- `check` used to build the graph and never sort it.
+                // Then confirm each channel actually resolves. Resolution topologically sorts the
+                // component graph, which is what surfaces requirement cycles: merely building the
+                // graph leaves them undetected.
                 for channel in manifest.get_channels() {
                     midenup::resolve::resolve(
                         channel,
@@ -195,11 +210,12 @@ impl Cli {
                     bail!("unknown source toolchain '{from}'")
                 };
                 let to = match to {
-                    UserChannel::Stable | UserChannel::Nightly => {
-                        bail!("cannot create toolchains named 'stable' or 'nightly'")
-                    },
-                    UserChannel::Other(_) => {
-                        bail!("target toolchain must be named by its semantic version")
+                    UserChannel::Named(name) => {
+                        bail!(
+                            "cannot create a toolchain named '{name}': a toolchain is named by \
+                             its semantic version, and '{name}' is a network name. Use `promote` \
+                             to point a network at a toolchain."
+                        )
                     },
                     UserChannel::Version(v) => v,
                 };
@@ -207,12 +223,69 @@ impl Cli {
                     bail!("toolchain '{to}' already exists");
                 }
                 from.name = to.clone();
-                // Don't clone aliases - that must be done separately
-                from.alias = None;
                 manifest.add_channel(from);
                 manifest.update_last_modified();
 
                 write_manifest(&manifest, &self.manifest_path)
+            },
+            Command::Promote { network, channel, allow_downgrade } => {
+                if semver::Version::parse(network).is_ok() {
+                    bail!(
+                        "'{network}' cannot be a network name: it would be ambiguous with a \
+                         toolchain of the same name"
+                    );
+                }
+                let canonical = channel::canonical_network(network);
+                if canonical != network {
+                    bail!(
+                        "'{network}' is a synonym that midenup rewrites to '{canonical}' before \
+                         any lookup, so a network declared under it could never be reached. \
+                         Promote '{canonical}' instead."
+                    );
+                }
+
+                let Some(target) = manifest.get_channel_by_name(channel).cloned() else {
+                    bail!("cannot promote '{network}': there is no toolchain {channel}")
+                };
+
+                // A network must never name a toolchain that cannot be installed. Every user
+                // tracking it would otherwise discover that only at install time.
+                midenup::resolve::resolve(
+                    &target,
+                    &midenup::resolve::Intent::new(&[Profile::Complete], &[]),
+                )
+                .with_context(|| format!("toolchain {channel} is not installable"))?;
+
+                if let Some(current) = manifest.network_version(network)
+                    && channel < current
+                    && !allow_downgrade
+                {
+                    bail!(
+                        "'{network}' names {current}; moving it back to {channel} hands every \
+                         user tracking it a toolchain older than the one their data was written \
+                         by. Pass --allow-downgrade if that is intended."
+                    );
+                }
+
+                let promotion = manifest.promote(network, channel.clone());
+                if matches!(promotion, Promotion::Unchanged) {
+                    println!("'{network}' already names {channel}; nothing to do");
+                    return Ok(());
+                }
+
+                manifest.update_last_modified();
+                write_manifest(&manifest, &self.manifest_path)?;
+
+                // Reported only once the write has committed: the printed line is what a reviewer
+                // checks a promotion against, so it must never describe a change that failed.
+                match promotion {
+                    Promotion::Created { at } => println!("created network '{network}' at {at}"),
+                    Promotion::Moved { from, to } => {
+                        println!("moved '{network}' from {from} to {to}")
+                    },
+                    Promotion::Unchanged => unreachable!("handled above"),
+                }
+                Ok(())
             },
             Command::AddComponent {
                 channel,
@@ -329,8 +402,8 @@ impl Cli {
                 }
                 if let Some(kind) = kind.clone() {
                     // `json_patch::merge(target, patch)` applies `patch` onto `target`. The
-                    // existing value is the target and the user's partial is the patch -- the
-                    // reverse silently discarded every requested change.
+                    // existing value is the target and the user's partial is the patch, so the new
+                    // value wins; reversing the two discards every requested change in silence.
                     let mut merged = serde_json::to_value(component.kind.clone())?;
                     json_patch::merge(&mut merged, &kind);
                     match serde_json::from_value::<ComponentKind>(merged) {

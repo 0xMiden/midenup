@@ -201,7 +201,7 @@ fn upstream(env: &TestEnvironment, file: &str, components: &[&str]) -> String {
     }
 
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{"name": "0.15.0", "components": declared}]
     });

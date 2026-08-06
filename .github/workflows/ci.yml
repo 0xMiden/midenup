@@ -130,7 +130,7 @@ jobs:
       - name: Test
         run: make integration-test
       - name: Pre-release checks
-        # These install real components from the published manifest and run them, so it takes
-        # many minutes. Run them on main or on explicitly labelled PRs
+        # These install real components from this repo's copy of the manifest and run them, so it
+        # takes many minutes. Run them on main or on explicitly labelled PRs
         if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
         run: make prerelease-test

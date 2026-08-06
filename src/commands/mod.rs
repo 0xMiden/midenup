@@ -147,10 +147,12 @@ enum Commands {
     /// Update your installed Miden toolchains.
     Update {
         /// `midenup update`'s behavior differs depending on the specified [CHANNEL]
-        /// - If provided, updates only the specified channel.
         /// - If left blank, then midenup will check for updates in all the downloaded toolchains.
-        /// - If [CHANNEL] = stable, then it will look for the newest available toolchain and set
-        ///   that to be stable.
+        /// - If [CHANNEL] is a version, updates that toolchain against the channel upstream now
+        ///   publishes under that name.
+        /// - If [CHANNEL] is a network (mainnet, testnet, devnet), follows the network to whatever
+        ///   channel it now names: installing it if needed, carrying your component selection
+        ///   across, and moving your data under var/ with it.
         #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<channel::UserChannel>,
@@ -196,7 +198,17 @@ impl Commands {
             Self::Install { channel, options } => {
                 let manifest = config.upstream_manifest()?;
                 let Some(channel) = manifest.get_channel(channel) else {
-                    bail!("channel '{}' doesn't exist or is unavailable", channel);
+                    // Which names exist is manifest data now, so a typo has to be answerable with
+                    // what was actually declared rather than "doesn't exist or is unavailable".
+                    match channel {
+                        channel::UserChannel::Named(name) => bail!(
+                            "unknown channel '{name}'; known networks are {}",
+                            manifest.network_names().collect::<Vec<_>>().join(", ")
+                        ),
+                        channel::UserChannel::Version(version) => {
+                            bail!("there is no toolchain {version} in the channel manifest")
+                        },
+                    }
                 };
                 install(config, channel, state, options)
             },
@@ -251,6 +263,8 @@ impl Midenup {
                 // Before the upstream fetch below: an unreachable upstream must not be able to
                 // prevent a local migration (spec section 12.2).
                 crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+                crate::migrate_networks::migrate_if_needed(&midenup_home)
+                    .context("failed to migrate the toolchains directory to the network layout")?;
 
                 config::Config::init(
                     working_directory,
@@ -296,6 +310,8 @@ impl Midenup {
 
                 // See above: migration precedes any upstream fetch.
                 crate::migrate_v1::migrate_if_needed(&midenup_home)?;
+                crate::migrate_networks::migrate_if_needed(&midenup_home)
+                    .context("failed to migrate the toolchains directory to the network layout")?;
 
                 config::Config::init(
                     working_directory,
@@ -332,6 +348,8 @@ impl Midenup {
             report_migration(&channels);
             *state = config.local_state()?;
         }
+        crate::migrate_networks::migrate_if_needed(&config.midenup_home)
+            .context("failed to migrate the toolchains directory to the network layout")?;
 
         recover(config, state)?;
 
@@ -366,7 +384,7 @@ impl Midenup {
         // After execution we check if need to update the midenup/opt symlink
         // This is done *after* execution because some commands change what the active toolchain
         // (update, set) and some remove the directory entirely (uninstall)
-        config.update_opt_symlinks(state)?;
+        config.update_opt_symlinks()?;
 
         Ok(())
     }

@@ -3,13 +3,7 @@
 //! Update owns exactly two decisions: *which components have to be re-acquired*, and *which intent
 //! the result is recorded under*. Everything else -- what the installed set should be, what to
 //! stage, what to publish -- belongs to [`commands::install`], which re-resolves the persisted
-//! intent against the new upstream channel.
-//!
-//! That is a deliberate narrowing. Update used to hand-build the channel to install, and the two
-//! filters it applied there were both wrong: `update stable` intersected the new channel with the
-//! locally installed component *names*, and a partially installed channel suppressed every new
-//! component. Between them, a `minimal` installation could never gain a component newly tagged
-//! `minimal`, and a project-activated toolchain could never gain anything at all.
+//! intent against the new upstream channel. That is a deliberate narrowing.
 
 use std::path::Path;
 
@@ -34,49 +28,7 @@ pub fn update(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     match channel_type {
-        Some(UserChannel::Stable) => {
-            let local_stable = state.latest_stable().cloned().context(
-                "No stable version was found. To install it, try running:\nmidenup install \
-                 stable\n",
-            )?;
-
-            println!("syncing channel updates for stable (installed as {})", local_stable.channel);
-
-            let upstream_stable = config
-                .upstream_manifest()?
-                .get_latest_stable()
-                // NOTE: This means that there is no stable toolchain upstream.
-                //
-                // This is most likely an edge-case that shouldn't happen. If it does happen, it
-                // probably means there's an error in midenup's parsing.
-                .context("ERROR: No stable channel found in upstream")?;
-
-            println!(
-                "latest stable is version {} (upstream last updated on {})",
-                upstream_stable.name,
-                config.upstream_manifest()?.last_updated()
-            );
-
-            if upstream_stable.name > local_stable.channel {
-                // A version bump. The installation is carried to the new channel: its intent
-                // transfers verbatim and is re-resolved there, so the new channel gets everything
-                // the old one was asked for -- including components that did not exist yet.
-                let mut upstream = upstream_stable.clone();
-                upstream.sync(config);
-                install_for_update(
-                    config,
-                    &upstream,
-                    state,
-                    IntentUpdate::Replace(local_stable.intent.clone()),
-                    Changes::default(),
-                    options,
-                )
-            } else {
-                // Already on the newest stable, which does not mean there is nothing to do: the
-                // channel's own components may have moved.
-                update_installed_channel(config, &local_stable, state, options)
-            }
-        },
+        Some(UserChannel::Named(name)) => update_network(config, name, state, options),
         Some(UserChannel::Version(version)) => {
             let installation = state
                 .get(version)
@@ -94,16 +46,93 @@ pub fn update(
             }
             Ok(())
         },
-        Some(UserChannel::Nightly) => todo!(),
-        Some(UserChannel::Other(_)) => todo!(),
     }
 }
 
-/// How a component changed between what is installed and what upstream now says.
+/// Brings a network to the channel it now names.
 ///
-/// Replaces `Component::is_up_to_date`, a hand-written field-by-field comparison that ignored
-/// artifacts, requirements and profiles entirely -- so an artifact URI moving to a new release was
-/// invisible, while adding an alias forced a full reinstall.
+/// A network is a moving name, so what has to be reconciled is *the pointer*, not the channel: if
+/// `networks[name]` has moved, the installation is carried to wherever it now points. This is
+/// deliberately not `migrates_from` lineage. That describes a relationship between two channels and
+/// is what someone tracking a pinned version follows; a user tracking mainnet asked for mainnet.
+///
+/// Only the pointer and the installation move. The network's `var/` is keyed by the network, not by
+/// the channel ([`crate::paths::var_dir`]), so it is already where the new channel will look for it
+/// and there is nothing here to carry.
+///
+/// The comparison is inequality, not "is newer". The pointer is authoritative in both directions:
+/// a rollback is rare, and `update-manifest promote` refuses to author one without an explicit
+/// flag, but once one is published, following it is what tracking the network means.
+fn update_network(
+    config: &Config,
+    name: &str,
+    state: &mut LocalState,
+    options: &UpdateOptions,
+) -> anyhow::Result<()> {
+    let manifest = config.upstream_manifest()?;
+    let target = manifest.network_version(name).cloned().with_context(|| {
+        format!(
+            "unknown channel '{name}'; known networks are {}",
+            manifest.network_names().collect::<Vec<_>>().join(", ")
+        )
+    })?;
+
+    let user_channel = UserChannel::Named(name.to_string().into());
+    let installed = config.local_channel(&user_channel).with_context(|| {
+        format!("{name} is not installed. To install it, run:\n    midenup install {name}\n")
+    })?;
+
+    let installation = state.get(&installed).cloned().with_context(|| {
+        format!(
+            "toolchains/{name} names {installed}, which is not in local state; reinstall with: \
+             midenup install {name}"
+        )
+    })?;
+
+    println!("syncing channel updates for {name} (installed as {installed})");
+    println!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
+
+    if installed == target {
+        // The pointer has not moved, which does not mean there is nothing to do: the channel's own
+        // components may have.
+        return update_installed_channel(config, &installation, state, options);
+    }
+
+    let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
+        format!("network '{name}' names channel {target}, which is not upstream")
+    })?;
+
+    if target < installed {
+        eprintln!(
+            "{}: {name} has moved back from {installed} to {target}.",
+            "warning".yellow().bold(),
+        );
+    }
+
+    upstream.sync(config);
+    install_for_update(
+        config,
+        &upstream,
+        state,
+        // Intent transfers verbatim and is re-resolved against the channel now being tracked, so
+        // it gains components that did not exist there before.
+        IntentUpdate::Replace(installation.intent.clone()),
+        Changes::default(),
+        options,
+    )?;
+
+    // DERIVE writes this link too, and writing it twice is a rename onto the same target -- but
+    // DERIVE runs only inside `commands::install`, and an update whose target is already installed
+    // with the same intent comes back as `Work::Nothing` without going there. That is the rollback
+    // case, where moving the pointer is the entire operation, so it is done unconditionally here.
+    // Nothing has to precede or follow it: a network's `var/` is keyed by the network and does not
+    // move with the pointer.
+    let link = crate::paths::network_link(&config.midenup_home, name);
+    crate::utils::fs::replace_symlink(&link, Path::new(&target.to_string()))
+        .with_context(|| format!("failed to point '{name}' at {target}"))
+}
+
+/// How a component changed between what is installed and what upstream now says.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeClass {
     /// Its files have to be replaced: authority, kind, installation method, artifacts,
@@ -203,7 +232,6 @@ fn update_installed_channel(
 ///
 /// A channel that has already been migrated into is not migrated again; without this check, an
 /// upstream channel declaring `migrates_from` would re-migrate itself on every update.
-/// See <https://github.com/0xMiden/midenup/issues/193>.
 fn migration_of(
     upstream: &UpstreamChannel,
     installation: &Installation,
@@ -244,10 +272,14 @@ fn migrate(
         options,
     )?;
 
-    // The sole exception to "nothing touches `var/`": the user's data follows the toolchain it
-    // belongs to, rather than being stranded under a channel name that no longer exists. A rename,
-    // so it is atomic and cannot half-happen.
-    carry_var_to(config, &installation.channel, &upstream.name)?;
+    // A migration is the one operation that changes what a *pinned* selector means: the channel the
+    // user pinned ceases to exist and is superseded by another. `var/<pinned version>` is keyed by
+    // that selector, so it has to follow, or it would be stranded under a name nothing can select
+    // any more. A rename, so it is atomic and cannot half-happen.
+    //
+    // A network selector is unaffected: `var/<network>` is not keyed by either channel, so it is
+    // neither the source nor the destination here.
+    carry_var_to(&config.midenup_home, &installation.channel, &upstream.name)?;
 
     // Not purged: the data has already been renamed to the new channel, and purging would delete a
     // directory that no longer belongs to the channel being removed.
@@ -297,9 +329,9 @@ fn changes_for(
 
 /// Runs the install, unless less than that is needed.
 ///
-/// The idempotency check is deliberately made against the *resolved* set rather than against a
-/// hand-built channel: an update with no changed components can still have work to do, because
-/// re-resolving the same intent against a new upstream channel can add or drop components.
+/// The idempotency check is deliberately made against the *resolved* set rather than against the
+/// set of changed components: an update with no changed components can still have work to do,
+/// because re-resolving the same intent against a new upstream channel can add or drop components.
 fn install_for_update(
     config: &Config,
     upstream: &Channel,
@@ -413,23 +445,30 @@ fn record_logical_changes(
     config.write_local_state(state)
 }
 
-/// Moves `var/<from>` to `var/<to>`, so client data follows a migrated channel.
+/// Renames `var/<from>` to `var/<to>` for a channel migration, the sole caller.
 ///
-/// A no-op when there is nothing to move. An existing destination is left alone: that means the new
-/// channel already has data of its own, and silently merging or replacing it would be worse than
-/// leaving the old directory where a user can find it.
-fn carry_var_to(
-    config: &Config,
-    from: &semver::Version,
-    to: &semver::Version,
-) -> anyhow::Result<()> {
+/// Both keys are pinned-version selectors, and migration is the only thing that retires one. See
+/// the call site in [`migrate`] for why nothing else may move a `var/` directory.
+///
+/// An existing destination is left alone rather than merged into or replaced: the user has selected
+/// `to` directly at some point and has data under it, and the old directory is more useful left
+/// where they can find it than silently folded into another store.
+fn carry_var_to(home: &Path, from: &semver::Version, to: &semver::Version) -> anyhow::Result<()> {
     if from == to {
         return Ok(());
     }
 
-    let source = crate::paths::var_dir(&config.midenup_home, from);
-    let destination = crate::paths::var_dir(&config.midenup_home, to);
-    if !source.is_dir() || destination.exists() {
+    let source = crate::paths::var_dir(home, &UserChannel::Version(from.clone()));
+    let destination = crate::paths::var_dir(home, &UserChannel::Version(to.clone()));
+    if !source.is_dir() {
+        return Ok(());
+    }
+    if destination.exists() {
+        eprintln!(
+            "{}: var/{from} was left in place: you already have data at var/{to}, and the two are \
+             not merged.",
+            "warning".yellow().bold(),
+        );
         return Ok(());
     }
 
@@ -559,7 +598,7 @@ mod tests {
 
     // No test here changes `initialization`, deliberately: it lives in the same struct as the
     // aliases below and travels the same path, so it would prove nothing extra -- and naming the
-    // field in a command module would trip the guard in `manifest::v2::component` that keeps it
+    // field in a command module would trip the guard in `manifest::v3::component` that keeps it
     // from ever acquiring an execution path.
 
     const TARGET: &str = "aarch64-apple-darwin";
@@ -613,8 +652,8 @@ mod tests {
         assert_eq!(classify_pair(base(), base()), ChangeClass::None);
     }
 
-    /// Regression: `is_up_to_date` ignored artifacts entirely, so a component whose artifact moved
-    /// to a new release URL was reported as current and never reinstalled.
+    /// An artifact is a file in the publication, so a component whose artifact URI moves to a new
+    /// release must be reinstalled even though nothing else about it changed.
     #[test]
     fn an_artifact_only_change_is_installation_impacting() {
         let mut new = base();
@@ -646,7 +685,8 @@ mod tests {
         assert_eq!(classify_pair(base(), new), ChangeClass::InstallationImpacting);
     }
 
-    /// Regression: adding an alias forced a full reinstall of an otherwise identical component.
+    /// An alias is resolved at dispatch and no installed file depends on it, so adding one to an
+    /// otherwise identical component must not force a reinstall.
     #[test]
     fn an_alias_only_change_is_runtime_metadata_only() {
         let mut new = base();

@@ -1,4 +1,4 @@
-use anyhow::Context;
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 use crate::{
@@ -10,9 +10,11 @@ use crate::{
     utils,
 };
 
-/// This functions sets the system's default toolchain. This is handled similarly to how we handle
-/// the `stable`. We create a symlink called `default` that points to the desired toolchain
-/// directory.
+/// Sets the system-wide default toolchain.
+///
+/// A network name is recorded as a link to the network's own link, rather than to the toolchain it
+/// names today, so that `default` follows the network as it moves. A version is recorded as the
+/// toolchain directory, because that is exactly what pinning a version means.
 // This function requires raw identifier syntax because "override" is a reserved keyword.
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 pub fn r#override(
@@ -28,11 +30,36 @@ pub fn r#override(
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let channel_dir = match channel {
-        // If a user sets `stable` to be the default; then we need to point to the `stable` symlink
-        // itself and *not* the underlying toolchain directory. In effect, this allows the user to
-        // always be using the stable toolchain, even after updates occur.
-        UserChannel::Stable => toolchains_dir.join("stable"),
-        _ => {
+        // A network name is indirected through its own symlink rather than resolved to a toolchain
+        // directory, so that `default` keeps following the network as it moves.
+        UserChannel::Named(name) => {
+            let link = crate::paths::network_link(&config.midenup_home, name.as_ref());
+
+            // Validated before it is written: unchecked, a typo would point `default` at a
+            // `toolchains/` link that does not exist, and the command would report success.
+            match config.upstream_manifest() {
+                Ok(manifest) => {
+                    if !manifest.network_names().any(|network| network == name.as_ref()) {
+                        bail!(
+                            "unknown channel '{name}'; known networks are {}",
+                            manifest.network_names().collect::<Vec<_>>().join(", ")
+                        );
+                    }
+                },
+                // Upstream may be unreachable, and a network this machine has already acted on is
+                // recorded by its own link, which is enough to accept the name offline.
+                Err(err) if link.symlink_metadata().is_err() => {
+                    return Err(err.context(format!(
+                        "cannot check whether '{name}' is a known network, and no \
+                         toolchains/{name} link exists locally"
+                    )));
+                },
+                Err(_) => {},
+            }
+
+            link
+        },
+        UserChannel::Version(_) => {
             let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
                 "failed to set {channel} as the system default. Try installing it:
         midenup install {channel}",
@@ -42,7 +69,9 @@ pub fn r#override(
     };
 
     let default_path = toolchains_dir.join("default");
-    if default_path.exists() {
+    // `symlink_metadata`, not `exists`: the latter follows the link, so a dangling `default` would
+    // never be removed here and every later override would fail with `EEXIST`.
+    if std::fs::symlink_metadata(&default_path).is_ok() {
         std::fs::remove_file(&default_path)
             .context("failed to remove 'default' toolchain symlink")?;
     }

@@ -50,7 +50,8 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
 /// ```text,ignore
 /// $MIDENUP_HOME
 /// |- toolchains/
-/// | |- stable     --> <channel>
+/// | |- <network>  --> <channel>       one per network naming this channel
+/// | |- default    --> <channel> | <network>
 /// | |- <channel>  --> ../publications/<channel>-<publication-id>
 /// |- publications/
 /// | |- <channel>-<publication-id>/
@@ -77,7 +78,8 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         state = InitializationState::Initialized;
     }
     // No `manifest.json` is written here. It was the v1 local manifest, replaced by `state.json`,
-    // and writing an empty one made every fresh installation look like a migration candidate.
+    // and it is the file migration keys on: writing an empty one would make every fresh
+    // installation look like a migration candidate.
 
     let toolchains_dir = crate::paths::toolchains_dir(&config.midenup_home);
     if !toolchains_dir.exists() {
@@ -118,12 +120,11 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         // Is `miden` reachable through `$PATH`? Almost certainly not the first time midenup is
         // initialized.
         //
-        // Answered by *looking*, never by executing. Running `miden --version` to find out -- which
-        // is what this did -- executes whatever binary happens to be first on `PATH`, hands it this
-        // process's entire environment, and lets it do whatever it likes with the `MIDENUP_HOME`
-        // that environment names. During a test run it reached the developer's real installation;
-        // between two parallel runs it contended on that installation's advisory lock and blocked
-        // for the full ten-minute timeout.
+        // Answered by *looking*, never by executing. Running `miden --version` to find out would
+        // execute whatever binary happens to be first on `PATH`, hand it this process's entire
+        // environment, and let it do whatever it likes with the `MIDENUP_HOME` that environment
+        // names -- during a test run, that is the developer's real installation, and blocking on
+        // its advisory lock until the timeout expires is the mildest thing that can come of it.
         let miden_is_accessible = std::env::var_os("PATH")
             .map(|path| {
                 std::env::split_paths(&path).any(|dir| {
@@ -138,8 +139,8 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         if !miden_is_accessible {
             if std::env::var(DEFAULT_USER_DATA_DIR).is_err() {
                 // Some OSs, like MacOs, don't define the XDG_* family of environment variables. In
-                // those cases, we mark the environment as initialized so the updated guidance
-                // below is surfaced on first-run.
+                // those cases, we mark the environment as initialized so the guidance below is
+                // surfaced on first-run.
                 state = InitializationState::Initialized;
             }
 

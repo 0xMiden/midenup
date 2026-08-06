@@ -97,8 +97,8 @@ pub struct Component {
 /// Converts one v1 command expression, naming what failed.
 ///
 /// v1 documents are still fetched from upstream, so a malformed one is *input*, not a bug: it must
-/// be reported with enough context to fix the manifest. This used to `expect`, which turned a bad
-/// upstream publish into a panic with no indication of which component or field was at fault.
+/// be reported rather than panicked on, and it must name the component and the field at fault so
+/// the manifest can be corrected.
 fn convert<T>(
     component: &str,
     field: &'static str,
@@ -129,7 +129,7 @@ fn convert_aliases(
         .collect()
 }
 
-impl TryFrom<Component> for crate::manifest::v2::Component {
+impl TryFrom<Component> for crate::manifest::v3::Component {
     type Error = ManifestError;
 
     fn try_from(v1: Component) -> Result<Self, Self::Error> {
@@ -291,8 +291,8 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
                             extractor: format!("{library_struct}::default().as_ref()"),
                         },
                         // v1 declared the exact output filename; carrying it forward is the whole
-                        // point of the field. It was previously discarded, which is what forced
-                        // install and uninstall to invent the name independently.
+                        // point of the field, and is what lets install and uninstall agree on one
+                        // name rather than each deriving it independently.
                         installed_package: Some(library_name),
                     }
                 } else {
@@ -301,7 +301,7 @@ impl TryFrom<Component> for crate::manifest::v2::Component {
             },
         };
 
-        Ok(crate::manifest::v2::Component {
+        Ok(crate::manifest::v3::Component {
             name,
             version: authority,
             kind,

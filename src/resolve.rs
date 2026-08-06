@@ -2,11 +2,8 @@
 //!
 //! This is the single resolver. Everything that needs to know "which components does this
 //! selection mean" goes through [resolve] -- direct installs, toolchain-file activation, updates,
-//! and plan construction alike.
-//!
-//! It replaces two overlapping mechanisms that disagreed with each other: `Channel::create_subset`,
-//! which expanded dependencies exactly one level (so `A -> B -> C` silently dropped `C`), and
-//! `Channel::component_graph`, a second implementation used only by install-script generation.
+//! and plan construction alike. A second implementation of the same question, however narrow its
+//! caller, is a second answer that can disagree with this one.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -134,7 +131,7 @@ pub fn resolve<'a>(
         roots.insert(i);
     }
 
-    // Transitive closure over `requires`. The previous implementation expanded one level only.
+    // Transitive closure over `requires`, not a single level of expansion.
     let mut selected: BTreeSet<usize> = BTreeSet::new();
     let mut worklist: Vec<usize> = roots.iter().copied().collect();
     let mut graph = petgraph::graphmap::DiGraphMap::<usize, ()>::new();
@@ -243,14 +240,15 @@ mod tests {
             });
         }
 
-        Channel::new(semver::Version::new(0, 15, 0), None, components)
+        Channel::new(semver::Version::new(0, 15, 0), components)
     }
 
     fn names(resolved: &[&Component]) -> Vec<String> {
         resolved.iter().map(|c| c.name.to_string()).collect()
     }
 
-    /// Regression: `create_subset` expanded one level, so `C` was silently dropped.
+    /// The closure follows `requires` all the way down: in `A -> B -> C`, selecting `A` must pull
+    /// in `C` too, not just the one level below it.
     #[test]
     fn closure_is_fully_transitive() {
         let ch =

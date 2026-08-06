@@ -19,7 +19,9 @@ fn run(path: &Path, args: &[&str]) -> Result<String, String> {
     if output.status.success() {
         Ok(stdout)
     } else {
-        Err(stderr)
+        // Both streams: a failure has to be judged on everything the tool said, including any
+        // outcome it announced on stdout before erroring out.
+        Err(format!("{stdout}{stderr}"))
     }
 }
 
@@ -35,10 +37,55 @@ fn read_manifest(path: &Path) -> serde_json::Value {
 
 fn manifest_with(components: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
+        "networks": {"mainnet": "0.15.0"},
         "channels": [{"name": "0.15.0", "components": components}]
     })
+}
+
+/// A manifest with two toolchains, `mainnet` naming the older one.
+///
+/// This is the shape `promote` exists to change: a network that has somewhere to move to.
+fn fixture() -> (tempdir::TempDir, std::path::PathBuf) {
+    let dir = tempdir::TempDir::new("update-manifest-promote").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "components": [cargo_executable("vm", "miden-vm")]},
+                {"name": "0.16.0", "components": [cargo_executable("vm", "miden-vm")]}
+            ]
+        }),
+    );
+    (dir, path)
+}
+
+/// The same, except that toolchain 0.16.0 cannot be resolved: `client` requires a component that
+/// is not in the channel.
+fn fixture_with_dangling_requirement() -> (tempdir::TempDir, std::path::PathBuf) {
+    let dir = tempdir::TempDir::new("update-manifest-promote-dangling").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "components": [cargo_executable("vm", "miden-vm")]},
+                {"name": "0.16.0", "components": [
+                    {"name": "client", "version": {"kind": "registry", "version": "0.16.0"},
+                     "kind": "executable", "requires": ["ghost"], "profiles": ["minimal"],
+                     "installation_method": {"kind": "cargo", "crate_name": "c"},
+                     "installed-executable": "miden-client"}
+                ]}
+            ]
+        }),
+    );
+    (dir, path)
 }
 
 fn cargo_executable(name: &str, installed: &str) -> serde_json::Value {
@@ -63,8 +110,7 @@ fn component<'a>(manifest: &'a serde_json::Value, name: &str) -> &'a serde_json:
 
 /// A partial `--kind` update must change the named fields and preserve the rest.
 ///
-/// Regression: the merge patch was applied in reverse -- the existing value was merged *onto* the
-/// user's new one -- so the old value always won and the command silently did nothing.
+/// The merge applies the user's new value over the existing one, so the new value wins.
 #[test]
 fn partial_kind_update_changes_the_requested_field() {
     let dir = tempdir::TempDir::new("update-manifest-patch").unwrap();
@@ -131,10 +177,9 @@ fn partial_kind_update_can_change_a_nested_field() {
 
 /// A `--kind` argument that is not a JSON object must be rejected, loudly.
 ///
-/// Regression: clap resolved `serde_json::Value` through `From<String>` before `FromStr`, so the
-/// argument arrived as `Value::String("{...}")`. Under RFC 7386 a non-object patch *replaces* the
-/// target, which combined with the reversed merge to produce the worst possible outcome: the
-/// command reported success and silently kept the old value.
+/// Under RFC 7386 a non-object patch *replaces* the target rather than merging into it, so a
+/// `--kind` that arrives as a bare `Value::String` throws the component's kind away instead of
+/// updating one of its fields -- and does so while reporting success.
 #[test]
 fn a_non_object_kind_patch_is_rejected() {
     let dir = tempdir::TempDir::new("update-manifest-nonobject").unwrap();
@@ -192,8 +237,8 @@ fn a_failed_mutation_does_not_write() {
 
 /// `check` must detect a requirement cycle.
 ///
-/// Regression: it called `component_graph`, which built the graph and discarded it without ever
-/// topologically sorting, so cyclic manifests were accepted.
+/// A cycle only shows up when the component graph is topologically sorted; building the graph and
+/// discarding it accepts a cyclic manifest.
 #[test]
 fn check_rejects_a_cyclic_manifest() {
     let dir = tempdir::TempDir::new("update-manifest-cycle").unwrap();
@@ -361,4 +406,91 @@ fn a_mutation_producing_an_invalid_manifest_is_refused() {
         .filter(|n| n != "channel-manifest.json")
         .collect();
     assert!(leftovers.is_empty(), "no temporary files may be left behind: {leftovers:?}");
+}
+
+#[test]
+fn promote_moves_a_network() {
+    let (_temp, path) = fixture();
+    run(&path, &["promote", "mainnet", "0.16.0"]).expect("must promote");
+
+    assert_eq!(read_manifest(&path)["networks"]["mainnet"], "0.16.0");
+}
+
+#[test]
+fn promote_creates_a_network_that_does_not_exist_yet() {
+    let (_temp, path) = fixture();
+    let output = run(&path, &["promote", "devnet", "0.16.0"]).expect("must create");
+    assert!(output.contains("created network 'devnet'"), "got: {output}");
+
+    assert_eq!(read_manifest(&path)["networks"]["devnet"], "0.16.0");
+}
+
+#[test]
+fn promote_reports_a_move_distinctly_from_a_creation() {
+    let (_temp, path) = fixture();
+    let output = run(&path, &["promote", "mainnet", "0.16.0"]).unwrap();
+    assert!(output.contains("moved 'mainnet' from 0.15.0 to 0.16.0"), "got: {output}");
+}
+
+#[test]
+fn promote_refuses_a_channel_that_is_not_in_the_manifest() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "mainnet", "9.9.9"]).expect_err("must refuse");
+    assert!(err.contains("9.9.9"), "the diagnostic must name the channel: {err}");
+}
+
+/// A network must never name a toolchain that cannot be installed: every user tracking it would
+/// discover that only at install time.
+#[test]
+fn promote_refuses_a_channel_that_does_not_resolve() {
+    let (_temp, path) = fixture_with_dangling_requirement();
+    let err = run(&path, &["promote", "mainnet", "0.16.0"]).expect_err("must refuse");
+    assert!(err.contains("not installable"), "got: {err}");
+}
+
+#[test]
+fn promote_refuses_to_move_a_network_backwards_without_the_flag() {
+    let (_temp, path) = fixture();
+    run(&path, &["promote", "mainnet", "0.16.0"]).unwrap();
+
+    let err = run(&path, &["promote", "mainnet", "0.15.0"]).expect_err("must refuse");
+    assert!(err.contains("--allow-downgrade"), "the diagnostic must say how: {err}");
+
+    run(&path, &["promote", "mainnet", "0.15.0", "--allow-downgrade"]).expect("must allow it");
+    assert_eq!(read_manifest(&path)["networks"]["mainnet"], "0.15.0");
+}
+
+#[test]
+fn promote_refuses_a_network_named_like_a_channel() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "0.16.0", "0.16.0"]).expect_err("must refuse");
+    assert!(err.contains("ambiguous"), "got: {err}");
+}
+
+#[test]
+fn promote_refuses_a_reserved_synonym() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "stable", "0.16.0"]).expect_err("must refuse");
+    assert!(err.contains("mainnet"), "must name what to use instead: {err}");
+}
+
+/// The no-op path must not rewrite the document: a `promote` that changes nothing should produce
+/// no diff at all, timestamp included.
+#[test]
+fn promote_to_the_current_version_writes_nothing() {
+    let (_temp, path) = fixture();
+    let before = std::fs::read(&path).unwrap();
+
+    let output = run(&path, &["promote", "mainnet", "0.15.0"]).expect("must succeed");
+    assert!(output.contains("nothing to do"), "got: {output}");
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be untouched");
+}
+
+/// The printed line is the only safeguard a reviewer has, so it must never describe a promotion
+/// that the write then rejected.
+#[test]
+fn promote_does_not_announce_a_promotion_it_failed_to_write() {
+    let (_temp, path) = fixture();
+    let err = run(&path, &["promote", "", "0.16.0"]).expect_err("an empty network name is invalid");
+    assert!(!err.contains("created network"), "must not claim to have created it: {err}");
 }

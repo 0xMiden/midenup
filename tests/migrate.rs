@@ -1,5 +1,5 @@
 use clap::Parser;
-use midenup::commands::Midenup;
+use midenup::{channel::UserChannel, commands::Midenup};
 
 mod common;
 
@@ -55,14 +55,14 @@ fn integration_channel_migration_test() {
     // Check 2: The 0.20.3 directory has been entirely deleted
     assert!(!toolchain_dir.join("0.20.3").exists());
 
-    // Check 3: The stable symlink points to the new channel directory
-    let stable_symlink = toolchain_dir.join("stable");
-    assert!(stable_symlink.exists(), "stable symlink should exist after migration");
-    let symlink_target = std::fs::read_link(&stable_symlink).expect("stable should be a symlink");
+    // Check 3: The mainnet link points to the new channel directory
+    let mainnet_symlink = toolchain_dir.join("mainnet");
+    assert!(mainnet_symlink.exists(), "the mainnet link should exist after migration");
+    let symlink_target = std::fs::read_link(&mainnet_symlink).expect("mainnet should be a symlink");
     assert_eq!(
         symlink_target.file_name(),
         toolchain_dir.join("0.13.0").file_name(),
-        "stable symlink should point to the migrated channel"
+        "the mainnet link should point to the migrated channel"
     );
 }
 
@@ -91,7 +91,8 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
     let intent_before = state.get(&old).expect("0.20.3 must be installed").intent.clone();
 
     // Stand in for whatever the client would have written.
-    let old_var = midenup::paths::var_dir(&test_env.midenup_home, &old);
+    let old_var =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(old.clone()));
     std::fs::create_dir_all(&old_var).unwrap();
     std::fs::write(old_var.join("data"), b"client-db").unwrap();
 
@@ -108,7 +109,8 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
     assert_eq!(migrated.intent, intent_before, "intent must transfer verbatim");
     assert!(state.get(&old).is_none(), "the old channel's record must be gone");
 
-    let new_var = midenup::paths::var_dir(&test_env.midenup_home, &new);
+    let new_var =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(new.clone()));
     assert_eq!(
         std::fs::read(new_var.join("data")).unwrap(),
         b"client-db",
@@ -120,9 +122,9 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
 /// Uninstalling must not depend on being able to name every file a component installed.
 ///
 /// The publication directory contains exactly what its receipt says it does, so it is removed
-/// wholesale. The previous implementation walked components to delete their files one by one, which
-/// meant every shape it got wrong -- a hidden executable with no shim, two components built from
-/// one Cargo package -- left files behind or panicked.
+/// wholesale rather than by walking components and deleting each one's files. That enumeration
+/// cannot be made reliable: a hidden executable has no shim, two components can be built from one
+/// Cargo package, and every shape it gets wrong leaves files behind or panics.
 #[test]
 fn integration_uninstall_removes_the_publication_wholesale() {
     let _guard = common::harness::mutating_test_guard();

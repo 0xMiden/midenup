@@ -155,8 +155,9 @@ impl Fixture {
 
     fn write(&self, file: &str, components: Vec<serde_json::Value>) -> String {
         let manifest = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
             "channels": [{
                 "name": "0.15.0",
                 "components": components
@@ -219,8 +220,8 @@ fn installed(state: &LocalState) -> Vec<String> {
 
 /// Activating one project must never take away what another project asked for.
 ///
-/// Regression: activation installed a *narrowed* channel, so switching between two projects
-/// alternately uninstalled each other's components.
+/// Activation resolves against the union of recorded intent rather than against a channel narrowed
+/// to the activating project, so switching back and forth adds and never removes.
 #[test]
 fn integration_switching_between_two_projects_is_additive_in_both_directions() {
     let _guard = common::harness::mutating_test_guard();
@@ -283,8 +284,8 @@ fn integration_direct_install_can_shrink_and_activation_re_adds() {
 /// `profiles` are re-resolved on update, so a `minimal` installation gains a component newly
 /// tagged `minimal` upstream.
 ///
-/// Regression: `update stable` intersected the new channel with the installed component names, so
-/// a component that did not exist locally could never appear.
+/// `update stable` resolves the channel as upstream defines it; it is not narrowed to the set of
+/// component names already installed locally, so a component with no local counterpart can appear.
 #[test]
 fn integration_a_minimal_installation_receives_newly_profiled_components() {
     let _guard = common::harness::mutating_test_guard();
@@ -401,8 +402,8 @@ fn integration_a_removed_root_blocks_the_update_and_preserves_the_installation()
 /// Spec section 9.8: a change that no installed file reflects is committed as a single atomic
 /// `state.json` write -- no journal, no staging, no new publication.
 ///
-/// Regression: `is_up_to_date` compared component *kind* wholesale, so adding an alias forced a
-/// full reinstall of an otherwise byte-identical component.
+/// Adding an alias to a component does not force a reinstall: `is_up_to_date` compares the fields
+/// that decide what gets installed, not the component's kind wholesale.
 #[test]
 fn integration_a_metadata_only_change_updates_state_without_republishing() {
     let _guard = common::harness::mutating_test_guard();
@@ -483,9 +484,10 @@ fn integration_an_invalid_subcommand_lists_the_valid_ones() {
 
 /// A declared subcommand expands to its own words, with the component's `format` in front.
 ///
-/// Regression: the subcommand map was consulted through `matches.subcommand()`, which is always
-/// `None` for an external subcommand, so `miden node up` passed `up` through as a literal argument
-/// and -- for the shipped `node`, whose `format` is empty -- tried to execute it as a program.
+/// The map is consulted against the raw argument rather than through clap's `matches.subcommand()`,
+/// which is always `None` for an external subcommand: going through clap leaves `miden node up`
+/// passing `up` on as a literal argument, and a component whose `format` is empty -- the shipped
+/// `node` among them -- then tries to execute it as a program.
 #[test]
 fn integration_a_declared_subcommand_expands_to_its_own_words() {
     let _guard = common::harness::mutating_test_guard();
@@ -620,6 +622,11 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         "with upstream available it must be derived and shown: {}",
         String::from_utf8_lossy(&shown.stdout)
     );
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains("(mainnet"),
+        "and so must the networks naming the channel: {}",
+        String::from_utf8_lossy(&shown.stdout)
+    );
 
     // With upstream unavailable it is not shown -- and never guessed at. The cached manifest would
     // answer, so it goes too.
@@ -633,4 +640,5 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         "the installed channel must still be listed: {stdout}"
     );
     assert!(!stdout.contains("partial"), "but its partial status must not be: {stdout}");
+    assert!(!stdout.contains("mainnet"), "nor the networks naming it: {stdout}");
 }

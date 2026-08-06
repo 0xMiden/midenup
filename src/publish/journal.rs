@@ -11,7 +11,7 @@
 //! 3. VERIFY    structural check; write receipt.json
 //! 4. COMMIT    repoint toolchains/<channel>          <- THE COMMIT POINT
 //! 5. RECORD    commit state.json
-//! 6. DERIVE    rebuild toolchains/stable and opt
+//! 6. DERIVE    rebuild the network links and opt
 //! 7. CLEAN     release the old publication; delete the journal
 //! ```
 //!
@@ -198,8 +198,7 @@ pub fn record(
 /// with SIGKILL, and on Linux the interpreter of a shell script fails to open it. Since the
 /// toolchain link now points at the new publication, nothing can *start* using the old one, so it
 /// is simply unreferenced, and unreferenced publications are what `midenup gc` reclaims (spec
-/// section 11.6). This was observed, not theorized: a concurrent activation test failed roughly one
-/// run in five with `Killed: 9`.
+/// section 11.6).
 ///
 /// An *uninstall* does delete it, because that is what was asked for.
 ///

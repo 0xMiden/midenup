@@ -1,5 +1,5 @@
 pub(crate) mod v1;
-pub(crate) mod v2;
+pub(crate) mod v3;
 pub mod validate;
 pub mod version;
 
@@ -7,9 +7,9 @@ use std::path::Path;
 
 use thiserror::Error;
 
-pub use self::v2::*;
+pub use self::v3::*;
 use self::version::Compatibility;
-use crate::channel::{ChannelAlias, UserChannel};
+use crate::channel::UserChannel;
 
 pub type Alias = String;
 
@@ -85,8 +85,8 @@ impl VersionedManifest {
 
         let header = version::read_version_header(content, "manifest_version")?;
 
-        let mut manifest = match version::classify(&header.version, v2::MANIFEST_VERSION.major) {
-            Compatibility::Supported => v2::Manifest::parse_str(content)?,
+        let mut manifest = match version::classify(&header.version, v3::MANIFEST_VERSION.major) {
+            Compatibility::Supported => v3::Manifest::parse_str(content)?,
             Compatibility::RequiresNewer { found } => {
                 return Err(ManifestError::OutdatedMidenup(found));
             },
@@ -177,8 +177,8 @@ impl VersionedManifest {
             transfer.perform().map_err(curl_error)?;
         }
 
-        // *After* the transfer. Read beforehand, curl has no response yet and reports 0, so the
-        // error check never fired and an error page was parsed as though it were the manifest.
+        // *After* the transfer: read beforehand, curl has no response yet and reports 0, which
+        // passes the check below and lets an error page be parsed as though it were the manifest.
         let response_code = handle.response_code().map_err(curl_error)?;
         if !(200..300).contains(&response_code) {
             return Err(ManifestError::DownloadError {
@@ -197,6 +197,22 @@ impl VersionedManifest {
     }
 }
 
+/// What a call to [`Manifest::promote`] did.
+///
+/// Returned rather than printed so the caller decides how to report it: `update-manifest` prints a
+/// sentence, tests assert on the variant.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Promotion {
+    Created {
+        at: semver::Version,
+    },
+    Moved {
+        from: semver::Version,
+        to: semver::Version,
+    },
+    Unchanged,
+}
+
 impl Manifest {
     pub fn last_updated(&self) -> chrono::DateTime<chrono::Utc> {
         chrono::DateTime::from_timestamp(self.date, 0).expect("manifest has invalid timestamp")
@@ -212,91 +228,10 @@ impl Manifest {
     }
 
     pub fn add_channel(&mut self, channel: Channel) {
-        // Before adding the new stable channel, remove the stable alias from all the channels that
-        // have it.
-        //
-        // NOTE: This should be only a single channel, we check for multiple just in case.
-        if self.is_latest_stable(&channel) {
-            for channel in self
-                .channels
-                .iter_mut()
-                .filter(|c| c.alias.as_ref().is_some_and(|a| matches!(a, ChannelAlias::Stable)))
-            {
-                channel.alias = None
-            }
-        }
-
         // NOTE: If the channel already exists in the manifest, remove the old version. This happens
         // when updating
         self.channels.retain(|c| c.name != channel.name);
-
         self.channels.push(channel);
-    }
-
-    /// Determines whether the `channel` is the latest stable version.
-    ///
-    /// This can only be determined by the [Manifest], since this definition is dependant on all the
-    /// other present [Channel]s
-    pub fn is_latest_stable(&self, channel: &Channel) -> bool {
-        self.channels.iter().filter(|c| c.is_stable()).all(|c| {
-            let comparison = channel.name.cmp_precedence(&c.name);
-            matches!(comparison, std::cmp::Ordering::Greater | std::cmp::Ordering::Equal)
-        })
-    }
-
-    /// Attempts to fetch the version corresponding to the `stable` [Channel].
-    ///
-    /// By definition this is the latest version.
-    ///
-    /// WARNING: This method is mainly intended to be used with the _upstream_ manifest, not the
-    /// local manifest.  This is because, stable is simply defined to be "the latest non-nightly"
-    /// channel in the [Manifest]. Therefore, in order to have a unified vision of what "stable"
-    /// refers to, refer to the upstream [Manifest].
-    pub fn get_latest_stable(&self) -> Option<&Channel> {
-        self.channels
-            .iter()
-            .find(|c| matches!(c.alias, Some(ChannelAlias::Stable)))
-            .or_else(|| {
-                self.channels
-                    .iter()
-                    .filter(|c| c.is_stable())
-                    .max_by(|x, y| x.name.cmp_precedence(&y.name))
-            })
-    }
-
-    pub fn get_latest_stable_mut(&mut self) -> Option<&mut Channel> {
-        let stable_version = self.get_latest_stable().map(|channel| channel.name.clone())?;
-        self.get_channel_by_name_mut(&stable_version)
-    }
-
-    pub fn get_latest_nightly(&self) -> Option<&Channel> {
-        self.channels.iter().find(|c| c.is_latest_nightly()).or_else(|| {
-            self.channels
-                .iter()
-                .filter(|c| c.is_nightly())
-                .max_by(|x, y| x.name.cmp_precedence(&y.name))
-        })
-    }
-
-    pub fn get_latest_nightly_mut(&mut self) -> Option<&mut Channel> {
-        let nightly_version = self.get_latest_nightly().map(|channel| channel.name.clone())?;
-        self.get_channel_by_name_mut(&nightly_version)
-    }
-
-    pub fn get_named_nightly(&self, name: impl AsRef<str>) -> Option<&Channel> {
-        self.channels.iter().find(|c| {
-            c.alias.as_ref().is_some_and(
-                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
-            )
-        })
-    }
-
-    pub fn get_named_nightly_mut(&mut self, name: impl AsRef<str>) -> Option<&mut Channel> {
-        self.channels.iter_mut().find(|c| {
-            c.alias.as_ref().is_some_and(
-                |alias| matches!(alias, ChannelAlias::Nightly(Some(tag)) if tag == name.as_ref()),
-            )
-        })
     }
 
     pub fn get_channel_by_name(&self, ver: &semver::Version) -> Option<&Channel> {
@@ -307,37 +242,59 @@ impl Manifest {
         self.channels.iter_mut().find(|c| &c.name == ver)
     }
 
+    /// The channel version a network currently names, whether or not that channel exists here.
+    pub fn network_version(&self, name: &str) -> Option<&semver::Version> {
+        self.networks.get(name)
+    }
+
+    /// The channel a network currently names.
+    ///
+    /// `None` covers two different situations -- an undeclared network, and one naming a channel
+    /// that is not in this document -- because a caller can do nothing different about them.
+    /// `validate_manifest` is what distinguishes and reports the second.
+    pub fn resolve_network(&self, name: &str) -> Option<&Channel> {
+        self.get_channel_by_name(self.networks.get(name)?)
+    }
+
+    /// Every network naming `version`. Usually one; more once a toolchain is shared.
+    pub fn networks_for(&self, version: &semver::Version) -> impl Iterator<Item = &str> {
+        self.networks
+            .iter()
+            .filter(move |(_, named)| *named == version)
+            .map(|(name, _)| name.as_str())
+    }
+
+    /// Every declared network name, in order. For diagnostics that have to list what is available.
+    pub fn network_names(&self) -> impl Iterator<Item = &str> {
+        self.networks.keys().map(String::as_str)
+    }
+
+    /// Points `name` at `version`, creating the network if it does not exist.
+    ///
+    /// Says nothing about whether `version` is a channel in this manifest, or whether moving there
+    /// is a downgrade. Both are policy, and both belong to the caller that has a user to refuse.
+    pub fn promote(&mut self, name: &str, version: semver::Version) -> Promotion {
+        match self.networks.insert(name.to_string(), version.clone()) {
+            None => Promotion::Created { at: version },
+            Some(previous) if previous == version => Promotion::Unchanged,
+            Some(previous) => Promotion::Moved { from: previous, to: version },
+        }
+    }
+
     /// Attempts to fetch the [Channel] corresponding to the given [UserChannel]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
         match channel {
-            UserChannel::Version(v) => self.channels.iter().find(|c| &c.name == v),
-            UserChannel::Stable => self.get_latest_stable(),
-            UserChannel::Nightly => self.get_latest_nightly(),
-            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
-                Some(suffix) => self.get_named_nightly(suffix),
-                None => self.channels.iter().find(|c| {
-                    c.alias.as_ref().is_some_and(|alias| {
-                        matches!(alias, ChannelAlias::Tag(t) if t ==
-            tag.as_ref())
-                    })
-                }),
-            },
+            UserChannel::Version(version) => self.get_channel_by_name(version),
+            UserChannel::Named(name) => self.resolve_network(name),
         }
     }
 
     pub fn get_channel_mut(&mut self, channel: &UserChannel) -> Option<&mut Channel> {
         match channel {
-            UserChannel::Version(v) => self.channels.iter_mut().find(|c| &c.name == v),
-            UserChannel::Stable => self.get_latest_stable_mut(),
-            UserChannel::Nightly => self.get_latest_nightly_mut(),
-            UserChannel::Other(tag) => match tag.strip_prefix("nightly-") {
-                Some(suffix) => self.get_named_nightly_mut(suffix),
-                None => self.channels.iter_mut().find(|c| {
-                    c.alias.as_ref().is_some_and(|alias| {
-                        matches!(alias, ChannelAlias::Tag(t) if t ==
-                    tag.as_ref())
-                    })
-                }),
+            UserChannel::Version(version) => self.get_channel_by_name_mut(version),
+            UserChannel::Named(name) => {
+                let version = self.networks.get(name.as_ref())?.clone();
+                self.get_channel_by_name_mut(&version)
             },
         }
     }
@@ -352,26 +309,22 @@ mod tests {
     use std::borrow::Cow;
 
     use super::VersionedManifest;
-    use crate::{channel::UserChannel, manifest::ChannelAlias, version::Authority};
+    use crate::{channel::UserChannel, version::Authority};
 
-    /// A converted v1 manifest must report the *v2* version.
-    ///
-    /// Two separate defects made the in-memory version meaningless: `v2::Manifest` declared
-    /// `manifest_version` as `skip_deserializing` with a default, and the v1 converter stamped the
-    /// v1 constant. Together they meant every downstream version check was a tautology.
+    /// A converted v1 manifest must report the *v3* version.
     #[test]
-    fn converted_v1_manifest_reports_the_v2_version() {
+    fn converted_v1_manifest_reports_the_v3_version() {
         const FILE: &str = "file://tests/data/v1_manifest/channel-manifest.json";
         let manifest = VersionedManifest::load_from(FILE).expect("v1.0.1 must still be readable");
-        assert_eq!(manifest.manifest_version(), &super::v2::MANIFEST_VERSION);
+        assert_eq!(manifest.manifest_version(), &super::v3::MANIFEST_VERSION);
     }
 
     #[test]
     fn a_newer_major_version_asks_for_a_newer_midenup() {
-        let err = VersionedManifest::parse_str(r#"{"manifest_version":"3.0.0","channels":[]}"#)
-            .expect_err("a v3 manifest must be rejected");
+        let err = VersionedManifest::parse_str(r#"{"manifest_version":"4.0.0","channels":[]}"#)
+            .expect_err("a v4 manifest must be rejected");
         assert!(
-            matches!(&err, super::ManifestError::OutdatedMidenup(v) if v.major == 3),
+            matches!(&err, super::ManifestError::OutdatedMidenup(v) if v.major == 4),
             "expected OutdatedMidenup, got: {err}"
         );
     }
@@ -379,8 +332,20 @@ mod tests {
     /// A newer *minor* is additive by construction, so it must remain readable.
     #[test]
     fn a_newer_minor_version_is_accepted() {
-        VersionedManifest::parse_str(r#"{"manifest_version":"2.9.3","date":1,"channels":[]}"#)
+        VersionedManifest::parse_str(r#"{"manifest_version":"3.9.3","date":1,"channels":[]}"#)
             .expect("a newer minor must be readable");
+    }
+
+    /// v2 is not readable, and that is the point: it has no networks map, so a v2 document and a v3
+    /// build would silently disagree about which channel mainnet names.
+    #[test]
+    fn a_v2_manifest_is_rejected() {
+        let err = VersionedManifest::parse_str(r#"{"manifest_version":"2.0.0","channels":[]}"#)
+            .expect_err("v2 is below the supported floor");
+        assert!(
+            matches!(&err, super::ManifestError::UnsupportedVersion(v) if *v == semver::Version::new(2, 0, 0)),
+            "expected UnsupportedVersion(2.0.0), got: {err}"
+        );
     }
 
     #[test]
@@ -393,6 +358,94 @@ mod tests {
         );
     }
 
+    /// The state right after a testnet toolchain is promoted to mainnet: one channel, two names.
+    /// This is the case the old per-channel `alias` field could not represent at all.
+    #[test]
+    fn two_networks_may_name_one_channel() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": { "mainnet": "0.15.0", "testnet": "0.15.0", "devnet": "0.16.0" },
+            "channels": [
+                { "name": "0.15.0", "components": [] },
+                { "name": "0.16.0", "components": [] },
+            ]
+        })
+        .to_string();
+
+        let manifest = VersionedManifest::parse_str(&src).expect("must parse");
+
+        assert_eq!(manifest.network_version("mainnet"), Some(&semver::Version::new(0, 15, 0)));
+        assert_eq!(
+            manifest.resolve_network("testnet").map(|c| c.name.clone()),
+            Some(semver::Version::new(0, 15, 0))
+        );
+
+        let mut sharing: Vec<&str> =
+            manifest.networks_for(&semver::Version::new(0, 15, 0)).collect();
+        sharing.sort_unstable();
+        assert_eq!(sharing, vec!["mainnet", "testnet"]);
+
+        assert!(manifest.resolve_network("nope").is_none());
+    }
+
+    /// A pointer naming a channel that is not in the document resolves to nothing rather than
+    /// panicking. Validation is what reports it.
+    #[test]
+    fn a_dangling_network_resolves_to_nothing() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": { "mainnet": "9.9.9" },
+            "channels": [{ "name": "0.15.0", "components": [] }]
+        })
+        .to_string();
+
+        let manifest = VersionedManifest::parse_str(&src).expect("parsing must stay permissive");
+        assert_eq!(manifest.network_version("mainnet"), Some(&semver::Version::new(9, 9, 9)));
+        assert!(manifest.resolve_network("mainnet").is_none());
+    }
+
+    #[test]
+    fn promote_distinguishes_creation_movement_and_a_no_op() {
+        let mut manifest = super::Manifest::default();
+        manifest
+            .channels
+            .push(super::Channel::new(semver::Version::new(0, 15, 0), vec![]));
+        manifest
+            .channels
+            .push(super::Channel::new(semver::Version::new(0, 16, 0), vec![]));
+
+        assert!(matches!(
+            manifest.promote("mainnet", semver::Version::new(0, 15, 0)),
+            super::Promotion::Created { at } if at == semver::Version::new(0, 15, 0)
+        ));
+        assert!(matches!(
+            manifest.promote("mainnet", semver::Version::new(0, 15, 0)),
+            super::Promotion::Unchanged
+        ));
+        assert!(matches!(
+            manifest.promote("mainnet", semver::Version::new(0, 16, 0)),
+            super::Promotion::Moved { from, to }
+                if from == semver::Version::new(0, 15, 0) && to == semver::Version::new(0, 16, 0)
+        ));
+    }
+
+    /// The map is a `BTreeMap` so that `update-manifest format` is deterministic.
+    #[test]
+    fn networks_serialize_in_key_order() {
+        let mut manifest = super::Manifest::default();
+        manifest.promote("testnet", semver::Version::new(0, 15, 0));
+        manifest.promote("mainnet", semver::Version::new(0, 15, 0));
+        manifest.promote("devnet", semver::Version::new(0, 15, 0));
+
+        let json = serde_json::to_string(&manifest).unwrap();
+        let devnet = json.find("devnet").expect("devnet must be present");
+        let mainnet = json.find("mainnet").expect("mainnet must be present");
+        let testnet = json.find("testnet").expect("testnet must be present");
+        assert!(devnet < mainnet && mainnet < testnet, "keys must be emitted in order: {json}");
+    }
+
     /// Validates that the current channel manifest is parseable.
     #[test]
     fn validate_current_channel_manifest() {
@@ -400,19 +453,7 @@ mod tests {
             .expect("Couldn't load manifest");
 
         let _stable = manifest
-            .get_channel(&UserChannel::Stable)
-            .expect("Could not convert UserChannel to internal channel representation");
-    }
-
-    /// Validates that the *published* channel manifest is parseable.
-    /// NOTE: This test is mainly intended for backwards compatibilty reasons.
-    #[test]
-    fn validate_published_channel_manifest() {
-        let manifest = VersionedManifest::load_from(VersionedManifest::PUBLISHED_MANIFEST_URI)
-            .expect("Failed to parse upstream manifest.");
-
-        let _ = manifest
-            .get_channel(&UserChannel::Stable)
+            .get_channel(&UserChannel::Named(Cow::Borrowed("mainnet")))
             .expect("Could not convert UserChannel to internal channel representation");
     }
 
@@ -427,7 +468,7 @@ mod tests {
         let manifest = VersionedManifest::load_from(FILE).unwrap();
         {
             let custom_build = manifest
-                .get_channel(&UserChannel::Other(Cow::Borrowed("custom-dev-build")))
+                .get_channel(&UserChannel::Named(Cow::Borrowed("custom-dev-build")))
                 .unwrap_or_else(|| {
                     panic!(
                         "Could not convert UserChannel to internal channel representation from \
@@ -440,9 +481,11 @@ mod tests {
                 let prerelease = semver::Prerelease::new("custom-build").unwrap();
                 assert!(matches!(&custom_build.name, semver::Version { pre: _prerelease, .. }));
             }
+            // The literal the fixture declares, not `custom_build.name` -- that channel was
+            // looked up *through* this network, so comparing the two would assert nothing.
             assert_eq!(
-                custom_build.alias,
-                Some(ChannelAlias::Tag(Cow::Borrowed("custom-dev-build")))
+                manifest.network_version("custom-dev-build"),
+                Some(&semver::Version::parse("0.16.0-custom-build").unwrap())
             );
             {
                 let std_lib = custom_build
@@ -453,12 +496,20 @@ mod tests {
             }
         }
         {
-            let nightly = manifest.get_channel(&UserChannel::Nightly).unwrap_or_else(|| {
-                panic!(
-                    "Could not convert UserChannel to internal channel representation from {FILE}",
-                )
-            });
-            assert_eq!(nightly.alias, Some(ChannelAlias::Nightly(None)));
+            let nightly = manifest
+                .get_channel(&UserChannel::Named(Cow::Borrowed("devnet")))
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Could not convert UserChannel to internal channel representation from \
+                         {FILE}",
+                    )
+                });
+            // `nightly` is a synonym rewritten to `devnet`, so the v1 alias lands under that
+            // name. Asserted against the fixture's literal version for the reason above.
+            assert_eq!(
+                manifest.network_version("devnet"),
+                Some(&semver::Version::parse("0.15.0-nightly").unwrap())
+            );
             {
                 let client = nightly
                     .get_component("client")

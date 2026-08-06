@@ -54,7 +54,7 @@ pub enum ToolchainJustification {
     MidenToolchainFile { path: PathBuf },
     /// The system's default toolchain was overriden (via `midenup set`).
     Override,
-    /// No toolchain was specified, fallback to stable.
+    /// No toolchain was specified, fallback to the default network.
     Default,
 }
 
@@ -73,17 +73,13 @@ fn active_view(
     channel: &UserChannel,
     intent: &Intent,
 ) -> Option<Channel> {
-    let version = config.local_channel(channel, state)?;
+    let version = config.local_channel(channel)?;
     let installation = state.get(&version).filter(|installation| installation.is_managed())?;
 
     let installed = installation.as_channel();
     let resolved = crate::resolve::resolve(&installed, intent).ok()?;
 
-    Some(Channel::new(
-        installed.name.clone(),
-        installed.alias.clone(),
-        resolved.into_iter().cloned().collect(),
-    ))
+    Some(Channel::new(installed.name.clone(), resolved.into_iter().cloned().collect()))
 }
 
 impl Toolchain {
@@ -97,7 +93,7 @@ impl Toolchain {
     /// 2. The toolchain that has been set as the system's default. If set, a `default` symlink is
     ///    added to the `midenup` directory.
     ///
-    /// If none of the previous conditions are met, then `stable` will be used.
+    /// If none of the previous conditions are met, then the default network (`mainnet`) is used.
     pub fn current(config: &Config) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
         let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
@@ -200,7 +196,6 @@ impl Toolchain {
 
         let upstream_view = Some(Channel::new(
             channel.name.clone(),
-            channel.alias.clone(),
             resolved.iter().map(|component| (*component).clone()).collect(),
         ));
 

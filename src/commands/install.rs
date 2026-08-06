@@ -26,10 +26,8 @@ use crate::{
 /// **`channel` is always the full upstream channel**, and what gets installed is decided here, by
 /// resolving the effective intent against it. Every operation -- a direct install, a toolchain-file
 /// activation, an update, a channel migration -- differs only in how that intent is derived, and
-/// they all arrive here. Previously each caller hand-built a *narrowed* channel and passed
-/// `--profile complete`, so "what should be installed" was decided in three places that disagreed:
-/// activation could not add a component another project had asked for, and update suppressed every
-/// new component of a partially installed channel.
+/// they all arrive here. A caller that narrowed the channel before passing it would be deciding
+/// "what should be installed" a second time, in terms the intent recorded here cannot see.
 pub fn install(
     config: &Config,
     channel: &Channel,
@@ -39,7 +37,6 @@ pub fn install(
     commands::setup_midenup(config)?;
 
     let home = &config.midenup_home;
-    let toolchains_dir = paths::toolchains_dir(home);
 
     // Every install produces a *new* publication, named opaquely. Nothing may infer identity from
     // the name: a name derived from the plan key would invite treating equal keys as equal bytes,
@@ -85,7 +82,7 @@ pub fn install(
 
     let realized = crate::install::execute(&plan, &publication, options.verbose, config.debug)?;
 
-    // Spec section 9.2: a `path` source that moved *during* the build produced an installation
+    // Spec section 9.2: a `path` source that moves *during* the build produces an installation
     // matching neither the tree we pinned nor the one on disk now, and nothing else would ever
     // report it. Checked before the commit point, so the answer is to retry rather than to work
     // out what was published.
@@ -136,14 +133,27 @@ pub fn install(
     crate::publish::journal::record(home, &entry, state)?;
     fault::fail_at(fault::FaultPoint::PostRecord)?;
 
-    // 6. DERIVE. `stable` is a property of the upstream manifest, recomputed from it rather than
-    // remembered, so a stale local copy can never disagree with upstream about which channel it
-    // names.
-    if config.upstream_manifest()?.is_latest_stable(channel) {
-        let stable_dir = toolchains_dir.join("stable");
-        let relative_channel_target = PathBuf::from(format!("{}", channel.name));
-        utils::fs::replace_symlink(&stable_dir, &relative_channel_target)
-            .context("failed to point 'stable' at the newly installed channel")?;
+    // 6. DERIVE. Which channel a network names is a property of the upstream manifest, recomputed
+    // from it rather than remembered, so a stale local copy can never disagree with upstream. A
+    // loop rather than a conditional because several networks may name one channel -- the state
+    // right after a testnet toolchain is promoted to mainnet.
+    //
+    // Only the channel being installed gets links. Repointing a network at a channel that is not
+    // installed would leave a dangling symlink; `midenup update <network>` is what advances it.
+    let relative_channel_target = PathBuf::from(format!("{}", channel.name));
+    for network in config.upstream_manifest()?.networks_for(&channel.name) {
+        // A network name becomes a path segment under `toolchains/`, and `replace_symlink` renames
+        // over whatever is at that path. Loading a manifest is deliberately permissive, so the
+        // authoring gate in `manifest::validate` cannot be the only thing standing between a
+        // manifest and a symlink written outside `$MIDENUP_HOME`.
+        if crate::plan::validate_artifact_id(network).is_err() {
+            continue;
+        }
+
+        let link = paths::network_link(home, network);
+        utils::fs::replace_symlink(&link, &relative_channel_target).with_context(|| {
+            format!("failed to point '{network}' at the newly installed channel")
+        })?;
     }
     fault::fail_at(fault::FaultPoint::PostDerive)?;
 
@@ -250,8 +260,8 @@ fn carry_migrated_intent(state: &LocalState, channel: &Channel, intent: Intent) 
 ///
 /// The component snapshot is the **resolved** set, pinned, rather than the whole channel: `miden`
 /// dispatch reads it offline to decide what is available, and update needs to know what was
-/// *actually* installed. Recording every component in the channel made a `--profile minimal`
-/// installation claim to have everything, so activation never noticed a missing component.
+/// *actually* installed. Recording every component in the channel would make a `--profile minimal`
+/// installation claim to have everything, so activation could never notice a missing component.
 fn target_installation(
     config: &Config,
     channel: &Channel,

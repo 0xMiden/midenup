@@ -1,18 +1,17 @@
 //! Acquiring an artifact: HTTP(S) transfers and local copies.
 //!
-//! # Three bugs this replaces
+//! # What this module guarantees
 //!
-//! The previous implementation read `response_code()` **before** `transfer.perform()`. curl has no
-//! response at that point, so it always returned 0, the `400..500` check never fired, and the body
-//! of a 404 or 500 was written to disk *as the artifact*. A component would install "successfully"
-//! and then fail to execute, with an HTML error page where its binary should be.
+//! A body reaches disk only when the response says it should. `response_code()` is read **after**
+//! `transfer.perform()`, because before the transfer curl has no response and reports 0: read
+//! early, the status check passes for everything, and the body of a 404 or 500 is written to disk
+//! *as the artifact*. A component then installs "successfully" and fails to execute, with an HTML
+//! error page where its binary should be.
 //!
-//! It also derived the destination filename by destructuring `rsplit_once('/')` backwards, taking
-//! the URL prefix instead of the final segment. Destinations now come from the plan, so the URL is
-//! never consulted for a name at all.
+//! Destinations come from the plan, so the URL is never consulted for a name at all.
 //!
-//! Finally, its temporary file was `dest.with_extension("tmp")`, which collides for any two
-//! artifacts sharing a stem -- `core.masp` and `core.wasm` both stage through `core.tmp`.
+//! The temporary file an artifact stages through is unique per attempt, not derived from the
+//! destination's stem: `core.masp` and `core.wasm` must not stage through the same path.
 
 use std::{
     io::Write,
@@ -117,8 +116,8 @@ fn fetch(uri: &str) -> Result<Vec<u8>, ExecError> {
         })?;
     }
 
-    // *After* the transfer. Before it, curl has no response and reports 0, which is how error
-    // pages ended up on disk as artifacts.
+    // *After* the transfer. Before it, curl has no response and reports 0, so this check would
+    // pass for every status and error pages would land on disk as artifacts.
     let status = handle.response_code().map_err(|err| ExecError::Transfer {
         uri: uri.to_string(),
         reason: err.description().to_string(),
@@ -269,8 +268,8 @@ mod tests {
 
     /// A 404 body must never reach disk.
     ///
-    /// Regression: `response_code()` was read before `perform()`, so it always returned 0, the
-    /// error check never fired, and the body of a 404 was written out as the artifact.
+    /// The status is read after `perform()`, so the check sees the real response code rather than
+    /// the 0 curl reports for a transfer that has not run yet.
     #[test]
     fn a_404_is_rejected_and_writes_nothing() {
         let server = TestServer::responding(404, b"<html>Not Found</html>");
@@ -329,9 +328,6 @@ mod tests {
     }
 
     /// The destination name comes from the plan, never from the URL.
-    ///
-    /// Regression: the old code derived it by destructuring `rsplit_once('/')` backwards, which
-    /// yielded the URL *prefix*.
     #[test]
     fn the_destination_name_is_never_derived_from_the_uri() {
         let server = TestServer::responding(200, b"payload");
@@ -380,10 +376,8 @@ mod tests {
         assert!(matches!(err, ExecError::Copy { .. }), "{err}");
     }
 
-    /// Two artifacts sharing a stem must not stage through the same temporary path.
-    ///
-    /// Regression: the temporary was `dest.with_extension("tmp")`, so `core.masp` and `core.wasm`
-    /// both staged through `core.tmp`.
+    /// Two artifacts sharing a stem must not stage through the same temporary path, and neither
+    /// must two attempts at the same destination.
     #[test]
     fn temporary_names_do_not_collide_for_a_shared_stem() {
         let masp = temporary_sibling(Path::new("/tmp/core.masp"));

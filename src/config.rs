@@ -35,7 +35,8 @@ pub struct Config {
     /// toolchains with their respective components.
     ///
     /// It is usually going to be obtained from `curl`ing the URI present in
-    /// [`crate::manifest::Manifest::PUBLISHED_MANIFEST_URI`], although it could also be obtained
+    /// [`crate::manifest::VersionedManifest::PUBLISHED_MANIFEST_URI`], although it could also be
+    /// obtained
     /// from a different source (be it a local file or a different URL) for debugging purposes. The
     /// source can be specified via the `MIDENUP_MANIFEST_URI` environment variable. For example:
     ///
@@ -45,7 +46,7 @@ pub struct Config {
     ///
     /// Fetched lazily, on the first operation that actually needs it. `miden <cmd>` against an
     /// installed toolchain needs nothing from upstream (spec section 13.1), and fetching
-    /// unconditionally put a network round trip in front of every single component invocation.
+    /// unconditionally would put a network round trip in front of every component invocation.
     manifest_uri: String,
     manifest: std::cell::OnceCell<Manifest>,
     /// This flag is used to detect/distinguish when midenup is being used in tests.
@@ -163,15 +164,15 @@ impl Config {
     /// Points `$MIDENUP_HOME/opt` at the active toolchain's shims.
     ///
     /// Runs after every command, including `miden` dispatch, so it resolves the active channel from
-    /// *local* state: asking upstream what `stable` means would put a network round trip after
-    /// every component invocation, which is exactly what section 13.1 forbids.
-    pub fn update_opt_symlinks(&self, state: &LocalState) -> anyhow::Result<()> {
+    /// *local* state: asking upstream which channel `mainnet` names would put a network round trip
+    /// after every component invocation, which is exactly what section 13.1 forbids.
+    pub fn update_opt_symlinks(&self) -> anyhow::Result<()> {
         let (current_toolchain, _) = Toolchain::current(self)?;
 
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
 
-        let Some(active_channel) = self.local_channel(&current_toolchain.channel, state) else {
+        let Some(active_channel) = self.local_channel(&current_toolchain.channel) else {
             // Nothing installed for it, so there is nothing to point at. Not an error: `midenup
             // install` runs this on the way to installing exactly that.
             return Ok(());
@@ -219,36 +220,28 @@ impl Config {
 
     /// Resolves a user-facing channel name against what is *installed*, without upstream.
     ///
-    /// `stable` is a property of the upstream manifest, but the `toolchains/stable` symlink records
-    /// the last answer upstream gave, and local state records what exists. Between them, dispatch
-    /// can name the active channel offline.
-    pub fn local_channel(
-        &self,
-        channel: &crate::channel::UserChannel,
-        state: &LocalState,
-    ) -> Option<semver::Version> {
+    /// Which channel a network names is a property of the upstream manifest, but the
+    /// `toolchains/<network>` symlink records the last answer upstream gave that this machine acted
+    /// on, so dispatch can name the active channel offline.
+    pub fn local_channel(&self, channel: &crate::channel::UserChannel) -> Option<semver::Version> {
         use crate::channel::UserChannel;
 
         match channel {
             UserChannel::Version(version) => Some(version.clone()),
-            UserChannel::Stable => {
-                let derived = std::fs::read_link(
-                    crate::paths::toolchains_dir(&self.midenup_home).join("stable"),
-                )
-                .ok()
-                .and_then(|target| {
-                    target
-                        .file_name()
-                        .and_then(|name| name.to_str())
-                        .and_then(|name| semver::Version::parse(name).ok())
-                });
-
-                derived.or_else(|| {
-                    state.latest_stable().map(|installation| installation.channel.clone())
-                })
+            // The `toolchains/<network>` symlink records the last answer upstream gave that this
+            // machine acted on. There is deliberately no fallback: "the highest installed version"
+            // is a plausible wrong answer for mainnet, and an unresolvable network should send the
+            // caller upstream, which install and update consult anyway.
+            UserChannel::Named(name) => {
+                std::fs::read_link(crate::paths::network_link(&self.midenup_home, name.as_ref()))
+                    .ok()
+                    .and_then(|target| {
+                        target
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .and_then(|name| semver::Version::parse(name).ok())
+                    })
             },
-            // Nightly and ad-hoc channels have no local derivation yet; they are resolved upstream.
-            UserChannel::Nightly | UserChannel::Other(_) => None,
         }
     }
 

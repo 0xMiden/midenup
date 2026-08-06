@@ -20,13 +20,13 @@ fn integration_update_test() {
     let toolchain_v14 = toolchain_dir.join("0.14.0");
     let toolchain_v15 = toolchain_dir.join("0.15.0");
     let toolchain_v16 = toolchain_dir.join("0.16.0");
-    let toolchain_stable = toolchain_dir.join("stable");
+    let toolchain_mainnet = toolchain_dir.join("mainnet");
 
-    let stable_points_at = || {
-        std::fs::read_link(&toolchain_stable)
-            .expect("the stable symlink must exist")
+    let mainnet_points_at = || {
+        std::fs::read_link(&toolchain_mainnet)
+            .expect("the mainnet link must exist")
             .file_name()
-            .expect("the stable symlink must name a channel")
+            .expect("the mainnet link must name a channel")
             .to_string_lossy()
             .into_owned()
     };
@@ -45,7 +45,7 @@ fn integration_update_test() {
         .expect("failed to install stable");
 
     assert!(toolchain_v14.exists());
-    assert_eq!(stable_points_at(), "0.14.0");
+    assert_eq!(mainnet_points_at(), "0.14.0");
 
     // 0.15.0 is released. Updating stable must install it *and* leave 0.14.0 alone: a version bump
     // is an additional installation, not a replacement.
@@ -58,8 +58,8 @@ fn integration_update_test() {
 
     assert!(toolchain_v14.exists(), "the previous toolchain must be retained");
     assert!(toolchain_v15.exists(), "the new stable toolchain must be installed");
-    assert!(toolchain_stable.is_symlink());
-    assert_eq!(stable_points_at(), "0.15.0", "stable must follow the upstream bump");
+    assert!(toolchain_mainnet.is_symlink());
+    assert_eq!(mainnet_points_at(), "0.15.0", "mainnet must follow the upstream bump");
 
     // A global update touches every *installed* toolchain. The manifest now changes something of
     // each kind at once -- see `UpdateFixture::with_every_change`.
@@ -70,10 +70,10 @@ fn integration_update_test() {
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
 
-    // A global update must not move `stable`, even though 0.16.0 now exists upstream: it updates
+    // A global update must not move mainnet, even though 0.16.0 now exists upstream: it updates
     // what is installed, and 0.16.0 is not.
-    assert!(toolchain_stable.is_symlink());
-    assert_eq!(stable_points_at(), "0.15.0", "a global update must not move stable");
+    assert!(toolchain_mainnet.is_symlink());
+    assert_eq!(mainnet_points_at(), "0.15.0", "a global update must not move mainnet");
     assert!(!toolchain_v16.exists(), "a global update must not install a new channel");
 
     // A component removed upstream must be removed on disk.
@@ -127,5 +127,5 @@ fn integration_update_test() {
         .expect("failed to update stable");
 
     assert!(toolchain_v16.exists());
-    assert_eq!(stable_points_at(), "0.16.0");
+    assert_eq!(mainnet_points_at(), "0.16.0");
 }

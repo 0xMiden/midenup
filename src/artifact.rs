@@ -168,7 +168,7 @@ pub enum Artifact {
         /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
         digest: Option<Digest>,
         /// Fields declared by a newer schema that this build does not recognize.
-        extra: crate::manifest::v2::unknown::Extra,
+        extra: crate::manifest::v3::unknown::Extra,
     },
     /// A non-executable/target-agnostic asset
     TargetAgnostic {
@@ -181,7 +181,7 @@ pub enum Artifact {
         /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
         digest: Option<Digest>,
         /// Fields declared by a newer schema that this build does not recognize.
-        extra: crate::manifest::v2::unknown::Extra,
+        extra: crate::manifest::v3::unknown::Extra,
     },
 }
 
@@ -224,7 +224,7 @@ impl Artifact {
         }
     }
 
-    fn extra(&self) -> &crate::manifest::v2::unknown::Extra {
+    fn extra(&self) -> &crate::manifest::v3::unknown::Extra {
         match self {
             Self::TargetSpecific { extra, .. } | Self::TargetAgnostic { extra, .. } => extra,
         }
@@ -235,7 +235,7 @@ impl Serialize for Artifact {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::Error;
 
-        crate::manifest::v2::unknown::merge_extra(&self.fields(), self.extra())
+        crate::manifest::v3::unknown::merge_extra(&self.fields(), self.extra())
             .map_err(S::Error::custom)?
             .serialize(serializer)
     }
@@ -256,7 +256,7 @@ impl<'de> Deserialize<'de> for Artifact {
             ));
         }
 
-        let (fields, extra) = crate::manifest::v2::unknown::split_extra::<ArtifactFields>(value)
+        let (fields, extra) = crate::manifest::v3::unknown::split_extra::<ArtifactFields>(value)
             .map_err(D::Error::custom)?;
 
         Ok(match fields {
@@ -304,7 +304,7 @@ pub struct Substitutions {
     pub extension: Option<String>,
     /// Fields declared by a newer schema that this build does not recognize.
     #[serde(flatten)]
-    pub extra: crate::manifest::v2::unknown::Extra,
+    pub extra: crate::manifest::v3::unknown::Extra,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,7 +546,7 @@ mod digest_tests {
     #[test]
     fn digest_round_trips_through_a_manifest() {
         let src = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "core",
@@ -572,7 +572,7 @@ mod digest_tests {
     #[test]
     fn a_malformed_digest_fails_the_parse() {
         let src = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "core",
@@ -594,10 +594,9 @@ mod digest_tests {
 mod forward_compatibility_tests {
     use super::*;
 
-    /// Spec section 4.4: *every* schema type preserves what this build does not understand.
-    /// `Artifact` was the last one that did not, so a newer publisher adding a field to an
-    /// artifact -- a signature, say -- would have lost it on the first `update-manifest` round
-    /// trip.
+    /// Spec section 4.4: *every* schema type preserves what this build does not understand,
+    /// `Artifact` included. Without that, a newer publisher adding a field to an artifact -- a
+    /// signature, say -- would lose it on the first `update-manifest` round trip.
     #[test]
     fn unknown_artifact_fields_round_trip() {
         for source in [
@@ -619,7 +618,7 @@ mod forward_compatibility_tests {
     }
 
     /// The capture must not duplicate keys that the flattened `substitutions` already consumed --
-    /// the failure mode that made this need hand-written impls in the first place.
+    /// the failure mode the hand-written impls exist to prevent.
     #[test]
     fn flattened_substitutions_are_not_duplicated_into_the_extras() {
         let source = serde_json::json!({

@@ -43,19 +43,41 @@ A channel is a set of [components](#components) under one version, meant to be u
 ```json
 {
   "name": "0.15.0",
-  "alias": "stable",
   "migrates_from": "0.14.0",
   "components": [ /* ... */ ]
 }
 ```
 
 - `name` — semantic version; the channel's identity.
-- `alias` — `stable`, `nightly`, `nightly-<tag>`, or an ad-hoc tag.
-- `migrates_from` — this channel supersedes the named one. An installation of that channel is carried here on the next update: its selection transfers verbatim, and its `var/` directory is renamed so client data follows the toolchain.
+- `migrates_from` — this channel supersedes the named one. An installation of that channel is carried here on the next update: its selection transfers verbatim, and `var/<old>` is renamed to `var/<new>` so that a user who pinned the retired version keeps their data — it is the one operation that retires a selector.
 
-### The stable channel
+## Networks
 
-A channel is *the* stable channel if it carries `alias: "stable"`; otherwise the highest non-prerelease version wins. This is computed from the upstream manifest only. Local state records channel versions and never an alias, so a stale local copy cannot disagree with upstream about what `stable` means.
+A network is a moving name for a channel. `mainnet` names whichever toolchain is deployed to mainnet
+today; `midenup install mainnet` installs that one.
+
+```json
+"networks": {
+  "devnet":  "0.16.0",
+  "mainnet": "0.15.0",
+  "testnet": "0.16.0"
+}
+```
+
+Several networks may name one channel, which is the normal state once a testnet toolchain is
+promoted to mainnet.
+
+`stable`, `beta` and `nightly` are accepted as synonyms for `mainnet`, `testnet` and `devnet`. They
+are rewritten as they are read, so everything downstream — output, symlinks, local state — uses the
+network name.
+
+Which toolchain a network runs is a deployment fact, not a function of version ordering: mainnet may
+lag testnet by several releases, and a hotfix may put it ahead. So it is declared rather than
+derived, and `update-manifest promote` is what moves it.
+
+Validation requires that every network name a channel in the same document, that no network is named
+like a channel or after one of the synonyms, and that `mainnet` is declared — it is the channel
+`midenup` uses when nothing else selects one.
 
 ## Components
 
@@ -90,7 +112,7 @@ Substitutions available in a URI are `%target`, `%version` (which requires a reg
 
 Validation is an authoring gate, not a parsing gate: `update-manifest check` runs the full structural validator, and plan construction re-checks what depends on the current target. Parsing deliberately does *not* validate — the published manifest has historically contained channels with dangling requirements, and refusing to parse would break every command for every user over a channel they were not using.
 
-The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, and malformed digests. Target availability is checked only when an installation is actually planned.
+The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests, and the network rules described above. Target availability is checked only when an installation is actually planned.
 
 ## Custom manifests
 

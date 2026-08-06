@@ -1,7 +1,9 @@
 use std::{ffi::OsString, fs::OpenOptions};
 
 use clap::Parser;
-use midenup::{commands::Midenup, manifest::ComponentKind, miden_wrapper, version};
+use midenup::{
+    channel::UserChannel, commands::Midenup, manifest::ComponentKind, miden_wrapper, version,
+};
 
 mod common;
 
@@ -29,35 +31,35 @@ fn integration_install_stable() {
     let state_file = test_env.midenup_home.join("state").with_extension("json");
     assert!(state_file.exists(), "install must write local state");
 
-    let stable_dir = test_env.midenup_home.join("toolchains").join("stable");
-    assert!(stable_dir.exists());
-    assert!(stable_dir.is_symlink());
+    let mainnet_dir = test_env.midenup_home.join("toolchains").join("mainnet");
+    assert!(mainnet_dir.exists());
+    assert!(mainnet_dir.is_symlink());
 
-    // `stable` is not persisted in local state -- it is a property of the upstream manifest and a
-    // derived symlink on disk. Assert on the symlink, and that state records the version it names.
-    let stable_version = config
+    // Which channel a network names is not persisted in local state -- it is a property of the
+    // upstream manifest and a derived symlink on disk. Assert on the symlink, and that state
+    // records the version it names.
+    let mainnet_version = config
         .upstream_manifest()
         .unwrap()
-        .get_latest_stable()
-        .expect("upstream must declare a stable channel")
-        .name
+        .network_version("mainnet")
+        .expect("upstream must declare a mainnet network")
         .clone();
     assert_eq!(
-        std::fs::read_link(&stable_dir).unwrap().file_name().unwrap(),
-        std::ffi::OsStr::new(&stable_version.to_string()),
-        "the stable symlink must point at the upstream stable channel"
+        std::fs::read_link(&mainnet_dir).unwrap().file_name().unwrap(),
+        std::ffi::OsStr::new(&mainnet_version.to_string()),
+        "the mainnet link must point at the channel upstream says mainnet names"
     );
 
     // Re-read from disk to confirm it was persisted, not merely held in memory.
     let reloaded = midenup::state::LocalState::load(&state_file).expect("state must reload");
-    assert!(reloaded.get(&stable_version).is_some());
+    assert!(reloaded.get(&mainnet_version).is_some());
 }
 
 /// A fresh install must actually place every artifact kind where it belongs.
 ///
-/// Regression: the existence check tested the pre-created `lib/` directory rather than the
-/// artifact file, so every package download was skipped and reported "already installed" on a
-/// completely fresh install.
+/// What decides whether an artifact still has to be acquired is the artifact file itself, not the
+/// directory it lands in -- those directories are pre-created, so testing one would report every
+/// package as already installed.
 #[test]
 fn integration_install_places_every_artifact_kind() {
     let _guard = common::harness::mutating_test_guard();
@@ -71,7 +73,7 @@ fn integration_install_places_every_artifact_kind() {
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
-    let root = test_env.midenup_home.join("toolchains").join("stable");
+    let root = test_env.midenup_home.join("toolchains").join("mainnet");
 
     assert!(
         root.join("bin").join("miden-vm").exists(),
@@ -92,9 +94,8 @@ fn integration_install_places_every_artifact_kind() {
 /// `opt/` serves two purposes: the clap `argv[0]` trick, so help renders as `miden vm ...`; and
 /// PATH discoverability, since `opt/` is the only toolchain directory on `PATH`.
 ///
-/// Regression: shims were emitted only when `symlink-name` was set explicitly, so a stable install
-/// produced one shim -- for the single hidden component that declared one -- and none for the
-/// callable components.
+/// Every callable executable gets one, whether or not it declares `symlink-name`: the declaration
+/// chooses the shim's name, it does not decide whether there is one.
 #[test]
 fn integration_install_creates_default_symlinks() {
     let _guard = common::harness::mutating_test_guard();
@@ -108,7 +109,7 @@ fn integration_install_creates_default_symlinks() {
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
 
-    let opt = test_env.midenup_home.join("toolchains").join("stable").join("opt");
+    let opt = test_env.midenup_home.join("toolchains").join("mainnet").join("opt");
     assert!(
         opt.join("miden vm").symlink_metadata().is_ok(),
         "missing default shim for 'vm' in {}",
@@ -218,8 +219,8 @@ fn integration_install_republishes_rather_than_mutating() {
     );
 }
 
-/// `%var(data)` holds the Miden client's database. With `var/` inside the publication -- which is
-/// replaced wholesale on every change -- a toolchain update destroyed it.
+/// `%var(data)` holds the Miden client's database, so it lives outside the publication: a
+/// publication is replaced wholesale on every change, and anything inside one goes with it.
 #[test]
 fn integration_var_survives_update_and_republication() {
     let _guard = common::harness::mutating_test_guard();
@@ -235,7 +236,8 @@ fn integration_var_survives_update_and_republication() {
         .expect("failed to install");
 
     // Stand in for whatever the client would have written under `%var(data)`.
-    let var = midenup::paths::var_dir(&test_env.midenup_home, &channel);
+    let var =
+        midenup::paths::var_dir(&test_env.midenup_home, &UserChannel::Version(channel.clone()));
     std::fs::create_dir_all(&var).unwrap();
     std::fs::write(var.join("data"), b"user-database").unwrap();
 
@@ -271,7 +273,7 @@ fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
 
     let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",
@@ -344,9 +346,12 @@ fn integration_install_from_non_cargo() {
 
     // Reads the recorded path mtime and git revision out of local state.
     let recorded = |state: &LocalManifest| {
+        let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet"))
+            .expect("the mainnet symlink must exist");
+        let version = semver::Version::parse(named.file_name().unwrap().to_str().unwrap()).unwrap();
         let channel = state
-            .latest_stable()
-            .expect("no stable channel found; despite having installed stable")
+            .get(&version)
+            .expect("state must record the channel mainnet names")
             .as_channel();
 
         let last_modification = match channel.get_component("vm").unwrap().version {
@@ -457,9 +462,12 @@ fn integration_prerelease_components_are_runnable() {
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
+    let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet"))
+        .expect("the mainnet symlink must exist");
+    let version = semver::Version::parse(named.file_name().unwrap().to_str().unwrap()).unwrap();
     let stable_channel = local_manifest
-        .latest_stable()
-        .expect("No stable channel found after installing stable")
+        .get(&version)
+        .expect("state must record the channel mainnet names")
         .as_channel();
 
     println!("Installed: {}", stable_channel);
@@ -514,7 +522,7 @@ fn integration_a_path_source_that_moves_during_the_build_is_refused() {
 
     let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",

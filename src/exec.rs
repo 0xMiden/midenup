@@ -217,20 +217,23 @@ pub enum InvalidExecutable {
 pub struct Resolver {
     /// The active publication, reached through `toolchains/<channel>`.
     sysroot: PathBuf,
-    /// `$MIDENUP_HOME/var/<channel>`: mutable state, deliberately *outside* the publication, so it
-    /// survives every republication of the toolchain (spec section 3.2).
+    /// `$MIDENUP_HOME/var/<selector>`: mutable state, deliberately *outside* the publication, so
+    /// it survives every republication of the toolchain (spec section 3.2).
     var: PathBuf,
 }
 
 impl Resolver {
+    /// `selector` is what the user chose -- a network name or a pinned version -- not the channel
+    /// it resolves to. Two networks sharing a channel must still reach their own `%var`, and a
+    /// network's `%var` must not change when its pointer moves. See [`crate::paths::var_dir`].
     pub fn new(
         sysroot: impl Into<PathBuf>,
         home: &std::path::Path,
-        channel: &semver::Version,
+        selector: &crate::channel::UserChannel,
     ) -> Self {
         Self {
             sysroot: sysroot.into(),
-            var: crate::paths::var_dir(home, channel),
+            var: crate::paths::var_dir(home, selector),
         }
     }
 
@@ -264,9 +267,9 @@ impl Resolver {
                 self.existing(self.sysroot.join("etc").join(file), component, expr)
             },
             // Deliberately not checked for existence, and created on demand. `%var` names *mutable*
-            // state the component owns and creates -- `%var(data)` is the client's database
-            // directory, which does not exist until the client makes it. Requiring it made
-            // `miden start-node` fail on every fresh installation.
+            // state the component owns and creates -- e.g. `%var(data)` could be the client's
+            // database directory, which does not exist until the client makes it, so requiring it
+            // to exist would fail on every fresh installation.
             Expr::VarPath(file) => {
                 std::fs::create_dir_all(&self.var).map_err(|source| InvalidExecutable::Var {
                     path: self.var.clone(),
@@ -348,10 +351,10 @@ impl Executable {
 /// without subcommands:  resolve(format) ++ argv[1..]
 /// ```
 ///
-/// The `format` prefix used to be dropped whenever a subcommand matched, so a component that
-/// declared both -- `format: ["docker", "compose", "-f", "%etc(...)"]` plus `subcommands: {up:
-/// ["up", "-d"]}` -- executed `up -d` as though it were a program. Nothing shipped in that shape
-/// yet, which is the only reason it was not visible.
+/// The `format` prefix is preserved when a subcommand matches, rather than replaced by it: a
+/// component that declares both -- `format: ["docker", "compose", "-f", "%etc(...)"]` plus
+/// `subcommands: {up: ["up", "-d"]}` -- means "run docker compose with `up -d`", and dropping the
+/// prefix would execute `up -d` as though it were a program.
 pub fn compose(
     component: &Component,
     format: &Executable,
@@ -408,7 +411,11 @@ mod tests {
         }
 
         fn resolver(&self) -> Resolver {
-            Resolver::new(self.sysroot.clone(), &self.home, &CHANNEL)
+            Resolver::new(
+                self.sysroot.clone(),
+                &self.home,
+                &crate::channel::UserChannel::Version(CHANNEL),
+            )
         }
 
         fn write(&self, relative: &str) -> std::path::PathBuf {
@@ -471,8 +478,8 @@ mod tests {
 
     /// Spec section 13.3: `format ++ subcommand ++ user args`, in that order.
     ///
-    /// Regression: the `format` prefix was dropped whenever a subcommand matched, so `miden node
-    /// up` would have tried to execute `up` as a program.
+    /// The matching subcommand extends the `format` prefix rather than replacing it: without the
+    /// prefix, `miden node up` would try to execute `up` as a program.
     #[test]
     fn subcommand_expansion_follows_format_then_subcommand_then_user_args() {
         let env = Env::new();
@@ -570,6 +577,41 @@ mod tests {
         );
     }
 
+    /// Two networks routinely name one channel -- all three do in the shipped manifest -- and their
+    /// state must stay apart regardless. `%var` keys on what the user selected, so a user working
+    /// on mainnet and on testnet has two client databases, not one holding both.
+    #[test]
+    fn two_networks_naming_one_channel_do_not_share_var() {
+        let env = Env::new();
+        let node = node();
+        let var_of = |name: &'static str| {
+            let resolver = Resolver::new(
+                env.sysroot.clone(),
+                &env.home,
+                &crate::channel::UserChannel::Named(std::borrow::Cow::Borrowed(name)),
+            );
+            resolver.resolve(&Expr::VarPath(Some("data".into())), &node).unwrap()
+        };
+
+        assert_eq!(var_of("mainnet"), OsString::from(env.home.join("var/mainnet/data")));
+        assert_eq!(var_of("testnet"), OsString::from(env.home.join("var/testnet/data")));
+        assert_ne!(
+            var_of("mainnet"),
+            var_of("testnet"),
+            "the sysroot is identical here: only the selector keeps the stores apart"
+        );
+    }
+
+    /// The other half of the same rule: a pinned selector keys on the version the user pinned.
+    #[test]
+    fn a_pinned_selector_keys_var_on_its_version() {
+        let env = Env::new();
+        assert_eq!(
+            env.resolver().resolve(&Expr::VarPath(Some("data".into())), &node()).unwrap(),
+            OsString::from(env.home.join("var/0.15.0/data"))
+        );
+    }
+
     /// An `%etc` path that is not in the publication names the component that asked for it.
     /// Passing it through and letting the component fail on it blames the wrong thing.
     #[test]
@@ -596,7 +638,7 @@ mod tests {
     fn a_spawned_component_is_given_its_toolchain_environment() {
         let temp = tempdir::TempDir::new("exec-env").unwrap();
         let home = temp.path().join("midenup");
-        let channel = crate::manifest::Channel::new(CHANNEL, None, vec![]);
+        let channel = crate::manifest::Channel::new(CHANNEL, vec![]);
         let sysroot = crate::paths::toolchain_link(&home, &CHANNEL);
         std::fs::create_dir_all(sysroot.join("opt")).unwrap();
 

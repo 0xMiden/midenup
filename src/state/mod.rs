@@ -156,18 +156,6 @@ impl LocalState {
     pub fn channels(&self) -> impl Iterator<Item = &semver::Version> {
         self.installations.iter().map(|i| &i.channel)
     }
-
-    /// The installed channel that `stable` refers to locally: the highest non-prerelease version.
-    ///
-    /// Local state records no aliases. `stable` is a property of the *upstream* manifest (spec
-    /// section 5) and a derived symlink on disk; persisting it here would let a stale local copy
-    /// disagree with upstream about which channel is current.
-    pub fn latest_stable(&self) -> Option<&Installation> {
-        self.installations
-            .iter()
-            .filter(|i| i.channel.pre.is_empty())
-            .max_by(|a, b| a.channel.cmp_precedence(&b.channel))
-    }
 }
 
 #[cfg(test)]

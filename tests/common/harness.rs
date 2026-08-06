@@ -6,9 +6,8 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 ///
 /// Each test gets an isolated `MIDENUP_HOME`, but installs still run `cargo install` against a
 /// shared `CARGO_HOME` and the shared Cargo registry/package cache. Running several installs
-/// concurrently makes them contend, and which test loses the race varies between runs -- the
-/// observed symptom is a nondeterministic subset of the install tests failing while each one
-/// passes in isolation.
+/// concurrently makes them contend, and which test loses the race varies between runs, so without
+/// this a nondeterministic subset of the install tests fails while each one passes in isolation.
 ///
 /// `cargo test` runs a test binary's tests in a thread pool within one process, so a process-global
 /// mutex is sufficient. Poisoning is deliberately ignored: one panicking test must not cascade into
@@ -75,8 +74,9 @@ impl OfflineFixture {
         let uri = |path: &Path| format!("file://{}", path.display());
 
         let manifest = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
+            "networks": {"devnet": channel, "mainnet": channel, "testnet": channel},
             "channels": [{
                 "name": channel,
                 "components": [
@@ -218,8 +218,9 @@ pub fn write_source_manifest(
     revision: &str,
 ) -> String {
     let manifest = serde_json::json!({
-        "manifest_version": "2.0.0",
+        "manifest_version": "3.0.0",
         "date": 1735689600,
+        "networks": {"mainnet": "0.15.0"},
         "channels": [{
             "name": "0.15.0",
             "components": [
@@ -328,10 +329,11 @@ impl UpdateFixture {
         serde_json::json!({"kind": "registry", "version": version})
     }
 
-    fn write(&self, name: &str, channels: serde_json::Value) -> String {
+    fn write(&self, name: &str, mainnet: &str, channels: serde_json::Value) -> String {
         let manifest = serde_json::json!({
-            "manifest_version": "2.0.0",
+            "manifest_version": "3.0.0",
             "date": 1735689600,
+            "networks": {"mainnet": mainnet},
             "channels": channels
         });
         let path = self.dir.join(name);
@@ -344,6 +346,7 @@ impl UpdateFixture {
     pub fn initial(&self) -> String {
         self.write(
             "manifest-1.json",
+            "0.14.0",
             serde_json::json!([{
                 "name": "0.14.0",
                 "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
@@ -355,6 +358,7 @@ impl UpdateFixture {
     pub fn with_new_stable(&self) -> String {
         self.write(
             "manifest-2.json",
+            "0.15.0",
             serde_json::json!([
                 {
                     "name": "0.14.0",
@@ -378,6 +382,7 @@ impl UpdateFixture {
     pub fn with_every_change(&self) -> String {
         self.write(
             "manifest-3.json",
+            "0.16.0",
             serde_json::json!([
                 {
                     "name": "0.14.0",
@@ -401,5 +406,53 @@ impl UpdateFixture {
                 }
             ]),
         )
+    }
+
+    /// mainnet stays on 0.14.0 while devnet moves to 0.15.0: two networks, two channels.
+    pub fn with_split_networks(&self) -> String {
+        self.write_split("manifest-split.json", "0.23.3")
+    }
+
+    /// The same two networks pointing at the same two channels, with 0.15.0's `vm` bumped.
+    ///
+    /// Nothing a network names has moved here, so following the pointer is a no-op -- and yet the
+    /// channel devnet names is not up to date. This is the only way to tell "the pointer has not
+    /// moved" apart from "there is nothing to do".
+    pub fn with_split_networks_and_a_bumped_component(&self) -> String {
+        self.write_split("manifest-split-bumped.json", "0.23.4")
+    }
+
+    /// mainnet is promoted onto the channel devnet already names: two networks, one channel.
+    ///
+    /// The case that must keep the two networks' `var/` directories apart: they share a toolchain
+    /// but remain distinct networks, so `var/mainnet` and `var/devnet` stay separate stores.
+    pub fn with_networks_on_one_channel(&self) -> String {
+        self.write_split_at("manifest-shared.json", "0.15.0", "0.23.3")
+    }
+
+    fn write_split(&self, name: &str, devnet_vm: &str) -> String {
+        self.write_split_at(name, "0.14.0", devnet_vm)
+    }
+
+    fn write_split_at(&self, name: &str, mainnet: &str, devnet_vm: &str) -> String {
+        let manifest = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"devnet": "0.15.0", "mainnet": mainnet},
+            "channels": [
+                {
+                    "name": "0.14.0",
+                    "components": [self.vm("0.23.2"), self.core(Self::registry("0.23.2"))]
+                },
+                {
+                    "name": "0.15.0",
+                    "components": [self.vm(devnet_vm), self.core(Self::registry("0.23.3"))]
+                }
+            ]
+        });
+        let path = self.dir.join(name);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap())
+            .expect("failed to write fixture manifest");
+        format!("file://{}", path.display())
     }
 }

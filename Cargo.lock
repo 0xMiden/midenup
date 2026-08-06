@@ -900,6 +900,7 @@ dependencies = [
  "colored",
  "json-patch",
  "midenup",
+ "semver",
  "serde",
  "serde_json",
  "tempdir",

@@ -85,11 +85,11 @@ pub fn prepare(into: &Path) -> Result<(), StageError> {
 
 /// Copies forward everything `from` owns that the new plan still wants.
 ///
-/// Deliberately *not* a directory copy. The previous implementation copied the old toolchain tree
-/// wholesale, which carried forward anything that had ever landed there -- files from components
-/// since removed upstream, leftovers from an interrupted install, Cargo's own bookkeeping -- and
-/// left no way to tell inherited content from installed content. The receipt is the ownership
-/// record, so it is the only thing consulted here.
+/// Deliberately *not* a directory copy. Copying the old toolchain tree wholesale would carry
+/// forward anything that had ever landed there -- files of components since removed upstream,
+/// leftovers from an interrupted install, Cargo's own bookkeeping -- and leave no way to tell
+/// inherited content from installed content. The receipt is the ownership record, so it is the
+/// only thing consulted here.
 pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(), StageError> {
     let wanted: HashSet<&Path> = plan.steps.iter().map(|step| step.dest()).collect();
 
@@ -130,9 +130,9 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
 /// A step whose destination already exists is skipped: it was seeded from the previous
 /// publication, and [seed] only carries forward what is still current.
 ///
-/// The check is against the step's *exact* destination. Testing a containing directory instead is
-/// what previously caused every package download to be skipped -- `lib/` exists as soon as the
-/// tree is prepared, so the check was always true.
+/// The check is against the step's *exact* destination, never a containing directory: `lib/`
+/// exists as soon as the tree is prepared, so testing it would be true from the start and skip
+/// every package download.
 ///
 /// Returns how each destination was actually produced, which is not always what the plan declared:
 /// see [PlanStep::fallback].
@@ -337,7 +337,6 @@ mod tests {
 
         let channel = Channel::new(
             semver::Version::new(0, 15, 0),
-            None,
             vec![
                 component(
                     "vm",
@@ -462,8 +461,8 @@ mod tests {
         assert!(matches!(err, StageError::MissingSymlink { .. }), "{err}");
     }
 
-    /// A directory where a file was planned must not pass. Regression: the existence check tested
-    /// a containing directory, which exists as soon as the tree is prepared.
+    /// A directory where a file was planned must not pass: verification is against the exact
+    /// destination, not a containing directory that exists as soon as the tree is prepared.
     #[test]
     fn a_directory_where_a_file_was_planned_fails_verification() {
         let temp = tempdir::TempDir::new("stage-dir").unwrap();
@@ -529,10 +528,9 @@ mod tests {
         (dir, receipt)
     }
 
-    /// Seeding copies what the previous receipt owns and nothing else. Regression: the old
-    /// implementation copied the whole directory, so anything that had ever landed there --
-    /// leftovers from an interrupted install, files of components since removed -- was inherited
-    /// forever, with no way to tell it apart from installed content.
+    /// Seeding copies what the previous receipt owns and nothing else, so an unowned file sitting
+    /// in the old publication -- a leftover from an interrupted install, a file of a component
+    /// since removed -- is not inherited by the new one.
     #[test]
     fn seeding_copies_only_paths_the_old_receipt_owns() {
         let temp = tempdir::TempDir::new("stage-seed-owned").unwrap();

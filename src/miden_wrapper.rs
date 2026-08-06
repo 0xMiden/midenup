@@ -5,7 +5,7 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::Channel,
+    channel::{Channel, UserChannel},
     exec::{self, Executable, Resolver},
     manifest::{Component, ComponentKind, ExecutableComponent},
     state::LocalState,
@@ -373,11 +373,12 @@ pub fn miden_wrapper(
         Toolchain::ensure_current_is_installed(config, state)?;
 
     // Resolved entirely from local state. `state.json` records what is installed, and
-    // `toolchains/stable` records the last answer upstream gave about what `stable` means, so
-    // dispatch never needs the network to find its own toolchain (spec section 13.1).
+    // `toolchains/<network>` records the last answer upstream gave about which channel that
+    // network names, so dispatch never needs the network to find its own toolchain (spec section
+    // 13.1).
     let installed_channel = {
         let active = config
-            .local_channel(&toolchain.channel, state)
+            .local_channel(&toolchain.channel)
             .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
         state
             .get(&active)
@@ -419,7 +420,7 @@ pub fn miden_wrapper(
             match toolchain_environment.resolve(resolve, subcommand_matches) {
                 Ok(environment) => {
                     let active_channel = environment.active_channel;
-                    let resolver = resolver_for(config, active_channel);
+                    let resolver = resolver_for(config, active_channel, &toolchain.channel);
 
                     // Since we're using "allow_external_subcommands" all the remaining arguments
                     // are stored in the empty string "".
@@ -544,9 +545,8 @@ pub fn display_version(config: &Config) -> String {
     let toolchain_version = Toolchain::current(config)
         .and_then(|(toolchain, _)| {
             // `midenup --version` is informational and must not reach for the network.
-            let state = config.local_state()?;
             config
-                .local_channel(&toolchain.channel, &state)
+                .local_channel(&toolchain.channel)
                 .map(|channel| channel.to_string())
                 .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
         })
@@ -642,16 +642,19 @@ fn default_help() -> String {
     )
 }
 
-/// Function that tries to resolve `argument` inside the `channel`.
 /// Where this invocation's `%`-expressions resolve to.
 ///
-/// Built once, from the active publication and this channel's `var/`, so that every expression in
+/// Built once, from the active publication and this selector's `var/`, so that every expression in
 /// every alias of one invocation resolves against the same toolchain.
-fn resolver_for(config: &Config, channel: &Channel) -> Resolver {
+///
+/// The two arguments are deliberately not the same thing: files come from the *channel* the
+/// selector resolves to, while `%var` is keyed by the `selector` itself, so that two networks on
+/// one channel keep separate state.
+fn resolver_for(config: &Config, channel: &Channel, selector: &UserChannel) -> Resolver {
     Resolver::new(
         crate::paths::toolchain_link(&config.midenup_home, &channel.name),
         &config.midenup_home,
-        &channel.name,
+        selector,
     )
 }
 
@@ -683,10 +686,7 @@ fn resolve_argument<'a>(
                     // The subcommand is the first *user* argument, not a nested clap subcommand.
                     // `miden` allows external subcommands, so clap parses `miden node up` as the
                     // external subcommand `node` with `up` in its trailing-argument bucket and
-                    // never descends further. Reading `matches.subcommand()` here therefore always
-                    // saw `None`: every declared subcommand map was dead, and the shipped `node`
-                    // component -- whose `format` is empty and whose verbs live entirely in that
-                    // map -- composed `miden node up` into an attempt to execute `up`.
+                    // never descends further: `matches.subcommand()` is always `None` here.
                     let mut user = matches.get_many::<OsString>("").into_iter().flatten();
 
                     let Some(requested) = user.next() else {

@@ -47,7 +47,7 @@ pub enum PublicationRef {
     },
     /// Carried forward from a v1 manifest, with no publication behind it yet.
     ///
-    /// The pre-v2 layout is not described by any receipt, so `midenup` cannot know what it owns.
+    /// The v1 layout is not described by any receipt, so `midenup` cannot know what it owns.
     /// Such a record is never executed against; the next operation touching the channel reinstalls
     /// it. Produced only by migration.
     NeedsReinstall,
@@ -81,8 +81,9 @@ pub struct Output {
 /// The immutable record of what a publication contains.
 ///
 /// Written once, inside the publication directory, and thereafter the authority on which files
-/// that publication owns. Uninstall and update-seeding both consult it rather than guessing from
-/// the manifest, which is how install and uninstall paths drift apart.
+/// that publication owns. Uninstall and update-seeding both consult it rather than deriving
+/// ownership from the manifest a second time, which would be a second answer to a question the
+/// install path has already answered.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Receipt {
     pub publication_id: PublicationId,
@@ -117,6 +118,6 @@ impl Installation {
     /// snapshot is what makes that possible without the network: everything those paths need was
     /// recorded at install time.
     pub fn as_channel(&self) -> crate::manifest::Channel {
-        crate::manifest::Channel::new(self.channel.clone(), None, self.components.clone())
+        crate::manifest::Channel::new(self.channel.clone(), self.components.clone())
     }
 }

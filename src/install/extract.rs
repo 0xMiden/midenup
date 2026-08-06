@@ -87,9 +87,8 @@ pub fn render_script(steps: &[PlanStep]) -> Option<String> {
 /// Builds the inline-table body of a Cargo dependency.
 ///
 /// Assembled here rather than in a template so that an absent features list simply contributes no
-/// entry. Rendering `{ {version}, {features} }` unconditionally produced a trailing comma when
-/// features were empty, which is not valid TOML -- and since only components *without* prebuilt
-/// artifacts reach this path, a plain install never hit it.
+/// entry. A fixed `{ {version}, {features} }` template would leave a trailing comma inside the
+/// inline table whenever features are empty, which is not valid TOML.
 fn dependency_spec(authority: &ResolvedAuthority, features: &[String]) -> String {
     let mut parts = Vec::with_capacity(2);
 
@@ -172,8 +171,8 @@ mod tests {
         assert!(render_script(&[download]).is_none(), "downloads need no script");
     }
 
-    /// Regression: the frontmatter rendered `{ {version}, {features} }` unconditionally, so a
-    /// component with no declared features produced a trailing comma inside the inline table.
+    /// An absent features list contributes no entry at all, so the inline table carries no
+    /// trailing comma and the frontmatter parses whatever the authority is.
     #[test]
     fn the_frontmatter_is_valid_toml_for_every_authority() {
         let authorities = [
@@ -255,8 +254,8 @@ mod tests {
         assert!(script.contains("a.masp") && script.contains("b.masp"), "both must be extracted");
     }
 
-    /// Render *and compile* the script, which is the class of bug that broke every install at the
-    /// start of this work. A local path dependency keeps it offline and fast.
+    /// Render *and compile* the script: a rendering mistake only surfaces once cargo parses and
+    /// builds it. A local path dependency keeps that offline and fast.
     #[test]
     fn the_rendered_script_compiles_and_runs() {
         let temp = tempdir::TempDir::new("extract-compile").expect("temp dir");
