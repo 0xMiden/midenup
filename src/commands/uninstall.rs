@@ -60,6 +60,13 @@ pub fn uninstall(
     // Found by scanning rather than by asking upstream which networks name this channel. Uninstall
     // has to work offline, and a network may have moved upstream since this machine last looked --
     // in which case upstream would not name the link that is actually here.
+    //
+    // This relies on [`crate::networks::links`] excluding `default`, and that exclusion is load
+    // bearing *here* rather than merely tidy: `midenup override <version>` points `default` at a
+    // version directly under `toolchains/`, which is the shape of a network link, so only the name
+    // tells the two apart. Were `default` to appear in this scan it would be removed before the
+    // commit point below, and a discarded uninstall would leave the user without the override it
+    // never actually removed -- which is why `default` is handled after the commit instead.
     for (network, linked) in crate::networks::links(home) {
         if linked == channel {
             std::fs::remove_file(paths::network_link(home, &network))?;
