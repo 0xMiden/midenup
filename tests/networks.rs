@@ -805,3 +805,60 @@ fn integration_networks_resolve_offline() {
         .expect("mainnet must resolve from the symlink with no manifest available");
     assert_eq!(resolved, semver::Version::new(0, 14, 0));
 }
+
+/// A user whose network has moved on without them has to be told, and told what to run.
+///
+/// The listing's network annotation is upstream's answer, so it stops naming a channel the moment
+/// the network moves off it. Spawns the real binary to assert the output a user reads.
+#[test]
+fn integration_networks_show_list_reports_a_network_that_moved_upstream() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_show_drift");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+
+    let (mut state, config) = test_setup(&test_env, &fixture.initial());
+    for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    // The premise: while upstream still names 0.14.0 there is no disagreement, so a listing that
+    // reported drift here would prove nothing below.
+    let agreeing = common::run_midenup(&test_env, &fixture.initial(), &["show", "list"]);
+    assert!(agreeing.status.success(), "{}", String::from_utf8_lossy(&agreeing.stderr));
+    let agreeing = String::from_utf8_lossy(&agreeing.stdout);
+    assert!(
+        !agreeing.contains("midenup update mainnet"),
+        "a network that has not moved has nothing to report: {agreeing}"
+    );
+    assert!(agreeing.contains("mainnet"), "and it is still annotated as mainnet: {agreeing}");
+
+    // 0.15.0 is released and mainnet moves to it, while this machine keeps running 0.14.0.
+    let moved = common::run_midenup(&test_env, &fixture.with_new_stable(), &["show", "list"]);
+    assert!(moved.status.success(), "{}", String::from_utf8_lossy(&moved.stderr));
+
+    let reported = String::from_utf8_lossy(&moved.stdout);
+    assert!(
+        reported.contains("0.14.0"),
+        "the installed channel must still be listed: {reported}"
+    );
+    assert!(
+        reported.contains("mainnet is now 0.15.0"),
+        "and the channel mainnet has moved to must be named: {reported}"
+    );
+    assert!(
+        reported.contains("midenup update mainnet"),
+        "along with the command that follows it: {reported}"
+    );
+
+    // `show` reports; only `midenup update <network>` moves a pointer. Following one changes which
+    // channel the user tracks and installs whatever that requires, which is a decision rather than
+    // housekeeping.
+    assert_eq!(
+        std::fs::read_link(test_env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.14.0"),
+        "listing must not repoint the network"
+    );
+}

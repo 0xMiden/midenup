@@ -779,6 +779,8 @@ The comparison is **inequality, not "is newer"**. The pointer is authoritative i
 
 Repointing the link is done by this command rather than left to the DERIVE step of the install it performs, because an update whose target is already installed can legitimately have nothing to install - and moving the pointer is the thing this command exists to do.
 
+A link that disagrees with upstream is reported by `midenup show list` on the channel it names, with this command as the remedy - `0.14.0 (mainnet is now 0.15.0 upstream -- run 'midenup update mainnet')` - so a user learns that a network has moved.
+
 ---
 
 ## 12. Migration from manifest v1.0.1

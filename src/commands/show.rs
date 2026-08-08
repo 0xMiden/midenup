@@ -65,8 +65,14 @@ impl ShowCommand {
                 // Installed toolchains are recorded locally, so this works with no network at all.
                 // Upstream only adds *markers* -- which networks name a channel, which
                 // installations are partial or no longer published -- so when it is unavailable
-                // they are simply omitted rather than guessed at (spec section 8.6).
+                // they are simply omitted rather than guessed at.
                 let upstream = config.upstream_manifest().ok();
+
+                // Check every `toolchains/<network>` links on this machine to compare with
+                // upstream.
+                let local_links = upstream
+                    .map(|_| crate::networks::links(&config.midenup_home))
+                    .unwrap_or_default();
 
                 let toolchains_display: Vec<_> = state
                     .installations
@@ -87,6 +93,23 @@ impl ShowCommand {
                                 " {}",
                                 format!("({})", networks.join(", ")).bold()
                             ));
+                        }
+
+                        // If a network whose link still names this channel while upstream has
+                        // moved it, we show it to the user.
+                        if let Some(manifest) = upstream {
+                            for (network, linked) in &local_links {
+                                if linked != name {
+                                    continue;
+                                }
+                                if let Some(marker) = crate::networks::drift(
+                                    network,
+                                    linked,
+                                    manifest.network_version(network),
+                                ) {
+                                    line.push_str(&format!(" {}", marker.yellow()));
+                                }
+                            }
                         }
 
                         // A migrated record describes a pre-publication tree that no receipt

@@ -12,6 +12,7 @@ pub mod manifest;
 pub mod miden_wrapper;
 pub mod migrate_networks;
 pub mod migrate_v1;
+pub mod networks;
 pub mod options;
 pub mod paths;
 pub mod plan;
