@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1786150819,
+  "date": 1786289283,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1867,10 +1867,10 @@
         },
         {
           "artifacts": {
-            "core.masp": {
+            "miden-core.masp": {
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
             },
-            "precompiles.masp": {
+            "miden-precompiles.masp": {
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/precompiles.masp"
             }
           },
@@ -2098,21 +2098,25 @@
           }
         },
         {
-          "installation_method": {
-            "crate_name": "miden-protocol",
-            "extractor": "miden_protocol::ProtocolLib::default().as_ref()",
-            "kind": "cargo"
+          "artifacts": {
+            "miden-protocol.masp": {
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
+            },
+            "miden-standards.masp": {
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards.masp"
+            },
+            "miden-tx-kernel.masp": {
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-tx-kernel.masp"
+            }
           },
-          "kind": "legacy-package",
+          "kind": "package",
           "name": "protocol",
           "profiles": [
             "minimal"
           ],
           "version": {
-            "branch": "v0.16.0-rc.3",
-            "kind": "git",
-            "latest_revision": null,
-            "repository_url": "https://github.com/0xMiden/protocol.git"
+            "kind": "registry",
+            "version": "0.16.0-rc.3"
           }
         },
         {
