@@ -109,9 +109,7 @@ impl OfflineFixture {
         let vm_script = format!(
             r#"#!/bin/sh
 
-if [ "$1" == "help" ] || [ "$1" == "--help" ]; then
-    echo "miden-vm {channel}"
-fi
+echo "miden-vm {channel}"
 
 exit 0
 "#,
