@@ -290,7 +290,29 @@ impl Config {
         let sysroot = self.midenup_home.join("toolchains").join(&toolchain_name);
         let toolchain_opt = sysroot.join("opt");
 
-        let path = match std::env::var_os("PATH") {
+        // Get the current PATH, and override CARGO_HOME if it differs from the inherited CARGO_HOME
+        let (cargo_home, path) = match std::env::var_os("CARGO_HOME") {
+            Some(inherited) if inherited.as_os_str() == self.cargo_home.as_os_str() => {
+                (inherited, std::env::var_os("PATH"))
+            },
+            Some(_) => match std::env::var_os("PATH") {
+                Some(prev_path) => {
+                    let mut path =
+                        OsString::from(format!("{}:", self.cargo_home.join("bin").display()));
+                    path.push(prev_path);
+                    (self.cargo_home.clone().into_os_string(), Some(path))
+                },
+                None => {
+                    let cargo_home = self.cargo_home.clone().into_os_string();
+                    let path = self.cargo_home.join("bin").into_os_string();
+                    (cargo_home, Some(path))
+                },
+            },
+            None => (self.cargo_home.clone().into_os_string(), std::env::var_os("PATH")),
+        };
+
+        // Prepend the toolchain opt/ directory to the current PATH
+        let path = match path {
             Some(prev_path) => {
                 let mut path = OsString::from(format!("{}:", toolchain_opt.display()));
                 path.push(prev_path);
@@ -304,6 +326,7 @@ impl Config {
             .env("MIDENUP_HOME", &self.midenup_home)
             .env("MIDENUP_TOOLCHAIN", &toolchain_name)
             .env("MIDEN_SYSROOT", &sysroot)
+            .env("CARGO_HOME", cargo_home)
             .env("PATH", path)
             .args(args);
 
