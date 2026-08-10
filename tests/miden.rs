@@ -226,7 +226,7 @@ fn integration_midenup_catches_installation_failure() {
 fn integration_activation_unions_intent_across_projects() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_activation_unions_intent");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
 
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
@@ -271,4 +271,42 @@ fn integration_activation_unions_intent_across_projects() {
         !state.get(&channel).unwrap().intent.roots.contains("assets"),
         "a direct install replaces intent, so it is allowed to shrink"
     );
+}
+
+/// Invoking `miden +channel ...` should override the toolchain selection
+#[test]
+fn integration_miden_explicit_toolchain_override() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_miden_explicit_toolchain_override");
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_channel("0.16.0")
+        .build();
+
+    let (mut state, mut config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let output_handle = config.capture_output();
+
+    // The default toolchain should be 0.15.0
+    {
+        let command = Midenup::try_parse_from(["miden", "help", "vm"]).unwrap();
+        command
+            .execute_with_state(&config, &mut state)
+            .expect("failed to execute command with toolchain override");
+        let mut output = output_handle.borrow_mut();
+        assert!(output.status.success());
+        let stdout = core::mem::take(&mut output.stdout);
+        output.stderr.clear();
+        assert_eq!(core::str::from_utf8(&stdout).unwrap(), "miden-vm 0.15.0\n");
+    }
+
+    // With an explicit override, we should be able to pick up 0.16.0 explicitly
+    let command = Midenup::try_parse_from(["miden", "+0.16.0", "help", "vm"]).unwrap();
+    command
+        .execute_with_state(&config, &mut state)
+        .expect("failed to execute command with toolchain override");
+
+    let output = output_handle.borrow();
+    assert!(output.status.success());
+    assert_eq!(core::str::from_utf8(&output.stdout).unwrap(), "miden-vm 0.16.0\n");
 }

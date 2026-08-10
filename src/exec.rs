@@ -670,9 +670,10 @@ mod tests {
         )
         .unwrap();
 
-        let mut child =
-            config.execute_command(&channel, probe.as_os_str(), &[]).expect("should spawn");
-        assert!(child.wait().unwrap().success());
+        let exit_status = config
+            .execute_command(&channel, probe.as_os_str(), &[])
+            .expect("should execute");
+        assert!(exit_status.success());
 
         let reported = std::fs::read_to_string(&reported).expect("the probe must have run");
         let mut lines = reported.lines();

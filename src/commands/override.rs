@@ -26,7 +26,7 @@ pub fn r#override(
 
     // We check which toolchain is active in order to inform the user in case the `override` command
     // won't take effect.
-    let (active, justification) = Toolchain::current(config)?;
+    let (active, justification) = Toolchain::current(config, None)?;
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let channel_dir = match channel {

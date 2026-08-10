@@ -37,13 +37,35 @@ use std::path::{Path, PathBuf};
 /// binary -- running it, or checking Cargo/git/path authority handling -- should keep using the
 /// real manifest.
 pub struct OfflineFixture {
+    pub manifest_path: PathBuf,
     /// `file://`-style URI to hand to `test_setup`.
     pub manifest_uri: String,
     /// Where the fixture's artifacts and manifest live.
     pub dir: PathBuf,
+    devnet: String,
+    mainnet: String,
+    testnet: String,
+    channels: Vec<serde_json::Value>,
 }
 
 impl OfflineFixture {
+    pub fn new(root: &Path) -> Self {
+        let dir = root.join("offline-fixture");
+        std::fs::create_dir_all(&dir).expect("failed to create fixture dir");
+        let manifest_path = dir.join("channel-manifest.json");
+        let manifest_uri = format!("file://{}", manifest_path.display());
+
+        Self {
+            manifest_path,
+            manifest_uri,
+            dir,
+            devnet: String::new(),
+            mainnet: String::new(),
+            testnet: String::new(),
+            channels: vec![],
+        }
+    }
+
     /// Builds a channel containing one of each installable shape.
     ///
     /// * `vm`     -- a prebuilt executable, so `bin/` and `opt/` are exercised
@@ -51,13 +73,49 @@ impl OfflineFixture {
     /// * `assets` -- an asset, so `etc/<component>/` is exercised
     ///
     /// Artifacts are target-agnostic so the fixture is not tied to the host triple.
-    pub fn build(root: &Path, channel: &str) -> Self {
-        let dir = root.join("offline-fixture");
-        std::fs::create_dir_all(&dir).expect("failed to create fixture dir");
+    pub fn create(root: &Path, channel: &str) -> Self {
+        Self::new(root).with_channel(channel).build()
+    }
+
+    /// Finalizes the manifest for this fixture and writes it to the fixture directory
+    pub fn build(mut self) -> Self {
+        let channels = core::mem::take(&mut self.channels);
+        let manifest = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"devnet": self.devnet.clone(), "mainnet": self.mainnet.clone(), "testnet": self.testnet.clone()},
+            "channels": channels
+        });
+
+        std::fs::write(&self.manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
+            .expect("failed to write fixture manifest");
+
+        self
+    }
+
+    /// Adds a new channel, `channel`, to the set of channels in this fixture
+    pub fn with_channel(mut self, channel: &str) -> Self {
+        if self.channels.is_empty() {
+            self.mainnet = channel.to_string();
+            self.testnet = self.mainnet.clone();
+            self.devnet = self.mainnet.clone();
+        }
+
+        let dir = self.dir.join(channel);
+        std::fs::create_dir_all(&dir).expect("failed to create fixture channel dir");
 
         // A stand-in executable that behaves well enough to be run with `--help`.
         let vm_binary = dir.join("miden-vm");
-        std::fs::write(&vm_binary, "#!/bin/sh\nexit 0\n").expect("failed to write fixture binary");
+        let vm_script = format!(
+            r#"#!/bin/sh
+
+echo "miden-vm {channel}"
+
+exit 0
+"#,
+            channel = channel
+        );
+        std::fs::write(&vm_binary, &vm_script).expect("failed to write fixture binary");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -73,48 +131,36 @@ impl OfflineFixture {
 
         let uri = |path: &Path| format!("file://{}", path.display());
 
-        let manifest = serde_json::json!({
-            "manifest_version": "3.0.0",
-            "date": 1735689600,
-            "networks": {"devnet": channel, "mainnet": channel, "testnet": channel},
-            "channels": [{
-                "name": channel,
-                "components": [
-                    {
-                        "name": "vm",
-                        "version": {"kind": "registry", "version": "0.1.0"},
-                        "kind": "executable",
-                        "installation_method": {"kind": "prebuilt"},
-                        "installed-executable": "miden-vm",
-                        "profiles": ["minimal"],
-                        "artifacts": {"miden-vm": {"uri": uri(&vm_binary)}}
-                    },
-                    {
-                        "name": "core",
-                        "version": {"kind": "registry", "version": "0.1.0"},
-                        "kind": "package",
-                        "profiles": ["minimal"],
-                        "artifacts": {"core.masp": {"uri": uri(&core_package)}}
-                    },
-                    {
-                        "name": "assets",
-                        "version": {"kind": "registry", "version": "0.1.0"},
-                        "kind": "asset",
-                        "profiles": ["complete"],
-                        "artifacts": {"config.yml": {"uri": uri(&asset)}}
-                    }
-                ]
-            }]
-        });
+        self.channels.push(serde_json::json!({
+            "name": channel,
+            "components": [
+                {
+                    "name": "vm",
+                    "version": {"kind": "registry", "version": "0.1.0"},
+                    "kind": "executable",
+                    "installation_method": {"kind": "prebuilt"},
+                    "installed-executable": "miden-vm",
+                    "profiles": ["minimal"],
+                    "artifacts": {"miden-vm": {"uri": uri(&vm_binary)}}
+                },
+                {
+                    "name": "core",
+                    "version": {"kind": "registry", "version": "0.1.0"},
+                    "kind": "package",
+                    "profiles": ["minimal"],
+                    "artifacts": {"core.masp": {"uri": uri(&core_package)}}
+                },
+                {
+                    "name": "assets",
+                    "version": {"kind": "registry", "version": "0.1.0"},
+                    "kind": "asset",
+                    "profiles": ["complete"],
+                    "artifacts": {"config.yml": {"uri": uri(&asset)}}
+                }
+            ]
+        }));
 
-        let manifest_path = dir.join("channel-manifest.json");
-        std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap())
-            .expect("failed to write fixture manifest");
-
-        Self {
-            manifest_uri: format!("file://{}", manifest_path.display()),
-            dir,
-        }
+        self
     }
 }
 

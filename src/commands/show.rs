@@ -25,7 +25,7 @@ impl ShowCommand {
     pub fn execute(&self, config: &Config, state: &LocalState) -> anyhow::Result<()> {
         match self {
             Self::Current { verbose } => {
-                let (toolchain, justification) = Toolchain::current(config)?;
+                let (toolchain, justification) = Toolchain::current(config, None)?;
 
                 if !verbose {
                     println!("{}", toolchain.channel);
@@ -43,6 +43,9 @@ impl ShowCommand {
                                 "{}: system default has been overridden via `midenup override`",
                                 "info".white().bold(),
                             )
+                        },
+                        ToolchainJustification::Requested => {
+                            println!("{}: explicitly requested by user", "info".white().bold(),)
                         },
                         ToolchainJustification::Default => {
                             println!(

@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     ffi::{OsStr, OsString},
     path::PathBuf,
+    rc::Rc,
 };
 
 use anyhow::Context;
@@ -60,6 +61,10 @@ pub struct Config {
     /// be rare), we fail to obtain the system's target triple, then we leave it as `None`. In
     /// those cases, we will simply install everything from source.
     pub target: Cow<'static, str>,
+    /// The output of the child process executed by the `miden` CLI
+    capture_output: Option<Rc<core::cell::RefCell<std::process::Output>>>,
+    /// An optional input buffer that should replace the inherited standard input of the process
+    pipe_stdin: Option<Vec<u8>>,
 }
 
 impl Config {
@@ -80,7 +85,32 @@ impl Config {
             manifest: std::cell::OnceCell::new(),
             debug,
             target,
+            capture_output: None,
+            pipe_stdin: None,
         })
+    }
+
+    /// Enables output capture for child processes of the `miden` CLI
+    ///
+    /// Returns a ref-counted cell that wraps the output captured from the child process.
+    /// Callers should only attempt to access the buffer contents after `miden` has finished
+    /// executing.
+    pub fn capture_output(&mut self) -> Rc<core::cell::RefCell<std::process::Output>> {
+        if let Some(captured) = self.capture_output.clone() {
+            return captured;
+        }
+        let capture_output = Rc::new(core::cell::RefCell::new(std::process::Output {
+            status: Default::default(),
+            stderr: Default::default(),
+            stdout: Default::default(),
+        }));
+        self.capture_output = Some(capture_output.clone());
+        capture_output
+    }
+
+    /// Pipes `buffer` to child processes of `miden`, rather than inheriting the parent's stdin.
+    pub fn pipe_stdin(&mut self, buffer: Vec<u8>) {
+        assert!(self.pipe_stdin.replace(buffer).is_none(), "input has already been redirected");
     }
 
     /// The upstream manifest, fetched on first use.
@@ -167,7 +197,7 @@ impl Config {
     /// *local* state: asking upstream which channel `mainnet` names would put a network round trip
     /// after every component invocation, which is exactly what section 13.1 forbids.
     pub fn update_opt_symlinks(&self) -> anyhow::Result<()> {
-        let (current_toolchain, _) = Toolchain::current(self)?;
+        let (current_toolchain, _) = Toolchain::current(self, None)?;
 
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
@@ -255,12 +285,34 @@ impl Config {
         active_toolchain: &Channel,
         target_exe: &OsStr,
         args: &[OsString],
-    ) -> Result<std::process::Child, std::io::Error> {
+    ) -> Result<std::process::ExitStatus, std::io::Error> {
         let toolchain_name = active_toolchain.name.to_string();
         let sysroot = self.midenup_home.join("toolchains").join(&toolchain_name);
         let toolchain_opt = sysroot.join("opt");
 
-        let path = match std::env::var_os("PATH") {
+        // Get the current PATH, and override CARGO_HOME if it differs from the inherited CARGO_HOME
+        let (cargo_home, path) = match std::env::var_os("CARGO_HOME") {
+            Some(inherited) if inherited.as_os_str() == self.cargo_home.as_os_str() => {
+                (inherited, std::env::var_os("PATH"))
+            },
+            Some(_) => match std::env::var_os("PATH") {
+                Some(prev_path) => {
+                    let mut path =
+                        OsString::from(format!("{}:", self.cargo_home.join("bin").display()));
+                    path.push(prev_path);
+                    (self.cargo_home.clone().into_os_string(), Some(path))
+                },
+                None => {
+                    let cargo_home = self.cargo_home.clone().into_os_string();
+                    let path = self.cargo_home.join("bin").into_os_string();
+                    (cargo_home, Some(path))
+                },
+            },
+            None => (self.cargo_home.clone().into_os_string(), std::env::var_os("PATH")),
+        };
+
+        // Prepend the toolchain opt/ directory to the current PATH
+        let path = match path {
             Some(prev_path) => {
                 let mut path = OsString::from(format!("{}:", toolchain_opt.display()));
                 path.push(prev_path);
@@ -269,14 +321,49 @@ impl Config {
             None => toolchain_opt.into_os_string(),
         };
 
-        std::process::Command::new(target_exe)
+        let mut command = std::process::Command::new(target_exe);
+        command
             .env("MIDENUP_HOME", &self.midenup_home)
             .env("MIDENUP_TOOLCHAIN", &toolchain_name)
             .env("MIDEN_SYSROOT", &sysroot)
+            .env("CARGO_HOME", cargo_home)
             .env("PATH", path)
-            .args(args)
-            .stderr(std::process::Stdio::inherit())
-            .stdout(std::process::Stdio::inherit())
-            .spawn()
+            .args(args);
+
+        if self.pipe_stdin.is_some() {
+            command.stdin(std::process::Stdio::piped());
+        }
+
+        if self.capture_output.is_some() {
+            command
+                .stderr(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped());
+        } else {
+            command
+                .stderr(std::process::Stdio::inherit())
+                .stdout(std::process::Stdio::inherit());
+        }
+
+        let mut child = command.spawn()?;
+
+        if let Some(bytes) = self.pipe_stdin.clone() {
+            let mut stdin = child.stdin.take().expect("failed to open stdin");
+            std::thread::spawn(move || {
+                use std::io::Write;
+
+                stdin.write_all(&bytes).expect("failed to write to stdin");
+            });
+        }
+
+        if let Some(capture_output) = self.capture_output.as_deref() {
+            let std::process::Output { status, stderr, stdout } = child.wait_with_output()?;
+            let mut capture_output = capture_output.borrow_mut();
+            capture_output.status = status;
+            capture_output.stderr = stderr;
+            capture_output.stdout = stdout;
+            Ok(status)
+        } else {
+            child.wait()
+        }
     }
 }

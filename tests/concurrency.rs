@@ -61,7 +61,7 @@ fn write_toolchain_file(project: &Path, components: &[&str]) {
 fn integration_concurrent_activations_converge_on_a_superset() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("concurrent_activations");
-    let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
     // A `miden` symlink to the binary under test.
     let bin = env.tmp_dir.path().join("bin");
@@ -138,7 +138,7 @@ fn integration_concurrent_activations_converge_on_a_superset() {
 fn integration_dispatch_against_an_installed_toolchain_makes_no_network_request() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("offline_dispatch");
-    let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
     // Install with a reachable manifest...
     let install = Command::new(env!("CARGO_BIN_EXE_midenup"))
@@ -197,7 +197,7 @@ fn integration_dispatch_against_an_installed_toolchain_makes_no_network_request(
 fn integration_an_operation_needing_upstream_falls_back_to_the_cached_manifest() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("cached_upstream");
-    let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
     let midenup = |manifest_uri: &str, args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_midenup"))
