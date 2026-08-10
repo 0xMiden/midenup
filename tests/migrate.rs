@@ -130,7 +130,7 @@ fn integration_uninstall_removes_the_publication_wholesale() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_uninstall_wholesale");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 

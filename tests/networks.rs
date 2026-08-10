@@ -15,7 +15,7 @@ use common::*;
 fn integration_networks_one_install_writes_every_naming_link() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_networks_shared");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "init"])
@@ -47,7 +47,7 @@ fn integration_networks_one_install_writes_every_naming_link() {
 fn integration_networks_stable_still_installs_mainnet() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_networks_synonym");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "init"])
@@ -516,7 +516,7 @@ fn integration_networks_update_leaves_other_networks_alone() {
 #[test]
 fn integration_networks_update_of_an_uninstalled_network_says_so() {
     let test_env = environment_setup("integration_networks_uninstalled");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     let err = Midenup::try_parse_from(["midenup", "update", "testnet"])
@@ -534,7 +534,7 @@ fn integration_networks_update_of_an_uninstalled_network_says_so() {
 #[test]
 fn integration_networks_update_of_an_unknown_network_lists_the_known_ones() {
     let test_env = environment_setup("integration_networks_unknown");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     let err = Midenup::try_parse_from(["midenup", "update", "mainet"])
@@ -549,7 +549,7 @@ fn integration_networks_update_of_an_unknown_network_lists_the_known_ones() {
 #[test]
 fn integration_networks_install_of_an_unknown_network_lists_the_known_ones() {
     let test_env = environment_setup("integration_networks_install_unknown_name");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     let err = Midenup::try_parse_from(["midenup", "install", "mainet"])
@@ -564,7 +564,7 @@ fn integration_networks_install_of_an_unknown_network_lists_the_known_ones() {
 #[test]
 fn integration_networks_install_of_an_unknown_version_names_that_version() {
     let test_env = environment_setup("integration_networks_install_unknown_version");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     let err = Midenup::try_parse_from(["midenup", "install", "9.9.9"])
@@ -581,7 +581,7 @@ fn integration_networks_install_of_an_unknown_version_names_that_version() {
 fn integration_networks_uninstall_removes_every_naming_link() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_networks_uninstall");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     for args in [
@@ -653,7 +653,7 @@ fn integration_networks_uninstall_does_not_leave_default_dangling() {
 
     for selector in ["mainnet", "0.15.0"] {
         let test_env = environment_setup("integration_networks_default");
-        let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+        let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
         let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
         for args in [
@@ -728,7 +728,7 @@ fn integration_networks_override_follows_the_network() {
 #[test]
 fn integration_networks_set_writes_the_canonical_name() {
     let test_env = environment_setup("integration_networks_set");
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "set", "stable"])

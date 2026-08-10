@@ -54,6 +54,8 @@ pub enum ToolchainJustification {
     MidenToolchainFile { path: PathBuf },
     /// The system's default toolchain was overriden (via `midenup set`).
     Override,
+    /// The toolchain was explicitly requested by the user
+    Requested,
     /// No toolchain was specified, fallback to the default network.
     Default,
 }
@@ -89,16 +91,31 @@ impl Toolchain {
 
     /// Returns the current active Toolchain according to the following prescedence:
     ///
-    /// 1. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
-    /// 2. The toolchain that has been set as the system's default. If set, a `default` symlink is
+    /// 1. An explicit toolchain specified on the command-line
+    /// 2. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
+    /// 3. The toolchain that has been set as the system's default. If set, a `default` symlink is
     ///    added to the `midenup` directory.
     ///
     /// If none of the previous conditions are met, then the default network (`mainnet`) is used.
-    pub fn current(config: &Config) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
+    pub fn current(
+        config: &Config,
+        toolchain_override: Option<&str>,
+    ) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
         let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
 
-        if let Some(local_toolchain) = local_toolchain {
+        if let Some(channel_name) = toolchain_override {
+            let channel = channel_name
+                .parse::<UserChannel>()
+                .with_context(|| format!("invalid channel name '{channel_name}'"))?;
+            let toolchain = Toolchain {
+                channel,
+                components: vec![],
+                profile: None,
+            };
+
+            Ok((toolchain, ToolchainJustification::Requested))
+        } else if let Some(local_toolchain) = local_toolchain {
             let toolchain_file_contents =
                 std::fs::read_to_string(&local_toolchain).with_context(|| {
                     format!("unable to read toolchain file '{}'", local_toolchain.display())
@@ -144,8 +161,9 @@ impl Toolchain {
     pub fn ensure_current_is_installed(
         config: &Config,
         state: &mut LocalState,
+        toolchain_override: Option<&str>,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
-        let (current_toolchain, justification) = Toolchain::current(config)?;
+        let (current_toolchain, justification) = Toolchain::current(config, toolchain_override)?;
         let desired_channel = &current_toolchain.channel;
 
         // Resolve the project's declared toolchain into an exact component set. An omitted
@@ -180,6 +198,8 @@ impl Toolchain {
                     ToolchainJustification::MidenToolchainFile { path } => {
                         Cow::Owned(format!("it is set in {}", path.display()))
                     },
+                    ToolchainJustification::Requested =>
+                        Cow::Borrowed("it was explicitly requested on the command line"),
                     ToolchainJustification::Override =>
                         Cow::Borrowed("it was set using 'midenup set'"),
                 }

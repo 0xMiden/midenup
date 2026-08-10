@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, ffi::OsString, string::ToString};
+use std::{borrow::Cow, collections::VecDeque, ffi::OsString, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
@@ -39,6 +39,7 @@ enum EnvironmentError {
 }
 
 /// These are the know help messages variants that midenup is aware of.
+#[derive(Debug)]
 enum HelpMessage<'a> {
     /// Show the default help message, similar to the one you would get with clap's "--help" flag.
     Default,
@@ -255,6 +256,7 @@ impl<'a> ToolchainEnvironment<'a> {
 }
 
 /// These are the possible types of subcommands that `miden` is aware of.
+#[derive(Debug)]
 enum MidenSubcommand<'a> {
     /// Aliases that correspond to a tuple of a known component + a set of prefixed arguments.
     ///
@@ -336,7 +338,7 @@ fn parse_matches(matches: &clap::ArgMatches) -> MidenSubcommand<'_> {
                 }),
             }
         },
-        // `miden <alias/compoent>`.
+        // `miden <alias/component>`.
         Some((comp_or_alias, matches)) => {
             MidenSubcommand::Resolve { command: comp_or_alias, matches }
         },
@@ -350,8 +352,21 @@ pub fn miden_wrapper(
     config: &Config,
     state: &mut LocalState,
 ) -> anyhow::Result<()> {
-    let matches = build_miden_command().get_matches_from(argv);
+    // Handle toolchain overrides given via `miden +channel`
+    let (toolchain_override, argv) = match argv {
+        [miden, first, rest @ ..]
+            if miden.eq_ignore_ascii_case("miden")
+                && let Some(channel) = first.to_str().and_then(|s| s.strip_prefix("+")) =>
+        {
+            let mut argv = Vec::with_capacity(1 + rest.len());
+            argv.push(miden.clone());
+            argv.extend_from_slice(rest);
+            (Some(channel), Cow::Owned(argv))
+        },
+        argv => (None, Cow::Borrowed(argv)),
+    };
 
+    let matches = build_miden_command().get_matches_from(argv.as_ref());
     let parsed_subcommand = parse_matches(&matches);
 
     // NOTE: We handle these case first to avoid triggering an install when help related commands
@@ -366,11 +381,11 @@ pub fn miden_wrapper(
             return Ok(());
         },
         _ => (),
-    }
+    };
 
     // Make sure we know the current toolchain so we can modify the PATH appropriately
     let (toolchain, _justification, partial_channel) =
-        Toolchain::ensure_current_is_installed(config, state)?;
+        Toolchain::ensure_current_is_installed(config, state, toolchain_override)?;
 
     // Resolved entirely from local state. `state.json` records what is installed, and
     // `toolchains/<network>` records the last answer upstream gave about which channel that
@@ -492,15 +507,9 @@ pub fn miden_wrapper(
         },
     };
 
-    let mut command =
-        config.execute_command(active_channel, &target_exe, &args).with_context(|| {
-            let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-            format!("failed to run '{user_input}'")
-        })?;
-
-    let status = command.wait().with_context(|| {
+    let status = config.execute_command(active_channel, &target_exe, &args).with_context(|| {
         let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-        format!("error occurred while waiting for '{user_input}' to finish executing")
+        format!("failed to run '{user_input}'")
     })?;
 
     if status.success() {
@@ -542,7 +551,7 @@ pub fn display_version(config: &Config) -> String {
     };
     let cargo_version = cargo_version.trim();
 
-    let toolchain_version = Toolchain::current(config)
+    let toolchain_version = Toolchain::current(config, None)
         .and_then(|(toolchain, _)| {
             // `midenup --version` is informational and must not reach for the network.
             config

@@ -20,7 +20,7 @@ fn integration_install_stable() {
 
     // Offline fixture: this test asserts on recorded state and symlink layout, none of which
     // needs a real toolchain. See `OfflineFixture` for why that matters.
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "install", "stable"])
@@ -65,7 +65,7 @@ fn integration_install_places_every_artifact_kind() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_install_places_every_artifact_kind");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"])
@@ -101,7 +101,7 @@ fn integration_install_creates_default_symlinks() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_install_creates_default_symlinks");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "install", "stable"])
@@ -128,7 +128,7 @@ fn integration_install_publishes_into_an_opaque_publication_with_a_receipt() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_install_publishes");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
     Midenup::try_parse_from(["midenup", "install", "0.15.0"])
@@ -178,7 +178,7 @@ fn integration_install_republishes_rather_than_mutating() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_install_republishes");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 
@@ -226,7 +226,7 @@ fn integration_var_survives_update_and_republication() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_var_survives");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 

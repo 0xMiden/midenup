@@ -14,7 +14,7 @@ fn integration_gc_removes_orphans_and_never_touches_referenced_publications() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_gc");
 
-    let fixture = common::harness::OfflineFixture::build(test_env.tmp_dir.path(), "0.15.0");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 
