@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1786289283,
+  "date": 1786377658,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1771,43 +1771,6 @@
       "components": [
         {
           "aliases": {
-            "new": [
-              "cargo",
-              "miden",
-              "new"
-            ]
-          },
-          "artifacts": {
-            "cargo-miden": {
-              "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
-              },
-              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/cargo-miden-%target"
-            }
-          },
-          "call-format": [
-            "cargo",
-            "miden"
-          ],
-          "hide": true,
-          "installation_method": {
-            "kind": "prebuilt"
-          },
-          "installed-executable": "cargo-miden",
-          "kind": "cargo-extension",
-          "name": "cargo-miden",
-          "profiles": [
-            "minimal"
-          ],
-          "symlink-name": "cargo-miden",
-          "version": {
-            "kind": "registry",
-            "version": "0.10.0-rc.1"
-          }
-        },
-        {
-          "aliases": {
             "account": [
               "%installed-executable",
               "new-account"
@@ -1941,45 +1904,6 @@
           }
         },
         {
-          "aliases": {
-            "build": [
-              "%installed-executable"
-            ]
-          },
-          "artifacts": {
-            "midenc": {
-              "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
-              },
-              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/midenc-%target"
-            }
-          },
-          "call-format": [
-            "%installed-executable",
-            "-L",
-            "%lib"
-          ],
-          "hide": false,
-          "installation_method": {
-            "kind": "prebuilt"
-          },
-          "installed-executable": "midenc",
-          "kind": "executable",
-          "name": "midenc",
-          "profiles": [
-            "minimal"
-          ],
-          "requires": [
-            "core",
-            "protocol"
-          ],
-          "version": {
-            "kind": "registry",
-            "version": "0.10.0-rc.1"
-          }
-        },
-        {
           "artifacts": {
             "bootstrap.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
@@ -2077,21 +2001,6 @@
               "-d"
             ]
           },
-          "version": {
-            "kind": "registry",
-            "version": "0.16.0-alpha.3"
-          }
-        },
-        {
-          "hide": false,
-          "installation_method": {
-            "crate_name": "miden-ntx-builder",
-            "kind": "cargo",
-            "rustup_channel": "1.96"
-          },
-          "installed-executable": "miden-ntx-builder",
-          "kind": "executable",
-          "name": "ntx-builder",
           "version": {
             "kind": "registry",
             "version": "0.16.0-alpha.3"
