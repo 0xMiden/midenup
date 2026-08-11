@@ -108,11 +108,32 @@ Substitutions available in a URI are `%target`, `%version` (which requires a reg
 
 `digest` is **recorded and never verified**. It exists so that a future release can start checking it without a schema change; nothing today draws any conclusion from it, and nothing should claim otherwise.
 
+#### Compressed artifacts
+
+The artifact may be a compressed binary. In that case, the "archive" field defines the type of packaging used.
+
+
+```json
+"artifacts": {
+  "miden-vm": {
+    "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-vm-%target.tar.gz",
+    "archive": "tar.gz",
+    "targets": { "aarch64-apple-darwin": {}, "x86_64-unknown-linux-gnu": {} }
+  }
+}
+```
+
+Currently, `tar.gz` is the only format supported (more may be added later). A format not supported will cause an installation failure.
+
+The archive must hold exactly one file, which is the artifact; a file nested under a directory is fine. Several files is an error, so an archive shipping a README or a licence beside the binary cannot be used as-is.
+
+Nothing after acquisition changes: the artifact id is still the installed filename, and the destination, mode and receipt are what a bare file would get. Only that one file is written.
+
 ## Validation
 
 Validation is an authoring gate, not a parsing gate: `update-manifest check` runs the full structural validator, and plan construction re-checks what depends on the current target. Parsing deliberately does *not* validate — the published manifest has historically contained channels with dangling requirements, and refusing to parse would break every command for every user over a channel they were not using.
 
-The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests, and the network rules described above. Target availability is checked only when an installation is actually planned.
+The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests, archive formats midenup cannot read, `.tar.gz` URIs that forgot to declare `archive`, and the network rules described above. Target availability is checked only when an installation is actually planned.
 
 ## Custom manifests
 

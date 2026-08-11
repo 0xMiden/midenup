@@ -114,6 +114,28 @@ pub enum ValidationError {
          else selects one"
     )]
     MissingDefaultNetwork(&'static str),
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' declares archive \
+         format '{format}', which midenup cannot read; supported formats are {supported}"
+    )]
+    UnsupportedArchiveFormat {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+        format: String,
+        supported: String,
+    },
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' is fetched from a \
+         '{format}' archive but does not declare one, so the archive itself would be installed as \
+         '{artifact}'; add \"archive\": \"{format}\""
+    )]
+    UndeclaredArchive {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+        format: &'static str,
+    },
 }
 
 /// Validates a whole manifest, returning every problem found.
@@ -294,12 +316,65 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
             });
         }
 
-        for id in component.artifacts.artifacts.keys() {
+        for (id, artifact) in component.artifacts.artifacts.iter() {
             if let Err(err) = validate_artifact_id(id) {
                 errors.push(invalid("artifact id", err.to_string()));
             }
+
+            // Stricter than parsing on purpose: an unreadable format parses, so that one channel
+            // cannot break every other command (spec section 4.4), but nothing should be
+            // *published* that the publishing build cannot install.
+            match artifact.archive() {
+                Some(archive) if !archive.format.is_supported() => {
+                    errors.push(ValidationError::UnsupportedArchiveFormat {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        artifact: id.to_string(),
+                        format: archive.format.to_string(),
+                        // From the format table, so adding a format updates what this reports.
+                        supported: crate::artifact::ArchiveFormat::supported_spellings()
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    });
+                },
+                Some(_) => {},
+                None => {
+                    if let Some(format) = undeclared_archive(id, artifact, component) {
+                        errors.push(ValidationError::UndeclaredArchive {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            artifact: id.to_string(),
+                            format,
+                        });
+                    }
+                },
+            }
         }
     }
+}
+
+/// The archive format an artifact is evidently fetched from while declaring none.
+///
+/// This is the one artifact mistake nothing downstream can catch: the container arrives as a
+/// regular file of the planned mode, so it installs, verifies and records as a success, and only
+/// fails when something tries to run it. Judged on the *resolved* URI, so a `%extension` of
+/// `tar.gz` is seen the same as a literal one.
+///
+/// An artifact id carrying the same extension is left alone: `bundle.tar.gz` installed as
+/// `bundle.tar.gz` is asking for the archive itself, which is a legitimate thing to want.
+fn undeclared_archive(
+    id: &str,
+    artifact: &crate::artifact::Artifact,
+    component: &Component,
+) -> Option<&'static str> {
+    // Best effort: an artifact whose URI cannot be resolved at all has its own errors, and platform
+    // -specific resolution is not this validator's business.
+    let uris = artifact.get_uris_for(id, component).ok()?;
+
+    crate::artifact::ArchiveFormat::supported_spellings().find(|spelling| {
+        let suffix = format!(".{spelling}");
+        !id.ends_with(&suffix) && uris.iter().any(|uri| uri.to_string().ends_with(&suffix))
+    })
 }
 
 fn validate_destinations(channel: &Channel, errors: &mut Vec<ValidationError>) {
@@ -416,6 +491,7 @@ mod tests {
             Artifact::TargetAgnostic {
                 uri: "https://example.invalid/x".to_string(),
                 digest: None,
+                archive: None,
                 extra: Default::default(),
             },
         );
@@ -625,6 +701,102 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, ValidationError::InvalidName { field: "artifact id", .. }))
         );
+    }
+
+    /// Parsing accepts an unreadable container so an unrelated channel stays usable; publishing one
+    /// is a different matter.
+    #[test]
+    fn an_unreadable_archive_format_is_rejected_for_publication() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/core.zip",
+                "archive": "zip"
+            }))
+            .expect("an unknown format must still parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UnsupportedArchiveFormat { .. })),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_readable_archive_declaration_validates() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/core.tar.gz",
+                "archive": "tar.gz"
+            }))
+            .expect("must parse"),
+        );
+
+        assert!(validate_manifest(&with_mainnet(manifest(vec![c]))).is_ok());
+    }
+
+    /// The mistake nothing downstream can catch: without the declaration the container installs as
+    /// the artifact, and only fails when something runs it.
+    #[test]
+    fn an_archive_uri_without_an_archive_declaration_is_rejected() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/core.masp.tar.gz"
+            }))
+            .expect("must parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UndeclaredArchive { format: "tar.gz", .. })),
+            "{errors:?}"
+        );
+    }
+
+    /// Judged on the resolved URI, so a per-target `%extension` is seen like a literal suffix.
+    #[test]
+    fn a_substituted_archive_extension_is_also_caught() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/%basename-%target.%extension",
+                "extension": "tar.gz",
+                "targets": {"aarch64-apple-darwin": {}}
+            }))
+            .expect("must parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors.iter().any(|e| matches!(e, ValidationError::UndeclaredArchive { .. })),
+            "{errors:?}"
+        );
+    }
+
+    /// An artifact installed *as* the archive is asking for exactly that.
+    #[test]
+    fn an_artifact_named_for_the_archive_is_left_alone() {
+        let mut c = component("assets", ComponentKind::Asset);
+        c.artifacts.insert(
+            "bundle.tar.gz".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/bundle.tar.gz"
+            }))
+            .expect("must parse"),
+        );
+
+        assert!(validate_manifest(&with_mainnet(manifest(vec![c]))).is_ok());
     }
 
     #[test]

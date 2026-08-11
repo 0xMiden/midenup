@@ -299,6 +299,31 @@ If a component is selected and any of its declared artifacts has no entry for th
 
 `digest` is optional, of the form `<algorithm>:<hex>`. It is validated for shape at parse time, recorded verbatim in the installation receipt when present, and round-trips losslessly. **No verification is performed currently.** Enabling verification later is a behavior change, not a schema change.
 
+For an archived artifact (§6.5) the digest describes the archive as fetched, not the file installed out of it: it belongs to the bytes at the URI.
+
+### 6.5 Archived artifacts
+
+An artifact may be published inside an archive. `archive` names the format:
+
+```json
+"artifacts": {
+  "miden-vm": {
+    "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/%basename-%target.tar.gz",
+    "archive": "tar.gz",
+    "targets": {
+      "aarch64-apple-darwin":     { "basename": "miden-vm" },
+      "x86_64-unknown-linux-gnu": { "basename": "miden-vm" }
+    }
+  }
+}
+```
+
+- **Format:** `tar.gz`. Others are additive: a format is a variant plus a reader, and a manifest declaring one this build does not know would still parse (§4.4) and be rejected only when an installation is planned for it. The plan carries a format narrowed to the set this build reads (`SupportedFormat`), not the declared one, so the executor has no unsupported case to handle.
+- **The archive must hold exactly one file**, which is the artifact. Zero, or more than one, is an error; nothing is inferred from member names, and there is no way to select among several. Directory entries are skipped, so a file nested under one is found.
+- The object form `{ "format": "tar.gz" }` is also accepted, so a newer schema can add fields beside the format without an older `midenup` losing them (§4.4).
+
+An archive changes only how the bytes travel: the artifact id is still the installed filename, the destination and mode still come from §8, and the receipt records `prebuilt` like any other artifact. Extraction happens in memory and only that file is ever written.
+
 ---
 
 ## 7. Components
@@ -563,9 +588,10 @@ struct InstallationPlan {
 }
 
 enum PlanStep {
-    Download   { uri: ArtifactUri, dest: PathBuf, mode: u32,
-                 owner: ComponentName, digest: Option<Digest> },
-    CopyLocal  { src: PathBuf, dest: PathBuf, mode: u32, owner: ComponentName },
+    Download   { uri: ArtifactUri, dest: PathBuf, mode: u32, owner: ComponentName,
+                 digest: Option<Digest>, archive: Option<SupportedFormat> },
+    CopyLocal  { src: PathBuf, dest: PathBuf, mode: u32, owner: ComponentName,
+                 archive: Option<SupportedFormat> },
     CargoBuild { crate_name: String, authority: ResolvedAuthority, features: Vec<String>,
                  rustup_channel: Option<String>, expect_binary: String,
                  dest: PathBuf, owner: ComponentName },
@@ -595,9 +621,10 @@ Before the plan key is computed, every authority is pinned:
 1. Transfer to a unique temporary sibling of `dest` (`<dest>.<random>.part`), following at most 10 redirects.
 2. Check the HTTP status **after** the transfer completes and reject any non-2xx terminal response. Previously the install script read the response code early as 0, so 404/500 responses would be written to disk as if they succeeded.
 3. Reject an empty body.
-4. Apply the mode from the plan.
-5. `rename` into place.
-6. On any failure, remove the temporary file. If the owning component declares `prebuilt-with-cargo-fallback`, convert the step to `CargoBuild` and retry once; a successful fallback clears the failure.
+4. When the step carries an `archive` (§6.5), read the one file out of the transferred bytes and continue with that; the container itself is never written.
+5. Apply the mode from the plan.
+6. `rename` into place.
+7. On any failure, remove the temporary file. If the owning component declares `prebuilt-with-cargo-fallback`, convert the step to `CargoBuild` and retry once; a successful fallback clears the failure.
 
 For `https` sources the destination filename comes from the **plan**, never from the URL.
 
@@ -700,7 +727,9 @@ The protocol targets **process-crash consistency**: `fsync` on file contents bef
 plan_key = "pk1:" || hex(sha256(canonical_encoding(inputs)))
 ```
 
-**Included:** target triple; each selected component's name, resolved authority (with branches pinned to commits and paths to canonical path + mtime), kind, installation method, artifact IDs and resolved URIs, exact destinations, file modes, Cargo crate name / features / rustup channel, and the complete symlink layout.
+**Included:** target triple; each selected component's name, resolved authority (with branches pinned to commits and paths to canonical path + mtime), kind, installation method, artifact IDs and resolved URIs, the archive format of any archived artifact, exact destinations, file modes, Cargo crate name / features / rustup channel, and the complete symlink layout.
+
+The archive contribution is emitted only for an artifact that declares one, so an unarchived artifact encodes identically either way. That is the general rule for extending the encoding: a contribution emitted only for an input no manifest could express without it keeps every existing key byte-for-byte stable, so no installed component is reclassified as changed and the prefix stands; a contribution that alters an already-expressible input requires the prefix to change.
 
 **Excluded:** intent and profiles; aliases; call formats; `subcommands`; `initialization`; which networks name the channel; anything that does not change a byte on disk.
 
@@ -979,6 +1008,8 @@ The following are call disallowed and caught by validation:
 * the §7.7 matrix
 *  a `%target`-less URI in a target-specific artifact
 * malformed `digest`
+* an `archive` format this build cannot read
+* an artifact whose resolved URI ends in a known archive extension without declaring `archive`, which would install the container as the artifact - unless the artifact id carries that extension too, which asks for exactly that
 * `legacy-package` in a newly authored channel
 * a network naming a channel that is not in the document
 * a network with an empty name

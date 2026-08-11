@@ -65,7 +65,12 @@ impl fmt::Display for PlanKey {
 }
 
 /// Field tags. Values are part of the encoding, so they must never be renumbered -- only appended
-/// to, and only alongside a `PREFIX` bump.
+/// to. They are grouped here by meaning, which is not the order they are numbered in.
+///
+/// A new tag needs a `PREFIX` bump when it changes the encoding of an input that is already
+/// expressible: every installed component whose key moves is reinstalled. A tag emitted only for an
+/// input that no manifest could express without it leaves every such key byte-for-byte identical,
+/// and needs no bump.
 mod tag {
     pub const TARGET: u8 = 1;
     pub const COMPONENT: u8 = 2;
@@ -74,12 +79,25 @@ mod tag {
     pub const METHOD: u8 = 5;
     pub const ARTIFACT_ID: u8 = 6;
     pub const ARTIFACT_URI: u8 = 7;
+    /// Emitted only for an artifact declaring an archive, so an unarchived one encodes exactly as
+    /// it does without this tag.
+    pub const ARTIFACT_ARCHIVE: u8 = 14;
     pub const DESTINATION: u8 = 8;
     pub const MODE: u8 = 9;
     pub const CRATE_NAME: u8 = 10;
     pub const FEATURE: u8 = 11;
     pub const RUSTUP_CHANNEL: u8 = 12;
     pub const SYMLINK: u8 = 13;
+}
+
+/// One artifact as the key sees it.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ArtifactInput {
+    pub id: String,
+    /// Fully substituted for the target being planned.
+    pub uri: String,
+    /// The format it is packaged in, if any.
+    pub archive: Option<String>,
 }
 
 /// A canonical byte encoder.
@@ -141,8 +159,8 @@ pub struct ComponentInputs {
     pub authority: String,
     pub kind: String,
     pub installation_method: String,
-    /// `(artifact id, resolved uri)`, in any order.
-    pub artifacts: Vec<(String, String)>,
+    /// Every artifact this component installs, in any order.
+    pub artifacts: Vec<ArtifactInput>,
     /// `(exact destination path, file mode)`, in any order.
     pub destinations: Vec<(String, u32)>,
     pub crate_name: Option<String>,
@@ -176,9 +194,13 @@ pub fn compute(inputs: &KeyInputs) -> PlanKey {
 
         let mut artifacts = component.artifacts.clone();
         artifacts.sort();
-        for (id, uri) in artifacts.iter() {
-            encoder.text(tag::ARTIFACT_ID, id);
-            encoder.text(tag::ARTIFACT_URI, uri);
+        for artifact in artifacts.iter() {
+            encoder.text(tag::ARTIFACT_ID, &artifact.id);
+            encoder.text(tag::ARTIFACT_URI, &artifact.uri);
+            // Absent emits nothing at all, not an absence marker: see `tag::ARTIFACT_ARCHIVE`.
+            if let Some(archive) = artifact.archive.as_deref() {
+                encoder.text(tag::ARTIFACT_ARCHIVE, archive);
+            }
         }
 
         let mut destinations = component.destinations.clone();
@@ -227,7 +249,11 @@ mod tests {
             authority: "registry:0.15.0".to_string(),
             kind: "executable".to_string(),
             installation_method: "prebuilt".to_string(),
-            artifacts: vec![("miden-vm".to_string(), "https://example.invalid/vm".to_string())],
+            artifacts: vec![ArtifactInput {
+                id: "miden-vm".to_string(),
+                uri: "https://example.invalid/vm".to_string(),
+                archive: None,
+            }],
             destinations: vec![("/s/bin/miden-vm".to_string(), 0o755)],
             crate_name: Some("miden-vm".to_string()),
             features: Some(vec!["std".to_string()]),
@@ -283,8 +309,12 @@ mod tests {
             ("authority", |i| i.components[0].authority = "registry:0.16.0".into()),
             ("kind", |i| i.components[0].kind = "package".into()),
             ("method", |i| i.components[0].installation_method = "cargo".into()),
-            ("artifact id", |i| i.components[0].artifacts[0].0 = "other".into()),
-            ("artifact uri", |i| i.components[0].artifacts[0].1 = "https://other".into()),
+            ("artifact id", |i| i.components[0].artifacts[0].id = "other".into()),
+            ("artifact uri", |i| i.components[0].artifacts[0].uri = "https://other".into()),
+            // Unpacking the same URI installs different bytes than fetching it whole.
+            ("artifact archive", |i| {
+                i.components[0].artifacts[0].archive = Some("tar.gz".into())
+            }),
             ("destination", |i| i.components[0].destinations[0].0 = "/s/bin/other".into()),
             ("mode", |i| i.components[0].destinations[0].1 = 0o644),
             ("crate name", |i| i.components[0].crate_name = Some("other".into())),

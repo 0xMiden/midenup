@@ -25,6 +25,8 @@ pub fn mutating_test_guard() -> MutexGuard<'static, ()> {
 
 use std::path::{Path, PathBuf};
 
+use flate2::{Compression, write::GzEncoder};
+
 /// A fully offline channel fixture: no network, no `cargo install`.
 ///
 /// Most install tests assert on *layout and state* -- which files landed where, what the symlinks
@@ -159,6 +161,63 @@ exit 0
                 }
             ]
         }));
+
+        self
+    }
+
+    /// Adds a `packages` component whose artifact is published inside a tarball.
+    ///
+    /// Built for real rather than stubbed: only genuine gzip bytes exercise the acquisition path an
+    /// archived artifact actually takes. Nested under a directory, as release tarballs are, so the
+    /// directory entry must not be mistaken for the artifact.
+    pub fn with_archived_component(mut self) -> Self {
+        use std::io::Write;
+
+        let channel = self
+            .channels
+            .last_mut()
+            .expect("with_archived_component needs a channel to add to");
+        let name = channel["name"].as_str().expect("a channel has a name").to_string();
+
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut dir = tar::Header::new_gnu();
+        dir.set_entry_type(tar::EntryType::Directory);
+        dir.set_size(0);
+        dir.set_mode(0o755);
+        dir.set_path("packages-1.0/").unwrap();
+        dir.set_cksum();
+        tar.append(&dir, std::io::empty()).expect("failed to add directory");
+
+        let contents = b"archived-package";
+        let mut header = tar::Header::new_gnu();
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        tar.append_data(&mut header, "packages-1.0/archived.masp", &contents[..])
+            .expect("failed to add member");
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder
+            .write_all(&tar.into_inner().unwrap())
+            .expect("failed to compress fixture tarball");
+
+        let tarball = self.dir.join(&name).join("archived.masp.tar.gz");
+        std::fs::write(&tarball, encoder.finish().unwrap()).expect("failed to write tarball");
+
+        channel["components"].as_array_mut().expect("a channel has components").push(
+            serde_json::json!({
+                "name": "packages",
+                "version": {"kind": "registry", "version": "1.0.0"},
+                "kind": "package",
+                "profiles": ["minimal"],
+                "artifacts": {
+                    "archived.masp": {
+                        "uri": format!("file://{}", tarball.display()),
+                        "archive": "tar.gz"
+                    }
+                }
+            }),
+        );
 
         self
     }

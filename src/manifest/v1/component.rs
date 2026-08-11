@@ -178,6 +178,8 @@ impl TryFrom<Component> for crate::manifest::v3::Component {
                     crate::artifact::Artifact::TargetAgnostic {
                         uri: artifact,
                         digest: None,
+                        // A v1 manifest had no way to declare one: every artifact was the file.
+                        archive: None,
                         extra: Default::default(),
                     },
                 );
@@ -190,6 +192,7 @@ impl TryFrom<Component> for crate::manifest::v3::Component {
                             substitutions: None,
                             targets: Default::default(),
                             digest: None,
+                            archive: None,
                             extra: Default::default(),
                         }
                     });
@@ -206,6 +209,7 @@ impl TryFrom<Component> for crate::manifest::v3::Component {
                             substitutions: None,
                             targets: Default::default(),
                             digest: None,
+                            archive: None,
                             extra: Default::default(),
                         }
                     });
