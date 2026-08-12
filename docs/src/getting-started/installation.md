@@ -8,10 +8,6 @@
 cargo install midenup
 ```
 
-:::important
-Until this crate has been published to crates.io, it is only possible to install midenup by cloning the repository and then running `cargo install --path .` or `cargo install --git https://github.com/0xMiden/midenup `.
-:::
-
 2. Initialize the midenup environment:
 
 ```shell title=">_ Terminal"
