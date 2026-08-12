@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -295,31 +295,15 @@ impl Config {
             Some(inherited) if inherited.as_os_str() == self.cargo_home.as_os_str() => {
                 (inherited, std::env::var_os("PATH"))
             },
-            Some(_) => match std::env::var_os("PATH") {
-                Some(prev_path) => {
-                    let mut path =
-                        OsString::from(format!("{}:", self.cargo_home.join("bin").display()));
-                    path.push(prev_path);
-                    (self.cargo_home.clone().into_os_string(), Some(path))
-                },
-                None => {
-                    let cargo_home = self.cargo_home.clone().into_os_string();
-                    let path = self.cargo_home.join("bin").into_os_string();
-                    (cargo_home, Some(path))
-                },
-            },
+            Some(_) => (
+                self.cargo_home.clone().into_os_string(),
+                Some(prepend_path_entry(std::env::var_os("PATH"), self.cargo_home.join("bin"))?),
+            ),
             None => (self.cargo_home.clone().into_os_string(), std::env::var_os("PATH")),
         };
 
         // Prepend the toolchain opt/ directory to the current PATH
-        let path = match path {
-            Some(prev_path) => {
-                let mut path = OsString::from(format!("{}:", toolchain_opt.display()));
-                path.push(prev_path);
-                path
-            },
-            None => toolchain_opt.into_os_string(),
-        };
+        let path = prepend_path_entry(path, toolchain_opt)?;
 
         let mut command = std::process::Command::new(target_exe);
         command
@@ -365,5 +349,40 @@ impl Config {
         } else {
             child.wait()
         }
+    }
+}
+
+fn prepend_path_entry(
+    previous: Option<OsString>,
+    entry: impl AsRef<Path>,
+) -> Result<OsString, std::io::Error> {
+    let paths = std::iter::once(entry.as_ref().to_path_buf())
+        .chain(previous.as_ref().map(std::env::split_paths).into_iter().flatten());
+
+    std::env::join_paths(paths).map_err(|err| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("failed to construct PATH: {err}"),
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use super::prepend_path_entry;
+
+    #[test]
+    fn prepending_a_path_entry_preserves_platform_separators() {
+        let entry = PathBuf::from("new-bin");
+        let first = PathBuf::from("old-one");
+        let second = PathBuf::from("old-two");
+        let previous = std::env::join_paths([first.clone(), second.clone()]).unwrap();
+
+        let path = prepend_path_entry(Some(previous), &entry).unwrap();
+        let split = std::env::split_paths(&path).collect::<Vec<_>>();
+
+        assert_eq!(split, vec![entry, first, second]);
     }
 }
