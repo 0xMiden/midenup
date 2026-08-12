@@ -80,9 +80,25 @@ If you forget to do the step above, some functionality will not work as expected
 
 ### For PowerShell (Windows)
 
-:::note todo
-Add instructions here
-:::
+Add Cargo's bin directory to your user `Path` environment variable:
+
+```powershell title=">_ Terminal"
+$cargoBin = Join-Path $HOME ".cargo\bin"
+$userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+$paths = @($userPath -split ";" | Where-Object { $_ })
+
+if ($paths -notcontains $cargoBin) {
+    $newPath = ($paths + $cargoBin) -join ";"
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+}
+```
+
+Open a new PowerShell window so the updated `Path` is loaded, then verify the command is
+available:
+
+```powershell title=">_ Terminal"
+miden help
+```
 
 ## Install the Miden Toolchain
 
