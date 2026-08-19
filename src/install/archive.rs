@@ -6,8 +6,8 @@
 //! # Adding a new supported format
 //!
 //! A reader beside [from_tar], and an arm for it in [file]. A reader takes a stream, so any
-//! decompression composes in front of it; one needing random access -- a zip's central directory
-//! sits at the end -- can take the whole body instead.
+//! decompression composes in front of it, and owes that stream a read through to EOF; one needing
+//! random access -- a zip's central directory sits at the end -- can take the whole body instead.
 
 use std::io::Read;
 
@@ -71,6 +71,14 @@ fn from_tar<R: Read>(stream: R, uri: &str) -> Result<Vec<u8>, ArchiveError> {
         only = Some(body);
     }
 
+    // Read for the errors it raises rather than for the bytes: whatever follows the tar is the
+    // stream's own bookkeeping, and there is nothing left to hand back a decoded byte to.
+    let mut rest = tar.into_inner();
+    std::io::copy(&mut rest, &mut std::io::sink()).map_err(|err| ArchiveError::Malformed {
+        uri: uri.to_string(),
+        reason: err.to_string(),
+    })?;
+
     only.ok_or_else(|| ArchiveError::Empty { uri: uri.to_string() })
 }
 
@@ -83,6 +91,9 @@ mod tests {
     use super::*;
 
     const URI: &str = "https://example.invalid/artifact.tar.gz";
+
+    /// A gzip stream ends with a CRC32 of the decompressed bytes and their length, four bytes each.
+    const TRAILER: usize = 8;
 
     /// A gzipped tar archive of `(path, contents)` entries.
     fn tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
@@ -152,6 +163,30 @@ mod tests {
         let err = file(&gzipped(tar.into_inner().unwrap()), SupportedFormat::TarGz, URI)
             .expect_err("must fail");
         assert!(matches!(err, ArchiveError::Empty { .. }), "{err}");
+    }
+
+    /// The tar inside is intact, so only reading the stream to its end catches this. `gzip -t`
+    /// rejects the same bytes.
+    #[test]
+    fn a_missing_gzip_trailer_is_an_error() {
+        let mut body = nested();
+        body.truncate(body.len() - TRAILER);
+
+        let err = file(&body, SupportedFormat::TarGz, URI).expect_err("must fail");
+        assert!(matches!(err, ArchiveError::Malformed { .. }), "{err}");
+        assert!(err.to_string().contains(URI), "the message must name the source: {err}");
+    }
+
+    /// An archive edited after the fact: the trailer is there and disagrees with the bytes that
+    /// came out of it.
+    #[test]
+    fn a_gzip_checksum_that_does_not_match_is_an_error() {
+        let mut body = nested();
+        let crc = body.len() - TRAILER;
+        body[crc] ^= 0xff;
+
+        let err = file(&body, SupportedFormat::TarGz, URI).expect_err("must fail");
+        assert!(matches!(err, ArchiveError::Malformed { .. }), "{err}");
     }
 
     /// Not an archive at all -- an HTML error page served with a 200, say.
