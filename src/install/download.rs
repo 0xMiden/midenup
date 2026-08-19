@@ -14,8 +14,9 @@
 //! destination's stem: `core.masp` and `core.wasm` must not stage through the same path.
 //!
 //! An archived artifact takes the same path with one step inserted: the file inside the transferred
-//! bytes is read out (see [crate::install::archive]) and *that* is what gets published. It happens
-//! in memory, so nothing but the artifact is ever written.
+//! bytes is read out (see [crate::install::archive]) and *that* is what gets published. It is
+//! streamed into the temporary as it is unpacked, so the artifact is never held in memory alongside
+//! the bytes it came out of, and the container is never written anywhere.
 
 use std::{
     io::Write,
@@ -87,7 +88,7 @@ pub fn download(
     archive: Option<SupportedFormat>,
 ) -> Result<(), ExecError> {
     let body = fetch(uri)?;
-    publish(&unpack(body, archive, uri)?, dest, mode)
+    publish(&body, archive, uri, dest, mode)
 }
 
 /// Copies `src` to `dest`, atomically, unpacking it first when it is an archive.
@@ -103,20 +104,7 @@ pub fn copy_local(
         source,
     })?;
     let source = format!("file://{}", src.display());
-    publish(&unpack(body, archive, &source)?, dest, mode)
-}
-
-/// Reduces acquired bytes to the artifact: the one file the archive holds, or the bytes as they
-/// came.
-fn unpack(
-    body: Vec<u8>,
-    archive: Option<SupportedFormat>,
-    source: &str,
-) -> Result<Vec<u8>, ExecError> {
-    match archive {
-        Some(format) => Ok(archive::file(&body, format, source)?),
-        None => Ok(body),
-    }
+    publish(&body, archive, &source, dest, mode)
 }
 
 /// Retrieves `uri`, rejecting anything that is not a usable body.
@@ -168,27 +156,39 @@ fn fetch(uri: &str) -> Result<Vec<u8>, ExecError> {
     Ok(body)
 }
 
-/// Writes `body` to a unique temporary sibling of `dest`, then renames it into place.
+/// Writes the artifact `body` carries to a unique temporary sibling of `dest`, then renames it into
+/// place. `body` can either be the artifact itself or the archive holding it.
 ///
 /// The temporary is a sibling so the rename stays within one filesystem, and unique so that two
 /// artifacts sharing a stem cannot stage through the same path.
-fn publish(body: &[u8], dest: &Path, mode: u32) -> Result<(), ExecError> {
+fn publish(
+    body: &[u8],
+    archive: Option<SupportedFormat>,
+    source: &str,
+    dest: &Path,
+    mode: u32,
+) -> Result<(), ExecError> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|source| ExecError::Create { path: parent.to_path_buf(), source })?;
     }
 
     let temporary = temporary_sibling(dest);
-    let result = (|| -> std::io::Result<()> {
-        let mut file = std::fs::File::create(&temporary)?;
-        file.write_all(body)?;
-        file.flush()?;
-        file.sync_all()?;
+    let unusable = |source: std::io::Error| ExecError::Create { path: temporary.clone(), source };
+
+    let result = (|| -> Result<(), ExecError> {
+        let mut file = std::fs::File::create(&temporary).map_err(unusable)?;
+        match archive {
+            Some(format) => archive::extract(body, format, source, &mut file)?,
+            None => file.write_all(body).map_err(unusable)?,
+        }
+        file.flush().map_err(unusable)?;
+        file.sync_all().map_err(unusable)?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+            file.set_permissions(std::fs::Permissions::from_mode(mode)).map_err(unusable)?;
         }
         #[cfg(not(unix))]
         let _ = mode;
@@ -196,9 +196,9 @@ fn publish(body: &[u8], dest: &Path, mode: u32) -> Result<(), ExecError> {
         Ok(())
     })();
 
-    if let Err(source) = result {
+    if let Err(err) = result {
         let _ = std::fs::remove_file(&temporary);
-        return Err(ExecError::Create { path: temporary, source });
+        return Err(err);
     }
 
     if let Err(source) = std::fs::rename(&temporary, dest) {
@@ -413,6 +413,24 @@ mod tests {
         encoder.finish().unwrap()
     }
 
+    /// A gzipped tarball of several members, for the archives that must be refused.
+    fn tarball_of(members: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+
+        let mut tar = tar::Builder::new(Vec::new());
+        for (path, contents) in members {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o600);
+            header.set_cksum();
+            tar.append_data(&mut header, path, *contents).unwrap();
+        }
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar.into_inner().unwrap()).unwrap();
+        encoder.finish().unwrap()
+    }
+
     /// The archived file lands at the planned path with the planned name and mode.
     #[test]
     fn an_archived_download_installs_the_file_the_archive_holds() {
@@ -463,6 +481,26 @@ mod tests {
         assert!(matches!(err, ExecError::Archive(_)), "{err}");
         assert!(!dest.exists(), "the container must never be installed as the artifact");
         assert!(leftovers(dir.path(), "miden-vm").is_empty(), "no partial files");
+    }
+
+    /// The temporary an archive unpacks into is written before the archive has been shown to hold
+    /// exactly one file. Only the rename publishes anything, so a rejected archive leaves nothing.
+    #[test]
+    fn an_archive_holding_more_than_one_file_writes_nothing() {
+        let dir = temp();
+        let src = dir.path().join("two.tar.gz");
+        std::fs::write(&src, tarball_of(&[("first", b"one"), ("second", b"two")])).unwrap();
+        let dest = dir.path().join("miden-vm");
+
+        let err =
+            copy_local(&src, &dest, 0o755, Some(SupportedFormat::TarGz)).expect_err("must fail");
+        assert!(matches!(err, ExecError::Archive(_)), "{err}");
+        assert!(!dest.exists(), "a rejected archive must not be installed");
+        assert_eq!(
+            leftovers(dir.path(), "two.tar.gz"),
+            Vec::<String>::new(),
+            "the temporary the first file was written to must be gone"
+        );
     }
 
     #[test]
