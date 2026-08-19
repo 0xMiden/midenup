@@ -615,6 +615,7 @@ mod tests {
             Artifact::TargetAgnostic {
                 uri: "https://example.invalid/v1/miden-vm".to_string(),
                 digest: None,
+                archive: None,
                 extra: Default::default(),
             },
         );
@@ -662,6 +663,7 @@ mod tests {
             Artifact::TargetAgnostic {
                 uri: "https://example.invalid/v2/miden-vm".to_string(),
                 digest: None,
+                archive: None,
                 extra: Default::default(),
             },
         );

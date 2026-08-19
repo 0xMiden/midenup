@@ -317,6 +317,7 @@ mod tests {
         let artifact = |name: &str| Artifact::TargetAgnostic {
             uri: uri(name),
             digest: None,
+            archive: None,
             extra: Default::default(),
         };
 
@@ -681,6 +682,7 @@ mod tests {
             dest,
             mode: MODE_EXECUTABLE,
             owner: "vm".to_string(),
+            archive: None,
             fallback: None,
         };
 
@@ -710,11 +712,13 @@ mod tests {
             dest: dest.clone(),
             mode: MODE_EXECUTABLE,
             owner: "vm".to_string(),
+            archive: None,
             fallback: Some(Box::new(PlanStep::CopyLocal {
                 src: replacement,
                 dest: dest.clone(),
                 mode: MODE_EXECUTABLE,
                 owner: "vm".to_string(),
+                archive: None,
                 fallback: None,
             })),
         };

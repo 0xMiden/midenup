@@ -14,5 +14,5 @@ pub use self::{
         Destination, DestinationError, InvalidArtifactId, MODE_DATA, MODE_EXECUTABLE,
         destination_for, validate_artifact_id,
     },
-    key::{ComponentInputs, KeyInputs, PlanKey, compute as compute_plan_key},
+    key::{ArtifactInput, ComponentInputs, KeyInputs, PlanKey, compute as compute_plan_key},
 };

@@ -12,13 +12,22 @@
 //!
 //! The temporary file an artifact stages through is unique per attempt, not derived from the
 //! destination's stem: `core.masp` and `core.wasm` must not stage through the same path.
+//!
+//! An archived artifact takes the same path with one step inserted: the file inside the transferred
+//! bytes is read out (see [crate::install::archive]) and *that* is what gets published. It is
+//! streamed into the temporary as it is unpacked, so the artifact is never held in memory alongside
+//! the bytes it came out of, and the container is never written anywhere.
 
 use std::{
     io::Write,
     path::{Path, PathBuf},
 };
 
-use crate::plan::PlanStep;
+use crate::{
+    artifact::SupportedFormat,
+    install::{ArchiveError, archive},
+    plan::PlanStep,
+};
 
 /// How many redirects to follow before giving up.
 ///
@@ -53,6 +62,8 @@ pub enum ExecError {
         #[source]
         source: std::io::Error,
     },
+    #[error(transparent)]
+    Archive(#[from] ArchiveError),
 }
 
 /// Performs one acquisition step.
@@ -61,26 +72,39 @@ pub enum ExecError {
 /// Cargo executor. Every path is taken verbatim from the plan.
 pub fn acquire(step: &PlanStep) -> Result<(), ExecError> {
     match step {
-        PlanStep::Download { uri, dest, mode, .. } => download(uri, dest, *mode),
-        PlanStep::CopyLocal { src, dest, mode, .. } => copy_local(src, dest, *mode),
+        PlanStep::Download { uri, dest, mode, archive, .. } => download(uri, dest, *mode, *archive),
+        PlanStep::CopyLocal { src, dest, mode, archive, .. } => {
+            copy_local(src, dest, *mode, *archive)
+        },
         PlanStep::CargoBuild { .. } | PlanStep::ExtractPackage { .. } => Ok(()),
     }
 }
 
-/// Fetches `uri` to `dest`, atomically.
-pub fn download(uri: &str, dest: &Path, mode: u32) -> Result<(), ExecError> {
+/// Fetches `uri` to `dest`, atomically, unpacking it first when it is an archive.
+pub fn download(
+    uri: &str,
+    dest: &Path,
+    mode: u32,
+    archive: Option<SupportedFormat>,
+) -> Result<(), ExecError> {
     let body = fetch(uri)?;
-    publish(&body, dest, mode)
+    publish(&body, archive, uri, dest, mode)
 }
 
-/// Copies `src` to `dest`, atomically.
-pub fn copy_local(src: &Path, dest: &Path, mode: u32) -> Result<(), ExecError> {
+/// Copies `src` to `dest`, atomically, unpacking it first when it is an archive.
+pub fn copy_local(
+    src: &Path,
+    dest: &Path,
+    mode: u32,
+    archive: Option<SupportedFormat>,
+) -> Result<(), ExecError> {
     let body = std::fs::read(src).map_err(|source| ExecError::Copy {
         src: src.to_path_buf(),
         dest: dest.to_path_buf(),
         source,
     })?;
-    publish(&body, dest, mode)
+    let source = format!("file://{}", src.display());
+    publish(&body, archive, &source, dest, mode)
 }
 
 /// Retrieves `uri`, rejecting anything that is not a usable body.
@@ -132,27 +156,39 @@ fn fetch(uri: &str) -> Result<Vec<u8>, ExecError> {
     Ok(body)
 }
 
-/// Writes `body` to a unique temporary sibling of `dest`, then renames it into place.
+/// Writes the artifact `body` carries to a unique temporary sibling of `dest`, then renames it into
+/// place. `body` can either be the artifact itself or the archive holding it.
 ///
 /// The temporary is a sibling so the rename stays within one filesystem, and unique so that two
 /// artifacts sharing a stem cannot stage through the same path.
-fn publish(body: &[u8], dest: &Path, mode: u32) -> Result<(), ExecError> {
+fn publish(
+    body: &[u8],
+    archive: Option<SupportedFormat>,
+    source: &str,
+    dest: &Path,
+    mode: u32,
+) -> Result<(), ExecError> {
     if let Some(parent) = dest.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|source| ExecError::Create { path: parent.to_path_buf(), source })?;
     }
 
     let temporary = temporary_sibling(dest);
-    let result = (|| -> std::io::Result<()> {
-        let mut file = std::fs::File::create(&temporary)?;
-        file.write_all(body)?;
-        file.flush()?;
-        file.sync_all()?;
+    let unusable = |source: std::io::Error| ExecError::Create { path: temporary.clone(), source };
+
+    let result = (|| -> Result<(), ExecError> {
+        let mut file = std::fs::File::create(&temporary).map_err(unusable)?;
+        match archive {
+            Some(format) => archive::extract(body, format, source, &mut file)?,
+            None => file.write_all(body).map_err(unusable)?,
+        }
+        file.flush().map_err(unusable)?;
+        file.sync_all().map_err(unusable)?;
 
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(mode))?;
+            file.set_permissions(std::fs::Permissions::from_mode(mode)).map_err(unusable)?;
         }
         #[cfg(not(unix))]
         let _ = mode;
@@ -160,9 +196,9 @@ fn publish(body: &[u8], dest: &Path, mode: u32) -> Result<(), ExecError> {
         Ok(())
     })();
 
-    if let Err(source) = result {
+    if let Err(err) = result {
         let _ = std::fs::remove_file(&temporary);
-        return Err(ExecError::Create { path: temporary, source });
+        return Err(err);
     }
 
     if let Err(source) = std::fs::rename(&temporary, dest) {
@@ -195,6 +231,8 @@ fn temporary_sibling(dest: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
+    use flate2::{Compression, write::GzEncoder};
+
     use super::*;
 
     /// A single-request HTTP server, so status handling is exercised against a real socket.
@@ -276,7 +314,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("artifact.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755).expect_err("a 404 must fail");
+        let err = download(&server.url("/x"), &dest, 0o755, None).expect_err("a 404 must fail");
         assert!(matches!(err, ExecError::HttpStatus { status: 404, .. }), "{err}");
         assert!(!dest.exists(), "a failed download must not leave a file");
         assert!(leftovers(dir.path(), "artifact.bin").is_empty(), "no partial files");
@@ -288,7 +326,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755).expect_err("a 500 must fail");
+        let err = download(&server.url("/x"), &dest, 0o755, None).expect_err("a 500 must fail");
         assert!(matches!(err, ExecError::HttpStatus { status: 500, .. }), "{err}");
         assert!(!dest.exists());
     }
@@ -300,7 +338,8 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755).expect_err("an empty body must fail");
+        let err =
+            download(&server.url("/x"), &dest, 0o755, None).expect_err("an empty body must fail");
         assert!(matches!(err, ExecError::EmptyBody { .. }), "{err}");
         assert!(!dest.exists());
     }
@@ -311,7 +350,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("planned-name.bin");
 
-        download(&server.url("/x"), &dest, 0o755).expect("should succeed");
+        download(&server.url("/x"), &dest, 0o755, None).expect("should succeed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
         assert!(leftovers(dir.path(), "planned-name.bin").is_empty());
     }
@@ -323,7 +362,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        download(&server.url("/from"), &dest, 0o755).expect("redirects must be followed");
+        download(&server.url("/from"), &dest, 0o755, None).expect("redirects must be followed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
     }
 
@@ -334,7 +373,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("nothing-like-the-url");
 
-        download(&server.url("/some/deep/path/other-name"), &dest, 0o755).unwrap();
+        download(&server.url("/some/deep/path/other-name"), &dest, 0o755, None).unwrap();
         assert!(dest.exists(), "the planned name must win");
     }
 
@@ -348,13 +387,120 @@ mod tests {
             let dir = temp();
             let dest = dir.path().join("pkg.masp");
 
-            download(&server.url("/x"), &dest, 0o644).unwrap();
+            download(&server.url("/x"), &dest, 0o644, None).unwrap();
             assert_eq!(
                 std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
                 0o644,
                 "packages must not be marked executable"
             );
         }
+    }
+
+    /// A gzipped tarball with the binary nested under a release directory, as releases ship them.
+    fn tarball(member: &str, contents: &[u8]) -> Vec<u8> {
+        use std::io::Write;
+
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut header = tar::Header::new_gnu();
+        header.set_size(contents.len() as u64);
+        // Deliberately not 0755: the mode comes from the plan, never from the archive.
+        header.set_mode(0o600);
+        header.set_cksum();
+        tar.append_data(&mut header, member, contents).unwrap();
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar.into_inner().unwrap()).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// A gzipped tarball of several members, for the archives that must be refused.
+    fn tarball_of(members: &[(&str, &[u8])]) -> Vec<u8> {
+        use std::io::Write;
+
+        let mut tar = tar::Builder::new(Vec::new());
+        for (path, contents) in members {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o600);
+            header.set_cksum();
+            tar.append_data(&mut header, path, *contents).unwrap();
+        }
+
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(&tar.into_inner().unwrap()).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    /// The archived file lands at the planned path with the planned name and mode.
+    #[test]
+    fn an_archived_download_installs_the_file_the_archive_holds() {
+        let body = Box::leak(tarball("vm-0.16.0/miden-vm", b"binary").into_boxed_slice());
+        let server = TestServer::responding(200, body);
+        let dir = temp();
+        let dest = dir.path().join("miden-vm");
+
+        download(&server.url("/vm.tar.gz"), &dest, 0o755, Some(SupportedFormat::TarGz))
+            .expect("should succeed");
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"binary");
+        assert!(leftovers(dir.path(), "miden-vm").is_empty(), "nothing else may be unpacked");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
+                0o755,
+                "the mode comes from the plan, not from the archive entry"
+            );
+        }
+    }
+
+    /// A local archive is unpacked the same way a fetched one is.
+    #[test]
+    fn an_archived_local_copy_installs_the_file_the_archive_holds() {
+        let dir = temp();
+        let src = dir.path().join("core.tar.gz");
+        std::fs::write(&src, tarball("packages/core.masp", b"package")).unwrap();
+        let dest = dir.path().join("lib").join("core.masp");
+
+        copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).expect("should succeed");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"package");
+    }
+
+    /// An unreadable archive fails like any other unusable body: nothing on disk, container
+    /// included.
+    #[test]
+    fn an_unreadable_archive_writes_nothing() {
+        let server = TestServer::responding(200, b"<html>Not a tarball</html>");
+        let dir = temp();
+        let dest = dir.path().join("miden-vm");
+
+        let err = download(&server.url("/vm.tar.gz"), &dest, 0o755, Some(SupportedFormat::TarGz))
+            .expect_err("must fail");
+        assert!(matches!(err, ExecError::Archive(_)), "{err}");
+        assert!(!dest.exists(), "the container must never be installed as the artifact");
+        assert!(leftovers(dir.path(), "miden-vm").is_empty(), "no partial files");
+    }
+
+    /// The temporary an archive unpacks into is written before the archive has been shown to hold
+    /// exactly one file. Only the rename publishes anything, so a rejected archive leaves nothing.
+    #[test]
+    fn an_archive_holding_more_than_one_file_writes_nothing() {
+        let dir = temp();
+        let src = dir.path().join("two.tar.gz");
+        std::fs::write(&src, tarball_of(&[("first", b"one"), ("second", b"two")])).unwrap();
+        let dest = dir.path().join("miden-vm");
+
+        let err =
+            copy_local(&src, &dest, 0o755, Some(SupportedFormat::TarGz)).expect_err("must fail");
+        assert!(matches!(err, ExecError::Archive(_)), "{err}");
+        assert!(!dest.exists(), "a rejected archive must not be installed");
+        assert_eq!(
+            leftovers(dir.path(), "two.tar.gz"),
+            Vec::<String>::new(),
+            "the temporary the first file was written to must be gone"
+        );
     }
 
     #[test]
@@ -364,14 +510,14 @@ mod tests {
         std::fs::write(&src, b"local").unwrap();
         let dest = dir.path().join("nested").join("dest");
 
-        copy_local(&src, &dest, 0o644).expect("should succeed");
+        copy_local(&src, &dest, 0o644, None).expect("should succeed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"local", "parent dirs must be created");
     }
 
     #[test]
     fn a_missing_local_source_is_an_error() {
         let dir = temp();
-        let err = copy_local(&dir.path().join("nope"), &dir.path().join("dest"), 0o644)
+        let err = copy_local(&dir.path().join("nope"), &dir.path().join("dest"), 0o644, None)
             .expect_err("must fail");
         assert!(matches!(err, ExecError::Copy { .. }), "{err}");
     }
