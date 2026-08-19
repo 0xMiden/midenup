@@ -520,6 +520,33 @@ pub enum ArtifactUri {
 }
 
 impl ArtifactUri {
+    /// What the artifact is fetched *from*, with everything that does not name it removed.
+    ///
+    /// For HTTP that is the URL's path: a server looks for `tool.tar.gz` when asked for
+    /// `https://host/tool.tar.gz?download=1`, and the authority is not part of what it looks for. A
+    /// `file://` source is a filesystem path, where `?` and `#` are ordinary characters and the
+    /// whole thing names the file.
+    ///
+    /// Anything reading a URI for what it points at wants this rather than the URI itself, which
+    /// carries decoration that reads like part of a name and is not.
+    pub fn path(&self) -> Cow<'_, str> {
+        match self {
+            Self::File(path) => path.to_string_lossy(),
+            Self::Http(uri) => {
+                // Whichever comes first: a fragment may contain a `?`, a query may contain a `#`.
+                let addressed = &uri[..uri.find(['?', '#']).unwrap_or(uri.len())];
+
+                // Past the authority, so a host that ends in an extension is not read as a path
+                // that does.
+                let path = match addressed.split_once("://") {
+                    Some((_, rest)) => rest.find('/').map_or("", |root| &rest[root..]),
+                    None => addressed,
+                };
+                Cow::Borrowed(path)
+            },
+        }
+    }
+
     pub fn file_name(&self) -> Option<&Path> {
         match self {
             Self::File(path) => path.file_name().map(Path::new),
@@ -862,6 +889,31 @@ mod archive_tests {
 
     fn parse(source: serde_json::Value) -> Artifact {
         serde_json::from_value(source).expect("must parse")
+    }
+
+    /// A URI carries decoration that reads like part of a name and is not: what is fetched is the
+    /// path, and only the path.
+    #[test]
+    fn a_uri_path_is_what_names_the_file() {
+        let cases = [
+            ("https://host/dir/vm.tar.gz", "/dir/vm.tar.gz"),
+            // Neither a query nor a fragment is fetched, and either may contain the other's mark.
+            ("https://host/vm.tar.gz?download=1", "/vm.tar.gz"),
+            ("https://host/vm.tar.gz#sha256?x", "/vm.tar.gz"),
+            ("https://host/vm.tar.gz?a=#b", "/vm.tar.gz"),
+            // A host is not fetched either, spelled like a file or not.
+            ("https://host.tar.gz/vm", "/vm"),
+            ("https://host.tar.gz", ""),
+        ];
+
+        for (uri, expected) in cases {
+            let parsed = ArtifactUri::Http(uri.to_string());
+            assert_eq!(parsed.path(), expected, "for {uri}");
+        }
+
+        // A local source is a path already: every character of it names the file.
+        let local = ArtifactUri::File(PathBuf::from("/releases/vm?1.tar.gz"));
+        assert_eq!(local.path(), "/releases/vm?1.tar.gz");
     }
 
     /// Every format this build reads must survive the manifest: declared by its spelling, it parses

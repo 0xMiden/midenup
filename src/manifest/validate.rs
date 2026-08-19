@@ -358,7 +358,8 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
 /// This is the one artifact mistake nothing downstream can catch: the container arrives as a
 /// regular file of the planned mode, so it installs, verifies and records as a success, and only
 /// fails when something tries to run it. Judged on the *resolved* URI, so a `%extension` of
-/// `tar.gz` is seen the same as a literal one.
+/// `tar.gz` is seen the same as a literal one, and on the path it is fetched from, so a query
+/// string or a fragment cannot carry the extension out of sight.
 ///
 /// An artifact id carrying the same extension is left alone: `bundle.tar.gz` installed as
 /// `bundle.tar.gz` is asking for the archive itself, which is a legitimate thing to want.
@@ -373,7 +374,7 @@ fn undeclared_archive(
 
     crate::artifact::ArchiveFormat::supported_spellings().find(|spelling| {
         let suffix = format!(".{spelling}");
-        !id.ends_with(&suffix) && uris.iter().any(|uri| uri.to_string().ends_with(&suffix))
+        !id.ends_with(&suffix) && uris.iter().any(|uri| uri.path().ends_with(&suffix))
     })
 }
 
@@ -782,6 +783,81 @@ mod tests {
             errors.iter().any(|e| matches!(e, ValidationError::UndeclaredArchive { .. })),
             "{errors:?}"
         );
+    }
+
+    /// The extension is part of what is fetched; a query string is not, and cannot be relied on
+    /// to hide it. Fetching this installs a tarball named `core.masp`.
+    #[test]
+    fn a_query_string_does_not_hide_the_archive_extension() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/core.masp.tar.gz?download=1"
+            }))
+            .expect("must parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UndeclaredArchive { format: "tar.gz", .. })),
+            "{errors:?}"
+        );
+    }
+
+    /// As for a query string: a fragment is not part of what is fetched either.
+    #[test]
+    fn a_fragment_does_not_hide_the_archive_extension() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/core.masp.tar.gz#sha256"
+            }))
+            .expect("must parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors.iter().any(|e| matches!(e, ValidationError::UndeclaredArchive { .. })),
+            "{errors:?}"
+        );
+    }
+
+    /// A local source is a filesystem path all the way through, `?` included.
+    #[test]
+    fn a_local_archive_without_a_declaration_is_rejected() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "file:///releases/core.masp.tar.gz"
+            }))
+            .expect("must parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors.iter().any(|e| matches!(e, ValidationError::UndeclaredArchive { .. })),
+            "{errors:?}"
+        );
+    }
+
+    /// Only the path names the file: a host is not a thing that is fetched.
+    #[test]
+    fn a_host_spelled_like_an_archive_is_left_alone() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "core.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://releases.tar.gz/core.masp"
+            }))
+            .expect("must parse"),
+        );
+
+        assert!(validate_manifest(&with_mainnet(manifest(vec![c]))).is_ok());
     }
 
     /// An artifact installed *as* the archive is asking for exactly that.
