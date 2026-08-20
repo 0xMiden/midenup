@@ -1547,7 +1547,8 @@
         {
           "aliases": {
             "build": [
-              "%installed-executable"
+              "%installed-executable",
+              "miden-project.toml"
             ]
           },
           "artifacts": {
@@ -1944,7 +1945,8 @@
         {
           "aliases": {
             "build": [
-              "%installed-executable"
+              "%installed-executable",
+              "miden-project.toml"
             ]
           },
           "artifacts": {
