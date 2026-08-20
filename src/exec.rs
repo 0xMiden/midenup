@@ -29,7 +29,6 @@ impl From<Executable> for Vec<String> {
                 Expr::VarPath(None) => out.push("%var".to_string()),
                 Expr::VarPath(Some(name)) => out.push(format!("%var({name})")),
                 Expr::EtcPath(name) => out.push(format!("%etc({name})")),
-                Expr::ProjectManifest => out.push("%project".to_string()),
                 Expr::Verbatim(expr) => out.push(expr),
             }
         }
@@ -110,17 +109,9 @@ pub enum Expr {
     VarPath(Option<String>),
     /// Resolve the command to a file in the toolchain etc directory (`<toolchain>/etc/<file>`).
     EtcPath(String),
-    /// Resolve the command to the project manifest (`miden-project.toml`) in the working directory.
-    ///
-    /// This is what lets an alias name the project the user is standing in: `miden build` must
-    /// compile *this* project, and the compiler takes the manifest as its input.
-    ProjectManifest,
     /// An argument that is passed verbatim, as is.
     Verbatim(String),
 }
-
-/// The file that identifies a Miden project, and what [`Expr::ProjectManifest`] resolves to.
-pub const PROJECT_MANIFEST: &str = "miden-project.toml";
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -131,7 +122,6 @@ impl fmt::Display for Expr {
             Expr::VarPath(None) => f.write_str("%var"),
             Expr::VarPath(Some(name)) => write!(f, "%var({name})"),
             Expr::EtcPath(name) => write!(f, "%etc({name})"),
-            Expr::ProjectManifest => f.write_str("%project"),
             Expr::Verbatim(arg) => f.write_str(arg),
         }
     }
@@ -169,11 +159,6 @@ impl FromStr for Expr {
             let name = parse_parenthesized(rest)
                 .ok_or_else(|| InvalidExecutable::InvalidEtcExpr(rest.to_string()))?;
             Ok(Expr::EtcPath(name.to_string()))
-        } else if let Some(rest) = value.strip_prefix("%project") {
-            if rest.is_empty() {
-                return Ok(Expr::ProjectManifest);
-            }
-            Err(InvalidExecutable::InvalidProjectExpr(rest.to_string()))
         } else {
             Ok(Expr::Verbatim(value.to_string()))
         }
@@ -208,16 +193,6 @@ pub enum InvalidExecutable {
          '%var(path/to/file)', got `{0}`"
     )]
     InvalidVarExpr(String),
-    #[error("invalid executable: invalid `%project` expr: expected `%project`, got `%project{0}`")]
-    InvalidProjectExpr(String),
-    #[error(
-        "component '{component}' requires a Miden project: no '{}' in '{directory}'. Run this \
-         from the directory holding the project manifest.",
-        crate::exec::PROJECT_MANIFEST
-    )]
-    MissingProjectManifest { component: String, directory: PathBuf },
-    #[error("unable to determine the current working directory: {0}")]
-    UnknownWorkingDirectory(String),
     #[error(
         "component '{component}' refers to {expression}, but '{path}' is not in the installed \
          toolchain"
@@ -245,10 +220,6 @@ pub struct Resolver {
     /// `$MIDENUP_HOME/var/<selector>`: mutable state, deliberately *outside* the publication, so
     /// it survives every republication of the toolchain (spec section 3.2).
     var: PathBuf,
-    /// Where the search for a project manifest starts, i.e. the directory the user invoked `miden`
-    /// from. `None` when the process has no readable working directory, which only `%project`
-    /// cares about.
-    working_directory: Option<PathBuf>,
 }
 
 impl Resolver {
@@ -263,14 +234,7 @@ impl Resolver {
         Self {
             sysroot: sysroot.into(),
             var: crate::paths::var_dir(home, selector),
-            working_directory: std::env::current_dir().ok(),
         }
-    }
-
-    /// Overrides where `%project` starts searching. Defaults to the process working directory.
-    pub fn with_working_directory(mut self, directory: impl Into<PathBuf>) -> Self {
-        self.working_directory = Some(directory.into());
-        self
     }
 
     /// Resolves one expression on behalf of `component`.
@@ -315,25 +279,6 @@ impl Resolver {
                     Some(file) => self.var.join(file).into_os_string(),
                     None => self.var.clone().into_os_string(),
                 })
-            },
-            // Unlike `%lib` and `%etc`, this names a file the *user* owns, so a missing one is a
-            // statement about where they are standing, not about the installation.
-            Expr::ProjectManifest => {
-                let directory = self.working_directory.as_deref().ok_or_else(|| {
-                    InvalidExecutable::UnknownWorkingDirectory(
-                        "the directory may have been removed or be unreadable".to_string(),
-                    )
-                })?;
-
-                let manifest = directory.join(PROJECT_MANIFEST);
-                if manifest.is_file() {
-                    Ok(manifest.into_os_string())
-                } else {
-                    Err(InvalidExecutable::MissingProjectManifest {
-                        component: component.name.to_string(),
-                        directory: directory.to_path_buf(),
-                    })
-                }
             },
             Expr::Verbatim(arg) => Ok(arg.clone().into()),
         }
@@ -385,9 +330,7 @@ impl Executable {
         for expr in self.args.iter() {
             // A path expression cannot be the program itself: `miden` would be asking the OS to
             // execute a library directory.
-            if argv.is_empty()
-                && matches!(expr, Expr::LibPath(_) | Expr::VarPath(_) | Expr::ProjectManifest)
-            {
+            if argv.is_empty() && matches!(expr, Expr::LibPath(_) | Expr::VarPath(_)) {
                 return Err(InvalidExecutable::NotExecutable);
             }
             argv.push(resolver.resolve(expr, component)?);
@@ -750,78 +693,5 @@ mod tests {
             executable(&["%lib"]).to_argv(&vm(), &env.resolver()),
             Err(InvalidExecutable::NotExecutable)
         ));
-        assert!(matches!(
-            executable(&["%project"]).to_argv(&vm(), &env.resolver()),
-            Err(InvalidExecutable::NotExecutable)
-        ));
-    }
-
-    /// A project manifest that names no subpath round-trips; anything else is rejected at parse
-    /// time rather than being passed to the compiler as a filename.
-    #[test]
-    fn project_expressions_round_trip_and_reject_subpaths() {
-        assert_eq!("%project".parse::<Expr>().unwrap(), Expr::ProjectManifest);
-        assert_eq!(Expr::ProjectManifest.to_string(), "%project");
-        assert_eq!(
-            Vec::<String>::from(executable(&["%installed-executable", "%project"])),
-            vec!["%installed-executable".to_string(), "%project".to_string()]
-        );
-        assert!(matches!(
-            "%project(foo.toml)".parse::<Expr>(),
-            Err(InvalidExecutable::InvalidProjectExpr(_))
-        ));
-    }
-
-    /// `%project` is the manifest in the working directory, and only that one: a member of a larger
-    /// project resolves to its own manifest, and a directory inside that member resolves to
-    /// nothing.
-    #[test]
-    fn project_manifest_resolves_to_the_working_directory_only() {
-        let env = Env::new();
-        let temp = tempdir::TempDir::new("project").unwrap();
-        let root = temp.path();
-        let member = root.join("contracts").join("counter");
-        std::fs::create_dir_all(member.join("src")).unwrap();
-        std::fs::write(root.join(PROJECT_MANIFEST), b"[package]").unwrap();
-        std::fs::write(member.join(PROJECT_MANIFEST), b"[package]").unwrap();
-
-        let midenc = vm();
-        let build = executable(&["%installed-executable", "%project"]);
-
-        let from_member = build
-            .to_argv(&midenc, &env.resolver().with_working_directory(&member))
-            .expect("should resolve");
-        assert_eq!(from_member[1], member.join(PROJECT_MANIFEST).into_os_string());
-
-        let from_root = build
-            .to_argv(&midenc, &env.resolver().with_working_directory(root))
-            .expect("should resolve");
-        assert_eq!(from_root[1], root.join(PROJECT_MANIFEST).into_os_string());
-
-        assert!(
-            build
-                .to_argv(&midenc, &env.resolver().with_working_directory(member.join("src")))
-                .is_err(),
-            "an enclosing manifest is not reached for"
-        );
-    }
-
-    /// A missing project manifest is the user's directory, not a broken installation: the error
-    /// says which component wanted one and where it looked.
-    #[test]
-    fn a_missing_project_manifest_names_the_component_and_the_directory() {
-        let env = Env::new();
-        let temp = tempdir::TempDir::new("no-project").unwrap();
-        let elsewhere = temp.path().join("elsewhere");
-        std::fs::create_dir_all(&elsewhere).unwrap();
-
-        let err = executable(&["%installed-executable", "%project"])
-            .to_argv(&vm(), &env.resolver().with_working_directory(&elsewhere))
-            .expect_err("there is no project here");
-
-        let message = err.to_string();
-        assert!(message.contains("vm"), "must name the component: {message}");
-        assert!(message.contains(PROJECT_MANIFEST), "and what it looked for: {message}");
-        assert!(message.contains(elsewhere.to_str().unwrap()), "and where it looked: {message}");
     }
 }

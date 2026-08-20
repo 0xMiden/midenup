@@ -951,13 +951,8 @@ Resolved against the active publication at dispatch time:
 | `%etc(<path>)` | `<sysroot>/etc/<path>` |
 | `%var` | `$MIDENUP_HOME/var/<selector>` |
 | `%var(<name>)` | `$MIDENUP_HOME/var/<selector>/<name>` |
-| `%project` | `miden-project.toml` in the working directory |
 
 `%lib` and `%etc` resolve into the **immutable publication**; `%var` resolves **outside** it (§3.2). A `%etc` or `%lib` path that does not exist in the active publication is an error naming the component that declared it - not a silently passed argument.
-
-`%project` is the one substitution that names a file the **user** owns rather than one the toolchain installed. It exists because the compiler takes a project manifest as its input, and `miden build` has to mean "build the project I am standing in".
-
-It resolves in the working directory, so a component that takes it must be invoked from the directory holding the manifest.
 
 `<sysroot>` is the publication reached through `toolchains/<channel>`, resolved once per invocation.
 
