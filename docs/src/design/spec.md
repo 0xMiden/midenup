@@ -320,9 +320,10 @@ An artifact may be published inside an archive. `archive` names the format:
 
 - **Format:** `tar.gz`. Others are additive: a format is a variant plus a reader, and a manifest declaring one this build does not know would still parse (§4.4) and be rejected only when an installation is planned for it. The plan carries a format narrowed to the set this build reads (`SupportedFormat`), not the declared one, so the executor has no unsupported case to handle.
 - **The archive must hold exactly one file**, which is the artifact. Zero, or more than one, is an error; nothing is inferred from member names, and there is no way to select among several. Directory entries are skipped, so a file nested under one is found.
+- **The decompressed archive may be at most 2 GiB**, including format metadata and padding. Anything larger is rejected while it is being unpacked.
 - The object form `{ "format": "tar.gz" }` is also accepted, so a newer schema can add fields beside the format without an older `midenup` losing them (§4.4).
 
-An archive changes only how the bytes travel: the artifact id is still the installed filename, the destination and mode still come from §8, and the receipt records `prebuilt` like any other artifact. Extraction happens in memory and only that file is ever written.
+An archive changes only how the bytes travel: the artifact id is still the installed filename, the destination and mode still come from §8, and the receipt records `prebuilt` like any other artifact. The compressed source is held in memory while the decompressed archive is streamed. Its sole file is written to temporary storage and published only after the complete archive has been validated; the archive container itself is never written.
 
 ---
 

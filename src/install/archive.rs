@@ -63,7 +63,7 @@ fn extract_bounded(
     // One past the limit, so that running out of allowance is distinguishable from a stream that
     // ended on it.
     let mut stream = match format {
-        SupportedFormat::TarGz => flate2::read::GzDecoder::new(body).take(limit + 1),
+        SupportedFormat::TarGz => flate2::read::MultiGzDecoder::new(body).take(limit + 1),
     };
 
     let result = from_tar(&mut stream, uri, out);
@@ -91,6 +91,10 @@ fn from_tar<R: Read>(stream: R, uri: &str, out: &mut impl Write) -> Result<(), A
     };
 
     let mut tar = tar::Archive::new(stream);
+    // A tar end marker is allowed to be followed by more tar data. Continue past zero blocks so a
+    // concatenated archive cannot hide a second file, and so arbitrary trailing payload is parsed
+    // and rejected rather than silently discarded below.
+    tar.set_ignore_zeros(true);
     let entries = tar.entries().map_err(malformed)?;
 
     // A flag rather than the bytes: the file is gone once written out, and a decompressing stream
@@ -127,8 +131,9 @@ fn from_tar<R: Read>(stream: R, uri: &str, out: &mut impl Write) -> Result<(), A
         }
     }
 
-    // Read for the errors it raises rather than for the bytes: whatever follows the tar is the
-    // stream's own bookkeeping, and there is nothing left to hand back a decoded byte to.
+    // Read for the errors it raises rather than for the bytes. Ignoring zero blocks normally makes
+    // the entry iterator reach EOF itself, but keep this drain as the format reader's explicit
+    // guarantee that a decompressor in front of it validates every trailer before success.
     let mut rest = tar.into_inner();
     std::io::copy(&mut rest, &mut std::io::sink()).map_err(malformed)?;
 
@@ -162,8 +167,8 @@ mod tests {
         extract_bounded(body, SupportedFormat::TarGz, URI, &mut out, limit).map(|()| out)
     }
 
-    /// A gzipped tar archive of `(path, contents)` entries.
-    fn tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
+    /// A tar archive of `(path, contents)` entries.
+    fn tar(entries: &[(&str, &[u8])]) -> Vec<u8> {
         let mut tar = tar::Builder::new(Vec::new());
         for (path, contents) in entries {
             let mut header = tar::Header::new_gnu();
@@ -172,7 +177,12 @@ mod tests {
             header.set_cksum();
             tar.append_data(&mut header, path, *contents).unwrap();
         }
-        gzipped(tar.into_inner().unwrap())
+        tar.into_inner().unwrap()
+    }
+
+    /// A gzipped tar archive of `(path, contents)` entries.
+    fn tarball(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        gzipped(tar(entries))
     }
 
     fn gzipped(plain: Vec<u8>) -> Vec<u8> {
@@ -230,6 +240,16 @@ mod tests {
         assert!(err.to_string().contains(URI), "the message must name the source: {err}");
     }
 
+    /// End markers separate concatenated tar archives but do not make later files disappear.
+    #[test]
+    fn files_after_a_tar_end_marker_are_still_counted() {
+        let mut joined = tar(&[("a", b"one")]);
+        joined.extend(tar(&[("b", b"two")]));
+
+        let err = extracted(&gzipped(joined)).expect_err("must fail");
+        assert!(matches!(err, ArchiveError::NonZeroFiles { .. }), "{err}");
+    }
+
     #[test]
     fn an_archive_with_no_files_is_an_error() {
         let mut tar = tar::Builder::new(Vec::new());
@@ -256,6 +276,21 @@ mod tests {
     #[test]
     fn a_gzip_checksum_that_does_not_match_is_an_error() {
         let mut body = nested();
+        let crc = body.len() - TRAILER;
+        body[crc] ^= 0xff;
+
+        let err = extracted(&body).expect_err("must fail");
+        assert!(matches!(err, ArchiveError::Malformed { .. }), "{err}");
+    }
+
+    /// Every member belongs to the fetched gzip stream, so every trailer must be valid.
+    #[test]
+    fn a_later_gzip_member_checksum_must_match() {
+        let mut body = nested();
+        // Zero blocks are valid tar padding, ensuring the tar reader reaches the member's trailer.
+        body.extend(gzipped(vec![0; 1024]));
+        assert_eq!(extracted(&body).expect("every valid member should be accepted"), b"binary");
+
         let crc = body.len() - TRAILER;
         body[crc] ^= 0xff;
 
@@ -314,7 +349,7 @@ mod tests {
     fn an_archive_that_ends_on_the_limit_is_accepted() {
         let body = tarball(&[("snug", b"contents")]);
         let mut plain = Vec::new();
-        flate2::read::GzDecoder::new(&body[..]).read_to_end(&mut plain).unwrap();
+        flate2::read::MultiGzDecoder::new(&body[..]).read_to_end(&mut plain).unwrap();
 
         let extracted = extracted_under(plain.len() as u64, &body)
             .expect("a stream exactly the limit's length must be read");
