@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1786461825,
+  "date": 1787603290,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1547,7 +1547,8 @@
         {
           "aliases": {
             "build": [
-              "%installed-executable"
+              "%installed-executable",
+              "miden-project.toml"
             ]
           },
           "artifacts": {
@@ -1882,7 +1883,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.29.0"
+            "version": "0.29.2"
           }
         },
         {
@@ -1943,8 +1944,65 @@
         },
         {
           "aliases": {
-            "build": [
+            "format": [
               "%installed-executable"
+            ]
+          },
+          "artifacts": {
+            "miden-format": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-format-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-format",
+          "kind": "executable",
+          "name": "format",
+          "profiles": [],
+          "version": {
+            "kind": "registry",
+            "version": "0.29.2"
+          }
+        },
+        {
+          "aliases": {
+            "registry": [
+              "%installed-executable"
+            ]
+          },
+          "artifacts": {
+            "miden-registry": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-registry-%target"
+            }
+          },
+          "hide": true,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-registry",
+          "kind": "executable",
+          "name": "local-registry",
+          "profiles": [],
+          "version": {
+            "kind": "registry",
+            "version": "0.29.2"
+          }
+        },
+        {
+          "aliases": {
+            "build": [
+              "%installed-executable",
+              "miden-project.toml"
             ]
           },
           "artifacts": {
@@ -2183,7 +2241,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.29.0"
+            "version": "0.29.2"
           }
         }
       ]
