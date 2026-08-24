@@ -293,6 +293,7 @@ mod tests {
             mode: 0o755,
             owner: "vm".to_string(),
             digest: None,
+            archive: None,
             fallback: None,
         }
     }

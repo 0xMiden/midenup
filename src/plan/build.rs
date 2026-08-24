@@ -11,11 +11,11 @@ use std::{
 };
 
 use crate::{
-    artifact::{ArtifactUri, Digest, InvalidArtifactError},
+    artifact::{ArtifactUri, Digest, InvalidArtifactError, ResolvedArtifact, SupportedFormat},
     manifest::{Channel, Component, ComponentKind, InstallationMethod, PackageInstallationMethod},
     plan::{
-        ComponentInputs, Destination, DestinationError, KeyInputs, PlanKey, ResolvedAuthority,
-        compute_plan_key, destination_for,
+        ArtifactInput, ComponentInputs, Destination, DestinationError, KeyInputs, PlanKey,
+        ResolvedAuthority, compute_plan_key, destination_for,
     },
     resolve::{Intent, ResolutionError, resolve},
 };
@@ -92,6 +92,8 @@ pub enum PlanStep {
         owner: String,
         /// Recorded in the receipt, never verified. See [crate::artifact::Digest].
         digest: Option<Digest>,
+        /// Set when the fetched bytes are an archive to unpack the artifact from.
+        archive: Option<SupportedFormat>,
         /// What to do instead if the transfer fails (spec section 9.3).
         ///
         /// Only a `prebuilt-with-cargo-fallback` component has one, and the planner only ever
@@ -106,6 +108,8 @@ pub enum PlanStep {
         dest: PathBuf,
         mode: u32,
         owner: String,
+        /// As [PlanStep::Download::archive]. A `file://` artifact can be an archive too.
+        archive: Option<SupportedFormat>,
         /// As [PlanStep::Download::fallback]. A `file://` artifact can be missing just as a
         /// download can 404, and the declared fallback is what makes either recoverable.
         fallback: Option<Box<PlanStep>>,
@@ -336,11 +340,11 @@ fn plan_component(
 ) -> Result<(), PlanError> {
     let name = component.name.to_string();
     let declared = component.artifacts.artifacts.len();
-    let available: Vec<(String, ArtifactUri)> = component
+    let available: Vec<(String, ResolvedArtifact)> = component
         .artifacts
         .get_artifacts_for_target(target, component)?
         .into_iter()
-        .map(|(id, uri)| (id.to_string(), uri))
+        .map(|(id, resolved)| (id.to_string(), resolved))
         .collect();
 
     match component.kind() {
@@ -398,7 +402,7 @@ fn plan_component(
                     )?;
                 },
                 InstallationMethod::Prebuilt => {
-                    let Some((id, uri)) = available.into_iter().next() else {
+                    let Some((id, resolved)) = available.into_iter().next() else {
                         // A prebuilt component with no artifact for this target cannot be
                         // installed at all: an empty artifact list would otherwise become an
                         // install that reports success while placing no files.
@@ -407,7 +411,7 @@ fn plan_component(
                             target: target.to_string(),
                         });
                     };
-                    push_transfer(component, &id, uri, destination, steps, inputs);
+                    push_transfer(component, &id, resolved, destination, steps, inputs);
                 },
                 InstallationMethod::PrebuiltWithCargoFallback {
                     crate_name,
@@ -417,7 +421,7 @@ fn plan_component(
                     // The artifact is what will be installed, but the declared fallback travels
                     // with the step: an artifact that 404s at execution time is exactly the
                     // situation the fallback exists for.
-                    Some((id, uri)) => {
+                    Some((id, resolved)) => {
                         let fallback = PlanStep::CargoBuild {
                             crate_name: crate_name.clone(),
                             authority: authority.clone(),
@@ -430,7 +434,7 @@ fn plan_component(
                         push_transfer_with_fallback(
                             component,
                             &id,
-                            uri,
+                            resolved,
                             destination,
                             steps,
                             inputs,
@@ -482,20 +486,20 @@ fn plan_component(
                     target: target.to_string(),
                 });
             }
-            for (id, uri) in available {
+            for (id, resolved) in available {
                 let destination = destination_for(component, &id, sysroot)?;
                 inputs.destinations.push(key_destination(&destination, sysroot));
-                push_transfer(component, &id, uri, destination, steps, inputs);
+                push_transfer(component, &id, resolved, destination, steps, inputs);
             }
             inputs.installation_method = "prebuilt".to_string();
         },
 
         ComponentKind::Command { .. } => {
             // A command may install nothing at all; it is still a real component.
-            for (id, uri) in available {
+            for (id, resolved) in available {
                 let destination = destination_for(component, &id, sysroot)?;
                 inputs.destinations.push(key_destination(&destination, sysroot));
-                push_transfer(component, &id, uri, destination, steps, inputs);
+                push_transfer(component, &id, resolved, destination, steps, inputs);
             }
             inputs.installation_method = "n/a".to_string();
         },
@@ -573,12 +577,12 @@ fn method_tag(method: &InstallationMethod) -> &'static str {
 fn push_transfer(
     component: &Component,
     id: &str,
-    uri: ArtifactUri,
+    resolved: ResolvedArtifact,
     destination: Destination,
     steps: &mut Vec<PlanStep>,
     inputs: &mut ComponentInputs,
 ) {
-    push_transfer_with_fallback(component, id, uri, destination, steps, inputs, None)
+    push_transfer_with_fallback(component, id, resolved, destination, steps, inputs, None)
 }
 
 /// As [push_transfer], with a step to run if the transfer fails.
@@ -590,7 +594,7 @@ fn push_transfer(
 fn push_transfer_with_fallback(
     component: &Component,
     id: &str,
-    uri: ArtifactUri,
+    resolved: ResolvedArtifact,
     destination: Destination,
     steps: &mut Vec<PlanStep>,
     inputs: &mut ComponentInputs,
@@ -598,7 +602,13 @@ fn push_transfer_with_fallback(
 ) {
     let digest = component.artifacts.artifacts.get(id).and_then(|a| a.digest().cloned());
     let fallback = fallback.map(Box::new);
-    inputs.artifacts.push((id.to_string(), uri.to_string()));
+    let ResolvedArtifact { uri, archive } = resolved;
+    // Material: unpacking the same URI installs different bytes than fetching it whole.
+    inputs.artifacts.push(ArtifactInput {
+        id: id.to_string(),
+        uri: uri.to_string(),
+        archive: archive.map(|format| format.as_str().to_string()),
+    });
 
     steps.push(match uri {
         ArtifactUri::File(src) => PlanStep::CopyLocal {
@@ -606,6 +616,7 @@ fn push_transfer_with_fallback(
             dest: destination.path,
             mode: destination.mode,
             owner: component.name.to_string(),
+            archive,
             fallback,
         },
         ArtifactUri::Http(uri) => PlanStep::Download {
@@ -614,6 +625,7 @@ fn push_transfer_with_fallback(
             mode: destination.mode,
             owner: component.name.to_string(),
             digest,
+            archive,
             fallback,
         },
     });
@@ -699,8 +711,15 @@ mod tests {
         Artifact::TargetAgnostic {
             uri: uri.to_string(),
             digest: None,
+            archive: None,
             extra: Default::default(),
         }
+    }
+
+    /// A target-agnostic artifact published as a gzipped tarball.
+    fn archived(uri: &str) -> Artifact {
+        serde_json::from_value(serde_json::json!({"uri": uri, "archive": "tar.gz"}))
+            .expect("must parse")
     }
 
     fn specific(uri: &str, targets: &[&str]) -> Artifact {
@@ -709,6 +728,7 @@ mod tests {
             substitutions: None,
             targets: targets.iter().map(|t| (t.to_string(), Default::default())).collect(),
             digest: None,
+            archive: None,
             extra: Default::default(),
         }
     }
@@ -878,6 +898,88 @@ mod tests {
         )])
         .expect_err("must fail");
         assert!(matches!(err, PlanError::ArtifactIdMismatch { .. }), "{err}");
+    }
+
+    /// Same destination and mode as an unarchived artifact, plus the format to unpack.
+    #[test]
+    fn an_archived_artifact_carries_its_format_into_the_step() {
+        let plan = plan_of(vec![component(
+            "vm",
+            executable_kind(InstallationMethod::Prebuilt, "miden-vm"),
+            &[("miden-vm", archived("https://example.invalid/vm.tar.gz"))],
+        )])
+        .expect("should plan");
+
+        match &plan.steps[0] {
+            PlanStep::Download { dest, mode, archive, .. } => {
+                assert_eq!(dest, &sysroot().join("bin").join("miden-vm"));
+                assert_eq!(*mode, crate::plan::MODE_EXECUTABLE);
+                assert_eq!(
+                    archive.as_ref().map(|format| format.as_str()),
+                    Some("tar.gz"),
+                    "the step must carry the archive format"
+                );
+            },
+            other => panic!("expected a download, got {other:?}"),
+        }
+    }
+
+    /// A local archive is a copy step carrying its format, as a fetched one is a download.
+    #[test]
+    fn a_local_archive_becomes_a_copy_carrying_its_format() {
+        let plan = plan_of(vec![component(
+            "vm",
+            executable_kind(InstallationMethod::Prebuilt, "miden-vm"),
+            &[("miden-vm", archived("file:///tmp/vm.tar.gz"))],
+        )])
+        .expect("should plan");
+
+        assert!(matches!(&plan.steps[0], PlanStep::CopyLocal { archive: Some(_), .. }));
+    }
+
+    /// An unreadable container fails planning, rather than leaving the executor to discover it.
+    #[test]
+    fn an_unreadable_archive_format_fails_planning() {
+        let artifact: Artifact = serde_json::from_value(serde_json::json!({
+            "uri": "https://example.invalid/vm.zip",
+            "archive": "zip"
+        }))
+        .expect("must parse");
+
+        let err = plan_of(vec![component(
+            "vm",
+            executable_kind(InstallationMethod::Prebuilt, "miden-vm"),
+            &[("miden-vm", artifact)],
+        )])
+        .expect_err("must fail");
+        assert!(
+            matches!(
+                err,
+                PlanError::Artifact(
+                    crate::artifact::InvalidArtifactError::UnsupportedArchiveFormat { .. }
+                )
+            ),
+            "{err}"
+        );
+    }
+
+    /// Republishing an artifact as an archive changes the installed bytes, so it must reinstall.
+    #[test]
+    fn packaging_an_artifact_as_an_archive_changes_the_plan_key() {
+        let key = |artifact: Artifact| {
+            plan_of(vec![component(
+                "vm",
+                executable_kind(InstallationMethod::Prebuilt, "miden-vm"),
+                &[("miden-vm", artifact)],
+            )])
+            .expect("should plan")
+            .key
+        };
+        assert_ne!(
+            key(agnostic("https://example.invalid/vm.tar.gz")),
+            key(archived("https://example.invalid/vm.tar.gz")),
+            "unpacking the same URI installs different bytes than fetching it whole"
+        );
     }
 
     #[test]

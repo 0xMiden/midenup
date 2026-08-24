@@ -117,6 +117,80 @@ fn integration_install_creates_default_symlinks() {
     );
 }
 
+/// An artifact published inside a tarball installs exactly like a bare one: same destination, mode
+/// and receipt, since nothing downstream of acquisition can tell the difference.
+///
+/// The tarball nests its file under a directory, so this also shows the directory entry is not
+/// mistaken for the artifact and that nothing but the file itself reaches `lib/`.
+#[test]
+fn integration_install_unpacks_archived_artifacts() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_unpacks_archived_artifacts");
+
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_archived_component()
+        .build();
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+
+    let lib = test_env.midenup_home.join("toolchains").join("0.15.0").join("lib");
+    assert_eq!(
+        std::fs::read(lib.join("archived.masp")).unwrap(),
+        b"archived-package",
+        "the archived file must land under its artifact id"
+    );
+
+    let installed: Vec<String> = std::fs::read_dir(&lib)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert!(
+        !installed
+            .iter()
+            .any(|name| name.contains("packages-1.0") || name.ends_with(".tar.gz")),
+        "neither the container nor its directory may be installed: {installed:?}"
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        assert_eq!(
+            std::fs::metadata(lib.join("archived.masp")).unwrap().permissions().mode() & 0o777,
+            0o644,
+            "the mode is the planned one for a package, not the archive entry's"
+        );
+    }
+
+    let midenup::state::PublicationRef::Managed { id, .. } = &state
+        .get(&semver::Version::new(0, 15, 0))
+        .expect("the install must be recorded")
+        .publication
+    else {
+        panic!("a fresh install must produce a managed publication");
+    };
+    let publication = midenup::paths::publication_dir(
+        &test_env.midenup_home,
+        &semver::Version::new(0, 15, 0),
+        id,
+    );
+    let receipt = midenup::publish::read_receipt(&publication).expect("a receipt must be written");
+    assert!(
+        receipt
+            .outputs
+            .iter()
+            .any(|o| o.path == std::path::Path::new("lib/archived.masp")
+                && o.owner == "packages"
+                && o.realized == midenup::state::RealizedMethod::Prebuilt),
+        "an archived artifact is recorded like any other prebuilt one: {:?}",
+        receipt.outputs
+    );
+}
+
 /// An installation is published into `publications/<channel>-<publication-id>`, described by a
 /// receipt, and reached only through the `toolchains/<channel>` symlink.
 ///
