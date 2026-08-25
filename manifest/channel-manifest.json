@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1787679039,
+  "date": 1787680728,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1820,10 +1820,10 @@
             ],
             "deploy": [
               "%installed-executable",
-              "-s",
-              "public",
+              "new-account",
               "--account-type",
-              "regular-account-immutable-code"
+              "public",
+              "--deploy"
             ],
             "faucet": [
               "%installed-executable",
@@ -1834,13 +1834,13 @@
               "new-wallet",
               "--deploy"
             ],
-            "send": [
-              "%installed-executable",
-              "send"
-            ],
             "simulate": [
               "%installed-executable",
               "exec"
+            ],
+            "transfer": [
+              "%installed-executable",
+              "transfer"
             ]
           },
           "artifacts": {
