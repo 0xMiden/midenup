@@ -19,6 +19,7 @@
 //! the bytes it came out of, and the container is never written anywhere.
 
 use std::{
+    cell::RefCell,
     io::Write,
     path::{Path, PathBuf},
 };
@@ -27,6 +28,7 @@ use crate::{
     artifact::SupportedFormat,
     install::{ArchiveError, archive},
     plan::PlanStep,
+    report,
 };
 
 /// How many redirects to follow before giving up.
@@ -72,7 +74,9 @@ pub enum ExecError {
 /// Cargo executor. Every path is taken verbatim from the plan.
 pub fn acquire(step: &PlanStep) -> Result<(), ExecError> {
     match step {
-        PlanStep::Download { uri, dest, mode, archive, .. } => download(uri, dest, *mode, *archive),
+        PlanStep::Download { uri, dest, mode, archive, owner, .. } => {
+            download(uri, dest, *mode, *archive, owner)
+        },
         PlanStep::CopyLocal { src, dest, mode, archive, .. } => {
             copy_local(src, dest, *mode, *archive)
         },
@@ -81,13 +85,17 @@ pub fn acquire(step: &PlanStep) -> Result<(), ExecError> {
 }
 
 /// Fetches `uri` to `dest`, atomically, unpacking it first when it is an archive.
+///
+/// `label` names what is being transferred for the progress display; it is the owning component,
+/// never anything derived from the URL.
 pub fn download(
     uri: &str,
     dest: &Path,
     mode: u32,
     archive: Option<SupportedFormat>,
+    label: &str,
 ) -> Result<(), ExecError> {
-    let body = fetch(uri)?;
+    let body = fetch(uri, label)?;
     publish(&body, archive, uri, dest, mode)
 }
 
@@ -108,7 +116,7 @@ pub fn copy_local(
 }
 
 /// Retrieves `uri`, rejecting anything that is not a usable body.
-fn fetch(uri: &str) -> Result<Vec<u8>, ExecError> {
+fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
     let mut body = Vec::new();
     let mut handle = curl::easy::Easy::new();
 
@@ -116,6 +124,8 @@ fn fetch(uri: &str) -> Result<Vec<u8>, ExecError> {
         handle.url(uri)?;
         handle.follow_location(true)?;
         handle.max_redirections(MAX_REDIRECTS)?;
+        // Without this curl never calls the progress function at all.
+        handle.progress(true)?;
         Ok(())
     };
     setup(&mut handle).map_err(|err| ExecError::Transfer {
@@ -123,12 +133,30 @@ fn fetch(uri: &str) -> Result<Vec<u8>, ExecError> {
         reason: err.description().to_string(),
     })?;
 
+    crate::trace!("GET {uri}");
+
+    // Shared with the progress callback below, which runs while `write_function` also holds a
+    // borrow of `body`. Dropped at the end of this scope, which erases the display whether the
+    // transfer succeeded or failed.
+    let progress = RefCell::new(report::Transfer::begin(label));
+
     {
         let mut transfer = handle.transfer();
         transfer
             .write_function(|chunk| {
                 body.extend_from_slice(chunk);
                 Ok(chunk.len())
+            })
+            .map_err(|err| ExecError::Transfer {
+                uri: uri.to_string(),
+                reason: err.description().to_string(),
+            })?;
+        transfer
+            .progress_function(|total, done, _, _| {
+                // A server that sends no Content-Length reports a total of zero, which the display
+                // reads as "count what has arrived and claim no denominator".
+                progress.borrow_mut().update(done as u64, total as u64);
+                true
             })
             .map_err(|err| ExecError::Transfer {
                 uri: uri.to_string(),
@@ -201,6 +229,7 @@ fn publish(
         return Err(err);
     }
 
+    crate::trace!("publishing {} -> {}", temporary.display(), dest.display());
     if let Err(source) = std::fs::rename(&temporary, dest) {
         let _ = std::fs::remove_file(&temporary);
         return Err(ExecError::Publish { dest: dest.to_path_buf(), source });
@@ -314,7 +343,8 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("artifact.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755, None).expect_err("a 404 must fail");
+        let err = download(&server.url("/x"), &dest, 0o755, None, "fixture")
+            .expect_err("a 404 must fail");
         assert!(matches!(err, ExecError::HttpStatus { status: 404, .. }), "{err}");
         assert!(!dest.exists(), "a failed download must not leave a file");
         assert!(leftovers(dir.path(), "artifact.bin").is_empty(), "no partial files");
@@ -326,7 +356,8 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755, None).expect_err("a 500 must fail");
+        let err = download(&server.url("/x"), &dest, 0o755, None, "fixture")
+            .expect_err("a 500 must fail");
         assert!(matches!(err, ExecError::HttpStatus { status: 500, .. }), "{err}");
         assert!(!dest.exists());
     }
@@ -338,8 +369,8 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        let err =
-            download(&server.url("/x"), &dest, 0o755, None).expect_err("an empty body must fail");
+        let err = download(&server.url("/x"), &dest, 0o755, None, "fixture")
+            .expect_err("an empty body must fail");
         assert!(matches!(err, ExecError::EmptyBody { .. }), "{err}");
         assert!(!dest.exists());
     }
@@ -350,7 +381,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("planned-name.bin");
 
-        download(&server.url("/x"), &dest, 0o755, None).expect("should succeed");
+        download(&server.url("/x"), &dest, 0o755, None, "fixture").expect("should succeed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
         assert!(leftovers(dir.path(), "planned-name.bin").is_empty());
     }
@@ -362,7 +393,8 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        download(&server.url("/from"), &dest, 0o755, None).expect("redirects must be followed");
+        download(&server.url("/from"), &dest, 0o755, None, "fixture")
+            .expect("redirects must be followed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
     }
 
@@ -373,7 +405,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("nothing-like-the-url");
 
-        download(&server.url("/some/deep/path/other-name"), &dest, 0o755, None).unwrap();
+        download(&server.url("/some/deep/path/other-name"), &dest, 0o755, None, "fixture").unwrap();
         assert!(dest.exists(), "the planned name must win");
     }
 
@@ -387,7 +419,7 @@ mod tests {
             let dir = temp();
             let dest = dir.path().join("pkg.masp");
 
-            download(&server.url("/x"), &dest, 0o644, None).unwrap();
+            download(&server.url("/x"), &dest, 0o644, None, "fixture").unwrap();
             assert_eq!(
                 std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
                 0o644,
@@ -439,7 +471,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("miden-vm");
 
-        download(&server.url("/vm.tar.gz"), &dest, 0o755, Some(SupportedFormat::TarGz))
+        download(&server.url("/vm.tar.gz"), &dest, 0o755, Some(SupportedFormat::TarGz), "fixture")
             .expect("should succeed");
 
         assert_eq!(std::fs::read(&dest).unwrap(), b"binary");
@@ -476,8 +508,14 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("miden-vm");
 
-        let err = download(&server.url("/vm.tar.gz"), &dest, 0o755, Some(SupportedFormat::TarGz))
-            .expect_err("must fail");
+        let err = download(
+            &server.url("/vm.tar.gz"),
+            &dest,
+            0o755,
+            Some(SupportedFormat::TarGz),
+            "fixture",
+        )
+        .expect_err("must fail");
         assert!(matches!(err, ExecError::Archive(_)), "{err}");
         assert!(!dest.exists(), "the container must never be installed as the artifact");
         assert!(leftovers(dir.path(), "miden-vm").is_empty(), "no partial files");

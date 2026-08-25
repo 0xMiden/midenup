@@ -26,9 +26,6 @@ pub struct InstallationOptions {
     /// The toolchain profile to install
     #[arg(long, short, default_value = "minimal")]
     pub profile: Profile,
-    /// Displays the entirety of cargo's output when performing installations.
-    #[arg(long, short, default_value = "false")]
-    pub verbose: bool,
     /// Components to install in addition to the profile's members
     #[arg(long = "component", value_name = "COMPONENT")]
     pub components: Vec<String>,
@@ -59,9 +56,6 @@ pub struct InstallationOptions {
 /// Optional update settings.
 #[derive(Default, Debug, Parser, Clone, Copy)]
 pub struct UpdateOptions {
-    /// Displays the entirety of cargo's output when performing installations.
-    #[clap(long, short, default_value = "false")]
-    pub verbose: bool,
     /// Determines how midenup will handle updates for components installed from a path
     #[clap(value_enum, short, long, default_value = "off")]
     pub path_update: PathUpdate,
@@ -82,19 +76,15 @@ pub enum PathUpdate {
 }
 
 impl From<InstallationOptions> for UpdateOptions {
-    fn from(value: InstallationOptions) -> Self {
-        UpdateOptions {
-            verbose: value.verbose,
-            ..Default::default()
-        }
+    fn from(_value: InstallationOptions) -> Self {
+        UpdateOptions::default()
     }
 }
 
 impl From<UpdateOptions> for InstallationOptions {
-    fn from(value: UpdateOptions) -> Self {
+    fn from(_value: UpdateOptions) -> Self {
         InstallationOptions {
             profile: Profile::Minimal,
-            verbose: value.verbose,
             components: Vec::new(),
             stale: Vec::new(),
             held_back: Vec::new(),

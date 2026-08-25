@@ -1,5 +1,4 @@
 use anyhow::{Context, bail};
-use colored::Colorize;
 
 use crate::{
     channel::UserChannel,
@@ -76,13 +75,12 @@ pub fn r#override(
             .context("failed to remove 'default' toolchain symlink")?;
     }
 
-    println!("{}: setting {channel} as the new default toolchain\n", "info".white().bold());
+    crate::info!("setting {channel} as the new default toolchain\n");
     if let ToolchainJustification::MidenToolchainFile { path } = justification {
-        println!(
-            "{}: there is a toolchain file present in {}, which sets the current active toolchain \
-             to be {}.
+        crate::warn!(
+            "there is a toolchain file present in {}, which sets the current active toolchain to \
+             be {}.
 This will take prescedence over the configuration done by `midenup override`.",
-            "warn".yellow(),
             path.display(),
             active.channel
         );

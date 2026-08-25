@@ -18,6 +18,7 @@ pub mod paths;
 pub mod plan;
 pub mod profile;
 pub mod publish;
+pub mod report;
 pub mod resolve;
 pub mod state;
 mod toolchain;

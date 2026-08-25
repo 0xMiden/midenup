@@ -1,5 +1,4 @@
 use anyhow::{Context, bail};
-use colored::Colorize;
 
 use crate::{
     channel::UserChannel,
@@ -86,10 +85,9 @@ pub fn uninstall(
     let default = paths::toolchains_dir(home).join("default");
     if std::fs::symlink_metadata(&default).is_ok() && default.canonicalize().is_err() {
         std::fs::remove_file(&default)?;
-        println!(
-            "{}: removed the 'default' override, which named {channel}. Set a new one with:\n    \
-             midenup override <channel>",
-            "info".white().bold()
+        crate::info!(
+            "removed the 'default' override, which named {channel}. Set a new one with:\n    \
+             midenup override <channel>"
         );
     }
 
@@ -105,7 +103,7 @@ pub fn uninstall(
             std::fs::remove_dir_all(&var)
                 .with_context(|| format!("failed to remove '{}'", var.display()))?;
         } else {
-            println!(
+            crate::info!(
                 "kept your data for {requested} at {}; remove it with `midenup uninstall \
                  {requested} --purge`",
                 var.display()

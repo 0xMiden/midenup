@@ -24,7 +24,7 @@ pub use self::{
     uninstall::uninstall,
     update::update,
 };
-use crate::{channel, config, manifest, options};
+use crate::{channel, config, manifest, options, report};
 
 pub const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 
@@ -77,14 +77,24 @@ struct GlobalArgs {
         default_value = manifest::VersionedManifest::PUBLISHED_MANIFEST_URI
     )]
     pub manifest_uri: String,
-    /// Determines wether the components are installed in debug mode. Useful for
-    /// debugging and faster installations. This flag is only avaialble to
-    /// `midenup`, not `miden`.
-    #[arg(env = "MIDENUP_DEBUG_MODE", action = ArgAction::Set, default_value = "false", hide = true)]
+    /// Determines whether the components are installed in debug mode. Useful for debugging and
+    /// faster installations. This flag is only available to `midenup`, not `miden`.
+    #[arg(long, env = "MIDENUP_DEBUG_MODE", hide = true)]
     pub debug: bool,
-    /// Display verbose output, mainly used during install.
-    #[arg(short, long, action, default_value_t = false)]
-    pub verbose: bool,
+    /// Suppress progress and informational output. Warnings and errors are still shown.
+    #[arg(
+        short,
+        long,
+        global = true,
+        action,
+        default_value_t = false,
+        conflicts_with = "verbose"
+    )]
+    pub quiet: bool,
+    /// Report more: `-v` also shows the output of the programs midenup runs, `-vv` traces every
+    /// action it takes.
+    #[arg(short, long, global = true, action = ArgAction::Count)]
+    pub verbose: u8,
     /// Displays `midenup`'s version information.
     #[arg(short = 'V', long, action, default_value_t = false)]
     pub version: bool,
@@ -196,7 +206,11 @@ impl Commands {
             Self::Gc => gc(config, state),
             Self::List => list(config, state),
             Self::Install { channel, options } => {
+                // Said before the fetch it describes, which is what can hang on a slow network.
+                // The whole manifest is synced, so no channel is named here.
+                crate::info!("syncing channel updates from upstream");
                 let manifest = config.upstream_manifest()?;
+                let requested = channel;
                 let Some(channel) = manifest.get_channel(channel) else {
                     // Which names exist is manifest data now, so a typo has to be answerable with
                     // what was actually declared rather than "doesn't exist or is unavailable".
@@ -210,6 +224,17 @@ impl Commands {
                         },
                     }
                 };
+
+                // A network resolves to a version, and both halves are worth stating; a version
+                // requested directly is only worth stating once.
+                let target = if requested.to_string() == channel.name.to_string() {
+                    channel.name.to_string()
+                } else {
+                    format!("{requested} ({})", channel.name)
+                };
+                crate::info!("upstream last updated on {}", manifest.last_updated());
+                crate::info!("installing {target}");
+
                 install(config, channel, state, options)
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
@@ -226,6 +251,10 @@ impl Commands {
 impl Midenup {
     /// Get the effective configuration for the current session
     pub fn config(&self) -> anyhow::Result<config::Config> {
+        // Before anything that could report: this governs the first message emitted, and the
+        // migrations below are reached before any command runs.
+        crate::report::set(self.verbosity());
+
         let working_directory =
             std::env::current_dir().context("unable to read current directory")?;
         match &self.behavior {
@@ -330,6 +359,19 @@ impl Midenup {
         }
     }
 
+    /// The verbosity in effect for this session.
+    ///
+    /// `miden` takes no flags of its own -- everything after it belongs to the component being
+    /// dispatched to -- so an install it triggers always runs at the default level.
+    fn verbosity(&self) -> report::Verbosity {
+        match &self.behavior {
+            Behavior::Miden(_) => report::Verbosity::default(),
+            Behavior::Midenup { config, .. } => {
+                report::Verbosity::resolve(config.quiet, config.verbose)
+            },
+        }
+    }
+
     /// Execute this session with the provided configuration.
     pub fn execute(&self, config: &config::Config) -> anyhow::Result<()> {
         let mut state = config.local_state()?;
@@ -397,15 +439,12 @@ impl Midenup {
 }
 
 fn report_migration(channels: &[semver::Version]) {
-    use colored::Colorize;
-
-    println!(
-        "{}: migrated {} installed toolchain(s) to the new local state format",
-        "info".white().bold(),
+    crate::info!(
+        "migrated {} installed toolchain(s) to the new local state format",
         channels.len()
     );
     for channel in channels {
-        println!(
+        crate::note!(
             "- {channel} will be reinstalled the next time it is used, so that midenup knows \
              exactly what it owns"
         );
@@ -423,8 +462,6 @@ fn report_migration(channels: &[semver::Version]) {
 /// would leave the user with a diagnostic they cannot act on. The operation that actually needs
 /// the missing files fails on its own terms.
 fn recover(config: &config::Config, state: &mut crate::state::LocalState) -> anyhow::Result<()> {
-    use colored::Colorize;
-
     // Recovery mutates, so it takes the lock -- but only when there is something to recover.
     // Taking it unconditionally would put every `miden` invocation behind it, and the read-only
     // dispatch path is required to stay lock-free.
@@ -441,10 +478,10 @@ fn recover(config: &config::Config, state: &mut crate::state::LocalState) -> any
     match crate::publish::journal::recover(&config.midenup_home, state) {
         Ok(None) => {},
         Ok(Some(operation)) => {
-            println!("{}: recovered an interrupted {operation}", "info".white().bold());
+            crate::info!("recovered an interrupted {operation}");
         },
         Err(err @ crate::publish::PublishError::DivergentState { .. }) => {
-            eprintln!("{}: {err}", "warning".yellow().bold());
+            crate::warn!("{err}");
         },
         Err(err) => return Err(err.into()),
     }
@@ -463,4 +500,22 @@ fn get_full_command(argv: &[OsString]) -> String {
         write!(&mut out, "{}", arg.display()).unwrap();
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    use super::*;
+
+    #[test]
+    fn a_mistyped_subcommand_names_the_word_that_was_mistyped() {
+        let err = Midenup::try_parse_from(["midenup", "instal", "stable"])
+            .expect_err("a mistyped subcommand must not parse");
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("instal"),
+            "the typo itself must be named, not the word after it: {rendered}"
+        );
+    }
 }

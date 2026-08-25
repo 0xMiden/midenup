@@ -35,13 +35,13 @@ pub fn update(
                 .cloned()
                 .context(format!("ERROR: No installed channel found with version {version}"))?;
 
-            println!("syncing channel updates for {}", installation.channel);
+            crate::info!("syncing channel updates for {}", installation.channel);
             update_installed_channel(config, &installation, state, options)
         },
         None => {
             // Update everything installed. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
-                println!("syncing channel updates for {}", installation.channel);
+                crate::info!("syncing channel updates for {}", installation.channel);
                 update_installed_channel(config, &installation, state, options)?;
             }
             Ok(())
@@ -89,8 +89,8 @@ fn update_network(
         )
     })?;
 
-    println!("syncing channel updates for {name} (installed as {installed})");
-    println!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
+    crate::info!("syncing channel updates for {name} (installed as {installed})");
+    crate::info!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
 
     if installed == target {
         // The pointer has not moved, which does not mean there is nothing to do: the channel's own
@@ -103,10 +103,7 @@ fn update_network(
     })?;
 
     if target < installed {
-        eprintln!(
-            "{}: {name} has moved back from {installed} to {target}.",
-            "warning".yellow().bold(),
-        );
+        crate::warn!("{name} has moved back from {installed} to {target}.");
     }
 
     upstream.sync(config);
@@ -201,7 +198,7 @@ fn update_installed_channel(
         return Ok(());
     };
 
-    println!("upstream last updated on {}", config.upstream_manifest()?.last_updated());
+    crate::info!("upstream last updated on {}", config.upstream_manifest()?.last_updated());
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
@@ -209,7 +206,7 @@ fn update_installed_channel(
         None => {
             let Some(changes) = changes_for(config, installation, &upstream.channel, options)?
             else {
-                println!(
+                crate::info!(
                     "Aborting update of {} due to user input/configuration",
                     installation.channel
                 );
@@ -255,12 +252,7 @@ fn migrate(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    println!(
-        "{}: migrating {} to {}",
-        "warning".yellow().bold(),
-        installation.channel,
-        upstream.name
-    );
+    crate::warn!("migrating {} to {}", installation.channel, upstream.name);
 
     install_for_update(
         config,
@@ -342,7 +334,6 @@ fn install_for_update(
 ) -> anyhow::Result<()> {
     let logical_only = changes.logical_only;
     let install_options = InstallationOptions {
-        verbose: options.verbose,
         stale: changes.stale,
         held_back: changes.held_back,
         intent_update: Some(intent_update),
@@ -352,14 +343,14 @@ fn install_for_update(
     match work_for(upstream, state, &install_options, logical_only)? {
         Work::Physical => {
             display_warnings(upstream, &install_options, options);
-            println!("Updating toolchain {}..", upstream.name);
+            crate::info!("Updating toolchain {}..", upstream.name);
             commands::install(config, upstream, state, &install_options)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
         // file is committed as a single atomic `state.json` write. No journal, no staging, no new
         // publication -- republishing an identical tree to record an alias would be pure cost.
         Work::LogicalOnly => {
-            println!("Updating recorded metadata for toolchain {}..", upstream.name);
+            crate::info!("Updating recorded metadata for toolchain {}..", upstream.name);
             record_logical_changes(config, upstream, state, &install_options)
         },
         Work::Nothing => {
@@ -464,10 +455,9 @@ fn carry_var_to(home: &Path, from: &semver::Version, to: &semver::Version) -> an
         return Ok(());
     }
     if destination.exists() {
-        eprintln!(
-            "{}: var/{from} was left in place: you already have data at var/{to}, and the two are \
-             not merged.",
-            "warning".yellow().bold(),
+        crate::warn!(
+            "var/{from} was left in place: you already have data at var/{to}, and the two are not \
+             merged."
         );
         return Ok(());
     }
@@ -566,22 +556,21 @@ fn display_warnings(
         return;
     }
 
-    println!(
-        "\n{}: The following elements are installed from a specific path in the filesystem.",
-        "WARNING".yellow().bold(),
-    );
-
-    if matches!(options.path_update, PathUpdate::Off) && !install_options.held_back.is_empty() {
-        println!(
-            "
+    let guidance = if matches!(options.path_update, PathUpdate::Off)
+        && !install_options.held_back.is_empty()
+    {
+        "
 To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
 Alternatively, pass the '--path-update=interactive' flag to interactively select which \
-             path-managed components to update.",
-        );
-    }
-    for component_message in components_from_path {
-        println!("{}", component_message);
-    }
+         path-managed components to update."
+    } else {
+        ""
+    };
+    let listed = components_from_path.concat();
+    crate::warn!(
+        "the following elements are installed from a specific path in the filesystem.{guidance}
+{listed}"
+    );
 }
 
 #[cfg(test)]

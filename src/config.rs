@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::Context;
-use colored::Colorize;
 
 use crate::{
     channel::Channel,
@@ -154,9 +153,9 @@ impl Config {
 
         match cached {
             Ok(manifest) => {
-                eprintln!(
-                    "{}: could not reach '{}' ({fetch_error}); using the cached manifest from                      '{}', which may be out of date",
-                    "warning".yellow().bold(),
+                crate::warn!(
+                    "could not reach '{}' ({fetch_error}); using the cached manifest from '{}', \
+                     which may be out of date",
                     self.manifest_uri,
                     cache.display(),
                 );

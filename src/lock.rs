@@ -15,7 +15,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use colored::Colorize;
 use fs4::FileExt;
 
 /// How long to wait before telling the user why nothing is happening.
@@ -101,10 +100,7 @@ pub fn acquire(home: &Path) -> Result<HomeLock, LockError> {
         }
 
         if !notified && start.elapsed() >= NOTIFY_AFTER {
-            println!(
-                "{}: waiting for another midenup operation to finish...",
-                "info".white().bold()
-            );
+            crate::info!("waiting for another midenup operation to finish...");
             notified = true;
         }
 

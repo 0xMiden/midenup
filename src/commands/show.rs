@@ -3,18 +3,18 @@ use colored::Colorize;
 
 use crate::{
     config::Config,
+    report,
     state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
 };
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
-    /// Show the active toolchain
+    /// Show the active toolchain.
+    ///
+    /// Reports the channel alone; `-v` also reports why it is the active one.
     #[command(name = "active-toolchain")]
-    Current {
-        #[arg(long, action)]
-        verbose: bool,
-    },
+    Current,
     /// Display the computed value of MIDENUP_HOME
     Home,
     /// List installed toolchains
@@ -24,34 +24,31 @@ pub enum ShowCommand {
 impl ShowCommand {
     pub fn execute(&self, config: &Config, state: &LocalState) -> anyhow::Result<()> {
         match self {
-            Self::Current { verbose } => {
+            Self::Current => {
                 let (toolchain, justification) = Toolchain::current(config, None)?;
 
-                if !verbose {
+                if report::verbosity() < report::Verbosity::Verbose {
                     println!("{}", toolchain.channel);
                 } else {
                     match justification {
                         ToolchainJustification::MidenToolchainFile { path } => {
                             println!(
                                 "{}: found a miden-toolchain.toml file in {}",
-                                "info".white().bold(),
+                                "info".bold(),
                                 path.display()
                             )
                         },
                         ToolchainJustification::Override => {
                             println!(
                                 "{}: system default has been overridden via `midenup override`",
-                                "info".white().bold(),
+                                "info".bold(),
                             )
                         },
                         ToolchainJustification::Requested => {
-                            println!("{}: explicitly requested by user", "info".white().bold(),)
+                            println!("{}: explicitly requested by user", "info".bold(),)
                         },
                         ToolchainJustification::Default => {
-                            println!(
-                                "{}: current toolchain is system default",
-                                "info".white().bold()
-                            );
+                            println!("{}: current toolchain is system default", "info".bold());
                         },
                     }
                     println!("The current active toolchain is {}", toolchain.channel);

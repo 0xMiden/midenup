@@ -11,7 +11,7 @@
 //! This kind is closed to new channels (see [crate::manifest::ComponentKind::LegacyPackage]). When
 //! the channels that use it are backfilled with prebuilt artifacts, this module goes with them.
 
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, ffi::OsString, path::Path};
 
 use crate::plan::{PlanStep, ResolvedAuthority};
 
@@ -50,7 +50,8 @@ pub fn render_script(steps: &[PlanStep]) -> Option<String> {
     }
 
     let mut script = String::new();
-    script.push_str("#!/usr/bin/env cargo\n---cargo\n[dependencies]\n");
+    script.push_str("#!/usr/bin/env cargo\n---cargo\n[package]\nedition = \"2024\"\n\n");
+    script.push_str("[dependencies]\n");
     for (name, spec) in &dependencies {
         script.push_str(&format!("{name} = {{ {spec} }}\n"));
     }
@@ -111,7 +112,7 @@ fn dependency_spec(authority: &ResolvedAuthority, features: &[String]) -> String
 }
 
 /// Writes and runs the extraction script, if the plan needs one.
-pub fn extract(steps: &[PlanStep], script_path: &Path) -> Result<(), ExtractError> {
+pub fn extract(steps: &[PlanStep], script_path: &Path, verbose: bool) -> Result<(), ExtractError> {
     let Some(script) = render_script(steps) else {
         return Ok(());
     };
@@ -119,12 +120,21 @@ pub fn extract(steps: &[PlanStep], script_path: &Path) -> Result<(), ExtractErro
     std::fs::write(script_path, script)
         .map_err(|source| ExtractError::Write { path: script_path.to_path_buf(), source })?;
 
-    let status = std::process::Command::new("cargo")
-        .args(["+nightly", "-Zscript"])
-        .arg(script_path)
+    let argv = argv_for(script_path, verbose);
+    crate::trace!(
+        "running: cargo {}",
+        argv.iter().map(|a| a.to_string_lossy()).collect::<Vec<_>>().join(" ")
+    );
+
+    let mut command = std::process::Command::new("cargo");
+    command
+        .args(&argv)
         .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .status()
+        .stdout(std::process::Stdio::inherit());
+
+    // One script covers every package in the plan, so the wait belongs to all of them rather than
+    // to a component that could be named here.
+    let status = crate::install::run_reporting_progress(&mut command, "extracting packages")
         .map_err(|err| ExtractError::Spawn(err.to_string()))?;
 
     if !status.success() {
@@ -133,11 +143,39 @@ pub fn extract(steps: &[PlanStep], script_path: &Path) -> Result<(), ExtractErro
     Ok(())
 }
 
+/// The exact argument vector for the extraction run.
+///
+/// Split out so the shape of the command can be asserted without running a compiler.
+fn argv_for(script_path: &Path, verbose: bool) -> Vec<OsString> {
+    let mut argv: Vec<OsString> = vec!["+nightly".into(), "-Zscript".into()];
+    if !verbose {
+        argv.push("--quiet".into());
+    }
+    argv.push(script_path.into());
+    argv
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use super::*;
+
+    #[test]
+    fn the_extraction_script_is_quiet_below_verbose() {
+        let quiet = argv_for(Path::new("/s/extract.rs"), false);
+        assert!(quiet.iter().any(|a| a == "--quiet"), "{quiet:?}");
+
+        let loud = argv_for(Path::new("/s/extract.rs"), true);
+        assert!(!loud.iter().any(|a| a == "--quiet"), "{loud:?}");
+
+        // The script path stays last either way: cargo reads it as the program to run, not as a
+        // value for whatever flag precedes it.
+        for argv in [quiet, loud] {
+            assert_eq!(argv.last().unwrap(), "/s/extract.rs");
+            assert_eq!(argv.first().unwrap(), "+nightly");
+        }
+    }
 
     fn extraction(crate_name: &str, dest: &str, extractor: &str) -> PlanStep {
         PlanStep::ExtractPackage {
@@ -296,7 +334,7 @@ impl Lib {
         };
 
         let script_path = temp.path().join("extract.rs");
-        extract(&[step], &script_path).expect("the generated script must compile and run");
+        extract(&[step], &script_path, true).expect("the generated script must compile and run");
 
         assert_eq!(
             std::fs::read(&dest).unwrap(),

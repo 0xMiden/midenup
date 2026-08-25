@@ -144,9 +144,8 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
                 state = InitializationState::Initialized;
             }
 
-            println!(
-                "
-Could not find `miden` executable in the system's PATH.
+            crate::warn!(
+                "could not find the `miden` executable in the system's PATH.
 
 The `miden` symlink was placed in $CARGO_HOME/bin ({cargo_bin_display}), which should already be \
                  in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in \

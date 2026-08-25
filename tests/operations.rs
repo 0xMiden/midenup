@@ -600,12 +600,8 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         fixture.manifest("manifest.json", &[("vm", &["minimal"], &[]), ("extra", &[], &[])]);
 
     let midenup = |manifest_uri: &str, args: &[&str]| {
-        std::process::Command::new(env!("CARGO_BIN_EXE_midenup"))
+        midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, manifest_uri)
             .args(args)
-            .current_dir(&env.present_working_dir)
-            .env("MIDENUP_HOME", &env.midenup_home)
-            .env("CARGO_HOME", &env.cargo_home)
-            .env("MIDENUP_MANIFEST_URI", manifest_uri)
             .output()
             .expect("failed to run midenup")
     };

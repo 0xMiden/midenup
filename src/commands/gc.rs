@@ -21,14 +21,14 @@ pub fn gc(config: &Config, state: &LocalState) -> anyhow::Result<()> {
     }
 
     for orphan in &orphans {
-        println!("removing {}", orphan.display());
+        crate::info!("removing {}", orphan.display());
         std::fs::remove_dir_all(orphan)
             .with_context(|| format!("failed to remove '{}'", orphan.display()))?;
     }
 
     println!(
         "reclaimed {} {}",
-        orphans.len().to_string().white().bold(),
+        orphans.len().to_string().bold(),
         if orphans.len() == 1 {
             "publication"
         } else {
