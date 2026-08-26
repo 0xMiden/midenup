@@ -11,8 +11,6 @@ use crate::{
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
     /// Show the active toolchain.
-    ///
-    /// Reports the channel alone; `-v` also reports why it is the active one.
     #[command(name = "active-toolchain")]
     Current,
     /// Display the computed value of MIDENUP_HOME
@@ -27,32 +25,26 @@ impl ShowCommand {
             Self::Current => {
                 let (toolchain, justification) = Toolchain::current(config, None)?;
 
-                if report::verbosity() < report::Verbosity::Verbose {
-                    println!("{}", toolchain.channel);
-                } else {
+                // The justification is commentary, not the result, so it goes to stderr.
+                if report::verbosity() >= report::Verbosity::Verbose {
                     match justification {
                         ToolchainJustification::MidenToolchainFile { path } => {
-                            println!(
-                                "{}: found a miden-toolchain.toml file in {}",
-                                "info".bold(),
-                                path.display()
-                            )
+                            crate::info!("found a miden-toolchain.toml file in {}", path.display())
                         },
                         ToolchainJustification::Override => {
-                            println!(
-                                "{}: system default has been overridden via `midenup override`",
-                                "info".bold(),
+                            crate::info!(
+                                "system default has been overridden via `midenup override`"
                             )
                         },
                         ToolchainJustification::Requested => {
-                            println!("{}: explicitly requested by user", "info".bold(),)
+                            crate::info!("explicitly requested by user")
                         },
                         ToolchainJustification::Default => {
-                            println!("{}: current toolchain is system default", "info".bold());
+                            crate::info!("current toolchain is system default")
                         },
                     }
-                    println!("The current active toolchain is {}", toolchain.channel);
                 }
+                println!("{}", toolchain.channel);
 
                 Ok(())
             },

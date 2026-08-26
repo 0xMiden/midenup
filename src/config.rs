@@ -128,10 +128,12 @@ impl Config {
         }
 
         let manifest = self.fetch_upstream_manifest()?;
+        crate::info!("upstream last updated on {}", manifest.last_updated());
         Ok(self.manifest.get_or_init(|| manifest))
     }
 
     fn fetch_upstream_manifest(&self) -> anyhow::Result<Manifest> {
+        crate::info!("syncing channel updates from upstream");
         let cache = crate::paths::manifest_cache(&self.midenup_home);
 
         let fetch_error = match VersionedManifest::read_from(&self.manifest_uri) {

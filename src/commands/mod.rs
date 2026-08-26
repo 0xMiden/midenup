@@ -206,9 +206,6 @@ impl Commands {
             Self::Gc => gc(config, state),
             Self::List => list(config, state),
             Self::Install { channel, options } => {
-                // Said before the fetch it describes, which is what can hang on a slow network.
-                // The whole manifest is synced, so no channel is named here.
-                crate::info!("syncing channel updates from upstream");
                 let manifest = config.upstream_manifest()?;
                 let requested = channel;
                 let Some(channel) = manifest.get_channel(channel) else {
@@ -232,7 +229,6 @@ impl Commands {
                 } else {
                     format!("{requested} ({})", channel.name)
                 };
-                crate::info!("upstream last updated on {}", manifest.last_updated());
                 crate::info!("installing {target}");
 
                 install(config, channel, state, options)

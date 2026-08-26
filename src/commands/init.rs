@@ -23,12 +23,15 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
     let state = setup_midenup(config)?;
 
     match state {
-        InitializationState::Initialized => println!(
+        InitializationState::Initialized => crate::info!(
             "midenup was successfully initialized in: {}",
             config.midenup_home.as_path().display()
         ),
         InitializationState::AlreadyInitialized => {
-            println!("midenup already initialized in: {}", config.midenup_home.as_path().display())
+            crate::info!(
+                "midenup already initialized in: {}",
+                config.midenup_home.as_path().display()
+            )
         },
     }
 

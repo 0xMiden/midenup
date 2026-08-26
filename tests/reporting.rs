@@ -57,8 +57,6 @@ fn integration_reporting_an_install_names_its_channel_up_front() {
     let (stdout, stderr) = streams(&output);
     assert!(output.status.success(), "install must succeed: {stderr}");
 
-    // The sync covers the whole manifest, so it names no channel; `stable` is a synonym for the
-    // mainnet network, which resolves to a version, and the install line states both halves.
     assert!(
         stderr.contains("syncing channel updates from upstream"),
         "the sync must be announced: {stderr}"

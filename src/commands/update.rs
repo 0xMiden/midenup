@@ -27,11 +27,8 @@ pub fn update(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    // Said before the fetch it describes; the whole manifest is synced, whichever channel was
-    // asked about, so no channel is named here.
-    crate::info!("syncing channel updates from upstream");
-    let manifest = config.upstream_manifest()?;
-    crate::info!("upstream last updated on {}", manifest.last_updated());
+    // Sync up front, so the header precedes any per-channel work; later calls hit the cache.
+    config.upstream_manifest()?;
 
     match channel_type {
         Some(UserChannel::Named(name)) => update_network(config, name, state, options),
@@ -45,7 +42,7 @@ pub fn update(
         },
         None => {
             if state.installations.is_empty() {
-                println!("nothing to update: no toolchains are installed");
+                crate::info!("nothing to update: no toolchains are installed");
                 return Ok(());
             }
             // Update everything installed. Cloned up front because each update writes state.
@@ -202,7 +199,7 @@ fn update_installed_channel(
         // A bit of an edge case. The channel is installed but absent upstream, so it is either a
         // developer toolchain or something that was withdrawn; either way there is nothing to
         // reconcile it against.
-        println!(
+        crate::info!(
             "channel {} is not in the upstream manifest; leaving it as installed",
             installation.channel
         );
@@ -363,7 +360,7 @@ fn install_for_update(
             record_logical_changes(config, upstream, state, &install_options)
         },
         Work::Nothing => {
-            println!("Toolchain {} is up to date", upstream.name);
+            crate::info!("Toolchain {} is up to date", upstream.name);
             Ok(())
         },
     }

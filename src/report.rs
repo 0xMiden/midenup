@@ -107,8 +107,7 @@ pub fn emit_warning(args: fmt::Arguments) {
 /// Emits at [Verbosity::Debug] only, labelled. Prefer the [crate::trace] macro.
 pub fn emit_trace(args: fmt::Arguments) {
     if verbosity() >= Verbosity::Debug {
-        let mut stderr = std::io::stderr().lock();
-        let _ = writeln!(stderr, "{}: {args}", "debug".magenta().bold());
+        write_line(format_args!("{}: {args}", "debug".magenta().bold()));
     }
 }
 

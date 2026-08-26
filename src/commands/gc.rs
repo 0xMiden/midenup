@@ -16,7 +16,7 @@ pub fn gc(config: &Config, state: &LocalState) -> anyhow::Result<()> {
     let orphans = crate::publish::unreferenced(&config.midenup_home, state)?;
 
     if orphans.is_empty() {
-        println!("nothing to reclaim");
+        crate::info!("nothing to reclaim");
         return Ok(());
     }
 
@@ -26,7 +26,7 @@ pub fn gc(config: &Config, state: &LocalState) -> anyhow::Result<()> {
             .with_context(|| format!("failed to remove '{}'", orphan.display()))?;
     }
 
-    println!(
+    crate::info!(
         "reclaimed {} {}",
         orphans.len().to_string().bold(),
         if orphans.len() == 1 {
