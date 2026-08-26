@@ -126,6 +126,7 @@ impl LocalState {
 
     /// Writes state to `path`, refusing to commit anything that cannot be read back.
     pub fn save(&self, path: &Path) -> Result<(), StateError> {
+        crate::trace!("writing {}", path.display());
         crate::utils::atomic::write_validated(path, self, |written| {
             LocalState::parse_str(written, path)
                 .map(|_| ())

@@ -116,6 +116,7 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
             std::fs::create_dir_all(parent)
                 .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
         }
+        crate::trace!("seeding {} from the previous publication", dest.display());
         std::fs::copy(&src, &dest)
             .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
     }

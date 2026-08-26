@@ -27,6 +27,12 @@ pub fn update(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    // Said before the fetch it describes; the whole manifest is synced, whichever channel was
+    // asked about, so no channel is named here.
+    crate::info!("syncing channel updates from upstream");
+    let manifest = config.upstream_manifest()?;
+    crate::info!("upstream last updated on {}", manifest.last_updated());
+
     match channel_type {
         Some(UserChannel::Named(name)) => update_network(config, name, state, options),
         Some(UserChannel::Version(version)) => {
@@ -35,13 +41,15 @@ pub fn update(
                 .cloned()
                 .context(format!("ERROR: No installed channel found with version {version}"))?;
 
-            crate::info!("syncing channel updates for {}", installation.channel);
             update_installed_channel(config, &installation, state, options)
         },
         None => {
+            if state.installations.is_empty() {
+                println!("nothing to update: no toolchains are installed");
+                return Ok(());
+            }
             // Update everything installed. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
-                crate::info!("syncing channel updates for {}", installation.channel);
                 update_installed_channel(config, &installation, state, options)?;
             }
             Ok(())
@@ -89,8 +97,7 @@ fn update_network(
         )
     })?;
 
-    crate::info!("syncing channel updates for {name} (installed as {installed})");
-    crate::info!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
+    crate::info!("{name} is now {target} (installed as {installed})");
 
     if installed == target {
         // The pointer has not moved, which does not mean there is nothing to do: the channel's own
@@ -195,10 +202,12 @@ fn update_installed_channel(
         // A bit of an edge case. The channel is installed but absent upstream, so it is either a
         // developer toolchain or something that was withdrawn; either way there is nothing to
         // reconcile it against.
+        println!(
+            "channel {} is not in the upstream manifest; leaving it as installed",
+            installation.channel
+        );
         return Ok(());
     };
-
-    crate::info!("upstream last updated on {}", config.upstream_manifest()?.last_updated());
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)

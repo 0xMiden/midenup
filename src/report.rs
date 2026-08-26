@@ -71,6 +71,7 @@ pub fn subprocess_output_visible() -> bool {
 }
 
 /// Whether a live, redrawn transfer display is appropriate.
+/// level check. Without it the announcement lines remain, which is the whole report in that case.
 pub fn transfers_are_live() -> bool {
     // skip if this is not a terminal, we don't need transfer data for file/CI logs.
     verbosity() >= Verbosity::Normal && std::io::stderr().is_terminal()

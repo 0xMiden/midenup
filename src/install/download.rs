@@ -133,8 +133,6 @@ fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
         reason: err.description().to_string(),
     })?;
 
-    crate::trace!("GET {uri}");
-
     // Shared with the progress callback below, which runs while `write_function` also holds a
     // borrow of `body`. Dropped at the end of this scope, which erases the display whether the
     // transfer succeeded or failed.
@@ -162,6 +160,7 @@ fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
                 uri: uri.to_string(),
                 reason: err.description().to_string(),
             })?;
+        crate::trace!("GET {uri}");
         transfer.perform().map_err(|err| ExecError::Transfer {
             uri: uri.to_string(),
             reason: err.description().to_string(),

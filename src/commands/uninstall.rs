@@ -68,7 +68,9 @@ pub fn uninstall(
     // never actually removed -- which is why `default` is handled after the commit instead.
     for (network, linked) in crate::networks::links(home) {
         if linked == channel {
-            std::fs::remove_file(paths::network_link(home, &network))?;
+            let link = paths::network_link(home, &network);
+            crate::trace!("removing {}", link.display());
+            std::fs::remove_file(link)?;
         }
     }
 
@@ -100,6 +102,7 @@ pub fn uninstall(
     let var = paths::var_dir(home, requested);
     if var.is_dir() {
         if purge {
+            crate::trace!("removing {}", var.display());
             std::fs::remove_dir_all(&var)
                 .with_context(|| format!("failed to remove '{}'", var.display()))?;
         } else {
@@ -110,6 +113,8 @@ pub fn uninstall(
             );
         }
     }
+
+    crate::info!("uninstalled channel '{channel}'");
 
     Ok(())
 }

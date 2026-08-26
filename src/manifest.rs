@@ -145,6 +145,7 @@ impl VersionedManifest {
         let uri = uri.as_ref();
 
         if let Some(manifest_path) = uri.strip_prefix("file://") {
+            crate::trace!("reading {manifest_path}");
             let contents = std::fs::read_to_string(manifest_path)
                 .map_err(|_| ManifestError::Missing(manifest_path.to_string()))?;
             if contents.is_empty() {
@@ -174,6 +175,7 @@ impl VersionedManifest {
                     Ok(new_data.len())
                 })
                 .map_err(curl_error)?;
+            crate::trace!("GET {uri}");
             transfer.perform().map_err(curl_error)?;
         }
 

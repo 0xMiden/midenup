@@ -637,7 +637,6 @@ For `https` sources the destination filename comes from the **plan**, never from
 
 `Config::cargo_home` therefore governs only where the `miden` symlink is placed, which is its actual purpose.
 
-
 ```
 cargo [+<rustup-channel>] install --locked --profile <dev|release> [--quiet]
       --bin <installed-executable>
@@ -645,12 +644,11 @@ cargo [+<rustup-channel>] install --locked --profile <dev|release> [--quiet]
       --root <staging-dir>
 ```
 
-Optional arguments are omitted entirely when empty. `--quiet` is present below the `verbose`
-level (§14.4), where the build's own output is suppressed.
+Optional arguments are omitted entirely when empty.
 
 `--bin <installed-executable>` is always passed, so a multi-binary crate cannot deposit unexpected executables. After the build, the expected binary must exist at `<staging>/bin/<installed-executable>` and no unexpected binaries may have appeared; both are checked.
 
-**Package extraction** is the only remaining use of a generated Cargo script. When a plan contains `ExtractPackage` steps, `midenup` generates one script declaring the required crates as dependencies, runs it under `cargo +nightly -Zscript` (with the same `--quiet` rule as a build), and each extractor expression writes its package to its exact `dest`. Plans with no `ExtractPackage` steps generate no script.
+**Package extraction** is the only remaining use of a generated Cargo script. When a plan contains `ExtractPackage` steps, `midenup` generates one script declaring the required crates as dependencies, runs it under `cargo +nightly -Zscript`, and each extractor expression writes its package to its exact `dest`. Plans with no `ExtractPackage` steps generate no script.
 
 ### 9.4 Cargo ownership
 
@@ -1060,9 +1058,9 @@ Each variant carries the file path, the offending identifier, and a remediation 
 | Level | Flag | Emits |
 |---|---|---|
 | quiet | `-q`, `--quiet` | warnings and errors only |
-| normal | *(default)* | one line per component as it is acquired, plus a live transfer display on a terminal |
+| normal | *(default)* | one line per unit of work as it happens |
 | verbose | `-v` | the above, and the output of spawned programs is no longer suppressed |
-| debug | `-vv` | the above, and every action taken, including individual filesystem operations |
+| debug | `-vv` | the above, and the individual actions taken: fetches, spawned commands, seeded files, symlink commits, link updates, record writes, deletions |
 
 Warnings and interactive prompts survive `quiet`. `verbose` and `debug` are distinct axes -
 spawned programs' output (the `--quiet` in the cargo argv, §9.3) versus `midenup`'s own actions -

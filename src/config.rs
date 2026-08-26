@@ -139,6 +139,7 @@ impl Config {
                 Ok(manifest) => {
                     // Best effort: a manifest we could not cache is still a manifest we can use.
                     let _ = std::fs::create_dir_all(&self.midenup_home);
+                    crate::trace!("caching the manifest at {}", cache.display());
                     let _ = std::fs::write(&cache, &contents);
                     return Ok(manifest);
                 },

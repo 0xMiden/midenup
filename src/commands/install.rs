@@ -156,6 +156,7 @@ pub fn install(
         }
 
         let link = paths::network_link(home, network);
+        crate::trace!("linking {} -> {}", link.display(), relative_channel_target.display());
         utils::fs::replace_symlink(&link, &relative_channel_target).with_context(|| {
             format!("failed to point '{network}' at the newly installed channel")
         })?;
