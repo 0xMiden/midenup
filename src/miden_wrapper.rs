@@ -36,6 +36,8 @@ enum EnvironmentError {
     },
     #[error("invalid command '{component}': this names a non-executable component")]
     NotExecutable { component: String },
+    #[error("invalid command '{component}': this component is invoked as 'miden {command_name}'")]
+    Renamed { component: String, command_name: String },
 }
 
 /// These are the know help messages variants that midenup is aware of.
@@ -756,7 +758,17 @@ fn resolve_argument<'a>(
 
     if let Some(comp) = channel.get_component(argument) {
         match comp.kind() {
-            ComponentKind::Command { .. } => unreachable!(),
+            // Reached when the component sets `command_name`: the loop above compared the
+            // argument against that name, so the component's own name falls through to here.
+            ComponentKind::Command { command_name: Some(command_name), .. } => {
+                return Err(EnvironmentError::Renamed {
+                    component: comp.name.to_string(),
+                    command_name: command_name.clone(),
+                });
+            },
+            ComponentKind::Command { .. } => {
+                return Err(EnvironmentError::InvalidCommand { command: argument.to_string() });
+            },
             ComponentKind::Unsupported { .. } => {
                 return Err(EnvironmentError::NotExecutable { component: comp.name.to_string() });
             },
@@ -781,4 +793,56 @@ enum FallbackMotive {
     NoActiveChannel,
     /// There is an active channel, yet the argument wasn't found.
     ArgumentNotInActiveChannel,
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::*;
+    use crate::{profile::Profile, version::Authority};
+
+    fn command_component(name: &'static str, command_name: Option<&str>) -> Component {
+        Component {
+            name: Cow::Borrowed(name),
+            version: Authority::Registry { version: semver::Version::new(0, 1, 0) },
+            kind: ComponentKind::Command {
+                command_name: command_name.map(str::to_string),
+                format: Default::default(),
+                aliases: Default::default(),
+                subcommands: Default::default(),
+            },
+            profiles: vec![Profile::Minimal],
+            requires: vec![],
+            artifacts: Default::default(),
+            extra: Default::default(),
+        }
+    }
+
+    /// A component that renames its command is still found by name in the fallback below the
+    /// resolution loop, which used to reach `unreachable!()`. It must report how to invoke it.
+    #[test]
+    fn component_name_of_a_renamed_command_reports_the_command_name() {
+        let channel = Channel::new(
+            semver::Version::new(0, 15, 0),
+            vec![command_component("foo", Some("bar"))],
+        );
+        let matches = build_miden_command().get_matches_from(["miden"]);
+
+        let Err(err) = resolve_argument(&channel, "foo", &matches) else {
+            panic!("naming the component rather than the command must not resolve");
+        };
+
+        assert!(matches!(err, EnvironmentError::Renamed { .. }), "expected Renamed, got {err:?}");
+        assert!(err.to_string().contains("miden bar"), "error should name the command: {err}");
+    }
+
+    #[test]
+    fn a_command_without_a_rename_still_resolves_by_component_name() {
+        let channel =
+            Channel::new(semver::Version::new(0, 15, 0), vec![command_component("foo", None)]);
+        let matches = build_miden_command().get_matches_from(["miden"]);
+
+        assert!(resolve_argument(&channel, "foo", &matches).is_ok());
+    }
 }
