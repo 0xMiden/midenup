@@ -11,11 +11,11 @@ pub fn list(config: &Config, state: &LocalState) -> anyhow::Result<()> {
             let channel_name = &channel.name;
 
             // Partial status is *derived*, never recorded (spec section 8.6): an installation is
-            // partial exactly when it holds fewer components than the channel offers. A stored
-            // flag would be a second answer to a question the component set already answers, and
-            // the two would drift.
+            // partial exactly when upstream resolves its recorded intent to components it does
+            // not hold. A stored flag would be a second answer to a question the component set
+            // already answers, and the two would drift.
             let installed_indicator = match state.get(&channel.name) {
-                Some(installation) if installation.as_channel().is_partially_installed(channel) => {
+                Some(installation) if installation.is_partially_installed(channel) => {
                     format!(" {}", "(partially installed)".yellow())
                 },
                 Some(_) => format!(" {}", "(installed)".green()),

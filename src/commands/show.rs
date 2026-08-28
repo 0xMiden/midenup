@@ -117,11 +117,7 @@ impl ShowCommand {
 
                         if let Some(manifest) = upstream {
                             match manifest.get_channel_by_name(name) {
-                                Some(channel)
-                                    if installation
-                                        .as_channel()
-                                        .is_partially_installed(channel) =>
-                                {
+                                Some(channel) if installation.is_partially_installed(channel) => {
                                     line.push_str(&format!(
                                         " {}",
                                         "(partially installed)".yellow()

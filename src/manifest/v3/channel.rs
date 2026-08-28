@@ -64,14 +64,6 @@ impl Channel {
         self.components.iter_mut().find(|c| c.name == name)
     }
 
-    /// Whether this channel holds fewer components than the `upstream` one it is compared against.
-    ///
-    /// Derived, never recorded (spec section 8.6): a stored "partial" flag would be a second answer
-    /// to a question the component set already answers, and two answers can disagree.
-    pub fn is_partially_installed(&self, upstream: &Channel) -> bool {
-        self.components.len() < upstream.components.len()
-    }
-
     pub fn get_channel_dir(&self, config: &Config) -> PathBuf {
         let installed_toolchains_dir = config.midenup_home.join("toolchains");
         installed_toolchains_dir.join(format!("{}", self.name))

@@ -587,9 +587,9 @@ fn integration_an_alias_conflict_inside_the_active_view_is_an_error() {
     );
 }
 
-/// Spec section 8.6: local state carries no partial flag. The display derives it by comparing what
-/// is installed against the complete upstream channel -- and when upstream is unavailable, simply
-/// does not show it rather than guessing.
+/// Spec section 8.6: local state carries no partial flag. The display derives it by resolving the
+/// recorded intent against upstream -- and when upstream is unavailable, simply does not show it
+/// rather than guessing.
 #[test]
 fn integration_partial_status_is_derived_from_upstream_not_stored() {
     let _guard = common::harness::mutating_test_guard();
@@ -612,7 +612,18 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
     let raw = std::fs::read_to_string(midenup::paths::state_path(&env.midenup_home)).unwrap();
     assert!(!raw.contains("partial"), "state must not persist a partial flag: {raw}");
 
-    let shown = midenup(&manifest, &["show", "list"]);
+    // `extra` belongs to no profile, so a minimal install that never asked for it is complete.
+    let complete = midenup(&manifest, &["show", "list"]);
+    assert!(
+        !String::from_utf8_lossy(&complete.stdout).contains("partially installed"),
+        "holding everything the intent resolves to is not partial: {}",
+        String::from_utf8_lossy(&complete.stdout)
+    );
+
+    // The minimal profile grows upstream, so the same intent now resolves to more than is held.
+    let grown =
+        fixture.manifest("grown.json", &[("vm", &["minimal"], &[]), ("extra", &["minimal"], &[])]);
+    let shown = midenup(&grown, &["show", "list"]);
     assert!(
         String::from_utf8_lossy(&shown.stdout).contains("partially installed"),
         "with upstream available it must be derived and shown: {}",

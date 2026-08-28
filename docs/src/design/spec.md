@@ -558,7 +558,7 @@ the superset is a warning, and the component in the active view wins.
 
 ### 8.6 Partial status is derived
 
-Local state does not record a "partial" flag. When the upstream manifest is available, an installation is displayed as partial if its installed component set is a proper subset of the channel's complete set. When upstream is unavailable, partial status is not displayed.
+Local state does not record a "partial" flag. When the upstream manifest is available, an installation is displayed as partial if upstream resolves its recorded intent to components it does not hold — that is, the channel has grown within what the user asked for, not merely grown at all. An intent upstream can no longer resolve makes no claim, and when upstream is unavailable, partial status is not displayed.
 
 Components with no physical output (`command` with zero artifacts) count as installed for membership purposes and are exempt from physical verification (§9.6).
 
