@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1787680728,
+  "date": 1788031868,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1425,10 +1425,10 @@
             ],
             "deploy": [
               "%installed-executable",
-              "-s",
-              "public",
+              "new-account",
               "--account-type",
-              "regular-account-immutable-code"
+              "public",
+              "--deploy"
             ],
             "faucet": [
               "%installed-executable",
