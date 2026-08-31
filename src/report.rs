@@ -162,7 +162,11 @@ fn write_line(args: fmt::Arguments) {
 /// ends up emitting `info`, `warning`, `WARNING` and `warn` for two levels.
 #[macro_export]
 macro_rules! info {
-    ($($arg:tt)*) => { $crate::report::emit_info(format_args!($($arg)*)) };
+    ($($arg:tt)*) => {
+        if $crate::report::verbosity() >= $crate::report::Verbosity::Info {
+            $crate::report::emit_info(format_args!($($arg)*));
+        }
+    };
 }
 
 /// An unlabelled line at the same level as [crate::info].
@@ -171,7 +175,11 @@ macro_rules! info {
 /// introduced -- where a second label would be noise.
 #[macro_export]
 macro_rules! note {
-    ($($arg:tt)*) => { $crate::report::emit_note(format_args!($($arg)*)) };
+    ($($arg:tt)*) => {
+        if $crate::report::verbosity() >= $crate::report::Verbosity::Info {
+            $crate::report::emit_note(format_args!($($arg)*));
+        }
+    };
 }
 
 /// A `warning:` line, at every level including [Verbosity::Warn].
@@ -183,7 +191,11 @@ macro_rules! warn {
 /// A `trace:` action trace, at [Verbosity::Trace] only.
 #[macro_export]
 macro_rules! trace {
-    ($($arg:tt)*) => { $crate::report::emit_trace(format_args!($($arg)*)) };
+    ($($arg:tt)*) => {
+        if $crate::report::verbosity() >= $crate::report::Verbosity::Trace {
+            $crate::report::emit_trace(format_args!($($arg)*));
+        }
+    };
 }
 
 /// How often the transfer display is redrawn.
