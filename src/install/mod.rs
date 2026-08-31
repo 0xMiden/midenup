@@ -10,7 +10,9 @@ pub mod extract;
 pub mod stage;
 
 use std::{
-    process::{Command, ExitStatus},
+    io::{BufRead, BufReader},
+    process::{Command, ExitStatus, Stdio},
+    sync::mpsc,
     time::Duration,
 };
 
@@ -19,14 +21,39 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// Runs `command` to completion, showing a live elapsed line for `label` while it works.
 ///
-/// Polled rather than driven by a ticker thread: the erase-before-write bookkeeping is
-/// thread-local, and the executor is sequential.
+/// When the line is live, the child's stderr is piped, and the poll loop prints each captured
+/// line through the erase-before-write path, so the child's errors never collide with the
+/// redrawn line. The reader thread only reads: the erase bookkeeping is thread-local.
 pub fn run_reporting_progress(command: &mut Command, label: &str) -> std::io::Result<ExitStatus> {
+    if !crate::report::activity_is_live() {
+        return command.spawn()?.wait();
+    }
+
+    command.stderr(Stdio::piped());
     let mut activity = crate::report::Activity::begin(label);
     let mut child = command.spawn()?;
+    let stderr = child.stderr.take().expect("stderr was piped above");
+
+    let (sender, lines) = mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        for line in BufReader::new(stderr).lines() {
+            let Ok(line) = line else { break };
+            if sender.send(line).is_err() {
+                break;
+            }
+        }
+    });
 
     loop {
+        for line in lines.try_iter() {
+            crate::report::emit_child_line(&line);
+        }
         if let Some(status) = child.try_wait()? {
+            // Exit closed the pipe, which ends the reader; drain what it sent since the last tick.
+            let _ = reader.join();
+            for line in lines.try_iter() {
+                crate::report::emit_child_line(&line);
+            }
             return Ok(status);
         }
         activity.tick();

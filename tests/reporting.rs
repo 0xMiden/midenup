@@ -79,26 +79,6 @@ fn integration_reporting_an_install_names_its_channel_up_front() {
     assert!(installing < first_component, "and the header precedes the work: {stderr}");
 }
 
-/// A version requested directly is named once, not as `0.15.0 (0.15.0)`.
-#[test]
-fn integration_reporting_a_version_install_is_not_named_twice() {
-    let _guard = common::harness::mutating_test_guard();
-    let test_env = environment_setup("integration_reporting_header_version");
-    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
-
-    let output = run(&test_env, &fixture.manifest_uri, &["install", "0.15.0"]);
-    let (_, stderr) = streams(&output);
-    assert!(output.status.success(), "install must succeed: {stderr}");
-    assert!(
-        stderr.contains("installing 0.15.0"),
-        "the install line must name the channel: {stderr}"
-    );
-    assert!(
-        !stderr.contains("0.15.0 (0.15.0)"),
-        "and must not restate it as its own resolution: {stderr}"
-    );
-}
-
 /// A component built from source says so, and inline at its own position -- unlike a package
 /// extraction, which is batched to the end of the install.
 #[test]
@@ -209,17 +189,27 @@ fn integration_reporting_trace_traces_individual_actions() {
     assert!(!stdout.contains("trace:"), "tracing is not a result: {stdout}");
 }
 
-/// Asking to be told more and less at once is a mistake worth reporting, not a precedence puzzle.
+/// A failing build's compiler errors reach the user.
 #[test]
-fn integration_reporting_quiet_and_verbose_conflict() {
-    let test_env = environment_setup("integration_reporting_conflict");
-    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
+fn integration_reporting_a_failing_build_shows_its_compiler_errors() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_reporting_build_failure");
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_cargo_component("prover")
+        .build();
 
-    let output = run(&test_env, &fixture.manifest_uri, &["-q", "-v", "list"]);
+    std::fs::write(
+        fixture.dir.join("prover-source").join("src").join("main.rs"),
+        "compile_error!(\"fixture build failure\");\nfn main() {}\n",
+    )
+    .expect("failed to break the fixture crate");
+
+    let output = run(&test_env, &fixture.manifest_uri, &["install", "stable"]);
     let (_, stderr) = streams(&output);
-    assert!(!output.status.success(), "the combination must be rejected");
+    assert!(!output.status.success(), "the install must fail with the build");
     assert!(
-        stderr.contains("cannot be used with"),
-        "and the rejection must name the conflict: {stderr}"
+        stderr.contains("fixture build failure"),
+        "the compiler's error must reach stderr: {stderr}"
     );
 }

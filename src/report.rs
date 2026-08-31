@@ -142,6 +142,11 @@ pub fn emit_warning(args: fmt::Arguments) {
     write_line(format_args!("{}: {args}", "warning".yellow().bold()));
 }
 
+/// Writes one line of a child's captured stderr , erasing the live display first.
+pub fn emit_child_line(line: &str) {
+    write_line(format_args!("{line}"));
+}
+
 /// Emits at [Verbosity::Trace] only, labelled. Prefer the [crate::trace] macro.
 pub fn emit_trace(args: fmt::Arguments) {
     if verbosity() >= Verbosity::Trace {
