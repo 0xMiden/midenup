@@ -27,9 +27,6 @@ pub fn update(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    // Sync up front, so the header precedes any per-channel work; later calls hit the cache.
-    config.upstream_manifest()?;
-
     match channel_type {
         Some(UserChannel::Named(name)) => update_network(config, name, state, options),
         Some(UserChannel::Version(version)) => {
@@ -194,6 +191,8 @@ fn update_installed_channel(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    config.upstream_manifest()?;
+
     let local_channel = installation.as_channel();
     let Some(upstream) = local_channel.find_upstream_counterpart(config) else {
         // A bit of an edge case. The channel is installed but absent upstream, so it is either a

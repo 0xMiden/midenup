@@ -129,3 +129,32 @@ fn integration_update_test() {
     assert!(toolchain_v16.exists());
     assert_eq!(mainnet_points_at(), "0.16.0");
 }
+
+/// Local diagnostics must not depend on the network: with an unreachable manifest and no cache,
+/// an update with nothing installed still says so, and a missing pinned version is still named.
+#[test]
+fn integration_update_checks_local_state_before_syncing() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_update_offline");
+    let unreachable = format!("file://{}/no-such-manifest.json", test_env.tmp_dir.path().display());
+    let (mut state, config) = test_setup(&test_env, &unreachable);
+
+    Midenup::try_parse_from(["midenup", "update"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("an update with nothing installed must not need the manifest");
+
+    let err = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("a version that is not installed must be an error");
+    let rendered = format!("{err:#}");
+    assert!(
+        rendered.contains("No installed channel found with version 0.15.0"),
+        "the local diagnostic must name the version: {rendered}"
+    );
+    assert!(
+        !rendered.contains("unable to fetch"),
+        "the network failure must not mask the local diagnostic: {rendered}"
+    );
+}
