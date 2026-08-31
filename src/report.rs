@@ -20,6 +20,7 @@ use colored::Colorize;
 
 /// How much `midenup` says about what it is doing.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[repr(u8)]
 pub enum Verbosity {
     /// Warnings and errors only. No progress, no announcements.
     Warn,
@@ -34,6 +35,7 @@ pub enum Verbosity {
 
 /// How progress on long-running work is displayed.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[repr(u8)]
 pub enum ProgressStyle {
     /// A live, redrawn line on a terminal.
     #[default]
