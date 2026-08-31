@@ -26,7 +26,7 @@ impl ShowCommand {
                 let (toolchain, justification) = Toolchain::current(config, None)?;
 
                 // The justification is commentary, not the result, so it goes to stderr.
-                if report::verbosity() >= report::Verbosity::Verbose {
+                if report::verbosity() >= report::Verbosity::Debug {
                     match justification {
                         ToolchainJustification::MidenToolchainFile { path } => {
                             crate::info!("found a miden-toolchain.toml file in {}", path.display())

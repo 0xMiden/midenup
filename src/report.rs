@@ -1,10 +1,11 @@
 //! What `midenup` says while it works, and how much of it (spec section 14.4).
 //!
-//! Everything here goes to stderr; stdout carries results only. Verbose and above also display
-//! cargo's output; debug additionally traces midenup's own actions. The level comes from the
-//! `-q`/`-v` flags.
+//! Everything here goes to stderr; stdout carries results only. Debug and above also display
+//! cargo's output; trace additionally traces midenup's own actions. The level comes from the
+//! `-q`/`--verbose` flags; the progress display and color are controlled separately by
+//! `--progress`, `--color` and `--plain`.
 //!
-//! Note that an install triggered by `miden` command always runs at the default level.
+//! Note that an install triggered by `miden` command always runs at the default settings.
 
 use std::{
     cell::RefCell,
@@ -14,87 +15,122 @@ use std::{
     time::{Duration, Instant},
 };
 
+use clap::ValueEnum;
 use colored::Colorize;
 
 /// How much `midenup` says about what it is doing.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub enum Verbosity {
     /// Warnings and errors only. No progress, no announcements.
-    Quiet,
+    Warn,
     /// One line per component as it is acquired, plus a live transfer display on a terminal.
     #[default]
-    Normal,
+    Info,
     /// The above, and the output of spawned programs (e.g. cargo) is no longer suppressed.
-    Verbose,
-    /// The above, and every action `midenup` takes is traced.
     Debug,
+    /// The above, and every action `midenup` takes is traced.
+    Trace,
 }
 
-impl Verbosity {
-    /// Resolves the level in effect from the `-q`/`-v` flags.
-    pub fn resolve(quiet: bool, verbose: u8) -> Self {
-        if quiet {
-            return Self::Quiet;
-        }
-        match verbose {
-            0 => Self::Normal,
-            1 => Self::Verbose,
-            _ => Self::Debug,
-        }
-    }
+/// How progress on long-running work is displayed.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ProgressStyle {
+    /// A live, redrawn line on a terminal.
+    #[default]
+    Pretty,
+    /// The announcement lines alone; no terminal decorations.
+    Plain,
+    /// No progress display.
+    None,
+}
+
+/// Whether output is colored.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ColorChoice {
+    /// Color when the output is a terminal.
+    #[default]
+    Auto,
+    /// Always color.
+    True,
+    /// Never color.
+    False,
 }
 
 /// The level in effect, as a [Verbosity] discriminant.
 ///
 /// Process-global because the things that report are not all reachable from a [crate::config]:
 /// [crate::lock] is handed a path, and the executors are handed a plan.
-static LEVEL: AtomicU8 = AtomicU8::new(Verbosity::Normal as u8);
+static LEVEL: AtomicU8 = AtomicU8::new(Verbosity::Info as u8);
 
-/// Installs the level for the rest of the process. Called once, from [crate::commands::Midenup].
-pub fn set(verbosity: Verbosity) {
+/// The progress style in effect, as a [ProgressStyle] discriminant. Global for the same reason.
+static PROGRESS: AtomicU8 = AtomicU8::new(ProgressStyle::Pretty as u8);
+
+/// Installs the output settings for the rest of the process. Called once, from
+/// [crate::commands::Midenup].
+pub fn set(verbosity: Verbosity, progress: ProgressStyle, color: ColorChoice) {
     LEVEL.store(verbosity as u8, Ordering::Relaxed);
+    PROGRESS.store(progress as u8, Ordering::Relaxed);
+    match color {
+        ColorChoice::Auto => {},
+        ColorChoice::True => colored::control::set_override(true),
+        ColorChoice::False => colored::control::set_override(false),
+    }
 }
 
 /// The level in effect.
 pub fn verbosity() -> Verbosity {
     match LEVEL.load(Ordering::Relaxed) {
-        0 => Verbosity::Quiet,
-        1 => Verbosity::Normal,
-        2 => Verbosity::Verbose,
-        _ => Verbosity::Debug,
+        0 => Verbosity::Warn,
+        1 => Verbosity::Info,
+        2 => Verbosity::Debug,
+        _ => Verbosity::Trace,
+    }
+}
+
+/// The progress style in effect.
+fn progress() -> ProgressStyle {
+    match PROGRESS.load(Ordering::Relaxed) {
+        0 => ProgressStyle::Pretty,
+        1 => ProgressStyle::Plain,
+        _ => ProgressStyle::None,
     }
 }
 
 /// Whether the output of spawned programs is shown rather than suppressed.
 pub fn subprocess_output_visible() -> bool {
-    verbosity() >= Verbosity::Verbose
+    verbosity() >= Verbosity::Debug
 }
 
 /// Whether a live, redrawn transfer display is appropriate.
-/// level check. Without it the announcement lines remain, which is the whole report in that case.
+///
+/// Only the pretty style redraws, and only on a terminal; a file or CI log gets the announcement
+/// lines alone, which are the whole report in that case.
 pub fn transfers_are_live() -> bool {
-    // skip if this is not a terminal, we don't need transfer data for file/CI logs.
-    verbosity() >= Verbosity::Normal && std::io::stderr().is_terminal()
+    progress() == ProgressStyle::Pretty
+        && verbosity() >= Verbosity::Info
+        && std::io::stderr().is_terminal()
 }
 
 /// Whether a live, redrawn line for a long-running child process is appropriate.
 ///
-/// Only at exactly [Verbosity::Normal]: above it the child's own output is shown, and a line
+/// Only at exactly [Verbosity::Info]: above it the child's own output is shown, and a line
 /// redrawn underneath would interleave with it.
 pub fn activity_is_live() -> bool {
-    verbosity() == Verbosity::Normal && std::io::stderr().is_terminal()
+    progress() == ProgressStyle::Pretty
+        && verbosity() == Verbosity::Info
+        && std::io::stderr().is_terminal()
 }
 
-/// Emits a labelled line at [Verbosity::Normal] and above. Prefer the [crate::info] macro.
+/// Emits a labelled line at [Verbosity::Info] and above. Prefer the [crate::info] macro.
 pub fn emit_info(args: fmt::Arguments) {
-    if verbosity() >= Verbosity::Normal {
+    if verbosity() >= Verbosity::Info {
         write_line(format_args!("{}: {args}", "info".bold()));
     }
 }
 
-/// Emits an unlabelled line at [Verbosity::Normal] and above. Prefer the [crate::note] macro.
+/// Emits an unlabelled line at [Verbosity::Info] and above. Prefer the [crate::note] macro.
 pub fn emit_note(args: fmt::Arguments) {
-    if verbosity() >= Verbosity::Normal {
+    if verbosity() >= Verbosity::Info {
         write_line(args);
     }
 }
@@ -104,10 +140,10 @@ pub fn emit_warning(args: fmt::Arguments) {
     write_line(format_args!("{}: {args}", "warning".yellow().bold()));
 }
 
-/// Emits at [Verbosity::Debug] only, labelled. Prefer the [crate::trace] macro.
+/// Emits at [Verbosity::Trace] only, labelled. Prefer the [crate::trace] macro.
 pub fn emit_trace(args: fmt::Arguments) {
-    if verbosity() >= Verbosity::Debug {
-        write_line(format_args!("{}: {args}", "debug".magenta().bold()));
+    if verbosity() >= Verbosity::Trace {
+        write_line(format_args!("{}: {args}", "trace".magenta().bold()));
     }
 }
 
@@ -118,7 +154,7 @@ fn write_line(args: fmt::Arguments) {
     let _ = writeln!(stderr, "{args}");
 }
 
-/// An `info:` line, at [Verbosity::Normal] and above.
+/// An `info:` line, at [Verbosity::Info] and above.
 ///
 /// The label belongs to the level, not to the call site: spelling it per-message is how a codebase
 /// ends up emitting `info`, `warning`, `WARNING` and `warn` for two levels.
@@ -136,13 +172,13 @@ macro_rules! note {
     ($($arg:tt)*) => { $crate::report::emit_note(format_args!($($arg)*)) };
 }
 
-/// A `warning:` line, at every level including [Verbosity::Quiet].
+/// A `warning:` line, at every level including [Verbosity::Warn].
 #[macro_export]
 macro_rules! warn {
     ($($arg:tt)*) => { $crate::report::emit_warning(format_args!($($arg)*)) };
 }
 
-/// An action trace, at [Verbosity::Debug] only.
+/// A `trace:` action trace, at [Verbosity::Trace] only.
 #[macro_export]
 macro_rules! trace {
     ($($arg:tt)*) => { $crate::report::emit_trace(format_args!($($arg)*)) };
@@ -335,25 +371,17 @@ mod tests {
     }
 
     #[test]
-    fn flags_ladder_upwards_and_saturate() {
-        assert_eq!(Verbosity::resolve(false, 0), Verbosity::Normal);
-        assert_eq!(Verbosity::resolve(false, 1), Verbosity::Verbose);
-        assert_eq!(Verbosity::resolve(false, 2), Verbosity::Debug);
-        assert_eq!(Verbosity::resolve(false, 9), Verbosity::Debug);
-    }
-
-    #[test]
-    fn only_verbose_and_above_reveal_subprocess_output() {
+    fn only_debug_and_above_reveal_subprocess_output() {
         for (level, visible) in [
-            (Verbosity::Quiet, false),
-            (Verbosity::Normal, false),
-            (Verbosity::Verbose, true),
+            (Verbosity::Warn, false),
+            (Verbosity::Info, false),
             (Verbosity::Debug, true),
+            (Verbosity::Trace, true),
         ] {
-            set(level);
+            set(level, ProgressStyle::Pretty, ColorChoice::Auto);
             assert_eq!(subprocess_output_visible(), visible, "at {level:?}");
         }
-        set(Verbosity::Normal);
+        set(Verbosity::Info, ProgressStyle::Pretty, ColorChoice::Auto);
     }
 
     #[test]

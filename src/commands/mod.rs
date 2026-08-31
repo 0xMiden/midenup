@@ -11,7 +11,7 @@ mod update;
 use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use clap::{ArgAction, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 
 pub use self::{
     gc::gc,
@@ -81,23 +81,82 @@ struct GlobalArgs {
     /// faster installations. This flag is only available to `midenup`, not `miden`.
     #[arg(long, env = "MIDENUP_DEBUG_MODE", hide = true)]
     pub debug: bool,
-    /// Suppress progress and informational output. Warnings and errors are still shown.
+    /// Emit simple textual output: no color, no live progress decorations.
+    #[arg(long, global = true)]
+    pub plain: bool,
+    /// How progress on long-running work is displayed [default: pretty]
     #[arg(
-        short,
         long,
         global = true,
-        action,
-        default_value_t = false,
-        conflicts_with = "verbose"
+        value_enum,
+        value_name = "STYLE",
+        conflicts_with = "no_progress",
+        num_args(0..=1),
+        require_equals = true,
+        default_missing_value = "pretty"
     )]
+    pub progress: Option<report::ProgressStyle>,
+    /// Suppress the progress display without suppressing informational output.
+    #[arg(long, global = true)]
+    pub no_progress: bool,
+    /// Suppress progress and informational output. Warnings and errors are still shown.
+    #[arg(short, long, global = true, conflicts_with = "verbosity")]
     pub quiet: bool,
-    /// Report more: `-v` also shows the output of the programs midenup runs, `-vv` traces every
-    /// action it takes.
-    #[arg(short, long, global = true, action = ArgAction::Count)]
-    pub verbose: u8,
+    /// How much to report: `debug` also shows the output of the programs midenup runs, `trace`
+    /// additionally traces every action midenup takes [default: info]
+    #[arg(
+        short = 'v',
+        long = "verbose",
+        global = true,
+        value_enum,
+        value_name = "LEVEL",
+        num_args(0..=1),
+        require_equals = true,
+        default_missing_value = "info"
+    )]
+    pub verbosity: Option<report::Verbosity>,
+    /// Whether output is colored [default: auto]
+    #[arg(
+        long,
+        global = true,
+        value_enum,
+        value_name = "WHEN",
+        num_args(0..=1),
+        require_equals = true,
+        default_missing_value = "auto"
+    )]
+    pub color: Option<report::ColorChoice>,
     /// Displays `midenup`'s version information.
     #[arg(short = 'V', long, action, default_value_t = false)]
     pub version: bool,
+}
+
+impl GlobalArgs {
+    /// The output settings in effect: each absent flag's default is conditioned on the flags that
+    /// were given, and a flag given explicitly always wins over what another flag implies.
+    ///
+    /// Resolved in code rather than with clap's `default_value_ifs`, whose conditions never see
+    /// the value of a `global` argument.
+    fn output_settings(&self) -> (report::Verbosity, report::ProgressStyle, report::ColorChoice) {
+        let verbosity = self.verbosity.unwrap_or(if self.quiet {
+            report::Verbosity::Warn
+        } else {
+            report::Verbosity::Info
+        });
+        let progress = self.progress.unwrap_or(if self.quiet || self.no_progress {
+            report::ProgressStyle::None
+        } else if self.plain {
+            report::ProgressStyle::Plain
+        } else {
+            report::ProgressStyle::Pretty
+        });
+        let color = self.color.unwrap_or(if self.plain {
+            report::ColorChoice::False
+        } else {
+            report::ColorChoice::Auto
+        });
+        (verbosity, progress, color)
+    }
 }
 
 /// All the available Midenup Commands
@@ -249,7 +308,8 @@ impl Midenup {
     pub fn config(&self) -> anyhow::Result<config::Config> {
         // Before anything that could report: this governs the first message emitted, and the
         // migrations below are reached before any command runs.
-        crate::report::set(self.verbosity());
+        let (verbosity, progress, color) = self.output_settings();
+        crate::report::set(verbosity, progress, color);
 
         let working_directory =
             std::env::current_dir().context("unable to read current directory")?;
@@ -355,16 +415,14 @@ impl Midenup {
         }
     }
 
-    /// The verbosity in effect for this session.
+    /// The output settings in effect for this session.
     ///
     /// `miden` takes no flags of its own -- everything after it belongs to the component being
-    /// dispatched to -- so an install it triggers always runs at the default level.
-    fn verbosity(&self) -> report::Verbosity {
+    /// dispatched to -- so an install it triggers always runs at the default settings.
+    fn output_settings(&self) -> (report::Verbosity, report::ProgressStyle, report::ColorChoice) {
         match &self.behavior {
-            Behavior::Miden(_) => report::Verbosity::default(),
-            Behavior::Midenup { config, .. } => {
-                report::Verbosity::resolve(config.quiet, config.verbose)
-            },
+            Behavior::Miden(_) => Default::default(),
+            Behavior::Midenup { config, .. } => config.output_settings(),
         }
     }
 
@@ -513,5 +571,78 @@ mod tests {
             rendered.contains("instal"),
             "the typo itself must be named, not the word after it: {rendered}"
         );
+    }
+
+    /// Parses an argv and resolves the output settings it asks for.
+    fn output_flags(
+        args: &[&str],
+    ) -> (report::Verbosity, report::ProgressStyle, report::ColorChoice) {
+        let midenup = Midenup::try_parse_from(args).expect("the argv must parse");
+        match midenup.behavior {
+            Behavior::Midenup { config, .. } => config.output_settings(),
+            Behavior::Miden(_) => panic!("the argv must select the midenup behavior"),
+        }
+    }
+
+    #[test]
+    fn the_default_output_is_pretty_colored_info() {
+        let (verbosity, progress, color) = output_flags(&["midenup", "list"]);
+        assert_eq!(verbosity, report::Verbosity::Info);
+        assert_eq!(progress, report::ProgressStyle::Pretty);
+        assert_eq!(color, report::ColorChoice::Auto);
+    }
+
+    #[test]
+    fn quiet_implies_warnings_only_and_no_progress() {
+        let (verbosity, progress, _) = output_flags(&["midenup", "-q", "list"]);
+        assert_eq!(verbosity, report::Verbosity::Warn);
+        assert_eq!(progress, report::ProgressStyle::None);
+    }
+
+    #[test]
+    fn plain_implies_plain_progress_and_no_color_without_changing_the_level() {
+        let (verbosity, progress, color) = output_flags(&["midenup", "--plain", "list"]);
+        assert_eq!(progress, report::ProgressStyle::Plain);
+        assert_eq!(color, report::ColorChoice::False);
+        assert_eq!(verbosity, report::Verbosity::Info);
+    }
+
+    #[test]
+    fn no_progress_suppresses_progress_without_going_quiet() {
+        let (verbosity, progress, _) = output_flags(&["midenup", "--no-progress", "list"]);
+        assert_eq!(progress, report::ProgressStyle::None);
+        assert_eq!(verbosity, report::Verbosity::Info);
+    }
+
+    #[test]
+    fn an_explicit_flag_wins_over_what_another_flag_implies() {
+        let (_, progress, color) = output_flags(&["midenup", "--plain", "--color=true", "list"]);
+        assert_eq!(color, report::ColorChoice::True);
+        assert_eq!(progress, report::ProgressStyle::Plain);
+    }
+
+    #[test]
+    fn output_flags_are_accepted_after_the_subcommand() {
+        let (verbosity, progress, _) = output_flags(&["midenup", "list", "-q"]);
+        assert_eq!(verbosity, report::Verbosity::Warn);
+        assert_eq!(progress, report::ProgressStyle::None);
+    }
+
+    #[test]
+    fn verbosity_is_selected_by_name_and_bare_verbose_is_the_default_level() {
+        let (trace, ..) = output_flags(&["midenup", "--verbose=trace", "list"]);
+        assert_eq!(trace, report::Verbosity::Trace);
+        let (debug, ..) = output_flags(&["midenup", "--verbose=debug", "list"]);
+        assert_eq!(debug, report::Verbosity::Debug);
+        let (bare, ..) = output_flags(&["midenup", "-v", "list"]);
+        assert_eq!(bare, report::Verbosity::Info);
+    }
+
+    #[test]
+    fn contradictory_output_flags_are_rejected() {
+        Midenup::try_parse_from(["midenup", "-q", "-v", "list"])
+            .expect_err("quiet and verbose must conflict");
+        Midenup::try_parse_from(["midenup", "--no-progress", "--progress=pretty", "list"])
+            .expect_err("no-progress and an explicit progress style must conflict");
     }
 }

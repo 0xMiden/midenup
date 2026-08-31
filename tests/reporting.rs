@@ -195,18 +195,18 @@ fn integration_reporting_quiet_suppresses_announcements_but_not_results() {
     assert!(stdout.contains("mainnet"), "the result belongs on stdout regardless: {stdout}");
 }
 
-/// The debug tier traces the individual actions, which the levels below it never mention.
+/// The trace tier traces the individual actions, which the levels below it never mention.
 #[test]
-fn integration_reporting_debug_traces_individual_actions() {
+fn integration_reporting_trace_traces_individual_actions() {
     let _guard = common::harness::mutating_test_guard();
-    let test_env = environment_setup("integration_reporting_debug");
+    let test_env = environment_setup("integration_reporting_trace");
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
 
-    let output = run(&test_env, &fixture.manifest_uri, &["-vv", "install", "stable"]);
+    let output = run(&test_env, &fixture.manifest_uri, &["--verbose=trace", "install", "stable"]);
     let (stdout, stderr) = streams(&output);
     assert!(output.status.success(), "install must succeed: {stderr}");
-    assert!(stderr.contains("debug:"), "the debug tier must trace: {stderr}");
-    assert!(!stdout.contains("debug:"), "tracing is not a result: {stdout}");
+    assert!(stderr.contains("trace:"), "the trace tier must trace: {stderr}");
+    assert!(!stdout.contains("trace:"), "tracing is not a result: {stdout}");
 }
 
 /// Asking to be told more and less at once is a mistake worth reporting, not a precedence puzzle.
