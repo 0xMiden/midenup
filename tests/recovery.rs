@@ -45,6 +45,7 @@ fn install_aborting_at(
     Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
+        .map(|_| ())
 }
 
 /// Runs a command that does nothing but let recovery happen, as a restart would.
