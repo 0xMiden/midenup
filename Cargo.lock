@@ -514,6 +514,7 @@ dependencies = [
  "flate2",
  "fs4",
  "heck",
+ "libc",
  "petgraph",
  "semver",
  "serde",

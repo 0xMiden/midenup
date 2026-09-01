@@ -82,6 +82,7 @@ upon = { version = "0.10", default-features = false, features = [
 cargo_toml = "1.0.0"
 
 [dev-dependencies]
+libc = "0.2"
 tempdir = "0.3"
 # A local HTTP server, so download behaviour (status handling, redirects, empty bodies) is tested
 # against a real socket rather than a mock of curl.

@@ -153,9 +153,15 @@ pub fn emit_warning(args: fmt::Arguments) {
     write_line(format_args!("{}: {args}", "warning".yellow().bold()));
 }
 
-/// Writes one line of a child's captured stderr , erasing the live display first.
-pub fn emit_child_line(line: &str) {
-    write_line(format_args!("{line}"));
+/// Writes a chunk of a child's captured stderr, erasing the live display first.
+///
+/// This is deliberately byte-oriented: stderr is not guaranteed to be UTF-8, and a prompt that
+/// does not end in a newline must reach the terminal before the child waits for an answer.
+pub(crate) fn emit_child_output(bytes: &[u8]) {
+    let mut stderr = std::io::stderr().lock();
+    Transfer::erase(&mut stderr);
+    let _ = stderr.write_all(bytes);
+    let _ = stderr.flush();
 }
 
 /// Emits at [Verbosity::Trace] only, labelled. Prefer the [crate::trace] macro.
