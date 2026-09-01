@@ -1,3 +1,5 @@
+use std::{io::Write, process::Stdio};
+
 use clap::Parser;
 use midenup::{commands::Midenup, version};
 
@@ -157,4 +159,72 @@ fn integration_update_checks_local_state_before_syncing() {
         !rendered.contains("unable to fetch"),
         "the network failure must not mask the local diagnostic: {rendered}"
     );
+}
+
+/// Interactive update UI is diagnostic interaction, not a command result, and survives quiet.
+#[test]
+fn integration_interactive_path_update_uses_stderr() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_interactive_path_update_streams");
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_cargo_component("prover")
+        .build();
+
+    let installed = run_midenup(&test_env, &fixture.manifest_uri, &["install", "stable"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+    let mut manifest: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&fixture.manifest_path).expect("failed to read fixture manifest"),
+    )
+    .expect("fixture manifest is invalid");
+    let prover = manifest["channels"][0]["components"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|component| component["name"] == "prover")
+        .expect("fixture has no prover component");
+    // A changed Cargo feature is installation-impacting, so policy for the path-sourced component
+    // must ask before rebuilding it. The declined choices below keep the nonexistent feature from
+    // ever reaching Cargo.
+    prover["installation_method"]["features"] = serde_json::json!(["changed-upstream"]);
+    std::fs::write(&fixture.manifest_path, serde_json::to_vec_pretty(&manifest).unwrap())
+        .expect("failed to update fixture manifest");
+
+    let interact = |args: &[&str], response: &[u8]| {
+        let mut child =
+            midenup_command(env!("CARGO_BIN_EXE_midenup"), &test_env, &fixture.manifest_uri)
+                .args(args)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
+                .expect("failed to launch interactive update");
+        child
+            .stdin
+            .take()
+            .expect("interactive update has no stdin")
+            .write_all(response)
+            .expect("failed to answer interactive update");
+        child.wait_with_output().expect("failed to wait for interactive update")
+    };
+
+    let skipped = interact(&["update", "--path-update=interactive"], b"n\n");
+    assert!(skipped.status.success(), "{}", String::from_utf8_lossy(&skipped.stderr));
+    assert!(skipped.stdout.is_empty(), "prompt leaked to stdout: {:?}", skipped.stdout);
+    let stderr = String::from_utf8_lossy(&skipped.stderr);
+    assert!(
+        stderr.contains("Would you like to update this component?"),
+        "missing prompt: {stderr}"
+    );
+    assert!(stderr.contains("Skipping prover"), "missing acknowledgement: {stderr}");
+
+    let cancelled = interact(&["update", "--path-update=interactive", "-q"], b"c\n");
+    assert!(cancelled.status.success(), "{}", String::from_utf8_lossy(&cancelled.stderr));
+    assert!(cancelled.stdout.is_empty(), "prompt leaked to stdout: {:?}", cancelled.stdout);
+    let stderr = String::from_utf8_lossy(&cancelled.stderr);
+    assert!(
+        stderr.contains("Would you like to update this component?"),
+        "quiet suppressed the prompt: {stderr}"
+    );
+    assert!(stderr.contains("Cancelling update"), "missing acknowledgement: {stderr}");
 }

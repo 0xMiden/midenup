@@ -251,6 +251,13 @@ fn write_line(args: fmt::Arguments) {
     let _ = writeln!(stderr, "{args}");
 }
 
+/// Gives an interactive prompt exclusive ownership of stderr after clearing any transient line.
+pub(crate) fn with_stderr_interaction<T>(interaction: impl FnOnce(&mut dyn Write) -> T) -> T {
+    let mut stderr = std::io::stderr().lock();
+    Transfer::erase(&mut stderr);
+    interaction(&mut stderr)
+}
+
 /// An `info:` line, at [Verbosity::Info] and above.
 ///
 /// The label belongs to the level, not to the call site: spelling it per-message is how a codebase
