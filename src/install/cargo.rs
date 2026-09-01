@@ -82,10 +82,11 @@ pub fn build(
     crate::trace!("running: cargo {rendered}");
 
     let mut command = std::process::Command::new("cargo");
-    command
-        .args(&argv)
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit());
+    command.args(&argv).stderr(std::process::Stdio::inherit()).stdout(if verbose {
+        std::process::Stdio::inherit()
+    } else {
+        std::process::Stdio::null()
+    });
 
     let status = crate::install::run_reporting_progress(&mut command, owner)
         .map_err(|err| CargoError::Spawn(err.to_string()))?;

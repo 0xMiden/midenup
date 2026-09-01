@@ -127,10 +127,11 @@ pub fn extract(steps: &[PlanStep], script_path: &Path, verbose: bool) -> Result<
     );
 
     let mut command = std::process::Command::new("cargo");
-    command
-        .args(&argv)
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit());
+    command.args(&argv).stderr(std::process::Stdio::inherit()).stdout(if verbose {
+        std::process::Stdio::inherit()
+    } else {
+        std::process::Stdio::null()
+    });
 
     // One script covers every package in the plan, so the wait belongs to all of them rather than
     // to a component that could be named here.

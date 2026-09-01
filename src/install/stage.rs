@@ -243,8 +243,14 @@ fn planned_announcements(plan: &InstallationPlan) -> Vec<(String, &'static str)>
 /// States what kind of work is ahead before any of it starts, chiefly so a multi-minute source
 /// build is known about before the pause it causes.
 fn announce_summary(planned: &[(String, &'static str)]) {
+    if let Some(summary) = summarize(planned) {
+        crate::info!("{summary}");
+    }
+}
+
+fn summarize(planned: &[(String, &'static str)]) -> Option<String> {
     if planned.is_empty() {
-        return;
+        return None;
     }
 
     // A fixed order, so the same plan reads the same way every time.
@@ -265,7 +271,8 @@ fn announce_summary(planned: &[(String, &'static str)]) {
         })
         .collect();
 
-    crate::info!("{} steps: {}", planned.len(), described.join(", "));
+    let steps = if planned.len() == 1 { "step" } else { "steps" };
+    Some(format!("{} {steps}: {}", planned.len(), described.join(", ")))
 }
 
 /// Announces the work a step is about to do, once per component and kind of work.
@@ -417,6 +424,12 @@ mod tests {
     };
 
     const TARGET: &str = "aarch64-apple-darwin";
+
+    #[test]
+    fn a_one_step_summary_is_singular() {
+        let planned = [("vm".to_string(), "building")];
+        assert_eq!(summarize(&planned).as_deref(), Some("1 step: 1 source build"));
+    }
 
     /// A channel with one prebuilt executable and one package, both sourced from local files.
     fn fixture(root: &Path) -> (Channel, PathBuf) {

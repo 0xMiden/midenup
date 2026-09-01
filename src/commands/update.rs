@@ -5,7 +5,10 @@
 //! stage, what to publish -- belongs to [`commands::install`], which re-resolves the persisted
 //! intent against the new upstream channel. That is a deliberate narrowing.
 
-use std::path::Path;
+use std::{
+    io::{BufRead, Write},
+    path::Path,
+};
 
 use anyhow::Context;
 use colored::Colorize;
@@ -27,9 +30,6 @@ pub fn update(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    // Sync up front, so the header precedes any per-channel work; later calls hit the cache.
-    config.upstream_manifest()?;
-
     match channel_type {
         Some(UserChannel::Named(name)) => update_network(config, name, state, options),
         Some(UserChannel::Version(version)) => {
@@ -194,6 +194,8 @@ fn update_installed_channel(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    config.upstream_manifest()?;
+
     let local_channel = installation.as_channel();
     let Some(upstream) = local_channel.find_upstream_counterpart(config) else {
         // A bit of an edge case. The channel is installed but absent upstream, so it is either a
@@ -477,6 +479,7 @@ fn carry_var_to(home: &Path, from: &semver::Version, to: &semver::Version) -> an
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum InteractiveResult {
     /// Cancel the update all together. Useful for potential miss-clicks.
     Cancel,
@@ -485,31 +488,51 @@ enum InteractiveResult {
 }
 
 fn handle_path_uninstall_interactive(component: &Component) -> anyhow::Result<InteractiveResult> {
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    crate::report::with_stderr_interaction(|output| {
+        handle_path_uninstall_interactive_with_io(component, &mut input, output)
+    })
+}
+
+fn handle_path_uninstall_interactive_with_io<R: BufRead, W: Write + ?Sized>(
+    component: &Component,
+    input: &mut R,
+    output: &mut W,
+) -> anyhow::Result<InteractiveResult> {
     let component_name = &component.name;
-    println!(
+    writeln!(
+        output,
         "Would you like to update this component? (N/y/c)
    - N: no, skip this component
    - y: yes, update this component
    - c: cancel the update all-together (no changes will be applied)"
-    );
+    )
+    .context("failed to write update prompt")?;
+    output.flush().context("failed to flush update prompt")?;
 
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).context("Failed to read input")?;
-    let input = input.trim().to_ascii_lowercase();
-    match input.as_str() {
+    let mut response = String::new();
+    input.read_line(&mut response).context("failed to read update response")?;
+    let response = response.trim().to_ascii_lowercase();
+    let result = match response.as_str() {
         "y" => {
-            println!("Updating {component_name}");
-            Ok(InteractiveResult::UpdateComponent)
+            writeln!(output, "Updating {component_name}")
+                .context("failed to write update response")?;
+            InteractiveResult::UpdateComponent
         },
         "c" => {
-            println!("Cancelling update, no changes will be applied.");
-            Ok(InteractiveResult::Cancel)
+            writeln!(output, "Cancelling update, no changes will be applied.")
+                .context("failed to write update response")?;
+            InteractiveResult::Cancel
         },
         _ => {
-            println!("Skipping {component_name}, it will not be updated");
-            Ok(InteractiveResult::DontUpdateComponent)
+            writeln!(output, "Skipping {component_name}, it will not be updated")
+                .context("failed to write update response")?;
+            InteractiveResult::DontUpdateComponent
         },
-    }
+    };
+    output.flush().context("failed to flush update response")?;
+    Ok(result)
 }
 
 enum ComponentUpdateDecision {
@@ -562,6 +585,7 @@ fn display_warnings(
         return;
     }
 
+    crate::report::prepare_stderr_color();
     let guidance = if matches!(options.path_update, PathUpdate::Off)
         && !install_options.held_back.is_empty()
     {
@@ -706,5 +730,44 @@ mod tests {
         let mut new = base();
         new.profiles = vec![Profile::Complete];
         assert_eq!(classify_pair(base(), new), ChangeClass::GraphOnly);
+    }
+
+    #[test]
+    fn interactive_path_updates_write_and_flush_their_ui() {
+        for (input, expected, acknowledgement) in [
+            ("y\n", InteractiveResult::UpdateComponent, "Updating vm"),
+            ("c\n", InteractiveResult::Cancel, "Cancelling update"),
+            ("n\n", InteractiveResult::DontUpdateComponent, "Skipping vm"),
+        ] {
+            let mut input = std::io::Cursor::new(input);
+            let mut output = FlushTrackingWriter::default();
+            let result =
+                handle_path_uninstall_interactive_with_io(&base(), &mut input, &mut output)
+                    .expect("interaction must succeed");
+
+            assert_eq!(result, expected);
+            let rendered = String::from_utf8(output.bytes).unwrap();
+            assert!(rendered.contains("Would you like to update this component?"));
+            assert!(rendered.contains(acknowledgement), "missing acknowledgement: {rendered}");
+            assert_eq!(output.flushes, 2, "prompt and acknowledgement must both be flushed");
+        }
+    }
+
+    #[derive(Default)]
+    struct FlushTrackingWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    impl std::io::Write for FlushTrackingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
     }
 }

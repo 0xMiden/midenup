@@ -5,6 +5,7 @@ use crate::{config::Config, state::LocalState};
 /// List all the available [[Channels]] presents in the upstream manifest.
 pub fn list(config: &Config, state: &LocalState) -> anyhow::Result<()> {
     let upstream_channels = config.upstream_manifest()?.get_channels();
+    crate::report::prepare_stdout_color();
 
     let toolchains_display: Vec<String> = upstream_channels
         .map(|channel| {
