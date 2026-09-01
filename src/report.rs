@@ -58,6 +58,17 @@ pub enum ColorChoice {
     False,
 }
 
+impl ColorChoice {
+    pub fn use_color(&self) -> bool {
+        use std::io::IsTerminal;
+        match self {
+            Self::Auto => std::io::stdout().is_terminal(),
+            Self::True => true,
+            Self::False => false,
+        }
+    }
+}
+
 /// The level in effect, as a [Verbosity] discriminant.
 ///
 /// Process-global because the things that report are not all reachable from a [crate::config]:

@@ -79,7 +79,7 @@ upon = { version = "0.10", default-features = false, features = [
 ] }
 
 [build-dependencies]
-cargo_toml = "0.22"
+cargo_toml = "1.0.0"
 
 [dev-dependencies]
 tempdir = "0.3"

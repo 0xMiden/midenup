@@ -11,7 +11,7 @@ mod update;
 use std::{ffi::OsString, path::PathBuf};
 
 use anyhow::{Context, anyhow, bail};
-use clap::{Args, Parser, Subcommand};
+use clap::{ArgAction, Args, Parser, Subcommand, builder::ArgPredicate};
 
 pub use self::{
     gc::gc,
@@ -50,8 +50,24 @@ pub struct Midenup {
 enum Behavior {
     /// The Miden toolchain installer
     Midenup {
-        #[command(flatten)]
-        config: GlobalArgs,
+        /// The location of the Miden toolchain root
+        #[arg(long, global(true), hide(true), value_name = "DIR", env = "MIDENUP_HOME")]
+        midenup_home: Option<PathBuf>,
+        #[arg(long, global(true), hide(true), value_name = "DIR", env = "CARGO_HOME")]
+        cargo_home: Option<PathBuf>,
+        /// The URI from which we should load the global toolchain manifest
+        #[arg(
+            long,
+            global(true),
+            hide(true),
+            value_name = "FILE",
+            env = MIDENUP_MANIFEST_URI_ENV,
+            default_value = manifest::VersionedManifest::PUBLISHED_MANIFEST_URI
+        )]
+        manifest_uri: String,
+        /// Displays `midenup`'s version information.
+        #[arg(short = 'V', global(true), long, action, default_value_t = false)]
+        version: bool,
         #[command(subcommand)]
         command: Option<Commands>,
     },
@@ -60,103 +76,71 @@ enum Behavior {
     Miden(Vec<OsString>),
 }
 
-/// Global configuration options for `midenup`
+/// Configuration options for `midenup`
 #[derive(Debug, Args)]
-struct GlobalArgs {
-    /// The location of the Miden toolchain root
-    #[arg(long, hide(true), value_name = "DIR", env = "MIDENUP_HOME")]
-    pub midenup_home: Option<PathBuf>,
-    #[arg(long, hide(true), value_name = "DIR", env = "CARGO_HOME")]
-    pub cargo_home: Option<PathBuf>,
-    /// The URI from which we should load the global toolchain manifest
-    #[arg(
-        long,
-        hide(true),
-        value_name = "FILE",
-        env = MIDENUP_MANIFEST_URI_ENV,
-        default_value = manifest::VersionedManifest::PUBLISHED_MANIFEST_URI
-    )]
-    pub manifest_uri: String,
+pub struct Flags {
     /// Determines whether the components are installed in debug mode. Useful for debugging and
     /// faster installations. This flag is only available to `midenup`, not `miden`.
-    #[arg(long, env = "MIDENUP_DEBUG_MODE", hide = true)]
+    #[arg(long, env = "MIDENUP_DEBUG_MODE", hide = true, action(ArgAction::SetTrue))]
     pub debug: bool,
     /// Emit simple textual output: no color, no live progress decorations.
-    #[arg(long, global = true)]
+    #[arg(long, action(ArgAction::SetTrue))]
     pub plain: bool,
     /// How progress on long-running work is displayed [default: pretty]
     #[arg(
         long,
-        global = true,
         value_enum,
         value_name = "STYLE",
-        conflicts_with = "no_progress",
+        conflicts_with_all(["no_progress", "quiet"]),
         num_args(0..=1),
-        require_equals = true,
-        default_missing_value = "pretty"
+        require_equals(true),
+        default_value_t = report::ProgressStyle::Pretty,
+        default_missing_value = "pretty",
+        default_value_ifs([
+            ("no_progress", ArgPredicate::Equals("true".into()), Some("none")),
+            ("quiet", ArgPredicate::Equals("true".into()), Some("none")),
+            ("plain", ArgPredicate::Equals("true".into()), Some("plain")),
+        ])
     )]
-    pub progress: Option<report::ProgressStyle>,
+    pub progress: report::ProgressStyle,
     /// Suppress the progress display without suppressing informational output.
-    #[arg(long, global = true)]
+    #[arg(long, action(ArgAction::SetTrue))]
     pub no_progress: bool,
     /// Suppress progress and informational output. Warnings and errors are still shown.
-    #[arg(short, long, global = true, conflicts_with = "verbosity")]
+    #[arg(short, long, action(ArgAction::SetTrue))]
     pub quiet: bool,
     /// How much to report: `debug` also shows the output of the programs midenup runs, `trace`
     /// additionally traces every action midenup takes [default: info]
     #[arg(
         short = 'v',
         long = "verbose",
-        global = true,
         value_enum,
         value_name = "LEVEL",
+        conflicts_with("quiet"),
         num_args(0..=1),
         require_equals = true,
-        default_missing_value = "info"
+        default_value_t = report::Verbosity::Info,
+        default_missing_value = "debug",
+        default_value_ifs([
+            ("quiet", ArgPredicate::Equals("true".into()), Some("warn")),
+        ])
     )]
-    pub verbosity: Option<report::Verbosity>,
+    pub verbosity: report::Verbosity,
     /// Whether output is colored [default: auto]
     #[arg(
         long,
-        global = true,
         value_enum,
         value_name = "WHEN",
+        conflicts_with("plain"),
         num_args(0..=1),
         require_equals = true,
-        default_missing_value = "auto"
+        default_value_t = report::ColorChoice::Auto,
+        default_missing_value = "true",
+        default_value_ifs([
+            ("plain", ArgPredicate::Equals("true".into()), Some("false")),
+        ])
     )]
-    pub color: Option<report::ColorChoice>,
-    /// Displays `midenup`'s version information.
-    #[arg(short = 'V', long, action, default_value_t = false)]
-    pub version: bool,
-}
-
-impl GlobalArgs {
-    /// The output settings in effect: each absent flag's default is conditioned on the flags that
-    /// were given, and a flag given explicitly always wins over what another flag implies.
-    ///
-    /// Resolved in code rather than with clap's `default_value_ifs`, whose conditions never see
-    /// the value of a `global` argument.
-    fn output_settings(&self) -> (report::Verbosity, report::ProgressStyle, report::ColorChoice) {
-        let verbosity = self.verbosity.unwrap_or(if self.quiet {
-            report::Verbosity::Warn
-        } else {
-            report::Verbosity::Info
-        });
-        let progress = self.progress.unwrap_or(if self.quiet || self.no_progress {
-            report::ProgressStyle::None
-        } else if self.plain {
-            report::ProgressStyle::Plain
-        } else {
-            report::ProgressStyle::Pretty
-        });
-        let color = self.color.unwrap_or(if self.plain {
-            report::ColorChoice::False
-        } else {
-            report::ColorChoice::Auto
-        });
-        (verbosity, progress, color)
-    }
+    pub color: report::ColorChoice,
 }
 
 /// All the available Midenup Commands
@@ -165,13 +149,19 @@ enum Commands {
     /// Bootstrap the `midenup` environment.
     ///
     /// This initializes the `MIDEN_HOME` directory layout and configuration.
-    Init,
+    Init {
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
+    },
     /// Install a Miden toolchain
     Install {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
-
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
         #[clap(flatten)]
         options: options::InstallationOptions,
     },
@@ -179,15 +169,25 @@ enum Commands {
     ///
     /// Every change to an installed channel publishes a new copy and leaves the previous one in
     /// place, because another process may still be running out of it. This removes those.
-    Gc,
+    Gc {
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
+    },
     /// List all available toolchains
-    List,
+    List {
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
+    },
     /// Uninstall a Miden toolchain
     Uninstall {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
-
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
         /// Also delete this channel's mutable data (`var/<channel>`), such as the client's
         /// database. Without this flag it is kept, and you are told where it lives.
         #[arg(long, action, default_value_t = false)]
@@ -202,6 +202,9 @@ enum Commands {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
     },
     /// Sets the system's default toolchain.
     ///
@@ -212,6 +215,9 @@ enum Commands {
         /// The channel or version to set, e.g. `stable` or `0.15.0`
         #[arg(required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
     },
     /// Update your installed Miden toolchains.
     Update {
@@ -225,6 +231,9 @@ enum Commands {
         #[clap(verbatim_doc_comment)]
         #[arg(value_name = "CHANNEL", value_parser)]
         channel: Option<channel::UserChannel>,
+        /// General configuration flags
+        #[clap(flatten)]
+        flags: Flags,
         #[clap(flatten)]
         options: options::UpdateOptions,
     },
@@ -238,16 +247,33 @@ impl Commands {
     /// something is taking so long.
     fn is_mutating(&self) -> bool {
         match self {
-            Self::Init
+            Self::Init { .. }
             | Self::Install { .. }
             | Self::Uninstall { .. }
             | Self::Update { .. }
-            | Self::Gc => true,
+            | Self::Gc { .. } => true,
             // Writes `toolchains/default`.
             Self::Override { .. } => true,
             // Writes `miden-toolchain.toml` in the working directory, not `$MIDENUP_HOME`.
             Self::Set { .. } => false,
-            Self::List | Self::Show(_) => false,
+            Self::List { .. } | Self::Show(_) => false,
+        }
+    }
+
+    fn flags(&self) -> Option<&Flags> {
+        match self {
+            Self::Init { flags }
+            | Self::Install { flags, .. }
+            | Self::Uninstall { flags, .. }
+            | Self::Update { flags, .. }
+            | Self::Gc { flags, .. }
+            | Self::Override { flags, .. }
+            | Self::Set { flags, .. }
+            | Self::List { flags, .. }
+            | Self::Show(ShowCommand::Current { flags } | ShowCommand::List { flags }) => {
+                Some(flags)
+            },
+            Self::Show(ShowCommand::Home) => None,
         }
     }
 
@@ -258,13 +284,13 @@ impl Commands {
         state: &mut crate::state::LocalState,
     ) -> anyhow::Result<()> {
         match &self {
-            Self::Init => {
+            Self::Init { flags: _ } => {
                 init(config)?;
                 Ok(())
             },
-            Self::Gc => gc(config, state),
-            Self::List => list(config, state),
-            Self::Install { channel, options } => {
+            Self::Gc { flags: _ } => gc(config, state),
+            Self::List { flags: _ } => list(config, state),
+            Self::Install { channel, options, flags: _ } => {
                 let manifest = config.upstream_manifest()?;
                 let requested = channel;
                 let Some(channel) = manifest.get_channel(channel) else {
@@ -294,11 +320,15 @@ impl Commands {
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
             // exactly one a user needs to be able to uninstall (spec section 12.3).
-            Self::Uninstall { channel, purge } => uninstall(config, channel, state, *purge),
-            Self::Update { channel, options } => update(config, channel.as_ref(), state, options),
+            Self::Uninstall { channel, purge, flags: _ } => {
+                uninstall(config, channel, state, *purge)
+            },
+            Self::Update { channel, options, flags: _ } => {
+                update(config, channel.as_ref(), state, options)
+            },
             Self::Show(cmd) => cmd.execute(config, state),
-            Self::Set { channel } => set(config, channel),
-            Self::Override { channel } => r#override(config, state, channel),
+            Self::Set { channel, flags: _ } => set(config, channel),
+            Self::Override { channel, flags: _ } => r#override(config, state, channel),
         }
     }
 }
@@ -365,9 +395,11 @@ impl Midenup {
                     false,
                 )
             },
-            Behavior::Midenup { config, .. } => {
-                let midenup_home = config
-                    .midenup_home
+            Behavior::Midenup {
+                midenup_home, cargo_home, manifest_uri, ..
+            } => {
+                let flags = self.flags();
+                let midenup_home = midenup_home
                     .clone()
                     .or_else(|| {
                         // Always respect XDG dirs if set
@@ -387,8 +419,7 @@ impl Midenup {
                                         Consider setting a value for XDG_DATA_HOME in your shell's profile"
                                 )
                     )?;
-                let cargo_home = config
-                    .cargo_home
+                let cargo_home = cargo_home
                     .clone()
                     .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
                     .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
@@ -404,14 +435,22 @@ impl Midenup {
                 crate::migrate_networks::migrate_if_needed(&midenup_home)
                     .context("failed to migrate the toolchains directory to the network layout")?;
 
+                let debug = flags.map(|flags| flags.debug).unwrap_or(false);
                 config::Config::init(
                     working_directory,
                     midenup_home,
                     cargo_home,
-                    &config.manifest_uri,
-                    config.debug,
+                    manifest_uri,
+                    debug,
                 )
             },
+        }
+    }
+
+    fn flags(&self) -> Option<&Flags> {
+        match &self.behavior {
+            Behavior::Miden(_) | Behavior::Midenup { command: None, .. } => None,
+            Behavior::Midenup { command: Some(cmd), .. } => cmd.flags(),
         }
     }
 
@@ -420,10 +459,9 @@ impl Midenup {
     /// `miden` takes no flags of its own -- everything after it belongs to the component being
     /// dispatched to -- so an install it triggers always runs at the default settings.
     fn output_settings(&self) -> (report::Verbosity, report::ProgressStyle, report::ColorChoice) {
-        match &self.behavior {
-            Behavior::Miden(_) => Default::default(),
-            Behavior::Midenup { config, .. } => config.output_settings(),
-        }
+        self.flags()
+            .map(|flags| (flags.verbosity, flags.progress, flags.color))
+            .unwrap_or_default()
     }
 
     /// Execute this session with the provided configuration.
@@ -462,8 +500,8 @@ impl Midenup {
                 miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
             },
-            Behavior::Midenup { config: global_args, command: subcommand } => {
-                if global_args.version {
+            Behavior::Midenup { version, command: subcommand, .. } => {
+                if *version {
                     println!("{}", miden_wrapper::display_version(config));
                 } else if let Some(subcommand) = subcommand {
                     let _lock = if subcommand.is_mutating() {
@@ -558,6 +596,8 @@ fn get_full_command(argv: &[OsString]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
+
     use clap::Parser;
 
     use super::*;
@@ -577,11 +617,13 @@ mod tests {
     fn output_flags(
         args: &[&str],
     ) -> (report::Verbosity, report::ProgressStyle, report::ColorChoice) {
-        let midenup = Midenup::try_parse_from(args).expect("the argv must parse");
-        match midenup.behavior {
-            Behavior::Midenup { config, .. } => config.output_settings(),
-            Behavior::Miden(_) => panic!("the argv must select the midenup behavior"),
-        }
+        let midenup = Midenup::try_parse_from(args).unwrap_or_else(|err| err.exit());
+        assert_matches!(
+            &midenup.behavior,
+            Behavior::Midenup { .. },
+            "the argv must select the midenup behavior"
+        );
+        midenup.output_settings()
     }
 
     #[test]
@@ -594,14 +636,14 @@ mod tests {
 
     #[test]
     fn quiet_implies_warnings_only_and_no_progress() {
-        let (verbosity, progress, _) = output_flags(&["midenup", "-q", "list"]);
+        let (verbosity, progress, _) = output_flags(&["midenup", "list", "-q"]);
         assert_eq!(verbosity, report::Verbosity::Warn);
         assert_eq!(progress, report::ProgressStyle::None);
     }
 
     #[test]
     fn plain_implies_plain_progress_and_no_color_without_changing_the_level() {
-        let (verbosity, progress, color) = output_flags(&["midenup", "--plain", "list"]);
+        let (verbosity, progress, color) = output_flags(&["midenup", "list", "--plain"]);
         assert_eq!(progress, report::ProgressStyle::Plain);
         assert_eq!(color, report::ColorChoice::False);
         assert_eq!(verbosity, report::Verbosity::Info);
@@ -609,40 +651,26 @@ mod tests {
 
     #[test]
     fn no_progress_suppresses_progress_without_going_quiet() {
-        let (verbosity, progress, _) = output_flags(&["midenup", "--no-progress", "list"]);
+        let (verbosity, progress, _) = output_flags(&["midenup", "list", "--no-progress"]);
         assert_eq!(progress, report::ProgressStyle::None);
         assert_eq!(verbosity, report::Verbosity::Info);
     }
 
     #[test]
-    fn an_explicit_flag_wins_over_what_another_flag_implies() {
-        let (_, progress, color) = output_flags(&["midenup", "--plain", "--color=true", "list"]);
-        assert_eq!(color, report::ColorChoice::True);
-        assert_eq!(progress, report::ProgressStyle::Plain);
-    }
-
-    #[test]
-    fn output_flags_are_accepted_after_the_subcommand() {
-        let (verbosity, progress, _) = output_flags(&["midenup", "list", "-q"]);
-        assert_eq!(verbosity, report::Verbosity::Warn);
-        assert_eq!(progress, report::ProgressStyle::None);
-    }
-
-    #[test]
-    fn verbosity_is_selected_by_name_and_bare_verbose_is_the_default_level() {
-        let (trace, ..) = output_flags(&["midenup", "--verbose=trace", "list"]);
+    fn verbosity_is_selected_by_name_and_bare_verbose_is_the_default_verbose_level() {
+        let (trace, ..) = output_flags(&["midenup", "list", "--verbose=trace"]);
         assert_eq!(trace, report::Verbosity::Trace);
-        let (debug, ..) = output_flags(&["midenup", "--verbose=debug", "list"]);
+        let (debug, ..) = output_flags(&["midenup", "list", "--verbose=debug"]);
         assert_eq!(debug, report::Verbosity::Debug);
-        let (bare, ..) = output_flags(&["midenup", "-v", "list"]);
-        assert_eq!(bare, report::Verbosity::Info);
+        let (bare, ..) = output_flags(&["midenup", "list", "-v"]);
+        assert_eq!(bare, report::Verbosity::Debug);
     }
 
     #[test]
     fn contradictory_output_flags_are_rejected() {
-        Midenup::try_parse_from(["midenup", "-q", "-v", "list"])
+        Midenup::try_parse_from(["midenup", "list", "-q", "-v"])
             .expect_err("quiet and verbose must conflict");
-        Midenup::try_parse_from(["midenup", "--no-progress", "--progress=pretty", "list"])
+        Midenup::try_parse_from(["midenup", "list", "--no-progress", "--progress=pretty"])
             .expect_err("no-progress and an explicit progress style must conflict");
     }
 }

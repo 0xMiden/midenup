@@ -8,21 +8,31 @@ use crate::{
     toolchain::{Toolchain, ToolchainJustification},
 };
 
+use super::Flags;
+
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
     /// Show the active toolchain.
     #[command(name = "active-toolchain")]
-    Current,
+    Current {
+        #[clap(flatten)]
+        flags: Flags,
+    },
     /// Display the computed value of MIDENUP_HOME
     Home,
     /// List installed toolchains
-    List,
+    List {
+        #[clap(flatten)]
+        flags: Flags,
+    },
 }
 
 impl ShowCommand {
     pub fn execute(&self, config: &Config, state: &LocalState) -> anyhow::Result<()> {
+        use core::fmt::Write;
+
         match self {
-            Self::Current => {
+            Self::Current { .. } => {
                 let (toolchain, justification) = Toolchain::current(config, None)?;
 
                 // The justification is commentary, not the result, so it goes to stderr.
@@ -53,7 +63,9 @@ impl ShowCommand {
 
                 Ok(())
             },
-            Self::List => {
+            Self::List { flags } => {
+                let use_color = flags.color.use_color();
+
                 // Installed toolchains are recorded locally, so this works with no network at all.
                 // Upstream only adds *markers* -- which networks name a channel, which
                 // installations are partial or no longer published -- so when it is unavailable
@@ -81,10 +93,16 @@ impl ShowCommand {
                             .map(|manifest| manifest.networks_for(name).collect())
                             .unwrap_or_default();
                         if !networks.is_empty() {
-                            line.push_str(&format!(
-                                " {}",
-                                format!("({})", networks.join(", ")).bold()
-                            ));
+                            if use_color {
+                                write!(
+                                    &mut line,
+                                    " {}",
+                                    format!("({})", networks.join(", ")).bold()
+                                )
+                                .unwrap();
+                            } else {
+                                write!(&mut line, " ({})", networks.join(", ")).unwrap();
+                            }
                         }
 
                         // If a network whose link still names this channel while upstream has
@@ -99,7 +117,12 @@ impl ShowCommand {
                                     linked,
                                     manifest.network_version(network),
                                 ) {
-                                    line.push_str(&format!(" {}", marker.yellow()));
+                                    if use_color {
+                                        write!(&mut line, " {}", marker.yellow()).unwrap();
+                                    } else {
+                                        line.push(' ');
+                                        line.push_str(&marker);
+                                    }
                                 }
                             }
                         }
@@ -109,10 +132,13 @@ impl ShowCommand {
                         // point: the user's toolchain still works, but only after it is installed
                         // properly, and they should not have to infer that from a failure.
                         if !installation.is_managed() {
-                            line.push_str(&format!(
-                                " {} -- run `midenup install {name}`",
-                                "(needs reinstallation)".yellow()
-                            ));
+                            if use_color {
+                                write!(&mut line, " {}", "(needs reinstallation)".yellow())
+                                    .unwrap();
+                            } else {
+                                line.push_str(" (needs reinstallation)");
+                            }
+                            write!(&mut line, " -- run `midenup install {name}`").unwrap();
                         }
 
                         if let Some(manifest) = upstream {
@@ -122,16 +148,21 @@ impl ShowCommand {
                                         .as_channel()
                                         .is_partially_installed(channel) =>
                                 {
-                                    line.push_str(&format!(
-                                        " {}",
-                                        "(partially installed)".yellow()
-                                    ));
+                                    if use_color {
+                                        write!(&mut line, " {}", "(partially installed)".yellow())
+                                            .unwrap();
+                                    } else {
+                                        line.push_str(" (partially installed)");
+                                    }
                                 },
                                 Some(_) => {},
                                 // Retained, not deleted: the user may still want `var/` and an
                                 // explicit uninstall (spec section 12.3).
-                                None => line
-                                    .push_str(&format!(" {}", "(unavailable upstream)".yellow())),
+                                None if use_color => {
+                                    write!(&mut line, " {}", "(unavailable upstream)".yellow())
+                                        .unwrap()
+                                },
+                                None => line.push_str("(unavailable upstream)"),
                             }
                         }
 
@@ -139,7 +170,11 @@ impl ShowCommand {
                     })
                     .collect();
 
-                println!("{}", "Installed toolchains:".bold().underline());
+                if use_color {
+                    println!("{}", "Installed toolchains:".bold().underline());
+                } else {
+                    println!("Installed toolchains:");
+                }
                 for toolchain in toolchains_display {
                     println!("{toolchain}");
                 }
