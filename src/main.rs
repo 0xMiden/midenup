@@ -1,7 +1,7 @@
 use clap::FromArgMatches;
 use midenup::commands::Midenup;
 
-fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<std::process::ExitCode> {
     curl::init();
 
     let cli = <Midenup as clap::CommandFactory>::command();
