@@ -368,6 +368,7 @@ pub fn miden_wrapper(
     // are run.
     match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => {
+            crate::report::prepare_stdout_color();
             println!("{}", default_help());
             return Ok(());
         },
@@ -402,6 +403,7 @@ pub fn miden_wrapper(
     let requested_help = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => {
+            crate::report::prepare_stdout_color();
             let help = toolchain_help(&toolchain_environment);
 
             println!("{help}");
@@ -482,6 +484,7 @@ pub fn miden_wrapper(
                 Err(EnvironmentError::MissingSubcommand { command, available })
                     if requested_help =>
                 {
+                    crate::report::prepare_stdout_color();
                     println!("{}", format!("Subcommands of `miden {command}`:").bold());
                     for subcommand in available {
                         println!("  {subcommand}");
@@ -489,6 +492,7 @@ pub fn miden_wrapper(
                     return Ok(());
                 },
                 Err(err) => {
+                    crate::report::prepare_stderr_color();
                     let help_message = toolchain_help(&toolchain_environment);
                     let err_msg = format!(
                         "{}

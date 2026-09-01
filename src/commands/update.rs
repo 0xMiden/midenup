@@ -561,6 +561,7 @@ fn display_warnings(
         return;
     }
 
+    crate::report::prepare_stderr_color();
     let guidance = if matches!(options.path_update, PathUpdate::Off)
         && !install_options.held_back.is_empty()
     {

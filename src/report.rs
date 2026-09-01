@@ -48,6 +48,7 @@ pub enum ProgressStyle {
 
 /// Whether output is colored.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[repr(u8)]
 pub enum ColorChoice {
     /// Color when the output is a terminal.
     #[default]
@@ -59,13 +60,50 @@ pub enum ColorChoice {
 }
 
 impl ColorChoice {
+    /// Whether stdout should be colored under this choice.
     pub fn use_color(&self) -> bool {
-        use std::io::IsTerminal;
         match self {
-            Self::Auto => std::io::stdout().is_terminal(),
+            Self::Auto => auto_color(std::io::stdout().is_terminal()),
             Self::True => true,
             Self::False => false,
         }
+    }
+
+    fn for_terminal(self, terminal: bool) -> bool {
+        match self {
+            Self::Auto => auto_color(terminal),
+            Self::True => true,
+            Self::False => false,
+        }
+    }
+}
+
+/// Resolves the conventional color environment variables for a particular destination stream.
+///
+/// `colored` applies the same precedence, but its automatic terminal check is permanently tied to
+/// stdout. Reporting is written to stderr, so automatic mode has to supply that terminal fact
+/// itself.
+fn auto_color(terminal: bool) -> bool {
+    resolve_auto_color(
+        terminal,
+        std::env::var("CLICOLOR").ok().map(|value| value != "0"),
+        std::env::var("NO_COLOR").is_ok(),
+        std::env::var("CLICOLOR_FORCE").ok().map(|value| value != "0"),
+    )
+}
+
+fn resolve_auto_color(
+    terminal: bool,
+    clicolor: Option<bool>,
+    no_color: bool,
+    clicolor_force: Option<bool>,
+) -> bool {
+    if clicolor_force == Some(true) {
+        true
+    } else if no_color {
+        false
+    } else {
+        clicolor.unwrap_or(true) && terminal
     }
 }
 
@@ -78,16 +116,50 @@ static LEVEL: AtomicU8 = AtomicU8::new(Verbosity::Info as u8);
 /// The progress style in effect, as a [ProgressStyle] discriminant. Global for the same reason.
 static PROGRESS: AtomicU8 = AtomicU8::new(ProgressStyle::Pretty as u8);
 
+/// The color choice in effect, as a [ColorChoice] discriminant. Global for the same reason.
+static COLOR: AtomicU8 = AtomicU8::new(ColorChoice::Auto as u8);
+
 /// Installs the output settings for the rest of the process. Called once, from
 /// [crate::commands::Midenup].
 pub fn set(verbosity: Verbosity, progress: ProgressStyle, color: ColorChoice) {
     LEVEL.store(verbosity as u8, Ordering::Relaxed);
     PROGRESS.store(progress as u8, Ordering::Relaxed);
+    COLOR.store(color as u8, Ordering::Relaxed);
     match color {
-        ColorChoice::Auto => {},
+        // Clear a forced setting from an earlier in-process invocation. Each actual output path
+        // installs the stream-specific automatic answer before it renders colored values.
+        ColorChoice::Auto => colored::control::unset_override(),
         ColorChoice::True => colored::control::set_override(true),
         ColorChoice::False => colored::control::set_override(false),
     }
+}
+
+fn color() -> ColorChoice {
+    match COLOR.load(Ordering::Relaxed) {
+        0 => ColorChoice::Auto,
+        1 => ColorChoice::True,
+        _ => ColorChoice::False,
+    }
+}
+
+fn prepare_color(choice: ColorChoice, terminal: bool) -> bool {
+    let enabled = choice.for_terminal(terminal);
+    colored::control::set_override(enabled);
+    enabled
+}
+
+/// Selects color for stdout immediately before rendering a command result.
+pub(crate) fn prepare_stdout_color() -> bool {
+    prepare_color(color(), std::io::stdout().is_terminal())
+}
+
+/// Selects color for stderr immediately before rendering a report.
+///
+/// Public because the exported reporting macros invoke it at their call sites, before evaluating
+/// arguments that may themselves contain eagerly rendered colored strings.
+#[doc(hidden)]
+pub fn prepare_stderr_color() -> bool {
+    prepare_color(color(), std::io::stderr().is_terminal())
 }
 
 /// The level in effect.
@@ -173,6 +245,7 @@ pub fn emit_trace(args: fmt::Arguments) {
 
 /// Writes one line to stderr, erasing a live transfer display first so the two never collide.
 fn write_line(args: fmt::Arguments) {
+    prepare_stderr_color();
     let mut stderr = std::io::stderr().lock();
     Transfer::erase(&mut stderr);
     let _ = writeln!(stderr, "{args}");
@@ -186,6 +259,7 @@ fn write_line(args: fmt::Arguments) {
 macro_rules! info {
     ($($arg:tt)*) => {
         if $crate::report::verbosity() >= $crate::report::Verbosity::Info {
+            $crate::report::prepare_stderr_color();
             $crate::report::emit_info(format_args!($($arg)*));
         }
     };
@@ -199,6 +273,7 @@ macro_rules! info {
 macro_rules! note {
     ($($arg:tt)*) => {
         if $crate::report::verbosity() >= $crate::report::Verbosity::Info {
+            $crate::report::prepare_stderr_color();
             $crate::report::emit_note(format_args!($($arg)*));
         }
     };
@@ -207,7 +282,10 @@ macro_rules! note {
 /// A `warning:` line, at every level including [Verbosity::Warn].
 #[macro_export]
 macro_rules! warn {
-    ($($arg:tt)*) => { $crate::report::emit_warning(format_args!($($arg)*)) };
+    ($($arg:tt)*) => {{
+        $crate::report::prepare_stderr_color();
+        $crate::report::emit_warning(format_args!($($arg)*))
+    }};
 }
 
 /// A `trace:` action trace, at [Verbosity::Trace] only.
@@ -215,6 +293,7 @@ macro_rules! warn {
 macro_rules! trace {
     ($($arg:tt)*) => {
         if $crate::report::verbosity() >= $crate::report::Verbosity::Trace {
+            $crate::report::prepare_stderr_color();
             $crate::report::emit_trace(format_args!($($arg)*));
         }
     };
@@ -425,5 +504,16 @@ mod tests {
         assert_eq!(bytes(512), "512 B");
         assert_eq!(bytes(1536), "1.5 KiB");
         assert_eq!(bytes(10 * 1024 * 1024), "10.0 MiB");
+    }
+
+    #[test]
+    fn automatic_color_uses_the_destination_terminal_and_standard_precedence() {
+        assert!(resolve_auto_color(true, None, false, None));
+        assert!(!resolve_auto_color(false, None, false, None));
+        assert!(!resolve_auto_color(true, Some(false), false, None));
+        assert!(!resolve_auto_color(true, None, true, None));
+        assert!(resolve_auto_color(false, Some(false), true, Some(true)));
+        assert!(!resolve_auto_color(false, None, false, Some(false)));
+        assert!(resolve_auto_color(true, None, false, Some(false)));
     }
 }

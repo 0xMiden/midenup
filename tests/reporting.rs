@@ -223,6 +223,42 @@ fn integration_reporting_a_failing_build_shows_its_compiler_errors() {
     );
 }
 
+/// Automatic color follows the destination stream rather than stdout globally.
+#[cfg(unix)]
+#[test]
+fn integration_reporting_auto_color_is_stream_aware() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_reporting_stream_color");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
+    let (master, slave) = open_pty().expect("failed to open a pseudo-terminal");
+
+    let child = midenup_command(env!("CARGO_BIN_EXE_midenup"), &test_env, &fixture.manifest_uri)
+        .args(["list", "--color=auto"])
+        .env_remove("CLICOLOR")
+        .env_remove("CLICOLOR_FORCE")
+        .env_remove("NO_COLOR")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(File::from(slave)))
+        .spawn()
+        .expect("failed to launch stream-aware color check");
+    let (reader, stderr) = read_pty(master);
+    let output = child.wait_with_output().expect("failed to wait for color check");
+    reader.join().expect("PTY reader panicked");
+    let stderr = stderr.try_iter().flatten().collect::<Vec<_>>();
+
+    assert!(output.status.success(), "list failed: {}", String::from_utf8_lossy(&stderr));
+    assert!(
+        !output.stdout.windows(2).any(|window| window == b"\x1b["),
+        "piped stdout contained ANSI escapes: {:?}",
+        output.stdout
+    );
+    assert!(
+        stderr.windows(2).any(|window| window == b"\x1b["),
+        "terminal stderr did not contain ANSI escapes: {:?}",
+        stderr
+    );
+}
+
 /// Runs only when one of the PTY regression tests launches this test binary recursively.
 #[cfg(unix)]
 #[test]

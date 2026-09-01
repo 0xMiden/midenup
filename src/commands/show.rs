@@ -1,14 +1,13 @@
 use clap::Subcommand;
 use colored::Colorize;
 
+use super::Flags;
 use crate::{
     config::Config,
     report,
     state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
 };
-
-use super::Flags;
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
@@ -63,14 +62,15 @@ impl ShowCommand {
 
                 Ok(())
             },
-            Self::List { flags } => {
-                let use_color = flags.color.use_color();
-
+            Self::List { .. } => {
                 // Installed toolchains are recorded locally, so this works with no network at all.
                 // Upstream only adds *markers* -- which networks name a channel, which
                 // installations are partial or no longer published -- so when it is unavailable
                 // they are simply omitted rather than guessed at.
                 let upstream = config.upstream_manifest().ok();
+                // The upstream lookup may have emitted a report to stderr, so restore stdout's
+                // color policy immediately before rendering the result.
+                let use_color = report::prepare_stdout_color();
 
                 // Check every `toolchains/<network>` links on this machine to compare with
                 // upstream.
@@ -162,7 +162,7 @@ impl ShowCommand {
                                     write!(&mut line, " {}", "(unavailable upstream)".yellow())
                                         .unwrap()
                                 },
-                                None => line.push_str("(unavailable upstream)"),
+                                None => line.push_str(" (unavailable upstream)"),
                             }
                         }
 

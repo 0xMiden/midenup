@@ -244,6 +244,7 @@ fn carry_migrated_intent(state: &LocalState, channel: &Channel, intent: Intent) 
         return intent;
     }
 
+    crate::report::prepare_stderr_color();
     let listed = dropped.iter().map(|root| format!("\n- {}", root.bold())).collect::<String>();
     crate::warn!(
         "these components are no longer part of channel {} and have been dropped from your \
