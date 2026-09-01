@@ -1053,18 +1053,19 @@ Each variant carries the file path, the offending identifier, and a remediation 
 
 **Streams.** Stdout carries a command's results; stderr carries its progress, warnings, and traces.
 
-**Levels.** Four, ordered, selected by `--verbose <LEVEL>` (`-v`):
+**Levels.** Four, ordered, selected by `--verbose[=<LEVEL>]` (`-v`); a bare `-v` or `--verbose`
+selects `debug`:
 
 | Level | Flag | Emits |
 |---|---|---|
 | warn | `-q`, `--quiet` | warnings and errors only |
 | info | *(default)* | one line per unit of work as it happens |
 | debug | `--verbose=debug` | the above, and the output of spawned programs is no longer suppressed |
-| trace | `--verbose=trace` | the above, and the individual actions taken: fetches, spawned commands, seeded files, symlink commits, link updates, record writes, deletions |
+| trace | `--verbose=trace` | the above, and selected low-level diagnostic details, such as manifest reads, fetches, spawned commands, publication commits, and state writes |
 
 Warnings and interactive prompts survive `quiet`. `debug` and `trace` are distinct axes -
-spawned programs' output (the `--quiet` in the cargo argv, §9.3) versus `midenup`'s own actions -
-ordered on one ladder because the former is the coarser.
+spawned programs' output (the `--quiet` in the cargo argv, §9.3) versus `midenup`'s own diagnostic
+details - ordered on one ladder because the former is the coarser.
 
 **Decorations.** Orthogonal to the level. `--progress[=pretty|plain|none]` controls the transient
 display: `pretty` (the default) is the live redrawn line, `plain` and `none` leave only the

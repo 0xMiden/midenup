@@ -1,9 +1,9 @@
 //! What `midenup` says while it works, and how much of it (spec section 14.4).
 //!
 //! Everything here goes to stderr; stdout carries results only. Debug and above also display
-//! cargo's output; trace additionally traces midenup's own actions. The level comes from the
-//! `-q`/`--verbose` flags; the progress display and color are controlled separately by
-//! `--progress`, `--color` and `--plain`.
+//! cargo's output; trace additionally includes selected low-level diagnostic details. The level
+//! comes from the `-q`/`--verbose` flags; the progress display and color are controlled separately
+//! by `--progress`, `--color` and `--plain`.
 //!
 //! Note that an install triggered by `miden` command always runs at the default settings.
 
@@ -29,7 +29,7 @@ pub enum Verbosity {
     Info,
     /// The above, and the output of spawned programs (e.g. cargo) is no longer suppressed.
     Debug,
-    /// The above, and every action `midenup` takes is traced.
+    /// The above, and selected filesystem, network, and subprocess details are traced.
     Trace,
 }
 
@@ -295,7 +295,7 @@ macro_rules! warn {
     }};
 }
 
-/// A `trace:` action trace, at [Verbosity::Trace] only.
+/// A `trace:` diagnostic detail, at [Verbosity::Trace] only.
 #[macro_export]
 macro_rules! trace {
     ($($arg:tt)*) => {

@@ -110,7 +110,8 @@ pub struct Flags {
     #[arg(short, long, action(ArgAction::SetTrue))]
     pub quiet: bool,
     /// How much to report: `debug` also shows the output of the programs midenup runs, `trace`
-    /// additionally traces every action midenup takes [default: info]
+    /// additionally emits selected low-level filesystem, network, and subprocess details
+    /// [default: info]
     #[arg(
         short = 'v',
         long = "verbose",
