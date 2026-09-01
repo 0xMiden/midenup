@@ -1,61 +1,59 @@
 use clap::Subcommand;
 use colored::Colorize;
 
+use super::Flags;
 use crate::{
     config::Config,
+    report,
     state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
 };
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
-    /// Show the active toolchain
+    /// Show the active toolchain.
     #[command(name = "active-toolchain")]
     Current {
-        #[arg(long, action)]
-        verbose: bool,
+        #[clap(flatten)]
+        flags: Flags,
     },
     /// Display the computed value of MIDENUP_HOME
     Home,
     /// List installed toolchains
-    List,
+    List {
+        #[clap(flatten)]
+        flags: Flags,
+    },
 }
 
 impl ShowCommand {
     pub fn execute(&self, config: &Config, state: &LocalState) -> anyhow::Result<()> {
+        use core::fmt::Write;
+
         match self {
-            Self::Current { verbose } => {
+            Self::Current { .. } => {
                 let (toolchain, justification) = Toolchain::current(config, None)?;
 
-                if !verbose {
-                    println!("{}", toolchain.channel);
-                } else {
+                // The justification is commentary, not the result, so it goes to stderr.
+                if report::verbosity() >= report::Verbosity::Debug {
                     match justification {
                         ToolchainJustification::MidenToolchainFile { path } => {
-                            println!(
-                                "{}: found a miden-toolchain.toml file in {}",
-                                "info".white().bold(),
-                                path.display()
-                            )
+                            crate::info!("found a miden-toolchain.toml file in {}", path.display())
                         },
                         ToolchainJustification::Override => {
-                            println!(
-                                "{}: system default has been overridden via `midenup override`",
-                                "info".white().bold(),
+                            crate::info!(
+                                "system default has been overridden via `midenup override`"
                             )
                         },
                         ToolchainJustification::Requested => {
-                            println!("{}: explicitly requested by user", "info".white().bold(),)
+                            crate::info!("explicitly requested by user")
                         },
                         ToolchainJustification::Default => {
-                            println!(
-                                "{}: current toolchain is system default",
-                                "info".white().bold()
-                            );
+                            crate::info!("current toolchain is system default")
                         },
                     }
-                    println!("The current active toolchain is {}", toolchain.channel);
                 }
+                println!("{}", toolchain.channel);
 
                 Ok(())
             },
@@ -64,12 +62,15 @@ impl ShowCommand {
 
                 Ok(())
             },
-            Self::List => {
+            Self::List { .. } => {
                 // Installed toolchains are recorded locally, so this works with no network at all.
                 // Upstream only adds *markers* -- which networks name a channel, which
                 // installations are partial or no longer published -- so when it is unavailable
                 // they are simply omitted rather than guessed at.
                 let upstream = config.upstream_manifest().ok();
+                // The upstream lookup may have emitted a report to stderr, so restore stdout's
+                // color policy immediately before rendering the result.
+                let use_color = report::prepare_stdout_color();
 
                 // Check every `toolchains/<network>` links on this machine to compare with
                 // upstream.
@@ -92,10 +93,16 @@ impl ShowCommand {
                             .map(|manifest| manifest.networks_for(name).collect())
                             .unwrap_or_default();
                         if !networks.is_empty() {
-                            line.push_str(&format!(
-                                " {}",
-                                format!("({})", networks.join(", ")).bold()
-                            ));
+                            if use_color {
+                                write!(
+                                    &mut line,
+                                    " {}",
+                                    format!("({})", networks.join(", ")).bold()
+                                )
+                                .unwrap();
+                            } else {
+                                write!(&mut line, " ({})", networks.join(", ")).unwrap();
+                            }
                         }
 
                         // If a network whose link still names this channel while upstream has
@@ -110,7 +117,12 @@ impl ShowCommand {
                                     linked,
                                     manifest.network_version(network),
                                 ) {
-                                    line.push_str(&format!(" {}", marker.yellow()));
+                                    if use_color {
+                                        write!(&mut line, " {}", marker.yellow()).unwrap();
+                                    } else {
+                                        line.push(' ');
+                                        line.push_str(&marker);
+                                    }
                                 }
                             }
                         }
@@ -120,10 +132,13 @@ impl ShowCommand {
                         // point: the user's toolchain still works, but only after it is installed
                         // properly, and they should not have to infer that from a failure.
                         if !installation.is_managed() {
-                            line.push_str(&format!(
-                                " {} -- run `midenup install {name}`",
-                                "(needs reinstallation)".yellow()
-                            ));
+                            if use_color {
+                                write!(&mut line, " {}", "(needs reinstallation)".yellow())
+                                    .unwrap();
+                            } else {
+                                line.push_str(" (needs reinstallation)");
+                            }
+                            write!(&mut line, " -- run `midenup install {name}`").unwrap();
                         }
 
                         if let Some(manifest) = upstream {
@@ -133,16 +148,21 @@ impl ShowCommand {
                                         .as_channel()
                                         .is_partially_installed(channel) =>
                                 {
-                                    line.push_str(&format!(
-                                        " {}",
-                                        "(partially installed)".yellow()
-                                    ));
+                                    if use_color {
+                                        write!(&mut line, " {}", "(partially installed)".yellow())
+                                            .unwrap();
+                                    } else {
+                                        line.push_str(" (partially installed)");
+                                    }
                                 },
                                 Some(_) => {},
                                 // Retained, not deleted: the user may still want `var/` and an
                                 // explicit uninstall (spec section 12.3).
-                                None => line
-                                    .push_str(&format!(" {}", "(unavailable upstream)".yellow())),
+                                None if use_color => {
+                                    write!(&mut line, " {}", "(unavailable upstream)".yellow())
+                                        .unwrap()
+                                },
+                                None => line.push_str(" (unavailable upstream)"),
                             }
                         }
 
@@ -150,7 +170,11 @@ impl ShowCommand {
                     })
                     .collect();
 
-                println!("{}", "Installed toolchains:".bold().underline());
+                if use_color {
+                    println!("{}", "Installed toolchains:".bold().underline());
+                } else {
+                    println!("Installed toolchains:");
+                }
                 for toolchain in toolchains_display {
                     println!("{toolchain}");
                 }

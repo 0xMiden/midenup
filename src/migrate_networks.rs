@@ -148,7 +148,7 @@ fn adopt_var_for_default_network(home: &Path, legacy: &Path) -> anyhow::Result<b
 
     match std::fs::rename(&source, &destination) {
         Ok(()) => {
-            println!(
+            crate::info!(
                 "moved your {DEFAULT_NETWORK} data from {} to {}: it is now keyed by the network \
                  rather than by the toolchain version.\nIf a project of yours pins {} in \
                  miden-toolchain.toml, move it back with:  mv {} {}",

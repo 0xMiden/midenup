@@ -179,10 +179,7 @@ impl Toolchain {
         // The active view is resolved against the *installed* snapshot rather than upstream, which
         // is what section 8.5 says it is -- this project's request, against what this machine has.
         if let Some(view) = active_view(config, state, desired_channel, &intent) {
-            println!(
-                "{}: current toolchain is {desired_channel} and is installed",
-                "info".white().bold()
-            );
+            crate::info!("current toolchain is {desired_channel} and is installed");
             return Ok((current_toolchain, justification, Some(view)));
         }
 
@@ -223,23 +220,17 @@ impl Toolchain {
             Some(installed) => {
                 let installed_components: HashSet<&str> =
                     HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
-                println!(
-                    "{}: installing missing components of the current toolchain:",
-                    "info".white().bold()
-                );
+                crate::info!("installing missing components of the current toolchain:");
                 for component in resolved
                     .iter()
                     .map(|component| component.name.as_ref())
                     .filter(|name| !installed_components.contains(name))
                 {
-                    println!("- {}", component.white().bold());
+                    crate::note!("- {}", component.bold());
                 }
             },
             None => {
-                println!(
-                    "{}: current toolchain is {desired_channel}, but not yet installed",
-                    "info".white().bold()
-                );
+                crate::info!("current toolchain is {desired_channel}, but not yet installed");
             },
         }
 

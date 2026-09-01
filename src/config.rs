@@ -6,7 +6,6 @@ use std::{
 };
 
 use anyhow::Context;
-use colored::Colorize;
 
 use crate::{
     channel::Channel,
@@ -129,10 +128,12 @@ impl Config {
         }
 
         let manifest = self.fetch_upstream_manifest()?;
+        crate::info!("upstream last updated on {}", manifest.last_updated());
         Ok(self.manifest.get_or_init(|| manifest))
     }
 
     fn fetch_upstream_manifest(&self) -> anyhow::Result<Manifest> {
+        crate::info!("syncing channel updates from upstream");
         let cache = crate::paths::manifest_cache(&self.midenup_home);
 
         let fetch_error = match VersionedManifest::read_from(&self.manifest_uri) {
@@ -140,6 +141,7 @@ impl Config {
                 Ok(manifest) => {
                     // Best effort: a manifest we could not cache is still a manifest we can use.
                     let _ = std::fs::create_dir_all(&self.midenup_home);
+                    crate::trace!("caching the manifest at {}", cache.display());
                     let _ = std::fs::write(&cache, &contents);
                     return Ok(manifest);
                 },
@@ -154,9 +156,9 @@ impl Config {
 
         match cached {
             Ok(manifest) => {
-                eprintln!(
-                    "{}: could not reach '{}' ({fetch_error}); using the cached manifest from                      '{}', which may be out of date",
-                    "warning".yellow().bold(),
+                crate::warn!(
+                    "could not reach '{}' ({fetch_error}); using the cached manifest from '{}', \
+                     which may be out of date",
                     self.manifest_uri,
                     cache.display(),
                 );

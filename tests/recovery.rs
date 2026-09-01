@@ -72,7 +72,7 @@ fn integration_recovery_is_deterministic_at_every_publication_step() {
 
     for point in FaultPoint::PUBLICATION {
         let env = environment_setup(&format!("recovery_{point}"));
-        let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+        let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
         let aborted = install_aborting_at(&env, &fixture.manifest_uri, Some(point));
         assert!(aborted.is_err(), "the install must stop at {point}");
@@ -155,7 +155,7 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
 
     for point in FaultPoint::PUBLICATION {
         let env = environment_setup(&format!("retry_{point}"));
-        let fixture = common::harness::OfflineFixture::build(env.tmp_dir.path(), "0.15.0");
+        let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
         install_aborting_at(&env, &fixture.manifest_uri, Some(point))
             .expect_err("the install must stop");

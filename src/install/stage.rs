@@ -1,7 +1,7 @@
 //! Building a staged installation tree and checking it before it is published.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     path::{Path, PathBuf},
 };
 
@@ -116,6 +116,7 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
             std::fs::create_dir_all(parent)
                 .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
         }
+        crate::trace!("seeding {} from the previous publication", dest.display());
         std::fs::copy(&src, &dest)
             .map_err(|source| StageError::Seed { path: dest.clone(), source })?;
     }
@@ -144,9 +145,18 @@ pub fn execute(
 ) -> Result<Realized, StageError> {
     let mut pending_extractions = Vec::new();
     let mut realized = Realized::new();
+    let mut announced = BTreeSet::new();
+
+    let planned = planned_announcements(plan);
+    announce_summary(&planned);
+    let mut progress = Progress { done: 0, total: planned.len() };
 
     for step in &plan.steps {
         if step.dest().exists() {
+            crate::trace!(
+                "carried forward from the previous publication: {}",
+                step.dest().display()
+            );
             continue;
         }
 
@@ -155,6 +165,8 @@ pub fn execute(
             pending_extractions.push(step.clone());
             continue;
         }
+
+        announce(step, &mut announced, Some(&mut progress));
 
         let method = match run(step, staging_root, verbose, debug) {
             Ok(method) => method,
@@ -165,12 +177,8 @@ pub fn execute(
                 let Some(fallback) = step.fallback() else {
                     return Err(err);
                 };
-                println!(
-                    "{}: could not acquire {}: {err}",
-                    "warning".yellow().bold(),
-                    step.owner().white().bold(),
-                );
-                println!("building {} from source instead", step.owner().white().bold());
+                crate::warn!("could not acquire {}: {err}", step.owner().bold());
+                announce(fallback, &mut announced, None);
                 run(fallback, staging_root, verbose, debug)?
             },
         };
@@ -179,8 +187,11 @@ pub fn execute(
     }
 
     if !pending_extractions.is_empty() {
+        for step in &pending_extractions {
+            announce(step, &mut announced, Some(&mut progress));
+        }
         let script = staging_root.join("extract").with_extension("rs");
-        crate::install::extract(&pending_extractions, &script)?;
+        crate::install::extract(&pending_extractions, &script, verbose)?;
         // The script is a build artefact, not part of the toolchain.
         let _ = std::fs::remove_file(&script);
         for step in &pending_extractions {
@@ -191,6 +202,113 @@ pub fn execute(
     create_symlinks(plan, staging_root)?;
 
     Ok(realized)
+}
+
+/// The kind of work a step performs, as the announcements name it.
+fn action_of(step: &PlanStep) -> &'static str {
+    match step {
+        PlanStep::Download { .. } => "downloading",
+        PlanStep::CopyLocal { .. } => "copying",
+        PlanStep::CargoBuild { .. } => "building",
+        PlanStep::ExtractPackage { .. } => "extracting",
+    }
+}
+
+/// How far through the announcements the install is. A position in a list, not an estimate of
+/// time remaining: the steps are wildly unequal.
+struct Progress {
+    done: usize,
+    total: usize,
+}
+
+/// Every announcement this plan will make, deduplicated and filtered exactly as [announce] is, so
+/// the counter always reaches its total.
+fn planned_announcements(plan: &InstallationPlan) -> Vec<(String, &'static str)> {
+    let mut seen = BTreeSet::new();
+    let mut planned = Vec::new();
+
+    for step in &plan.steps {
+        if step.dest().exists() {
+            continue;
+        }
+        let entry = (step.owner().to_string(), action_of(step));
+        if seen.insert(entry.clone()) {
+            planned.push(entry);
+        }
+    }
+
+    planned
+}
+
+/// States what kind of work is ahead before any of it starts, chiefly so a multi-minute source
+/// build is known about before the pause it causes.
+fn announce_summary(planned: &[(String, &'static str)]) {
+    if let Some(summary) = summarize(planned) {
+        crate::info!("{summary}");
+    }
+}
+
+fn summarize(planned: &[(String, &'static str)]) -> Option<String> {
+    if planned.is_empty() {
+        return None;
+    }
+
+    // A fixed order, so the same plan reads the same way every time.
+    let described: Vec<String> = ["downloading", "copying", "building", "extracting"]
+        .into_iter()
+        .filter_map(|action| {
+            let count = planned.iter().filter(|(_, kind)| *kind == action).count();
+            if count == 0 {
+                return None;
+            }
+            let (singular, plural) = match action {
+                "downloading" => ("download", "downloads"),
+                "copying" => ("copy", "copies"),
+                "building" => ("source build", "source builds"),
+                _ => ("extraction", "extractions"),
+            };
+            Some(format!("{count} {}", if count == 1 { singular } else { plural }))
+        })
+        .collect();
+
+    let steps = if planned.len() == 1 { "step" } else { "steps" };
+    Some(format!("{} {steps}: {}", planned.len(), described.join(", ")))
+}
+
+/// Announces the work a step is about to do, once per component and kind of work.
+///
+/// `progress` is absent for an unplanned step (a taken fallback), which is left un-numbered rather
+/// than pushed past a total fixed before the run began.
+fn announce(
+    step: &PlanStep,
+    announced: &mut BTreeSet<(String, &'static str)>,
+    progress: Option<&mut Progress>,
+) {
+    let action = action_of(step);
+    if !announced.insert((step.owner().to_string(), action)) {
+        return;
+    }
+
+    // Where a source build is the one thing a user is most likely to want to know about, because
+    // it is the one that takes minutes rather than seconds.
+    let source = if matches!(step, PlanStep::CargoBuild { .. }) {
+        " from source"
+    } else {
+        ""
+    };
+
+    match progress {
+        Some(progress) => {
+            progress.done += 1;
+            crate::info!(
+                "[{}/{}] {action} component '{}'{source}",
+                progress.done,
+                progress.total,
+                step.owner().bold()
+            );
+        },
+        None => crate::info!("{action} component '{}'{source}", step.owner().bold()),
+    }
 }
 
 /// Performs one step, reporting how its output was produced.
@@ -228,6 +346,7 @@ fn create_symlinks(plan: &InstallationPlan, staging_root: &Path) -> Result<(), S
         // Relative, so the shim keeps working when the publication directory is renamed or
         // reached through a different path.
         let target = Path::new("..").join("bin").join(&symlink.target_binary);
+        crate::trace!("linking {} -> {}", link.display(), target.display());
         utils::fs::symlink(&link, &target).map_err(|err| StageError::Create {
             path: link,
             source: std::io::Error::other(err.to_string()),
@@ -305,6 +424,12 @@ mod tests {
     };
 
     const TARGET: &str = "aarch64-apple-darwin";
+
+    #[test]
+    fn a_one_step_summary_is_singular() {
+        let planned = [("vm".to_string(), "building")];
+        assert_eq!(summarize(&planned).as_deref(), Some("1 step: 1 source build"));
+    }
 
     /// A channel with one prebuilt executable and one package, both sourced from local files.
     fn fixture(root: &Path) -> (Channel, PathBuf) {

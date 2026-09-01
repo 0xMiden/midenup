@@ -160,6 +160,7 @@ pub fn commit_symlink(home: &Path, entry: &JournalEntry) -> Result<(), PublishEr
         },
     };
 
+    crate::trace!("committing {} to {}", link.display(), target.display());
     utils::fs::replace_symlink(&link, &target).map_err(|err| PublishError::Commit {
         path: link,
         source: std::io::Error::other(err.to_string()),
@@ -209,7 +210,9 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
     if let Some(old) = &entry.old_publication
         && matches!(entry.kind, OperationKind::Uninstall)
     {
-        let _ = std::fs::remove_dir_all(paths::publication_dir(home, &entry.channel, old));
+        let publication = paths::publication_dir(home, &entry.channel, old);
+        crate::trace!("removing {}", publication.display());
+        let _ = std::fs::remove_dir_all(publication);
     }
 
     if matches!(entry.kind, OperationKind::Uninstall) {
@@ -261,16 +264,29 @@ pub fn recover(home: &Path, state: &mut LocalState) -> Result<Option<OperationKi
     };
 
     if committed {
+        crate::trace!(
+            "the interrupted {} of {} was committed; completing it",
+            entry.kind,
+            entry.channel
+        );
         finish(home, &entry, state)?;
         return Ok(Some(entry.kind));
     }
 
     // Not committed: the operation never happened. Discard the staged publication and leave prior
     // state exactly as it was.
+    crate::trace!(
+        "the interrupted {} of {} never committed; discarding it",
+        entry.kind,
+        entry.channel
+    );
     if let Some(new) = &entry.new_publication {
-        let _ = std::fs::remove_dir_all(paths::publication_dir(home, &entry.channel, new));
+        let publication = paths::publication_dir(home, &entry.channel, new);
+        crate::trace!("removing {}", publication.display());
+        let _ = std::fs::remove_dir_all(publication);
     }
     let path = entry_path(home, &entry.id);
+    crate::trace!("removing {}", path.display());
     std::fs::remove_file(&path).map_err(|source| PublishError::Journal { path, source })?;
 
     Ok(Some(entry.kind))

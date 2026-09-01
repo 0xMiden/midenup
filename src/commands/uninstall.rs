@@ -1,5 +1,4 @@
 use anyhow::{Context, bail};
-use colored::Colorize;
 
 use crate::{
     channel::UserChannel,
@@ -69,7 +68,9 @@ pub fn uninstall(
     // never actually removed -- which is why `default` is handled after the commit instead.
     for (network, linked) in crate::networks::links(home) {
         if linked == channel {
-            std::fs::remove_file(paths::network_link(home, &network))?;
+            let link = paths::network_link(home, &network);
+            crate::trace!("removing {}", link.display());
+            std::fs::remove_file(link)?;
         }
     }
 
@@ -86,10 +87,9 @@ pub fn uninstall(
     let default = paths::toolchains_dir(home).join("default");
     if std::fs::symlink_metadata(&default).is_ok() && default.canonicalize().is_err() {
         std::fs::remove_file(&default)?;
-        println!(
-            "{}: removed the 'default' override, which named {channel}. Set a new one with:\n    \
-             midenup override <channel>",
-            "info".white().bold()
+        crate::info!(
+            "removed the 'default' override, which named {channel}. Set a new one with:\n    \
+             midenup override <channel>"
         );
     }
 
@@ -102,16 +102,19 @@ pub fn uninstall(
     let var = paths::var_dir(home, requested);
     if var.is_dir() {
         if purge {
+            crate::trace!("removing {}", var.display());
             std::fs::remove_dir_all(&var)
                 .with_context(|| format!("failed to remove '{}'", var.display()))?;
         } else {
-            println!(
+            crate::info!(
                 "kept your data for {requested} at {}; remove it with `midenup uninstall \
                  {requested} --purge`",
                 var.display()
             );
         }
     }
+
+    crate::info!("uninstalled channel '{channel}'");
 
     Ok(())
 }

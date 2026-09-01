@@ -232,7 +232,7 @@ pub mod fs {
                     };
                 }
             } else {
-                println!("Failed to open {}, skipping it.", dir.display());
+                crate::warn!("Failed to open {}, skipping it.", dir.display());
             }
 
             (local_latest, current_entry_count)

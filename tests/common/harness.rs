@@ -221,6 +221,31 @@ exit 0
 
         self
     }
+
+    /// Adds a component that is `cargo install`ed from a dependency-free local crate, so the real
+    /// build path runs in about a second. Opt-in: only this needs a working `cargo`.
+    pub fn with_cargo_component(mut self, name: &str) -> Self {
+        let package = format!("fixture-{name}");
+        let binary = format!("miden-{name}");
+
+        let source = self.dir.join(format!("{name}-source"));
+        write_trivial_crate(&source, &package, &binary);
+
+        let channel = self.channels.last_mut().expect("a channel must be added before a component");
+        channel["components"].as_array_mut().expect("components is an array").push(
+            serde_json::json!({
+                "name": name,
+                "version": {"kind": "path", "path": source.to_str().expect("utf-8 fixture path")},
+                "kind": "executable",
+                // No artifacts: the plan rejects them on a cargo-installed component.
+                "installation_method": {"kind": "cargo", "crate_name": package},
+                "installed-executable": binary,
+                "profiles": ["minimal"]
+            }),
+        );
+
+        self
+    }
 }
 
 /// Local `path`- and `git`-sourced crates, for exercising those authorities cheaply.

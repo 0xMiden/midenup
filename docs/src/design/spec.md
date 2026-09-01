@@ -637,7 +637,6 @@ For `https` sources the destination filename comes from the **plan**, never from
 
 `Config::cargo_home` therefore governs only where the `miden` symlink is placed, which is its actual purpose.
 
-
 ```
 cargo [+<rustup-channel>] install --locked --profile <dev|release> [--quiet]
       --bin <installed-executable>
@@ -1049,6 +1048,53 @@ Each variant carries the file path, the offending identifier, and a remediation 
 | `MissingDefaultNetwork(network)` | the manifest declares no `mainnet` |
 
 `DivergentState` and `NeedsReinstall` both name the exact recovery command.
+
+### 14.4 Output and verbosity
+
+**Streams.** Stdout carries a command's results; stderr carries its progress, warnings, and traces.
+
+**Levels.** Four, ordered, selected by `--verbose[=<LEVEL>]` (`-v`); a bare `-v` or `--verbose`
+selects `debug`:
+
+| Level | Flag | Emits |
+|---|---|---|
+| warn | `-q`, `--quiet` | warnings and errors only |
+| info | *(default)* | one line per unit of work as it happens |
+| debug | `--verbose=debug` | the above, and the output of spawned programs is no longer suppressed |
+| trace | `--verbose=trace` | the above, and selected low-level diagnostic details, such as manifest reads, fetches, spawned commands, publication commits, and state writes |
+
+Warnings and interactive prompts survive `quiet`. `debug` and `trace` are distinct axes -
+spawned programs' output (the `--quiet` in the cargo argv, §9.3) versus `midenup`'s own diagnostic
+details - ordered on one ladder because the former is the coarser.
+
+**Decorations.** Orthogonal to the level. `--progress[=pretty|plain|none]` controls the transient
+display: `pretty` (the default) is the live redrawn line, `plain` and `none` leave only the
+announcement lines; `--no-progress` is `--progress=none`. `--color[=auto|true|false]` controls
+color. `--plain` is shorthand for `--progress=plain --color=false`, for terminals that render
+neither.
+
+**Flag interactions.** Missing values mean what the flag's presence asks for: a bare `--progress`
+is `--progress=pretty`. `--quiet` conflicts with `--verbose` and implies `--progress=none`;
+`--no-progress` conflicts with an explicit `--progress`. The defaults are equivalent to
+`--verbose=info --progress=pretty --color=auto`.
+
+**Where the settings come from.** These flags are `midenup`'s alone. `miden` takes no flags of its
+own - everything after it belongs to the component being dispatched to - so an install triggered
+by `miden` (§13) always runs at the default settings.
+
+**What an install says.** Before the manifest fetch, that a sync is starting - the whole manifest
+is synced, so no channel is named. Then the manifest's date, the channel being installed - a
+network and the version it resolves to, or a version requested directly, named once - and the work
+ahead by kind (`3 steps: 2 downloads, 1 source build`). Then one numbered line per component and
+kind of work
+(`[2/3] building component 'x' from source`); a fallback taken mid-run (§9.3) is announced
+un-numbered, since the total was fixed before the run. After the commit point (§9.5), the channel
+that was installed.
+
+**Progress granularity.** The counter is a position in a list, never a whole-toolchain percentage:
+a source build and a package download are not comparable units. On a terminal a transient redrawn
+line shows bytes within a single transfer and elapsed time within a single build or extraction; in
+a file or CI log the announcement lines are the whole report.
 
 ---
 

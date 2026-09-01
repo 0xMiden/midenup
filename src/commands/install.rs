@@ -80,7 +80,12 @@ pub fn install(
         )?;
     }
 
-    let realized = crate::install::execute(&plan, &publication, options.verbose, config.debug)?;
+    let realized = crate::install::execute(
+        &plan,
+        &publication,
+        crate::report::subprocess_output_visible(),
+        config.debug,
+    )?;
 
     // Spec section 9.2: a `path` source that moves *during* the build produces an installation
     // matching neither the tree we pinned nor the one on disk now, and nothing else would ever
@@ -151,6 +156,7 @@ pub fn install(
         }
 
         let link = paths::network_link(home, network);
+        crate::trace!("linking {} -> {}", link.display(), relative_channel_target.display());
         utils::fs::replace_symlink(&link, &relative_channel_target).with_context(|| {
             format!("failed to point '{network}' at the newly installed channel")
         })?;
@@ -159,6 +165,8 @@ pub fn install(
 
     // 7. CLEAN.
     crate::publish::journal::clean(home, &entry)?;
+
+    crate::info!("installed channel '{}'", channel.name);
 
     Ok(())
 }
@@ -236,15 +244,13 @@ fn carry_migrated_intent(state: &LocalState, channel: &Channel, intent: Intent) 
         return intent;
     }
 
-    println!(
-        "{}: these components are no longer part of channel {} and have been dropped from your \
-         selection:",
-        "warning".yellow().bold(),
+    crate::report::prepare_stderr_color();
+    let listed = dropped.iter().map(|root| format!("\n- {}", root.bold())).collect::<String>();
+    crate::warn!(
+        "these components are no longer part of channel {} and have been dropped from your \
+         selection:{listed}",
         channel.name
     );
-    for root in &dropped {
-        println!("- {}", root.white().bold());
-    }
 
     Intent {
         profiles: intent.profiles,

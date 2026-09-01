@@ -20,14 +20,11 @@ fn spawn_miden(
     env: &TestEnvironment,
     manifest_uri: &str,
 ) -> std::process::Child {
-    Command::new(miden)
+    // The `miden` path deliberately ignores `--midenup-home` and locates the home the way a
+    // user's shell would, which is what the `_via_xdg` variant arranges.
+    midenup_command_via_xdg(miden, env, manifest_uri)
         .args(["help", "vm"])
         .current_dir(project)
-        // The `miden` path deliberately ignores `--midenup-home` and locates the home the way a
-        // user's shell would.
-        .env("XDG_DATA_HOME", env.tmp_dir.path())
-        .env("CARGO_HOME", &env.cargo_home)
-        .env("MIDENUP_MANIFEST_URI", manifest_uri)
         // Piped so that a failure reports what the child said, including anything the component it
         // spawned wrote -- `execute_command` gives the component these same descriptors.
         .stdout(std::process::Stdio::piped())
@@ -141,12 +138,8 @@ fn integration_dispatch_against_an_installed_toolchain_makes_no_network_request(
     let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
     // Install with a reachable manifest...
-    let install = Command::new(env!("CARGO_BIN_EXE_midenup"))
+    let install = midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, &fixture.manifest_uri)
         .args(["install", "0.15.0"])
-        .current_dir(&env.present_working_dir)
-        .env("MIDENUP_HOME", &env.midenup_home)
-        .env("CARGO_HOME", &env.cargo_home)
-        .env("MIDENUP_MANIFEST_URI", &fixture.manifest_uri)
         .output()
         .expect("failed to run midenup");
     assert!(install.status.success(), "{}", String::from_utf8_lossy(&install.stderr));
@@ -169,13 +162,10 @@ fn integration_dispatch_against_an_installed_toolchain_makes_no_network_request(
     let project = env.tmp_dir.path().join("project");
     write_toolchain_file(&project, &[]);
 
-    let output = Command::new(&miden)
+    // Nothing listens on that port: reaching for upstream would fail, loudly.
+    let output = midenup_command_via_xdg(&miden, &env, "https://127.0.0.1:1/nope.json")
         .args(["help", "vm"])
         .current_dir(&project)
-        .env("XDG_DATA_HOME", env.tmp_dir.path())
-        .env("CARGO_HOME", &env.cargo_home)
-        // Nothing listens here: reaching for upstream would fail, loudly.
-        .env("MIDENUP_MANIFEST_URI", "https://127.0.0.1:1/nope.json")
         .output()
         .expect("failed to run miden");
 
@@ -200,12 +190,8 @@ fn integration_an_operation_needing_upstream_falls_back_to_the_cached_manifest()
     let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
 
     let midenup = |manifest_uri: &str, args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_midenup"))
+        midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, manifest_uri)
             .args(args)
-            .current_dir(&env.present_working_dir)
-            .env("MIDENUP_HOME", &env.midenup_home)
-            .env("CARGO_HOME", &env.cargo_home)
-            .env("MIDENUP_MANIFEST_URI", manifest_uri)
             .output()
             .expect("failed to run midenup")
     };

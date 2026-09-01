@@ -60,7 +60,10 @@ pub fn build(
     verbose: bool,
     debug: bool,
 ) -> Result<(), CargoError> {
-    let PlanStep::CargoBuild { crate_name, expect_binary, dest, .. } = step else {
+    let PlanStep::CargoBuild {
+        crate_name, expect_binary, dest, owner, ..
+    } = step
+    else {
         return Ok(());
     };
 
@@ -76,11 +79,16 @@ pub fn build(
         .collect::<Vec<_>>()
         .join(" ");
 
-    let status = std::process::Command::new("cargo")
-        .args(&argv)
-        .stderr(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .status()
+    crate::trace!("running: cargo {rendered}");
+
+    let mut command = std::process::Command::new("cargo");
+    command.args(&argv).stderr(std::process::Stdio::inherit()).stdout(if verbose {
+        std::process::Stdio::inherit()
+    } else {
+        std::process::Stdio::null()
+    });
+
+    let status = crate::install::run_reporting_progress(&mut command, owner)
         .map_err(|err| CargoError::Spawn(err.to_string()))?;
 
     if !status.success() {

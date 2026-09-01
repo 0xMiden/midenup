@@ -5,7 +5,7 @@
 //! fetched, so an unreachable upstream cannot strand a user on an unreadable local document. An
 //! in-process test that builds its own `Config` has already done the fetch.
 
-use std::{path::Path, process::Command};
+use std::path::Path;
 
 use midenup::{
     migrate_v1::v1_manifest_path,
@@ -136,12 +136,8 @@ fn integration_recovery_a_failure_before_the_migration_commit_preserves_the_v1_d
     let path = v1_manifest_path(&env.midenup_home);
     let before = std::fs::read(&path).unwrap();
 
-    let output = Command::new(env!("CARGO_BIN_EXE_midenup"))
+    let output = midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, UNREACHABLE_UPSTREAM)
         .arg("list")
-        .current_dir(&env.present_working_dir)
-        .env("MIDENUP_HOME", &env.midenup_home)
-        .env("CARGO_HOME", &env.cargo_home)
-        .env("MIDENUP_MANIFEST_URI", UNREACHABLE_UPSTREAM)
         .env(midenup::fault::FAULT_POINT_ENV, "pre-migration-commit")
         .output()
         .expect("failed to run midenup");
@@ -220,12 +216,8 @@ fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
     );
 
     // Dispatch triggers the install, exactly as it would for a toolchain that was never installed.
-    let output = Command::new(env!("CARGO_BIN_EXE_midenup"))
+    let output = midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, &manifest)
         .args(["install", "0.15.0", "--profile", "minimal"])
-        .current_dir(&env.present_working_dir)
-        .env("MIDENUP_HOME", &env.midenup_home)
-        .env("CARGO_HOME", &env.cargo_home)
-        .env("MIDENUP_MANIFEST_URI", &manifest)
         .output()
         .expect("failed to run midenup");
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
@@ -256,7 +248,8 @@ fn integration_migrated_roots_missing_upstream_are_dropped_once_with_a_warning()
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let reported = String::from_utf8_lossy(&output.stdout);
+    // Diagnostics go to stderr; stdout carries results.
+    let reported = String::from_utf8_lossy(&output.stderr);
     assert!(reported.contains("goneaway"), "the dropped root must be named: {reported}");
 
     let installation = &state_of(&env.midenup_home).installations[0];

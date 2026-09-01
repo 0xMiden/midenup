@@ -29,5 +29,7 @@ pub fn set(config: &Config, channel: &UserChannel) -> anyhow::Result<()> {
     toolchain_file
         .write_all(&toolchain_file_contents.into_bytes())
         .context("failed to write miden-toolchain.toml")?;
+
+    crate::info!("wrote {TOOLCHAIN_FILE_NAME}: this directory now uses {channel}");
     Ok(())
 }

@@ -23,12 +23,15 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
     let state = setup_midenup(config)?;
 
     match state {
-        InitializationState::Initialized => println!(
+        InitializationState::Initialized => crate::info!(
             "midenup was successfully initialized in: {}",
             config.midenup_home.as_path().display()
         ),
         InitializationState::AlreadyInitialized => {
-            println!("midenup already initialized in: {}", config.midenup_home.as_path().display())
+            crate::info!(
+                "midenup already initialized in: {}",
+                config.midenup_home.as_path().display()
+            )
         },
     }
 
@@ -144,9 +147,8 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
                 state = InitializationState::Initialized;
             }
 
-            println!(
-                "
-Could not find `miden` executable in the system's PATH.
+            crate::warn!(
+                "could not find the `miden` executable in the system's PATH.
 
 The `miden` symlink was placed in $CARGO_HOME/bin ({cargo_bin_display}), which should already be \
                  in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in \

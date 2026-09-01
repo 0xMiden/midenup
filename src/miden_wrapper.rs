@@ -168,10 +168,7 @@ impl<'a> ToolchainEnvironment<'a> {
                 .get_aliases()
                 .map_err(|err| EnvironmentError::AmbiguousAlias { reason: err.to_string() })?;
         } else if let Err(err) = self.installed_channel.get_aliases() {
-            eprintln!(
-                "{}: {err}. Naming the component directly resolves it unambiguously.",
-                "warning".yellow().bold()
-            );
+            crate::warn!("{err}. Naming the component directly resolves it unambiguously.");
         }
 
         // Local function that tries to parse an argument given a channel's state.
@@ -196,9 +193,8 @@ impl<'a> ToolchainEnvironment<'a> {
 
             let warning_message = match (&miden_argument, not_found_in_active) {
                 (MidenArgument::Alias { component, .. }, true) => Some(format!(
-                    "{}: '{argument}' is an alias from component {}, which is installed but is \
-                     not part of the current active toolchain.",
-                    "WARNING".yellow().bold(),
+                    "'{argument}' is an alias from component {}, which is installed but is not \
+                     part of the current active toolchain.",
                     component.name,
                 )),
                 (
@@ -207,14 +203,13 @@ impl<'a> ToolchainEnvironment<'a> {
                     | MidenArgument::Component { component, .. },
                     true,
                 ) => Some(format!(
-                    "{}: '{}' is installed, but it is not part of the current active toolchain.",
-                    "WARNING".yellow().bold(),
+                    "'{}' is installed, but it is not part of the current active toolchain.",
                     component.name,
                 )),
                 _ => None,
             };
             if let Some(warning) = warning_message {
-                println!("{warning}")
+                crate::warn!("{warning}")
             };
 
             Ok(ExecutionEnvironment {
@@ -375,6 +370,7 @@ pub fn miden_wrapper(
     // are run.
     match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => {
+            crate::report::prepare_stdout_color();
             println!("{}", default_help());
             return Ok(());
         },
@@ -409,6 +405,7 @@ pub fn miden_wrapper(
     let requested_help = match parsed_subcommand {
         MidenSubcommand::Help(HelpMessage::Default) => unreachable!(),
         MidenSubcommand::Help(HelpMessage::Toolchain) => {
+            crate::report::prepare_stdout_color();
             let help = toolchain_help(&toolchain_environment);
 
             println!("{help}");
@@ -489,6 +486,7 @@ pub fn miden_wrapper(
                 Err(EnvironmentError::MissingSubcommand { command, available })
                     if requested_help =>
                 {
+                    crate::report::prepare_stdout_color();
                     println!("{}", format!("Subcommands of `miden {command}`:").bold());
                     for subcommand in available {
                         println!("  {subcommand}");
@@ -496,6 +494,7 @@ pub fn miden_wrapper(
                     return Ok(());
                 },
                 Err(err) => {
+                    crate::report::prepare_stderr_color();
                     let help_message = toolchain_help(&toolchain_environment);
                     let err_msg = format!(
                         "{}
@@ -545,9 +544,7 @@ pub fn display_version(config: &Config) -> String {
                 })
             })
             .inspect_err(|e| {
-                println!("Failed to obtain cargo version:");
-                println!("{}", e);
-                println!("Leaving as unknown")
+                crate::warn!("failed to obtain the cargo version ({e}); leaving it as unknown")
             })
             .unwrap_or("unknown".to_string())
     };
@@ -562,9 +559,7 @@ pub fn display_version(config: &Config) -> String {
                 .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
         })
         .inspect_err(|err| {
-            println!(
-                "failed to obtain current toolchain error because of: {err}, leaving as unknown"
-            )
+            crate::warn!("failed to obtain the current toolchain ({err}); leaving it as unknown")
         })
         .unwrap_or("unknown".to_string());
 

@@ -23,18 +23,44 @@ macro_rules! full_path {
 
 pub type LocalManifest = midenup::state::LocalState;
 
+/// A command for the real binary with every variable it reads set or removed, so nothing is
+/// inherited from the developer's environment (e.g. their `MIDENUP_HOME`).
+pub fn midenup_command(
+    program: impl AsRef<std::ffi::OsStr>,
+    env: &TestEnvironment,
+    manifest_uri: &str,
+) -> std::process::Command {
+    let mut command = std::process::Command::new(program);
+    command
+        .current_dir(&env.present_working_dir)
+        .env("MIDENUP_HOME", &env.midenup_home)
+        .env("CARGO_HOME", &env.cargo_home)
+        .env("MIDENUP_MANIFEST_URI", manifest_uri)
+        .env_remove("XDG_DATA_HOME");
+    command
+}
+
+/// As [midenup_command], but the home is resolved from `XDG_DATA_HOME` the way a user's shell
+/// would, which is how the `miden` dispatch path locates it. `MIDENUP_HOME` would take precedence,
+/// so it is removed.
+pub fn midenup_command_via_xdg(
+    program: impl AsRef<std::ffi::OsStr>,
+    env: &TestEnvironment,
+    manifest_uri: &str,
+) -> std::process::Command {
+    let mut command = midenup_command(program, env, manifest_uri);
+    command.env_remove("MIDENUP_HOME").env("XDG_DATA_HOME", env.tmp_dir.path());
+    command
+}
+
 /// Runs the real `midenup` binary against a test environment.
 pub fn run_midenup(
     env: &TestEnvironment,
     manifest_uri: &str,
     args: &[&str],
 ) -> std::process::Output {
-    std::process::Command::new(env!("CARGO_BIN_EXE_midenup"))
+    midenup_command(env!("CARGO_BIN_EXE_midenup"), env, manifest_uri)
         .args(args)
-        .current_dir(&env.present_working_dir)
-        .env("MIDENUP_HOME", &env.midenup_home)
-        .env("CARGO_HOME", &env.cargo_home)
-        .env("MIDENUP_MANIFEST_URI", manifest_uri)
         .output()
         .expect("failed to run midenup")
 }

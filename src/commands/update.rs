@@ -5,7 +5,10 @@
 //! stage, what to publish -- belongs to [`commands::install`], which re-resolves the persisted
 //! intent against the new upstream channel. That is a deliberate narrowing.
 
-use std::path::Path;
+use std::{
+    io::{BufRead, Write},
+    path::Path,
+};
 
 use anyhow::Context;
 use colored::Colorize;
@@ -35,13 +38,15 @@ pub fn update(
                 .cloned()
                 .context(format!("ERROR: No installed channel found with version {version}"))?;
 
-            println!("syncing channel updates for {}", installation.channel);
             update_installed_channel(config, &installation, state, options)
         },
         None => {
+            if state.installations.is_empty() {
+                crate::info!("nothing to update: no toolchains are installed");
+                return Ok(());
+            }
             // Update everything installed. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
-                println!("syncing channel updates for {}", installation.channel);
                 update_installed_channel(config, &installation, state, options)?;
             }
             Ok(())
@@ -89,8 +94,7 @@ fn update_network(
         )
     })?;
 
-    println!("syncing channel updates for {name} (installed as {installed})");
-    println!("{name} is now {target} (upstream last updated on {})", manifest.last_updated());
+    crate::info!("{name} is now {target} (installed as {installed})");
 
     if installed == target {
         // The pointer has not moved, which does not mean there is nothing to do: the channel's own
@@ -103,10 +107,7 @@ fn update_network(
     })?;
 
     if target < installed {
-        eprintln!(
-            "{}: {name} has moved back from {installed} to {target}.",
-            "warning".yellow().bold(),
-        );
+        crate::warn!("{name} has moved back from {installed} to {target}.");
     }
 
     upstream.sync(config);
@@ -193,15 +194,19 @@ fn update_installed_channel(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    config.upstream_manifest()?;
+
     let local_channel = installation.as_channel();
     let Some(upstream) = local_channel.find_upstream_counterpart(config) else {
         // A bit of an edge case. The channel is installed but absent upstream, so it is either a
         // developer toolchain or something that was withdrawn; either way there is nothing to
         // reconcile it against.
+        crate::info!(
+            "channel {} is not in the upstream manifest; leaving it as installed",
+            installation.channel
+        );
         return Ok(());
     };
-
-    println!("upstream last updated on {}", config.upstream_manifest()?.last_updated());
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
@@ -209,7 +214,7 @@ fn update_installed_channel(
         None => {
             let Some(changes) = changes_for(config, installation, &upstream.channel, options)?
             else {
-                println!(
+                crate::info!(
                     "Aborting update of {} due to user input/configuration",
                     installation.channel
                 );
@@ -255,12 +260,7 @@ fn migrate(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    println!(
-        "{}: migrating {} to {}",
-        "warning".yellow().bold(),
-        installation.channel,
-        upstream.name
-    );
+    crate::warn!("migrating {} to {}", installation.channel, upstream.name);
 
     install_for_update(
         config,
@@ -342,7 +342,6 @@ fn install_for_update(
 ) -> anyhow::Result<()> {
     let logical_only = changes.logical_only;
     let install_options = InstallationOptions {
-        verbose: options.verbose,
         stale: changes.stale,
         held_back: changes.held_back,
         intent_update: Some(intent_update),
@@ -352,18 +351,18 @@ fn install_for_update(
     match work_for(upstream, state, &install_options, logical_only)? {
         Work::Physical => {
             display_warnings(upstream, &install_options, options);
-            println!("Updating toolchain {}..", upstream.name);
+            crate::info!("Updating toolchain {}..", upstream.name);
             commands::install(config, upstream, state, &install_options)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
         // file is committed as a single atomic `state.json` write. No journal, no staging, no new
         // publication -- republishing an identical tree to record an alias would be pure cost.
         Work::LogicalOnly => {
-            println!("Updating recorded metadata for toolchain {}..", upstream.name);
+            crate::info!("Updating recorded metadata for toolchain {}..", upstream.name);
             record_logical_changes(config, upstream, state, &install_options)
         },
         Work::Nothing => {
-            println!("Toolchain {} is up to date", upstream.name);
+            crate::info!("Toolchain {} is up to date", upstream.name);
             Ok(())
         },
     }
@@ -464,10 +463,9 @@ fn carry_var_to(home: &Path, from: &semver::Version, to: &semver::Version) -> an
         return Ok(());
     }
     if destination.exists() {
-        eprintln!(
-            "{}: var/{from} was left in place: you already have data at var/{to}, and the two are \
-             not merged.",
-            "warning".yellow().bold(),
+        crate::warn!(
+            "var/{from} was left in place: you already have data at var/{to}, and the two are not \
+             merged."
         );
         return Ok(());
     }
@@ -481,6 +479,7 @@ fn carry_var_to(home: &Path, from: &semver::Version, to: &semver::Version) -> an
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
 enum InteractiveResult {
     /// Cancel the update all together. Useful for potential miss-clicks.
     Cancel,
@@ -489,31 +488,51 @@ enum InteractiveResult {
 }
 
 fn handle_path_uninstall_interactive(component: &Component) -> anyhow::Result<InteractiveResult> {
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    crate::report::with_stderr_interaction(|output| {
+        handle_path_uninstall_interactive_with_io(component, &mut input, output)
+    })
+}
+
+fn handle_path_uninstall_interactive_with_io<R: BufRead, W: Write + ?Sized>(
+    component: &Component,
+    input: &mut R,
+    output: &mut W,
+) -> anyhow::Result<InteractiveResult> {
     let component_name = &component.name;
-    println!(
+    writeln!(
+        output,
         "Would you like to update this component? (N/y/c)
    - N: no, skip this component
    - y: yes, update this component
    - c: cancel the update all-together (no changes will be applied)"
-    );
+    )
+    .context("failed to write update prompt")?;
+    output.flush().context("failed to flush update prompt")?;
 
-    let mut input = String::new();
-    std::io::stdin().read_line(&mut input).context("Failed to read input")?;
-    let input = input.trim().to_ascii_lowercase();
-    match input.as_str() {
+    let mut response = String::new();
+    input.read_line(&mut response).context("failed to read update response")?;
+    let response = response.trim().to_ascii_lowercase();
+    let result = match response.as_str() {
         "y" => {
-            println!("Updating {component_name}");
-            Ok(InteractiveResult::UpdateComponent)
+            writeln!(output, "Updating {component_name}")
+                .context("failed to write update response")?;
+            InteractiveResult::UpdateComponent
         },
         "c" => {
-            println!("Cancelling update, no changes will be applied.");
-            Ok(InteractiveResult::Cancel)
+            writeln!(output, "Cancelling update, no changes will be applied.")
+                .context("failed to write update response")?;
+            InteractiveResult::Cancel
         },
         _ => {
-            println!("Skipping {component_name}, it will not be updated");
-            Ok(InteractiveResult::DontUpdateComponent)
+            writeln!(output, "Skipping {component_name}, it will not be updated")
+                .context("failed to write update response")?;
+            InteractiveResult::DontUpdateComponent
         },
-    }
+    };
+    output.flush().context("failed to flush update response")?;
+    Ok(result)
 }
 
 enum ComponentUpdateDecision {
@@ -566,22 +585,22 @@ fn display_warnings(
         return;
     }
 
-    println!(
-        "\n{}: The following elements are installed from a specific path in the filesystem.",
-        "WARNING".yellow().bold(),
-    );
-
-    if matches!(options.path_update, PathUpdate::Off) && !install_options.held_back.is_empty() {
-        println!(
-            "
+    crate::report::prepare_stderr_color();
+    let guidance = if matches!(options.path_update, PathUpdate::Off)
+        && !install_options.held_back.is_empty()
+    {
+        "
 To make midenup update them all, pass the '--path-update=all' flag to `midenup update`.
 Alternatively, pass the '--path-update=interactive' flag to interactively select which \
-             path-managed components to update.",
-        );
-    }
-    for component_message in components_from_path {
-        println!("{}", component_message);
-    }
+         path-managed components to update."
+    } else {
+        ""
+    };
+    let listed = components_from_path.concat();
+    crate::warn!(
+        "the following elements are installed from a specific path in the filesystem.{guidance}
+{listed}"
+    );
 }
 
 #[cfg(test)]
@@ -711,5 +730,44 @@ mod tests {
         let mut new = base();
         new.profiles = vec![Profile::Complete];
         assert_eq!(classify_pair(base(), new), ChangeClass::GraphOnly);
+    }
+
+    #[test]
+    fn interactive_path_updates_write_and_flush_their_ui() {
+        for (input, expected, acknowledgement) in [
+            ("y\n", InteractiveResult::UpdateComponent, "Updating vm"),
+            ("c\n", InteractiveResult::Cancel, "Cancelling update"),
+            ("n\n", InteractiveResult::DontUpdateComponent, "Skipping vm"),
+        ] {
+            let mut input = std::io::Cursor::new(input);
+            let mut output = FlushTrackingWriter::default();
+            let result =
+                handle_path_uninstall_interactive_with_io(&base(), &mut input, &mut output)
+                    .expect("interaction must succeed");
+
+            assert_eq!(result, expected);
+            let rendered = String::from_utf8(output.bytes).unwrap();
+            assert!(rendered.contains("Would you like to update this component?"));
+            assert!(rendered.contains(acknowledgement), "missing acknowledgement: {rendered}");
+            assert_eq!(output.flushes, 2, "prompt and acknowledgement must both be flushed");
+        }
+    }
+
+    #[derive(Default)]
+    struct FlushTrackingWriter {
+        bytes: Vec<u8>,
+        flushes: usize,
+    }
+
+    impl std::io::Write for FlushTrackingWriter {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            Ok(())
+        }
     }
 }
