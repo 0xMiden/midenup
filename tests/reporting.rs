@@ -154,7 +154,7 @@ fn integration_reporting_quiet_suppresses_announcements_but_not_results() {
     let test_env = environment_setup("integration_reporting_quiet");
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
 
-    let installed = run(&test_env, &fixture.manifest_uri, &["-q", "install", "stable"]);
+    let installed = run(&test_env, &fixture.manifest_uri, &["install", "stable", "-q"]);
     let (_, stderr) = streams(&installed);
     assert!(installed.status.success(), "install must succeed: {stderr}");
     assert!(
@@ -168,7 +168,7 @@ fn integration_reporting_quiet_suppresses_announcements_but_not_results() {
     assert!(!stderr.contains("syncing channel updates"), "nor the header: {stderr}");
 
     // The result of a command is not progress, so quiet has no bearing on it.
-    let shown = run(&test_env, &fixture.manifest_uri, &["-q", "show", "active-toolchain"]);
+    let shown = run(&test_env, &fixture.manifest_uri, &["show", "active-toolchain", "-q"]);
     let (stdout, stderr) = streams(&shown);
     assert!(shown.status.success(), "show must succeed: {stderr}");
     // The active channel is the network name here, which is what `show` is being asked for.
@@ -182,7 +182,7 @@ fn integration_reporting_trace_traces_individual_actions() {
     let test_env = environment_setup("integration_reporting_trace");
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
 
-    let output = run(&test_env, &fixture.manifest_uri, &["--verbose=trace", "install", "stable"]);
+    let output = run(&test_env, &fixture.manifest_uri, &["install", "stable", "--verbose=trace"]);
     let (stdout, stderr) = streams(&output);
     assert!(output.status.success(), "install must succeed: {stderr}");
     assert!(stderr.contains("trace:"), "the trace tier must trace: {stderr}");
