@@ -120,17 +120,4 @@ impl Installation {
     pub fn as_channel(&self) -> crate::manifest::Channel {
         crate::manifest::Channel::new(self.channel.clone(), self.components.clone())
     }
-
-    /// Whether `upstream` resolves this record's intent to components it does not hold.
-    ///
-    /// Derived, never recorded (spec section 8.6). An intent upstream can no longer resolve makes
-    /// no claim: the installation holds everything it was asked for.
-    pub fn is_partially_installed(&self, upstream: &crate::manifest::Channel) -> bool {
-        let Ok(expected) = crate::resolve::resolve(upstream, &self.intent) else {
-            return false;
-        };
-        let installed: std::collections::BTreeSet<&str> =
-            self.components.iter().map(|c| c.name.as_ref()).collect();
-        expected.iter().any(|component| !installed.contains(component.name.as_ref()))
-    }
 }

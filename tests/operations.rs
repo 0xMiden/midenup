@@ -153,6 +153,28 @@ impl Fixture {
         self.write(file, components.iter().map(|spec| self.component(*spec)).collect())
     }
 
+    /// A manifest whose only channel supersedes `0.15.0` via `migrates_from`, so an installation
+    /// of 0.15.0 has no same-version counterpart upstream.
+    fn manifest_migrated(&self, file: &str, components: &[Spec<'_>]) -> String {
+        let manifest = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.16.0"},
+            "channels": [{
+                "name": "0.16.0",
+                "migrates_from": "0.15.0",
+                "components": components
+                    .iter()
+                    .map(|spec| self.component(*spec))
+                    .collect::<Vec<_>>()
+            }]
+        });
+
+        let path = self.dir.join(file);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        format!("file://{}", path.display())
+    }
+
     fn write(&self, file: &str, components: Vec<serde_json::Value>) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
@@ -587,13 +609,13 @@ fn integration_an_alias_conflict_inside_the_active_view_is_an_error() {
     );
 }
 
-/// Spec section 8.6: local state carries no partial flag. The display derives it by resolving the
-/// recorded intent against upstream -- and when upstream is unavailable, simply does not show it
-/// rather than guessing.
+/// Spec section 8.6: local state carries no update-available flag. The display derives it by
+/// re-resolving the recorded intent and diffing component definitions against upstream -- and when
+/// upstream is unavailable, simply does not show it rather than guessing.
 #[test]
-fn integration_partial_status_is_derived_from_upstream_not_stored() {
+fn integration_update_status_is_derived_from_upstream_not_stored() {
     let _guard = common::harness::mutating_test_guard();
-    // Not named "partial": the temp directory path ends up inside state.json, in artifact URIs.
+    // Not named "update": the temp directory path ends up inside state.json, in artifact URIs.
     let env = environment_setup("derived_status");
     let fixture = Fixture::new(env.tmp_dir.path());
     let manifest =
@@ -610,14 +632,28 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
     assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
 
     let raw = std::fs::read_to_string(midenup::paths::state_path(&env.midenup_home)).unwrap();
-    assert!(!raw.contains("partial"), "state must not persist a partial flag: {raw}");
+    assert!(!raw.contains("update"), "state must not persist an update flag: {raw}");
 
-    // `extra` belongs to no profile, so a minimal install that never asked for it is complete.
+    // `extra` belongs to no profile, so a minimal install that never asked for it is up to date.
     let complete = midenup(&manifest, &["show", "list"]);
     assert!(
-        !String::from_utf8_lossy(&complete.stdout).contains("partially installed"),
-        "holding everything the intent resolves to is not partial: {}",
+        !String::from_utf8_lossy(&complete.stdout).contains("update available"),
+        "an installation an update would not change has no update: {}",
         String::from_utf8_lossy(&complete.stdout)
+    );
+
+    // A definition change to a held component -- an alias, the canonical metadata-only change --
+    // is an update even though the component set is unchanged.
+    let aliased = fixture.manifest_with_vm_alias(
+        "aliased.json",
+        &[("vm", &["minimal"], &[]), ("extra", &[], &[])],
+        "vm-alias",
+    );
+    let changed = midenup(&aliased, &["show", "list"]);
+    assert!(
+        String::from_utf8_lossy(&changed.stdout).contains("update available"),
+        "a changed component definition upstream must be shown: {}",
+        String::from_utf8_lossy(&changed.stdout)
     );
 
     // The minimal profile grows upstream, so the same intent now resolves to more than is held.
@@ -625,7 +661,7 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         fixture.manifest("grown.json", &[("vm", &["minimal"], &[]), ("extra", &["minimal"], &[])]);
     let shown = midenup(&grown, &["show", "list"]);
     assert!(
-        String::from_utf8_lossy(&shown.stdout).contains("partially installed"),
+        String::from_utf8_lossy(&shown.stdout).contains("update available"),
         "with upstream available it must be derived and shown: {}",
         String::from_utf8_lossy(&shown.stdout)
     );
@@ -633,6 +669,31 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         String::from_utf8_lossy(&shown.stdout).contains("(mainnet"),
         "and so must the networks naming the channel: {}",
         String::from_utf8_lossy(&shown.stdout)
+    );
+
+    // A superseded channel: the update *is* the migration, so it shows as updatable rather than
+    // as unavailable upstream.
+    let migrated = fixture.manifest_migrated("migrated.json", &[("vm", &["minimal"], &[])]);
+    let superseded = midenup(&migrated, &["show", "list"]);
+    assert!(
+        String::from_utf8_lossy(&superseded.stdout).contains("update available"),
+        "a superseded channel must show as updatable: {}",
+        String::from_utf8_lossy(&superseded.stdout)
+    );
+
+    // An explicit root removed upstream makes the intent unresolvable, which an update would warn
+    // about (spec section 11.3) -- so it needs the user's attention too.
+    let rooted = midenup(
+        &manifest,
+        &["install", "0.15.0", "--profile", "minimal", "--component", "extra"],
+    );
+    assert!(rooted.status.success(), "{}", String::from_utf8_lossy(&rooted.stderr));
+    let shrunk = fixture.manifest("shrunk.json", &[("vm", &["minimal"], &[])]);
+    let dangling = midenup(&shrunk, &["show", "list"]);
+    assert!(
+        String::from_utf8_lossy(&dangling.stdout).contains("update available"),
+        "an unresolvable intent must be shown: {}",
+        String::from_utf8_lossy(&dangling.stdout)
     );
 
     // With upstream unavailable it is not shown -- and never guessed at. The cached manifest would
@@ -646,6 +707,9 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         stdout.contains("0.15.0"),
         "the installed channel must still be listed: {stdout}"
     );
-    assert!(!stdout.contains("partial"), "but its partial status must not be: {stdout}");
+    assert!(
+        !stdout.contains("update available"),
+        "but its update status must not be: {stdout}"
+    );
     assert!(!stdout.contains("mainnet"), "nor the networks naming it: {stdout}");
 }

@@ -556,9 +556,9 @@ The active view is a scoping and discovery mechanism, not a security boundary.
 **Alias conflicts are scoped to the view.** In v1, `Channel::get_aliases` would hard-error on any duplicate alias across the whole channel. Under a superset that accretes components from multiple projects, two components that no project ever activates together could collide and break *every* command. Therefore: a conflict *within the active view* is an error; a conflict that exists only in
 the superset is a warning, and the component in the active view wins.
 
-### 8.6 Partial status is derived
+### 8.6 Update status is derived
 
-Local state does not record a "partial" flag. When the upstream manifest is available, an installation is displayed as partial if upstream resolves its recorded intent to components it does not hold — that is, the channel has grown within what the user asked for, not merely grown at all. An intent upstream can no longer resolve makes no claim, and when upstream is unavailable, partial status is not displayed.
+Local state does not record an "update available" flag. When the upstream manifest is available, an installation is displayed as having an update if an update would change it or react to it: its recorded intent resolves to a different component set than it holds, the upstream definition of a component it holds has changed (§11.1's change classes, anything other than "nothing at all"), or its intent no longer resolves at all — the situation an update warns about (§11.3). The lookup follows migration lineage the way `update` does (§11.4): a superseded channel shows the update marker, not `(unavailable upstream)`. When upstream is unavailable, update status is not displayed.
 
 Components with no physical output (`command` with zero artifacts) count as installed for membership purposes and are exempt from physical verification (§9.6).
 
@@ -569,7 +569,7 @@ upstream is unavailable the annotation is omitted entirely rather than derived l
 guess would be exactly the derivation networks exist to eliminate, and a stale one would tell a user
 they are on mainnet when they are not. The other markers are unchanged: `(needs reinstallation)` is
 derived from local state alone - a migrated record with no publication - and is always shown, while
-`(partially installed)` and `(unavailable upstream)` need upstream and are omitted with it.
+`(update available)` and `(unavailable upstream)` need upstream and are omitted with it.
 
 ---
 

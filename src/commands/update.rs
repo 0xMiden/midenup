@@ -409,6 +409,35 @@ fn work_for(
     Ok(Work::Nothing)
 }
 
+/// Whether an update against `upstream` would change this installation: its recorded intent
+/// resolves to a different component set, or a component it holds changed upstream (spec 8.6).
+pub fn needs_update(config: &Config, installation: &Installation, upstream: &Channel) -> bool {
+    match crate::resolve::resolve(upstream, &installation.intent) {
+        Ok(resolved) => {
+            let installed_names: std::collections::BTreeSet<&str> = installation
+                .components
+                .iter()
+                .map(|component| component.name.as_ref())
+                .collect();
+            let resolved_names: std::collections::BTreeSet<&str> =
+                resolved.iter().map(|component| component.name.as_ref()).collect();
+            if installed_names != resolved_names {
+                return true;
+            }
+        },
+        // An intent upstream can no longer resolve -- an explicit root removed, say -- is exactly
+        // what an update warns about (spec section 11.3), so it needs the user's attention.
+        Err(_) => return true,
+    }
+
+    installation.components.iter().any(|installed| {
+        upstream.get_component(&installed.name).is_some_and(|new| {
+            classify(installed, new, config.target(), &config.working_directory)
+                != ChangeClass::None
+        })
+    })
+}
+
 /// Commits selection and metadata changes that no installed file reflects.
 ///
 /// Each component's recorded *authority* is preserved rather than taken from upstream. Reaching

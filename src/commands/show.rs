@@ -3,6 +3,7 @@ use colored::Colorize;
 
 use super::Flags;
 use crate::{
+    channel::UpstreamMatch,
     config::Config,
     report,
     state::LocalState,
@@ -65,8 +66,8 @@ impl ShowCommand {
             Self::List { .. } => {
                 // Installed toolchains are recorded locally, so this works with no network at all.
                 // Upstream only adds *markers* -- which networks name a channel, which
-                // installations are partial or no longer published -- so when it is unavailable
-                // they are simply omitted rather than guessed at.
+                // installations have updates or are no longer published -- so when it is
+                // unavailable they are simply omitted rather than guessed at.
                 let upstream = config.upstream_manifest().ok();
                 // The upstream lookup may have emitted a report to stderr, so restore stdout's
                 // color policy immediately before rendering the result.
@@ -141,17 +142,33 @@ impl ShowCommand {
                             write!(&mut line, " -- run `midenup install {name}`").unwrap();
                         }
 
-                        if let Some(manifest) = upstream {
-                            match manifest.get_channel_by_name(name) {
-                                Some(channel) if installation.is_partially_installed(channel) => {
-                                    if use_color {
-                                        write!(&mut line, " {}", "(partially installed)".yellow())
-                                            .unwrap();
-                                    } else {
-                                        line.push_str(" (partially installed)");
+                        if upstream.is_some() {
+                            // The lookup follows migration lineage the way `update` does, so a
+                            // superseded channel shows as updatable rather than gone.
+                            match installation.as_channel().find_upstream_counterpart(config) {
+                                Some(counterpart) => {
+                                    let has_update = match counterpart.upstream_match {
+                                        // Being superseded is the update: running it migrates.
+                                        UpstreamMatch::Migrated { .. } => true,
+                                        UpstreamMatch::UpstreamCounterpart => {
+                                            super::update::needs_update(
+                                                config,
+                                                installation,
+                                                &counterpart.channel,
+                                            )
+                                        },
+                                    };
+                                    if has_update {
+                                        let marker = format!(
+                                            "(update available) -- run `midenup update {name}`"
+                                        );
+                                        if use_color {
+                                            write!(&mut line, " {}", marker.yellow()).unwrap();
+                                        } else {
+                                            write!(&mut line, " {marker}").unwrap();
+                                        }
                                     }
                                 },
-                                Some(_) => {},
                                 // Retained, not deleted: the user may still want `var/` and an
                                 // explicit uninstall (spec section 12.3).
                                 None if use_color => {
