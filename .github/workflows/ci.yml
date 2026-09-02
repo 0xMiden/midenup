@@ -33,6 +33,12 @@ jobs:
         run: |
           rustup update --no-self-update stable nightly
           rustc --version
+      - &install-cargo-make
+        name: Install cargo-make
+        run: |
+          if ! cargo make --version 2>/dev/null; then
+            cargo install cargo-make --force
+          fi
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -42,7 +48,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         run: |
-          make clippy
+          cargo make clippy
 
   rustfmt:
     name: rustfmt
@@ -58,6 +64,7 @@ jobs:
         run: |
           rustup update --no-self-update nightly
           rustc --version
+      - *install-cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -69,7 +76,7 @@ jobs:
       - name: Formatting
         run: |
           rustup +nightly component add rustfmt
-          make format-check
+          cargo make check-format
 
   unit_tests:
     name: unit tests
@@ -81,6 +88,7 @@ jobs:
         run: |
           rustup update --no-self-update
           rustc --version
+      - *install-cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -114,6 +122,7 @@ jobs:
       - name: Install all rustup toolchains present in the manifest
         run: |
           ./.github/auxiliary_scripts/install-toolchains.sh
+      - *install-cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
