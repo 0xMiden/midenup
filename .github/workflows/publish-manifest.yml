@@ -9,12 +9,27 @@ on:
 
 # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
 permissions:
+  contents: read
   pages: write
   id-token: write
 
 jobs:
+  check-manifest:
+    name: check manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update nightly
+          rustc --version
+      - name: Validate the channel manifest
+        run: |
+          make check-manifest
+
   upload-manifest:
     name: upload manifest
+    needs: check-manifest
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
