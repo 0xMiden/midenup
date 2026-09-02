@@ -297,20 +297,63 @@ args = [
     "midenup",
 ]
 
-[tasks.release-tool]
-category = "Install"
-description = "Builds release-tool and installs it globally via the cargo bin directory"
+[tasks.test-build]
+category = "Test"
+description = "Builds tests written in Rust, with optional extra arguments"
 command = "cargo"
+install_crate_args = ["--locked"]
 args = [
-    "install",
-    "--locked",
-    "--git",
-    "https://github.com/0xMiden/release-tool",
-    "--rev",
-    "823fcd64ec1fcf36c3c216b4b96ea6f6b3692718",
-    "--force",
-    "--bin",
-    "release-tool",
+    "nextest",
+    "run",
+	"--no-run",
+]
+
+[tasks.unit-test]
+category = "Test"
+description = "Run unit tests written in Rust"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "--",
+    "--skip",
+    "integration"
+]
+
+[tasks.integration-test]
+category = "Test"
+description = "Run integration tests written in Rust, with optional extra arguments"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+	"-E",
+	"test(/integration_/) and not test(/prerelease/)",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "${@}",
+]
+
+[tasks.prerelease-test]
+category = "Test"
+description = "Run pre-release tests written in Rust, with optional extra arguments"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+	"-E",
+	"test(/prerelease/)",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "${@}",
 ]
 
 [tasks.test-rust]
@@ -368,8 +411,10 @@ args = [
 
 [tasks.release]
 category = "Release"
-command = "release-tool"
 description = "Invoke a `release-tool` command"
+command = "release-tool"
+install_crate = { crate_name = "miden-release-tool", binary = "release-tool", test_arg = "--help" }
+install_crate_args = ["--locked"]
 args = [
     "${@}"
 ]

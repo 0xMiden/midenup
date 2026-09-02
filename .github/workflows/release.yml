@@ -50,7 +50,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust
+      - &install-rust
+        name: Install Rust
         run: |
           rustup update --no-self-update
           rustc --version
@@ -61,10 +62,6 @@ jobs:
           if ! cargo make --version 2>/dev/null; then
             cargo install cargo-make --force
           fi
-
-      - &install-release-tool
-        name: Build release-tool
-        run: cargo make release-tool
 
       # The subject is GITHUB_SHA -- the commit this run checked out -- and it
       # must be main's tip. Attestations are built from the run's own claims, so
@@ -91,11 +88,11 @@ jobs:
           echo "sha=${GITHUB_SHA}" >> "${GITHUB_OUTPUT}"
 
       - name: Lint the candidate
-        run: release-tool lint
+        run: cargo make release lint
 
       - name: Generate the intent
         run: |
-          release-tool plan \
+          cargo make release plan \
             --subject "${GITHUB_SHA}" --output "${RUNNER_TEMP}/intent.json"
           cat "${RUNNER_TEMP}/intent.json"
 
@@ -129,13 +126,8 @@ jobs:
           ref: ${{ needs.plan.outputs.subject }}
           persist-credentials: false
 
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
-
+      - *install-rust
       - *install-cargo-make
-      - *install-release-tool
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -147,7 +139,7 @@ jobs:
       # they must never run beside a token.
       - name: Seal the plan
         run: |
-          release-tool seal \
+          cargo make release seal \
             --intent "${RUNNER_TEMP}/intent.json" \
             --output "${RUNNER_TEMP}/plan.json" \
             --cache-dir "${RUNNER_TEMP}/index-cache"
@@ -206,11 +198,10 @@ jobs:
           "./target/${TARGET}/release/${BINARY}" --version
 
       - *install-cargo-make
-      - *install-release-tool
 
       - name: Archive
         run: |
-          release-tool archive-binary \
+          cargo make release archive-binary \
             --binary "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
             --name "${{ matrix.binary }}" \
             --output "${RUNNER_TEMP}/${{ matrix.binary }}-${{ matrix.target }}.tar.gz"
@@ -259,13 +250,8 @@ jobs:
           ref: ${{ needs.plan.outputs.subject }}
           persist-credentials: false
 
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
-
+      - *install-rust
       - *install-cargo-make
-      - *install-release-tool
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -284,7 +270,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release-tool stage \
+          cargo make release stage \
             --plan "${RUNNER_TEMP}/plan.json" \
             --artifacts "${RUNNER_TEMP}/artifacts"
 
@@ -305,13 +291,8 @@ jobs:
           ref: ${{ needs.plan.outputs.subject }}
           persist-credentials: false
 
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
-
+      - *install-rust
       - *install-cargo-make
-      - *install-release-tool
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -337,7 +318,7 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release-tool publish \
+          cargo make release publish \
             --plan "${RUNNER_TEMP}/plan.json" \
             --journal "${RUNNER_TEMP}/journal.json"
 
@@ -367,13 +348,8 @@ jobs:
           ref: ${{ needs.plan.outputs.subject }}
           persist-credentials: false
 
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
-
+      - *install-rust
       - *install-cargo-make
-      - *install-release-tool
 
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -384,4 +360,4 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          release-tool finalize --plan "${RUNNER_TEMP}/plan.json"
+          cargo make release finalize --plan "${RUNNER_TEMP}/plan.json"

@@ -39,7 +39,8 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Rust
+      - &install-rust
+        name: Install Rust
         run: |
           rustup update --no-self-update
           rustc --version
@@ -51,20 +52,16 @@ jobs:
             cargo install cargo-make --force
           fi
 
-      - &install-release-tool
-        name: Build release-tool
-        run: cargo make release-tool
-
       # Package classification, publishability, private-dependency edges, the
       # frozen private-crate versions, and active `[patch]` entries. An active
       # patch is the most likely way to publish a broken crate: the workspace
       # builds, the normalized manifest looks correct, and the published crate
       # resolves to a registry version without the patched behaviour.
       - name: Lint release configuration
-        run: release-tool lint
+        run: cargo make release lint
 
       - name: Check publication order is derivable
-        run: release-tool package-order
+        run: cargo make release package-order
 
   closure:
     name: package closure
@@ -81,16 +78,11 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
-
+      - *install-rust
       - *install-cargo-make
-      - *install-release-tool
 
       - name: Verify the package closure
-        run: release-tool verify-closure --cache-dir "${RUNNER_TEMP}/index-cache"
+        run: cargo make release verify-closure --cache-dir "${RUNNER_TEMP}/index-cache"
 
   workflow-policy:
     name: workflow policy
