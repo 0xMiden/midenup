@@ -20,7 +20,7 @@ use crate::{
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
     state::{Installation, LocalState},
-    version::Authority,
+    version::{Authority, GitTarget},
 };
 
 /// Updates installed toolchains.
@@ -409,9 +409,8 @@ fn work_for(
     Ok(Work::Nothing)
 }
 
-/// Whether an update against `upstream` would change this installation: its recorded intent
-/// resolves to a different component set, or a component it holds changed upstream (spec 8.6).
-pub fn needs_update(config: &Config, installation: &Installation, upstream: &Channel) -> bool {
+/// Whether the manifest's content changed for this installation.
+pub fn needs_update(installation: &Installation, upstream: &Channel) -> bool {
     match crate::resolve::resolve(upstream, &installation.intent) {
         Ok(resolved) => {
             let installed_names: std::collections::BTreeSet<&str> = installation
@@ -425,17 +424,39 @@ pub fn needs_update(config: &Config, installation: &Installation, upstream: &Cha
                 return true;
             }
         },
-        // An intent upstream can no longer resolve -- an explicit root removed, say -- is exactly
-        // what an update warns about (spec section 11.3), so it needs the user's attention.
         Err(_) => return true,
     }
 
     installation.components.iter().any(|installed| {
-        upstream.get_component(&installed.name).is_some_and(|new| {
-            classify(installed, new, config.target(), &config.working_directory)
-                != ChangeClass::None
-        })
+        upstream
+            .get_component(&installed.name)
+            .is_some_and(|new| definition_changed(installed, new))
     })
+}
+
+/// Whether two definitions of one component differ as manifest content.
+///
+/// The pins install records on an authority -- a branch's commit, a path's modification time --
+/// exist only locally and move on their own, so they are normalized away: drift behind them is
+/// reconciled by the update itself, which is what pins for ([`classify`]); a listing must not.
+fn definition_changed(installed: &Component, upstream: &Component) -> bool {
+    let normalized = |component: &Component| {
+        let mut component = component.clone();
+        match &mut component.version {
+            Authority::Path { last_modification, .. } => *last_modification = None,
+            Authority::Git {
+                target: GitTarget::Branch { latest_revision, .. },
+                ..
+            } => *latest_revision = None,
+            Authority::Git { .. } | Authority::Registry { .. } => (),
+        }
+        serde_json::to_value(component).ok()
+    };
+
+    match (normalized(installed), normalized(upstream)) {
+        (Some(old), Some(new)) => old != new,
+        _ => true,
+    }
 }
 
 /// Commits selection and metadata changes that no installed file reflects.
@@ -699,6 +720,57 @@ mod tests {
     #[test]
     fn an_identical_component_has_not_changed() {
         assert_eq!(classify_pair(base(), base()), ChangeClass::None);
+    }
+
+    /// The pins install records -- a branch's commit, a path's modification time -- exist only
+    /// locally and move on their own, so a listing must not read them as a manifest change.
+    #[test]
+    fn an_authority_pin_is_not_a_definition_change() {
+        let on_branch = |latest_revision: Option<&str>| {
+            let mut component = base();
+            component.version = Authority::Git {
+                repository_url: "https://example.invalid/repo".to_string(),
+                subpath: None,
+                target: GitTarget::Branch {
+                    name: "main".to_string(),
+                    latest_revision: latest_revision.map(str::to_string),
+                },
+            };
+            component
+        };
+        assert!(!definition_changed(&on_branch(Some("abc123")), &on_branch(None)));
+
+        let at_path = |last_modification: Option<std::time::SystemTime>| {
+            let mut component = base();
+            component.version = Authority::Path { path: "vm".into(), last_modification };
+            component
+        };
+        let pinned = at_path(Some(std::time::SystemTime::UNIX_EPOCH));
+        assert!(!definition_changed(&pinned, &at_path(None)));
+    }
+
+    /// Normalizing the pin must not mask a real change riding alongside it.
+    #[test]
+    fn a_change_next_to_a_pin_is_still_a_definition_change() {
+        let mut installed = base();
+        installed.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: GitTarget::Branch {
+                name: "main".to_string(),
+                latest_revision: Some("abc123".to_string()),
+            },
+        };
+        let mut upstream = base();
+        upstream.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: GitTarget::Branch {
+                name: "next".to_string(),
+                latest_revision: None,
+            },
+        };
+        assert!(definition_changed(&installed, &upstream));
     }
 
     /// An artifact is a file in the publication, so a component whose artifact URI moves to a new

@@ -558,7 +558,9 @@ the superset is a warning, and the component in the active view wins.
 
 ### 8.6 Update status is derived
 
-Local state does not record an "update available" flag. When the upstream manifest is available, an installation is displayed as having an update if an update would change it or react to it: its recorded intent resolves to a different component set than it holds, the upstream definition of a component it holds has changed (§11.1's change classes, anything other than "nothing at all"), or its intent no longer resolves at all — the situation an update warns about (§11.3). The lookup follows migration lineage the way `update` does (§11.4): a superseded channel shows the update marker, not `(unavailable upstream)`. When upstream is unavailable, update status is not displayed.
+Local state does not record an "update available" flag. When the upstream manifest is available, an installation is displayed as having an update if the manifest's content changed for it.
+
+The comparison is manifest content alone. The pins install records on an authority — a branch's latest commit, a path's modification time — exist only locally and move on their own, so they are excluded: drift behind a pin is reconciled by `update` itself, which is what pinning is for, and a listing performs no source or network I/O beyond the manifest fetch.
 
 Components with no physical output (`command` with zero artifacts) count as installed for membership purposes and are exempt from physical verification (§9.6).
 

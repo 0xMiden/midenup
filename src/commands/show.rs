@@ -10,6 +10,17 @@ use crate::{
     toolchain::{Toolchain, ToolchainJustification},
 };
 
+/// Appends a status marker to a listing row: yellow as one span when color is on, plain otherwise.
+fn push_marker(line: &mut String, text: &str, use_color: bool) {
+    use core::fmt::Write;
+
+    if use_color {
+        write!(line, " {}", text.yellow()).unwrap();
+    } else {
+        write!(line, " {text}").unwrap();
+    }
+}
+
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
     /// Show the active toolchain.
@@ -113,17 +124,12 @@ impl ShowCommand {
                                 if linked != name {
                                     continue;
                                 }
-                                if let Some(marker) = crate::networks::drift(
+                                if let Some(notice) = crate::networks::drift(
                                     network,
                                     linked,
                                     manifest.network_version(network),
                                 ) {
-                                    if use_color {
-                                        write!(&mut line, " {}", marker.yellow()).unwrap();
-                                    } else {
-                                        line.push(' ');
-                                        line.push_str(&marker);
-                                    }
+                                    push_marker(&mut line, &notice, use_color);
                                 }
                             }
                         }
@@ -133,49 +139,42 @@ impl ShowCommand {
                         // point: the user's toolchain still works, but only after it is installed
                         // properly, and they should not have to infer that from a failure.
                         if !installation.is_managed() {
-                            if use_color {
-                                write!(&mut line, " {}", "(needs reinstallation)".yellow())
-                                    .unwrap();
-                            } else {
-                                line.push_str(" (needs reinstallation)");
-                            }
-                            write!(&mut line, " -- run `midenup install {name}`").unwrap();
+                            push_marker(
+                                &mut line,
+                                &format!("(needs reinstallation) -- run `midenup install {name}`"),
+                                use_color,
+                            );
                         }
 
                         if upstream.is_some() {
                             // The lookup follows migration lineage the way `update` does, so a
-                            // superseded channel shows as updatable rather than gone.
-                            match installation.as_channel().find_upstream_counterpart(config) {
-                                Some(counterpart) => {
-                                    let has_update = match counterpart.upstream_match {
+                            // superseded channel shows as updatable rather than gone. Verbatim
+                            // manifest content: a listing pins nothing and reaches for no source.
+                            match installation.as_channel().upstream_counterpart_raw(config) {
+                                // An unmanaged record already carries its one instruction, the
+                                // reinstall above; a second directive would contradict it.
+                                Some(_) if !installation.is_managed() => {},
+                                Some((channel, upstream_match)) => {
+                                    let has_update = match upstream_match {
                                         // Being superseded is the update: running it migrates.
                                         UpstreamMatch::Migrated { .. } => true,
                                         UpstreamMatch::UpstreamCounterpart => {
-                                            super::update::needs_update(
-                                                config,
-                                                installation,
-                                                &counterpart.channel,
-                                            )
+                                            super::update::needs_update(installation, channel)
                                         },
                                     };
                                     if has_update {
-                                        let marker = format!(
-                                            "(update available) -- run `midenup update {name}`"
+                                        push_marker(
+                                            &mut line,
+                                            &format!(
+                                                "(update available) -- run `midenup update {name}`"
+                                            ),
+                                            use_color,
                                         );
-                                        if use_color {
-                                            write!(&mut line, " {}", marker.yellow()).unwrap();
-                                        } else {
-                                            write!(&mut line, " {marker}").unwrap();
-                                        }
                                     }
                                 },
                                 // Retained, not deleted: the user may still want `var/` and an
                                 // explicit uninstall (spec section 12.3).
-                                None if use_color => {
-                                    write!(&mut line, " {}", "(unavailable upstream)".yellow())
-                                        .unwrap()
-                                },
-                                None => line.push_str(" (unavailable upstream)"),
+                                None => push_marker(&mut line, "(unavailable upstream)", use_color),
                             }
                         }
 

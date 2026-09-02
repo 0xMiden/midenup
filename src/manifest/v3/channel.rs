@@ -158,27 +158,29 @@ impl Channel {
     /// channel>`. A same-version match wins: a channel that still exists upstream is not migrated
     /// away from, whatever some other channel claims to supersede.
     pub fn find_upstream_counterpart(&self, config: &Config) -> Option<UpstreamChannel> {
+        let (channel, upstream_match) = self.upstream_counterpart_raw(config)?;
+        Some(UpstreamChannel::new(channel.clone(), upstream_match, config))
+    }
+
+    /// As [`Self::find_upstream_counterpart`], but returning the manifest's definitions verbatim:
+    /// no sync, so no source or network I/O beyond the manifest itself.
+    pub fn upstream_counterpart_raw<'a>(
+        &self,
+        config: &'a Config,
+    ) -> Option<(&'a Channel, UpstreamMatch)> {
         let upstream_manifest = config.upstream_manifest().ok()?;
 
         if let Some(same_version) =
             upstream_manifest.get_channels().find(|upstream| upstream.name == self.name)
         {
-            return Some(UpstreamChannel::new(
-                same_version.clone(),
-                UpstreamMatch::UpstreamCounterpart,
-                config,
-            ));
+            return Some((same_version, UpstreamMatch::UpstreamCounterpart));
         }
 
         let successor = upstream_manifest
             .get_channels()
             .find(|upstream| upstream.migrates_from.as_ref() == Some(&self.name))?;
 
-        Some(UpstreamChannel::new(
-            successor.clone(),
-            UpstreamMatch::Migrated { old_channel: self.name.clone() },
-            config,
-        ))
+        Some((successor, UpstreamMatch::Migrated { old_channel: self.name.clone() }))
     }
 
     // Syncs the channel to the latest changes

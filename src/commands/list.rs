@@ -16,12 +16,19 @@ pub fn list(config: &Config, state: &LocalState) -> anyhow::Result<()> {
             // change it. A stored flag would be a second answer to a question the manifest and
             // the component set already answer, and the two would drift.
             let installed_indicator = match state.get(&channel.name) {
-                Some(installation)
-                    if super::update::needs_update(config, installation, channel) =>
-                {
+                Some(installation) if super::update::needs_update(installation, channel) => {
                     format!(" {}", "(update available)".yellow())
                 },
                 Some(_) => format!(" {}", "(installed)".green()),
+                // A channel that supersedes an installed one (spec section 11.4): updating the
+                // predecessor migrates to it.
+                None if channel
+                    .migrates_from
+                    .as_ref()
+                    .is_some_and(|old| state.get(old).is_some()) =>
+                {
+                    format!(" {}", "(update available)".yellow())
+                },
                 None => String::new(),
             };
 
