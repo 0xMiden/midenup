@@ -146,6 +146,12 @@ jobs:
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
+          name: artifact-installer
+          path: bin/installer.sh
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
           name: release-plan
           path: |
             ${{ runner.temp }}/plan.json
@@ -234,7 +240,7 @@ jobs:
 
       - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
-          subject-path: ${{ runner.temp }}/artifacts/*.tar.gz
+          subject-path: ${{ runner.temp }}/artifacts/*
 
   # Collect the artifacts and populate the drafts. Still reversible: the drafts
   # can be deleted, no tag exists, and nothing has been published.
