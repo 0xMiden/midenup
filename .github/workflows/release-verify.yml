@@ -32,6 +32,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - &install-cargo-make
+        name: Install cargo-make
+        run: |
+          if ! cargo make --version 2>/dev/null; then
+            cargo install cargo-make --force
+          fi
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.ref }}
@@ -44,13 +51,6 @@ jobs:
         run: |
           rustup update --no-self-update
           rustc --version
-
-      - &install-cargo-make
-        name: Install cargo-make
-        run: |
-          if ! cargo make --version 2>/dev/null; then
-            cargo install cargo-make --force
-          fi
 
       # Package classification, publishability, private-dependency edges, the
       # frozen private-crate versions, and active `[patch]` entries. An active
@@ -73,13 +73,14 @@ jobs:
     permissions:
       contents: read
     steps:
+      - *install-cargo-make
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - *install-rust
-      - *install-cargo-make
 
       - name: Verify the package closure
         run: cargo make release verify-closure --cache-dir "${RUNNER_TEMP}/index-cache"

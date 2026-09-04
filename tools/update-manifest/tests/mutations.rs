@@ -289,6 +289,136 @@ fn check_reports_all_errors_at_once() {
     assert!(err.contains("alsoghost"), "both problems must be reported in one pass: {err}");
 }
 
+/// `check --against` judges the manifest as a replacement for the deployed one.
+#[test]
+fn check_against_the_deployed_manifest() {
+    let (dir, deployed) = fixture();
+    let against = format!("file://{}", deployed.display());
+
+    // Unchanged is trivially fine, whatever the timestamp says.
+    run(&deployed, &["check", "--against", &against]).expect("an unchanged manifest must pass");
+
+    // A change that leaves the timestamp alone is the mistake the rule exists for.
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+    let mut stale = read_manifest(&deployed);
+    stale["networks"]["mainnet"] = serde_json::json!("0.16.0");
+    let stale = write_manifest(&next_dir, stale);
+    let err = run(&stale, &["check", "--against", &against]).expect_err("must fail");
+    assert!(err.contains("timestamp"), "{err}");
+
+    // A promotion with a fresh timestamp is exactly what a release looks like.
+    let mut next = read_manifest(&deployed);
+    next["date"] = serde_json::json!(1735689601);
+    next["networks"]["mainnet"] = serde_json::json!("0.16.0");
+    let next = write_manifest(&next_dir, next);
+    run(&next, &["check", "--against", &against]).expect("a promotion must pass");
+
+    // Moving back afterwards is refused without the flag. Written elsewhere: `next` is about to
+    // become the deployed side of the comparison.
+    let back_dir = dir.path().join("back");
+    std::fs::create_dir(&back_dir).unwrap();
+    let mut back = read_manifest(&deployed);
+    back["date"] = serde_json::json!(1735689602);
+    back["networks"]["mainnet"] = serde_json::json!("0.15.0");
+    let back = write_manifest(&back_dir, back);
+    let next_uri = format!("file://{}", next.display());
+    let err = run(&back, &["check", "--against", &next_uri]).expect_err("must fail");
+    assert!(err.contains("moves back"), "{err}");
+    run(&back, &["check", "--against", &next_uri, "--allow-downgrade"])
+        .expect("the flag must allow it");
+}
+
+/// A clone must not inherit its source's predecessor: the update path picks a successor by that
+/// field, and two channels claiming one predecessor is refused by `check`.
+#[test]
+fn clone_toolchain_does_not_carry_migrates_from() {
+    let dir = tempdir::TempDir::new("update-manifest-clone").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "migrates_from": "0.14.0",
+                 "components": [cargo_executable("vm", "miden-vm")]}
+            ]
+        }),
+    );
+
+    run(&path, &["clone-toolchain", "--from", "0.15.0", "--to", "0.16.0"]).expect("clone");
+
+    let manifest = read_manifest(&path);
+    let cloned = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "0.16.0")
+        .expect("the clone must exist");
+    assert!(cloned.get("migrates_from").is_none(), "{cloned}");
+    run(&path, &["check"]).expect("the result must pass check");
+}
+
+#[test]
+fn clone_toolchain_can_declare_what_it_supersedes() {
+    let (_dir, path) = fixture();
+
+    run(
+        &path,
+        &[
+            "clone-toolchain",
+            "--from",
+            "0.16.0",
+            "--to",
+            "0.17.0",
+            "--migrates-from",
+            "0.16.0",
+        ],
+    )
+    .expect("clone");
+
+    let manifest = read_manifest(&path);
+    let cloned = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "0.17.0")
+        .expect("the clone must exist");
+    assert_eq!(cloned["migrates_from"], "0.16.0");
+
+    // A predecessor newer than the clone fails validation, so the write is refused.
+    let err = run(
+        &path,
+        &[
+            "clone-toolchain",
+            "--from",
+            "0.16.0",
+            "--to",
+            "0.14.0",
+            "--migrates-from",
+            "0.16.0",
+        ],
+    )
+    .expect_err("must fail");
+    assert!(err.contains("newer"), "{err}");
+    assert!(
+        !read_manifest(&path)["channels"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "0.14.0"),
+        "a refused clone must not be written"
+    );
+}
+
+#[test]
+fn allow_downgrade_requires_against() {
+    let (_dir, path) = fixture();
+    let err = run(&path, &["check", "--allow-downgrade"]).expect_err("must be a usage error");
+    assert!(err.contains("--against"), "{err}");
+}
+
 /// Removing a component that something else still requires would leave the channel unresolvable.
 #[test]
 fn removing_a_still_required_component_is_rejected() {

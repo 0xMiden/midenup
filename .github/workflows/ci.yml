@@ -36,11 +36,7 @@ jobs:
           rustup component add --toolchain nightly rustfmt
           rustc --version
       - &install-cargo-make
-        name: Install cargo-make
-        run: |
-          if ! cargo make --version 2>/dev/null; then
-            cargo install cargo-make --force
-          fi
+        uses: taiki-e/install-action@cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -82,10 +78,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update nightly
-          rustc --version
+      - *install-rust
+      - *install-cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -93,8 +87,26 @@ jobs:
           prefix-key: ${{ env.RUST_CACHE_KEY }}
           save-if: false
       - name: Validate the channel manifest
+        run: cargo make check-manifest
+      - name: Check the manifest against the one it replaces
+        # A deliberate downgrade is acknowledged with a label on the pull request. A push has
+        # already been reviewed that way, so it is allowed there.
+        env:
+          BASE: ${{ github.base_ref || github.event.before }}
+          ALLOW_DOWNGRADE: ${{ (github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'manifest:allow-downgrade')) && '--allow-downgrade' || '' }}
         run: |
-          make check-manifest
+          set -euo pipefail
+          if ! git fetch --depth=1 origin "${BASE}"; then
+            echo "::error::cannot fetch ${BASE}, the manifest this change replaces; was the branch force-pushed?"
+            exit 1
+          fi
+          git show FETCH_HEAD:manifest/channel-manifest.json > "${RUNNER_TEMP}/base-manifest.json"
+          # ALLOW_DOWNGRADE is deliberately unquoted: it is either a flag or nothing
+          # shellcheck disable=SC2086
+          cargo make check-manifest --against "file://${RUNNER_TEMP}/base-manifest.json" ${ALLOW_DOWNGRADE}
+      - name: How to allow a deliberate downgrade
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        run: echo "::notice::If the check refused a network moving to an older toolchain and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."
 
   unit_tests:
     name: unit tests
@@ -152,6 +164,7 @@ jobs:
         run: cargo make integration-test
       - name: Pre-release checks
         # These install real components from this repo's copy of the manifest and run them, so it
-        # takes many minutes. Run them on main or on explicitly labelled PRs
-        if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+        # takes many minutes. Run them on main, on pull requests into main (the release path from
+        # next), and on explicitly labelled pull requests
+        if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
         run: cargo make prerelease-test
