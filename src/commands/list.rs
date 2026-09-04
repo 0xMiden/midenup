@@ -1,6 +1,6 @@
 use colored::Colorize;
 
-use crate::{config::Config, state::LocalState};
+use crate::{channel::UpstreamMatch, config::Config, state::LocalState};
 
 /// List all the available [[Channels]] presents in the upstream manifest.
 pub fn list(config: &Config, state: &LocalState) -> anyhow::Result<()> {
@@ -23,11 +23,19 @@ pub fn list(config: &Config, state: &LocalState) -> anyhow::Result<()> {
                 },
                 Some(_) => format!(" {}", "(installed)".green()),
                 // A channel that supersedes an installed one (spec section 11.4): updating the
-                // predecessor migrates to it.
+                // predecessor migrates to it. The counterpart lookup is the updater's, so a
+                // predecessor still published upstream is not shown as migrating away.
                 None if channel
                     .migrates_from
                     .as_ref()
-                    .is_some_and(|old| state.get(old).is_some()) =>
+                    .and_then(|old| state.get(old))
+                    .is_some_and(|predecessor| {
+                        matches!(
+                            predecessor.as_channel().upstream_counterpart_raw(config),
+                            Some((successor, UpstreamMatch::Migrated { .. }))
+                                if successor.name == channel.name
+                        )
+                    }) =>
                 {
                     format!(" {}", "(update available)".yellow())
                 },

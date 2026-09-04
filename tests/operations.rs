@@ -175,6 +175,24 @@ impl Fixture {
         format!("file://{}", path.display())
     }
 
+    /// A manifest publishing both `0.15.0` and a `0.16.0` that declares `migrates_from: 0.15.0`.
+    fn manifest_with_successor(&self, file: &str, components: &[Spec<'_>]) -> String {
+        let components: Vec<_> = components.iter().map(|spec| self.component(*spec)).collect();
+        let manifest = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "components": components},
+                {"name": "0.16.0", "migrates_from": "0.15.0", "components": components},
+            ]
+        });
+
+        let path = self.dir.join(file);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        format!("file://{}", path.display())
+    }
+
     fn write(&self, file: &str, components: Vec<serde_json::Value>) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
@@ -747,6 +765,27 @@ fn integration_update_status_follows_migration_lineage() {
     assert!(
         stdout.contains("0.16.0") && stdout.contains("update available"),
         "the successor must be listed as the pending update: {stdout}"
+    );
+}
+
+/// A same-version match wins over `migrates_from` in the updater, so while the installed channel is
+/// still published its successor is not a pending update.
+#[test]
+fn integration_update_status_prefers_a_still_published_predecessor() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("derived_same_version");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest("manifest.json", &[("vm", &["minimal"], &[])]);
+
+    let installed = midenup_run(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let both = fixture.manifest_with_successor("both.json", &[("vm", &["minimal"], &[])]);
+    let listed = midenup_run(&env, &both, &["list"]);
+    let stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        stdout.contains("0.15.0 (installed)") && !stdout.contains("update available"),
+        "a published predecessor is up to date and its successor is not pending: {stdout}"
     );
 }
 
