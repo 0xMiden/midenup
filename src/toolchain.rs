@@ -216,11 +216,18 @@ impl Toolchain {
             resolved.iter().map(|component| (*component).clone()).collect(),
         ));
 
+        // Name both the network and the version it resolves to, so the user knows what is about
+        // to be installed before anything is fetched.
+        let target = match desired_channel {
+            UserChannel::Version(_) => channel.name.to_string(),
+            UserChannel::Named(network) => format!("{network} ({})", channel.name),
+        };
+
         match state.get(&channel.name).filter(|installation| installation.is_managed()) {
             Some(installed) => {
                 let installed_components: HashSet<&str> =
                     HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
-                crate::info!("installing missing components of the current toolchain:");
+                crate::info!("installing missing components of the current toolchain {target}:");
                 for component in resolved
                     .iter()
                     .map(|component| component.name.as_ref())
@@ -230,7 +237,7 @@ impl Toolchain {
                 }
             },
             None => {
-                crate::info!("current toolchain is {desired_channel}, but not yet installed");
+                crate::info!("current toolchain is {target}, but not yet installed");
             },
         }
 
