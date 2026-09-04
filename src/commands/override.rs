@@ -75,7 +75,7 @@ pub fn r#override(
             .context("failed to remove 'default' toolchain symlink")?;
     }
 
-    crate::info!("setting {channel} as the new default toolchain\n");
+    crate::info!("setting {channel} as the new default toolchain");
     if let ToolchainJustification::MidenToolchainFile { path } = justification {
         crate::warn!(
             "there is a toolchain file present in {}, which sets the current active toolchain to \

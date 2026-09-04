@@ -171,52 +171,20 @@ impl<'a> ToolchainEnvironment<'a> {
             crate::warn!("{err}. Naming the component directly resolves it unambiguously.");
         }
 
-        // Local function that tries to parse an argument given a channel's state.
-        let fallback_motive = if let Some(active_channel) = self.active_channel.as_ref() {
+        // Try the active view first, then fall back to everything installed under the channel.
+        if let Some(active_channel) = self.active_channel.as_ref() {
             match resolve_argument(active_channel, argument, matches) {
                 Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
-                Err(EnvironmentError::InvalidCommand { .. }) => {
-                    FallbackMotive::ArgumentNotInActiveChannel
-                },
+                Err(EnvironmentError::InvalidCommand { .. }) => {},
                 Err(e) => return Err(e),
             }
-        } else {
-            FallbackMotive::NoActiveChannel
-        };
-
-        // We now try to resolve the argument with the installed channel.
-        {
-            let miden_argument = resolve_argument(self.installed_channel, argument, matches)?;
-
-            let not_found_in_active =
-                matches!(fallback_motive, FallbackMotive::ArgumentNotInActiveChannel);
-
-            let warning_message = match (&miden_argument, not_found_in_active) {
-                (MidenArgument::Alias { component, .. }, true) => Some(format!(
-                    "'{argument}' is an alias from component {}, which is installed but is not \
-                     part of the current active toolchain.",
-                    component.name,
-                )),
-                (
-                    MidenArgument::Command { component, .. }
-                    | MidenArgument::Subcommand { component, .. }
-                    | MidenArgument::Component { component, .. },
-                    true,
-                ) => Some(format!(
-                    "'{}' is installed, but it is not part of the current active toolchain.",
-                    component.name,
-                )),
-                _ => None,
-            };
-            if let Some(warning) = warning_message {
-                crate::warn!("{warning}")
-            };
-
-            Ok(ExecutionEnvironment {
-                argument: miden_argument,
-                active_channel: self.installed_channel,
-            })
         }
+
+        let miden_argument = resolve_argument(self.installed_channel, argument, matches)?;
+        Ok(ExecutionEnvironment {
+            argument: miden_argument,
+            active_channel: self.installed_channel,
+        })
     }
 
     fn get_executables_display(&self) -> String {
@@ -780,14 +748,6 @@ fn resolve_argument<'a>(
     }
 
     Err(EnvironmentError::InvalidCommand { command: argument.to_string() })
-}
-
-/// Why the active channel falls back on the installed channel.
-enum FallbackMotive {
-    /// There simply is no active channel.
-    NoActiveChannel,
-    /// There is an active channel, yet the argument wasn't found.
-    ArgumentNotInActiveChannel,
 }
 
 #[cfg(test)]
