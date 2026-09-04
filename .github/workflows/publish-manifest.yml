@@ -9,12 +9,69 @@ on:
 
 # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
 permissions:
+  contents: read
   pages: write
   id-token: write
 
 jobs:
+  check-manifest:
+    name: check manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          # This workflow only runs on main, so the cache it saves is the one it restores. A
+          # literal key: the workflow name has spaces.
+          shared-key: publish-manifest-check
+      - name: Validate the channel manifest
+        run: cargo make check-manifest
+      - name: Check the manifest against the one it replaces
+        # The previous tip of main is the manifest currently deployed. A downgrade was
+        # acknowledged by label on the pull request, so it is allowed here.
+        env:
+          BASE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if ! git fetch --depth=1 origin "${BASE}"; then
+            echo "::error::cannot fetch ${BASE}, the manifest this change replaces; was the branch force-pushed?"
+            exit 1
+          fi
+          git show FETCH_HEAD:manifest/channel-manifest.json > "${RUNNER_TEMP}/base-manifest.json"
+          cargo make check-manifest --against "file://${RUNNER_TEMP}/base-manifest.json" \
+            --allow-downgrade
+
+  prerelease-test:
+    name: pre-release checks
+    # Installs real components from this manifest and runs them, so it takes many minutes
+    needs: check-manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@cargo-make
+      - name: Install all rustup toolchains present in the manifest
+        run: |
+          ./.github/auxiliary_scripts/install-toolchains.sh
+      - uses: taiki-e/install-action@nextest
+      - name: Check
+        run: cargo make test-build
+      - name: Test
+        run: cargo make prerelease-test
+
   upload-manifest:
     name: upload manifest
+    needs: [check-manifest, prerelease-test]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources

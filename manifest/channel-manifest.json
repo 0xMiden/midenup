@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1788497465,
+  "date": 1788497709,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -839,7 +839,6 @@
     },
     {
       "name": "0.13.3",
-      "migrates_from": "0.20.3",
       "components": [
         {
           "aliases": {

@@ -31,23 +31,23 @@ lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
 
 .PHONY: test-build
 test-build: ## Build the test binary
-	cargo nextest run --no-run
+	cargo nextest run --workspace --no-run
 
 .PHONY: test
 test: ## Run all tests, except integration
-	cargo nextest run --no-fail-fast -- --skip integration
+	cargo nextest run --workspace --no-fail-fast -- --skip integration
 
 .PHONY: integration-test
 integration-test: ## Run integration tests, excluding the slow pre-release checks
-	cargo nextest run --no-fail-fast -E 'test(/integration_/) and not test(/prerelease/)'
+	cargo nextest run --workspace --no-fail-fast -E 'test(/integration_/) and not test(/prerelease/)'
 
 .PHONY: recovery-test
 recovery-test: ## Run restart-recovery tests, which need the fault-injection abort points compiled in
-	cargo nextest run --features fault-injection --no-fail-fast -E 'test(/integration_recovery_/)'
+	cargo nextest run --workspace --features fault-injection --no-fail-fast -E 'test(/integration_recovery_/)'
 
 .PHONY: prerelease-test
 prerelease-test: ## Run pre-release checks against the real manifest (slow: builds real components)
-	cargo nextest run --no-fail-fast -E 'test(/prerelease/)'
+	cargo nextest run --workspace --no-fail-fast -E 'test(/prerelease/)'
 
 # --- building ------------------------------------------------------------------------------------
 

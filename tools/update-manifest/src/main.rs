@@ -7,7 +7,9 @@ use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
     channel::{self, UserChannel},
-    manifest::{Component, ComponentKind, Manifest, Promotion, VersionedManifest},
+    manifest::{
+        Component, ComponentKind, Manifest, Promotion, VersionedManifest, validate::ValidationError,
+    },
     profile::Profile,
     version::Authority,
 };
@@ -30,7 +32,17 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Check that the manifest is valid
-    Check,
+    Check {
+        /// Also check the manifest as a replacement for the previous one at this URI, e.g. the
+        /// deployed manifest or the one on the base branch: refuses a stale timestamp, a schema
+        /// major change, a removed network, a network moving backwards, and removing a channel a
+        /// network names without a successor
+        #[arg(long, value_name = "URI")]
+        against: Option<String>,
+        /// Allow a network to move to an older toolchain than the previous manifest names
+        #[arg(long, requires = "against")]
+        allow_downgrade: bool,
+    },
     /// Format the manifest
     Format {
         /// Writes the formatted manifest to stdout, rather than rewriting the file
@@ -47,6 +59,10 @@ enum Command {
         /// The name of the channel that will be created
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         to: channel::UserChannel,
+        /// The toolchain the new one supersedes: installations of it are carried to the new
+        /// toolchain by `midenup update` once it is removed from the manifest
+        #[arg(long, value_name = "VERSION")]
+        migrates_from: Option<semver::Version>,
     },
     /// Point a release network at a toolchain
     ///
@@ -176,16 +192,12 @@ impl Cli {
     fn execute(&self) -> anyhow::Result<()> {
         let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
         match &self.command {
-            Command::Check => {
+            Command::Check { against, allow_downgrade } => {
                 // Structural validation first: it reports every problem in one pass, which is
                 // what an authoring tool should do. Loading the manifest does NOT run this --
                 // see the module docs on src/manifest/validate.rs.
-                if let Err(errors) = midenup::manifest::validate::validate_manifest(&manifest) {
-                    for error in errors.iter() {
-                        eprintln!("error: {error}");
-                    }
-                    bail!("manifest failed validation with {} error(s)", errors.len());
-                }
+                midenup::manifest::validate::validate_manifest(&manifest)
+                    .map_err(|errors| report_errors("manifest failed validation", errors))?;
 
                 // Then confirm each channel actually resolves. Resolution topologically sorts the
                 // component graph, which is what surfaces requirement cycles: merely building the
@@ -197,6 +209,23 @@ impl Cli {
                     )
                     .with_context(|| format!("channel {} is not installable", channel.name))?;
                 }
+
+                // Last, because the rules above must hold before a comparison means anything.
+                if let Some(uri) = against {
+                    let previous = VersionedManifest::load_from(uri)
+                        .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
+                    midenup::manifest::validate::validate_against(
+                        &previous,
+                        &manifest,
+                        *allow_downgrade,
+                    )
+                    .map_err(|errors| {
+                        report_errors(
+                            &format!("manifest cannot replace the one at '{uri}'"),
+                            errors,
+                        )
+                    })?;
+                }
                 Ok(())
             },
             Command::Format { stdout: false } => write_manifest(&manifest, &self.manifest_path),
@@ -205,7 +234,7 @@ impl Cli {
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
             },
-            Command::CloneToolchain { from, to } => {
+            Command::CloneToolchain { from, to, migrates_from } => {
                 let Some(mut from) = manifest.get_channel(from).cloned() else {
                     bail!("unknown source toolchain '{from}'")
                 };
@@ -223,6 +252,9 @@ impl Cli {
                     bail!("toolchain '{to}' already exists");
                 }
                 from.name = to.clone();
+                // Never the source's predecessor: carrying it over would make two channels claim
+                // the same one. What the clone supersedes is the author's to say.
+                from.migrates_from = migrates_from.clone();
                 manifest.add_channel(from);
                 manifest.update_last_modified();
 
@@ -425,6 +457,14 @@ impl Cli {
     }
 }
 
+/// Prints every validation error, then summarizes them as one failure.
+fn report_errors(what: &str, errors: Vec<ValidationError>) -> anyhow::Error {
+    for error in errors.iter() {
+        eprintln!("error: {error}");
+    }
+    anyhow::anyhow!("{what}: {} error(s)", errors.len())
+}
+
 /// Writes `manifest`, but only if it parses and validates once read back from disk.
 ///
 /// A plain `fs::write` cannot do this: it commits the bytes before anything has confirmed they are
@@ -445,5 +485,7 @@ fn write_manifest(manifest: &Manifest, manifest_path: &Path) -> anyhow::Result<(
 
 fn write_manifest_to_stdout(manifest: &Manifest) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
-    serde_json::to_writer_pretty(&mut stdout, manifest).context("failed to format manifest")
+    serde_json::to_writer_pretty(&mut stdout, manifest).context("failed to format manifest")?;
+    println!();
+    Ok(())
 }

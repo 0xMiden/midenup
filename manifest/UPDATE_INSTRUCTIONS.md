@@ -36,7 +36,10 @@ bin/update-manifest --manifest-path manifest/channel-manifest.json \
 toolchain is named by its version and never by a network.
 
 Note that the clone deliberately does **not** carry any network across: the new toolchain is a
-draft, and no user is tracking it. It reaches users only once it is promoted (see below).
+draft, and no user is tracking it. It reaches users only once it is promoted (see below). Nor does
+it carry the source's `migrates_from`. If the new toolchain supersedes one that will be removed from
+the manifest, say so with `--migrates-from <VERSION>`: `midenup update` then carries installations
+of the removed toolchain to the new one.
 
 Next, you will need to update each component in the cloned toolchain, as appropriate. See the section on updating an existing toolchain for details.
 
@@ -104,16 +107,35 @@ change against in review. A promotion that changes nothing says so and writes no
 ## Checking the result
 
 ```
-make check-manifest
+cargo make check-manifest
 ```
 
 Validation covers the networks map as well as the channels: every network must name a toolchain that
 exists in the same document, no network may be named like a toolchain or after one of the synonyms,
 and `mainnet` must be declared, since it is the toolchain `midenup` uses when nothing else selects
-one.
+one. A toolchain may only declare `migrates_from` an older toolchain, and no two toolchains may
+declare `migrates_from` the same one, since `midenup update` must find exactly one successor. A field
+the schema does not define is refused: `midenup` preserves such fields when reading, so a misspelled
+one would be published and silently never read.
 
 There is deliberately no ordering rule between networks: a mainnet hotfix can legitimately put
 mainnet ahead of testnet.
+
+To also judge the change as a replacement for the manifest it supersedes, compare against that one.
+`--against` takes any manifest URI; the one on the branch you are targeting is the usual choice:
+
+```
+git show origin/next:manifest/channel-manifest.json > /tmp/previous-manifest.json
+cargo make check-manifest --against file:///tmp/previous-manifest.json
+```
+
+This refuses a timestamp that did not advance, a `manifest_version` major change, a removed network,
+a network moving to an older toolchain (unless `--allow-downgrade` is passed), and removing a
+toolchain a network names unless another toolchain declares `migrates_from` it. CI runs this
+comparison on every pull request against the base branch, and before every deployment against the
+previous tip of `main`. On a pull request a downgrade is allowed by labelling it
+`manifest:allow-downgrade`, so the decision is visible in review; the deployment check allows it,
+since the pull request already settled it.
 
 ## Publishing
 
