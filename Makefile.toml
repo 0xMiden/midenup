@@ -1,0 +1,421 @@
+[config]
+default_to_workspace = false
+skip_core_tasks = true
+skip_git_env_info = true
+modify_core_tasks = { private = true, namespace = "default" }
+init_task = "init"
+
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+CARGO_MAKE_CARGO_VERBOSE_FLAGS = { source = "${CARGO_MAKE_CI}", default_value = "", mapping = { "true" = "--verbose" } }
+CARGO_MAKE_RUST_SCRIPT_PROVIDER = "rust-script"
+CARGO_MAKE_USE_WORKSPACE_PROFILE = true
+CARGO_MAKE_CARGO_BUILD_TEST_FLAGS = "--no-fail-fast"
+CARGO_TARGET_DIR = { value = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/target", condition = { env_not_set = [
+    "CARGO_TARGET_DIR",
+] } }
+BACKTRACE_DEFAULT = { source = "${CARGO_MAKE_CI}", mapping = { "true" = "1", "false" = "0" } }
+RUST_BACKTRACE = { value = "${BACKTRACE_DEFAULT}", condition = { env_not_set = [
+    "RUST_BACKTRACE",
+] } }
+MIDEN_BIN_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/bin"
+MIDEN_INSTALL_DIR = "${MIDEN_BIN_DIR}/${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+
+# Workaround for https://github.com/0xMiden/miden-vm/issues/2025
+RUST_MIN_STACK = 16777216
+
+[env.development]
+MIDEN_BUILD_PROFILE = "debug"
+
+[env.production]
+MIDEN_BUILD_PROFILE = "release"
+
+[tasks.init]
+script = ['''
+#!@duckscript
+
+# Set an environment variable containing the current rustup toolchain
+#
+if is_path_exists "rust-toolchain.toml"
+    toolchain_file = readfile "rust-toolchain.toml"
+    channel_start = indexof ${toolchain_file} "channel = "
+    if not is_empty ${channel_start}
+        channel_quoted_start = calc ${channel_start} + 11
+        rest_of_file = substring ${toolchain_file} ${channel_quoted_start}
+
+        channel_end = indexof ${rest_of_file} "\""
+        if not is_empty ${channel_end}
+            channel = substring ${rest_of_file} 0 ${channel_end}
+            channel = trim ${channel}
+            set_env CARGO_MAKE_RUSTUP_TOOLCHAIN_NAME ${channel}
+        end
+    end
+end
+
+cm_run_task "print-env"
+''']
+
+[tasks.default]
+category = "Build"
+description = "Default task builds the compiler"
+alias = "build"
+
+[tasks.print-env]
+category = "Tools"
+run_task = [
+    { name = [
+        "print-build-env",
+        "print-ci-env",
+        "print-rust-env",
+        "print-cargo-env",
+    ] },
+]
+
+[tasks.print-build-env]
+private = true
+script = ['''
+#!@duckscript
+echo "*************************************"
+echo "Build Environment:"
+echo "    Task: ${CARGO_MAKE_TASK}"
+echo "    Task Arguments: ${CARGO_MAKE_TASK_ARGS}"
+echo "    Command: ${CARGO_MAKE_COMMAND}"
+echo "    Working Directory: ${CARGO_MAKE_WORKING_DIRECTORY}"
+echo "    Target Directory: ${CARGO_TARGET_DIR}"
+echo "    Profile: ${CARGO_MAKE_PROFILE}"
+echo "    Bin Directory: ${MIDEN_BIN_DIR}"
+echo "    Install Directory: ${MIDEN_INSTALL_DIR}"
+echo "    Target Triple: ${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+echo "    RUST_BACKTRACE: ${RUST_BACKTRACE}"
+echo "*************************************"
+''']
+
+[tasks.print-ci-env]
+private = true
+condition = { env = { "CARGO_MAKE_CI" = "true" } }
+script = ['''
+#!@duckscript
+echo "*************************************"
+echo "CI:"
+echo "    CI: ${CARGO_MAKE_CI}"
+echo "    PR: ${CARGO_MAKE_PR}"
+echo "    Branch Name: ${CARGO_MAKE_CI_BRANCH_NAME}"
+echo "    CI Vendor: ${CARGO_MAKE_CI_VENDOR}"
+echo "*************************************"
+''']
+
+[tasks.print-rust-env]
+category = "Tools"
+condition = { env_set = ["CARGO_MAKE_RUST_CHANNEL"] }
+script = ['''
+#!@duckscript
+output = exec --fail-on-error rustc "--version"
+assert_eq ${output.code} 0
+rustc_version_parts = split ${output.stdout} " "
+hash_raw = array_get ${rustc_version_parts} 2
+hash = replace ${hash_raw} "(" ""
+date_raw = array_get ${rustc_version_parts} 3
+date = replace ${date_raw} ")\n" ""
+release ${rustc_version_parts}
+
+
+echo "*************************************"
+echo "Rust:"
+echo "    Version: ${CARGO_MAKE_RUST_VERSION}"
+echo "    Toolchain: ${CARGO_MAKE_RUSTUP_TOOLCHAIN_NAME}"
+echo "    Channel: ${CARGO_MAKE_RUST_CHANNEL}"
+echo "    Build Hash: ${hash}"
+echo "    Build Date: ${date}"
+echo "    Target Arch: ${CARGO_MAKE_RUST_TARGET_ARCH}"
+echo "    Target Env: ${CARGO_MAKE_RUST_TARGET_ENV}"
+echo "    Target OS: ${CARGO_MAKE_RUST_TARGET_OS}"
+echo "    Pointer Width: ${CARGO_MAKE_RUST_TARGET_POINTER_WIDTH}"
+echo "    Target Triple: ${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+echo "*************************************"
+''']
+
+[tasks.print-cargo-env]
+category = "Tools"
+condition = { env_set = ["CARGO_MAKE_CARGO_HOME"] }
+script = ['''
+#!@duckscript
+echo "*************************************"
+echo "Cargo:"
+echo "    Home: ${CARGO_MAKE_CARGO_HOME}"
+echo "    Profile: ${CARGO_MAKE_CARGO_PROFILE}"
+echo "*************************************"
+''']
+
+[tasks.format]
+category = "Development"
+dependencies = ["format-rust"]
+
+[tasks.check-format]
+description = "Runs cargo fmt to check appropriate code format."
+category = "Test"
+command = "cargo"
+toolchain = "nightly"
+args = ["fmt", "--", "--check"]
+dependencies = ["install-rustfmt"]
+
+[tasks.format-rust]
+category = "Development"
+description = "Formats source code (Rust)"
+command = "cargo"
+toolchain = "nightly"
+args = ["fmt"]
+dependencies = ["install-rustfmt"]
+
+[tasks.install-rustfmt]
+category = "Development"
+description = "Installs cargo rustfmt plugin."
+env.CFG_RELEASE = { value = "${CARGO_MAKE_RUST_VERSION}", condition = { env_not_set = [
+    "CFG_RELEASE",
+] } }
+env.CFG_RELEASE_CHANNEL = { value = "${CARGO_MAKE_RUST_CHANNEL}", condition = { env_not_set = [
+    "CFG_RELEASE_CHANNEL",
+] } }
+install_crate = { crate_name = "rustfmt-nightly", rustup_component_name = "rustfmt", binary = "rustfmt", test_arg = "--help" }
+
+[tasks.bloat]
+category = "Development"
+description = "Run cargo-bloat"
+command = "cargo"
+args = ["bloat", "${@}"]
+
+[tasks.bench]
+category = "Benchmarks"
+description = "Benchmarks example package sizes and VM cycles, with SVG flamegraphs"
+command = "cargo"
+args = [
+    "run",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "-p",
+    "midenc-benchmark-runner",
+    "${@}",
+]
+
+[tasks.build]
+category = "Build"
+description = "Runs cargo build on the workspace"
+run_task = [{ name = ["midenup"] }]
+
+[tasks.install]
+category = "Install"
+description = "Installs the compiler via cargo"
+run_task = [
+    { name = [
+       "install-midenup",
+    ] },
+]
+
+[tasks.check]
+category = "Build"
+description = "Runs cargo check on the workspace"
+command = "cargo"
+args = ["check", "${@}"]
+
+[tasks.check-each]
+category = "Build"
+description = "Runs cargo check on each member of the workspace independently"
+workspace = true
+command = "cargo"
+args = ["check", "${@}"]
+
+[tasks.clean]
+category = "Build"
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean", "${@}"]
+
+[tasks.update]
+category = "Dependencies"
+description = "Update dependencies to latest semver-compatible version"
+command = "cargo"
+args = ["update"]
+
+[tasks.outdated]
+category = "Dependencies"
+description = "Look for dependencies with newer, possibly-incompatible versions"
+command = "cargo"
+args = ["outdated", "--workspace", "--root-deps-only"]
+
+[tasks.check-deps]
+category = "Dependencies"
+description = "Check dependencies for lack of use, duplicates, vulnerabilities, etc."
+run_task = [
+    { name = [
+        "unused",
+        "duplicates",
+        "audit",
+    ] },
+]
+
+[tasks.unused]
+category = "Dependencies"
+description = "Check for unused dependencies"
+command = "cargo"
+args = ["shear"]
+
+[tasks.duplicates]
+category = "Dependencies"
+description = "Check dependencies for multiple versions of the same crate"
+command = "cargo"
+args = ["tree", "--duplicate"]
+
+[tasks.audit]
+category = "Dependencies"
+description = "Check dependencies for known vulnerabilities, deprecations"
+command = "cargo"
+args = ["audit"]
+
+[tasks.test]
+category = "Test"
+description = "Runs all Rust-based tests including network integration tests"
+dependencies = ["test-rust"]
+
+[tasks.midenup]
+category = "Build"
+description = "Builds midenup with default features"
+command = "cargo"
+args = [
+    "build",
+    "--bin",
+    "midenup",
+    "${@}"
+]
+
+[tasks.install-midenup]
+category = "Install"
+description = "Builds midenup and installs it globally via the cargo bin directory"
+command = "cargo"
+args = [
+    "install",
+    "--locked",
+    "--force",
+    "--bin",
+    "midenup",
+]
+
+[tasks.test-build]
+category = "Test"
+description = "Builds tests written in Rust, with optional extra arguments"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-run",
+]
+
+[tasks.unit-test]
+category = "Test"
+description = "Run unit tests written in Rust"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "--",
+    "--skip",
+    "integration"
+]
+
+[tasks.integration-test]
+category = "Test"
+description = "Run integration tests written in Rust, with optional extra arguments"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+	"-E",
+	"test(/integration_/) and not test(/prerelease/)",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "${@}",
+]
+
+[tasks.prerelease-test]
+category = "Test"
+description = "Run pre-release tests written in Rust, with optional extra arguments"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+	"-E",
+	"test(/prerelease/)",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "${@}",
+]
+
+[tasks.test-rust]
+category = "Test"
+description = "Run tests written in Rust, with optional extra arguments"
+command = "cargo"
+install_crate_args = ["--locked"]
+args = [
+    "nextest",
+    "run",
+	"--no-tests=pass",
+    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
+    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "${@}",
+]
+
+[tasks.rustdocs]
+category = "Documentation"
+command = "cargo"
+args = ["doc"]
+
+
+[tasks.clippy]
+description = "Runs clippy on the workspace"
+category = "Development"
+command = "cargo"
+args = [
+    "clippy",
+    "--all",
+    "--all-targets",
+    "${@}",
+    "--",
+    "-D",
+    "clippy::all",
+    "-D",
+    "warnings",
+]
+
+[tasks.publish-dry-run]
+category = "Test"
+description = "Simulate publishing to uncover any build errors when each crate folder is built in isolation"
+command = "cargo"
+args = [
+    "publish",
+    "--dry-run",
+]
+
+# Release tooling
+# ============================================================
+# Local, read-only or repository-local commands only. `publish` and `finalize`
+# are deliberately absent: they cross irreversible boundaries and belong to the
+# release workflow, where an approval gate and a short-lived token stand between
+# them and production. A convenient local shortcut for them would be a way to
+# skip that by accident.
+
+[tasks.release]
+category = "Release"
+description = "Invoke a `release-tool` command"
+command = "release-tool"
+install_crate = { crate_name = "miden-release-tool", binary = "release-tool", test_arg = "--help" }
+install_crate_args = ["--locked"]
+args = [
+    "${@}"
+]
+env = { "GITHUB_REPOSITORY" = "0xMiden/midenup" }

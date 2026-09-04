@@ -2,9 +2,6 @@
 
 The Miden toolchain installer.
 
-> [!WARNING]
-> This tool is still a work in progress.
-
 The `midenup` executable facilitates two primary tasks:
 
 1. Toolchain management, i.e. bootstrapping the environment, and installing, updating, and configuring installed toolchain components.
@@ -18,21 +15,49 @@ The `midenup` executable facilitates two primary tasks:
 > Currently, the set of such components consists of:
 >
 > * Miden VM
-> * The Miden compiler, `midenc`, and its Rust tooling, i.e. `cargo-miden`
+> * The [Miden compiler](https://github.com/0xMiden/compiler), `midenc`, and its Miden Assembly and Rust-specific tooling, i.e. `miden-format`, `cargo-miden`
+> * The [Miden debugger](https://github.com/0xMiden/miden-debug)
 > * The Miden client
-> * The Miden standard library
-> * The Miden transaction kernel library
+> * The Miden core library package
+> * The Miden protocol library packages (transaction kernel, protocol and standards library, and various standard components).
+> * Aliases for running a local instance of the [Miden node](https://github.com/0xMiden/node)
 >
-> In the future, more components will be added.
+> Run `midenup component list` to see a list of all available components for the active toolchain.
 
 ## Usage
 
 To get started, you must first install `midenup`, and then initialize its
-environment, like so:
+environment:
+
+We provide pre-built executables with build attestations for some platforms (Linux and macOS). You can use our installer script to install
+`midenup` easily, while also verifying against those attestations (if you have
+the `gh` executable installed):
 
 ```
-cargo install midenup && midenup init
+curl -L --proto '=https' --tlsv1.2 -sSf 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh | bash
 ```
+
+If prebuilt artifacts are not available for your machine, the script will install from crates.io using Cargo. You can disable this fallback by running
+the script with arguments, like so:
+
+```
+curl -L --proto '=https' --tlsv1.2 -sSf -O 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh
+./installer.sh --no-cargo-fallback
+```
+
+You can also install a specific `midenup` release using the `--version` flag. For more usage information, download the script and pass `--help`.
+
+The installer also runs `midenup init` for you, so after the script exits, `midenup` is ready to use.
+
+### Install via Cargo
+
+Alternatively, you can install yourself from crates.io like so:
+
+```
+cargo install --locked midenup && midenup init
+```
+
+NOTE: This presumes that `$CARGO_HOME/bin` is in your shell's `PATH` environment variable.
 
 The `midenup init` command initializes the `$MIDENUP_HOME` directory, and creates a `miden` symlink in `$CARGO_HOME/bin` (default `~/.cargo/bin`) pointing to the `midenup` executable. Since Rust users typically already have `$CARGO_HOME/bin` in their PATH, the `miden` command should be available immediately.
 

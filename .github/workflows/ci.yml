@@ -29,10 +29,18 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
-      - name: Install Rust
+      - &install-rust
+        name: Install Rust
         run: |
           rustup update --no-self-update stable nightly
+          rustup component add --toolchain nightly rustfmt
           rustc --version
+      - &install-cargo-make
+        name: Install cargo-make
+        run: |
+          if ! cargo make --version 2>/dev/null; then
+            cargo install cargo-make --force
+          fi
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -42,7 +50,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Clippy
         run: |
-          make clippy
+          cargo make clippy
 
   rustfmt:
     name: rustfmt
@@ -54,10 +62,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update nightly
-          rustc --version
+      - *install-rust
+      - *install-cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -68,8 +74,7 @@ jobs:
           save-if: false
       - name: Formatting
         run: |
-          rustup +nightly component add rustfmt
-          make format-check
+          cargo make check-format
 
   unit_tests:
     name: unit tests
@@ -77,10 +82,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
-      - name: Install rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
+      - *install-rust
+      - *install-cargo-make
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
@@ -94,9 +97,9 @@ jobs:
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
         # error occurs
-        run: make test-build
+        run: cargo make test-build
       - name: Test
-        run: make test
+        run: cargo make unit-test
 
   integration_test:
     name: integration tests
@@ -107,10 +110,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
-      - name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
+      - *install-rust
+      - *install-cargo-make
       - name: Install all rustup toolchains present in the manifest
         run: |
           ./.github/auxiliary_scripts/install-toolchains.sh
@@ -126,11 +127,11 @@ jobs:
         # We run `cargo check` to verify that the workspace compiles correctly before attempting
         # to execute the tests from each crate. This produces easier to read output if a compilation
         # error occurs
-        run: make test-build
+        run: cargo make test-build
       - name: Test
-        run: make integration-test
+        run: cargo make integration-test
       - name: Pre-release checks
         # These install real components from this repo's copy of the manifest and run them, so it
         # takes many minutes. Run them on main or on explicitly labelled PRs
         if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
-        run: make prerelease-test
+        run: cargo make prerelease-test
