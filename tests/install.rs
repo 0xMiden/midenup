@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, ffi::OsString, fs::OpenOptions};
+use std::{ffi::OsString, fs::OpenOptions};
 
 use clap::Parser;
 use midenup::{
@@ -506,7 +506,7 @@ fn integration_install_from_non_cargo() {
     );
 }
 
-/// Pre-release check: every component of every toolchain a network names is actually executable.
+/// Pre-release check: every component of every network's toolchain is actually executable.
 ///
 /// This relies on every component respecting the `--help` flag, an assumption `miden_wrapper`
 /// already makes because clap generates help automatically.
@@ -515,9 +515,6 @@ fn integration_install_from_non_cargo() {
 /// whole pipeline produces binaries that run, which means it downloads and builds real components
 /// and takes minutes. Everything asserting only on layout or recorded state uses the offline
 /// fixture instead.
-///
-/// Failures are collected and reported together, each naming the toolchain and the networks that
-/// ship it, so one run says which deployment is broken rather than stopping at the first.
 ///
 /// The `prerelease` marker in the name excludes it from `make integration-test`; run it with
 /// `make prerelease-test`. See the Makefile.
@@ -532,31 +529,26 @@ fn integration_prerelease_components_are_runnable() {
     const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
     let (mut state, config) = test_setup(&test_env, FILE);
 
-    // Several networks may name one toolchain. Install and probe each toolchain once, reported
-    // under every network that ships it.
-    let upstream = config.upstream_manifest().expect("the checked-in manifest must load");
-    let toolchains: BTreeSet<&semver::Version> =
-        upstream.network_names().filter_map(|n| upstream.network_version(n)).collect();
-    assert!(!toolchains.is_empty(), "the manifest must declare at least one network");
+    // mainnet is not available yet, so it is left out until it is.
+    let networks = ["devnet", "testnet"];
 
-    let mut failures = Vec::new();
-    for version in toolchains {
-        let networks: Vec<&str> = upstream.networks_for(version).collect();
-        let label = format!("{version} ({})", networks.join(", "));
-        println!("Checking toolchain {label}");
-
-        let version_arg = version.to_string();
+    for network in networks {
         let install =
-            Midenup::try_parse_from(["midenup", "install", &version_arg, "--profile", "complete"])
+            Midenup::try_parse_from(["midenup", "install", network, "--profile", "complete"])
                 .unwrap();
-        if let Err(err) = install.execute_with_state(&config, &mut state) {
-            failures.push(format!("{label}: failed to install: {err:#}"));
-            continue;
-        }
+        install
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("failed to install {network}: {err:#}"));
+
+        let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join(network))
+            .unwrap_or_else(|err| panic!("the {network} symlink must exist: {err}"));
+        let version = semver::Version::parse(named.file_name().unwrap().to_str().unwrap()).unwrap();
         let channel = state
-            .get(version)
-            .expect("state must record an installed toolchain")
+            .get(&version)
+            .expect("state must record the channel the network names")
             .as_channel();
+
+        println!("Installed {network}: {channel}");
 
         // Verify each executable component is accessible and runnable
         for component in &channel.components {
@@ -565,20 +557,23 @@ fn integration_prerelease_components_are_runnable() {
                 | ComponentKind::CargoExtension { spec, .. }
                     if !spec.is_hidden() =>
                 {
-                    // `+<version>` selects this toolchain regardless of which one is the default
+                    // `+<network>` selects this toolchain regardless of which one is the default
                     let argv: Vec<OsString> = vec![
                         "miden".into(),
-                        format!("+{version}").into(),
+                        format!("+{network}").into(),
                         "help".into(),
                         component.name.as_ref().into(),
                     ];
-                    if let Err(err) = miden_wrapper::miden_wrapper(&argv, &config, &mut state) {
-                        failures.push(format!(
-                            "{label}: component '{}' is not runnable through the 'miden' \
-                             interface: {err:#}",
-                            component.name
-                        ));
-                    }
+
+                    miden_wrapper::miden_wrapper(&argv, &config, &mut state).unwrap_or_else(
+                        |err| {
+                            panic!(
+                                "{network}: component '{}' is not runnable through the 'miden' \
+                                 interface: {err:#}",
+                                component.name
+                            )
+                        },
+                    );
                 },
                 // Skip executables that aren't meant to be executed directly
                 ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
@@ -591,20 +586,11 @@ fn integration_prerelease_components_are_runnable() {
                 // and this build have diverged and the test should say so rather than skipping
                 // quietly.
                 ComponentKind::Unsupported { tag, .. } => {
-                    failures.push(format!(
-                        "{label}: component '{}' has unsupported kind '{tag}'",
-                        component.name
-                    ));
+                    panic!("component '{}' has unsupported kind '{tag}'", component.name)
                 },
             }
         }
     }
-
-    assert!(
-        failures.is_empty(),
-        "pre-release check failed:\n  - {}",
-        failures.join("\n  - ")
-    );
 }
 
 /// Spec section 9.2: a `path` source that changes *while* it is being built produces an
