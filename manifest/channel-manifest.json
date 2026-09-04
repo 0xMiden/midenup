@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1788031868,
+  "date": 1788278838,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1818,21 +1818,13 @@
               "%installed-executable",
               "call"
             ],
-            "deploy": [
-              "%installed-executable",
-              "new-account",
-              "--account-type",
-              "public",
-              "--deploy"
-            ],
             "faucet": [
               "%installed-executable",
               "mint"
             ],
             "new-wallet": [
               "%installed-executable",
-              "new-wallet",
-              "--deploy"
+              "new-wallet"
             ],
             "simulate": [
               "%installed-executable",
