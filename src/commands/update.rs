@@ -20,7 +20,7 @@ use crate::{
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
     state::{Installation, LocalState},
-    version::Authority,
+    version::{Authority, GitTarget},
 };
 
 /// Updates installed toolchains.
@@ -409,6 +409,64 @@ fn work_for(
     Ok(Work::Nothing)
 }
 
+/// Whether the manifest's content changed for this installation.
+pub fn needs_update(config: &Config, installation: &Installation, upstream: &Channel) -> bool {
+    match crate::resolve::resolve(upstream, &installation.intent) {
+        Ok(resolved) => {
+            let installed_names: std::collections::BTreeSet<&str> = installation
+                .components
+                .iter()
+                .map(|component| component.name.as_ref())
+                .collect();
+            let resolved_names: std::collections::BTreeSet<&str> =
+                resolved.iter().map(|component| component.name.as_ref()).collect();
+            if installed_names != resolved_names {
+                return true;
+            }
+        },
+        Err(_) => return true,
+    }
+
+    installation.components.iter().any(|installed| {
+        upstream
+            .get_component(&installed.name)
+            .is_some_and(|new| definition_changed(installed, new, &config.working_directory))
+    })
+}
+
+/// Whether two definitions of one component differ as manifest content.
+///
+/// The pins install records on an authority -- a branch's commit, a path's modification time --
+/// exist only locally and move on their own, so they are normalized away: drift behind them is
+/// reconciled by the update itself, which is what pins for ([`classify`]); a listing must not.
+///
+/// A relative path is stored absolute, joined onto `cwd` at install time, so the upstream form is
+/// joined the same way before comparing.
+fn definition_changed(installed: &Component, upstream: &Component, cwd: &Path) -> bool {
+    let normalized = |component: &Component| {
+        let mut component = component.clone();
+        match &mut component.version {
+            Authority::Path { path, last_modification } => {
+                if path.is_relative() {
+                    *path = cwd.join(&*path);
+                }
+                *last_modification = None;
+            },
+            Authority::Git {
+                target: GitTarget::Branch { latest_revision, .. },
+                ..
+            } => *latest_revision = None,
+            Authority::Git { .. } | Authority::Registry { .. } => (),
+        }
+        serde_json::to_value(component).ok()
+    };
+
+    match (normalized(installed), normalized(upstream)) {
+        (Some(old), Some(new)) => old != new,
+        _ => true,
+    }
+}
+
 /// Commits selection and metadata changes that no installed file reflects.
 ///
 /// Each component's recorded *authority* is preserved rather than taken from upstream. Reaching
@@ -670,6 +728,72 @@ mod tests {
     #[test]
     fn an_identical_component_has_not_changed() {
         assert_eq!(classify_pair(base(), base()), ChangeClass::None);
+    }
+
+    /// The pins install records -- a branch's commit, a path's modification time -- exist only
+    /// locally and move on their own, so a listing must not read them as a manifest change.
+    #[test]
+    fn an_authority_pin_is_not_a_definition_change() {
+        let on_branch = |latest_revision: Option<&str>| {
+            let mut component = base();
+            component.version = Authority::Git {
+                repository_url: "https://example.invalid/repo".to_string(),
+                subpath: None,
+                target: GitTarget::Branch {
+                    name: "main".to_string(),
+                    latest_revision: latest_revision.map(str::to_string),
+                },
+            };
+            component
+        };
+        assert!(!definition_changed(&on_branch(Some("abc123")), &on_branch(None), cwd()));
+
+        let at_path = |last_modification: Option<std::time::SystemTime>| {
+            let mut component = base();
+            component.version = Authority::Path { path: "vm".into(), last_modification };
+            component
+        };
+        let pinned = at_path(Some(std::time::SystemTime::UNIX_EPOCH));
+        assert!(!definition_changed(&pinned, &at_path(None), cwd()));
+    }
+
+    /// Install stores a relative path joined onto the working directory; the manifest still says
+    /// the relative form, and the two are the same definition.
+    #[test]
+    fn a_relative_path_matches_its_installed_absolute_form() {
+        let cwd = Path::new("/work");
+        let at_path = |path: &str, last_modification: Option<std::time::SystemTime>| {
+            let mut component = base();
+            component.version = Authority::Path { path: path.into(), last_modification };
+            component
+        };
+        let installed = at_path("/work/vm", Some(std::time::SystemTime::UNIX_EPOCH));
+        assert!(!definition_changed(&installed, &at_path("vm", None), cwd));
+        assert!(definition_changed(&installed, &at_path("other", None), cwd));
+    }
+
+    /// Normalizing the pin must not mask a real change riding alongside it.
+    #[test]
+    fn a_change_next_to_a_pin_is_still_a_definition_change() {
+        let mut installed = base();
+        installed.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: GitTarget::Branch {
+                name: "main".to_string(),
+                latest_revision: Some("abc123".to_string()),
+            },
+        };
+        let mut upstream = base();
+        upstream.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: GitTarget::Branch {
+                name: "next".to_string(),
+                latest_revision: None,
+            },
+        };
+        assert!(definition_changed(&installed, &upstream, cwd()));
     }
 
     /// An artifact is a file in the publication, so a component whose artifact URI moves to a new

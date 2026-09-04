@@ -556,9 +556,11 @@ The active view is a scoping and discovery mechanism, not a security boundary.
 **Alias conflicts are scoped to the view.** In v1, `Channel::get_aliases` would hard-error on any duplicate alias across the whole channel. Under a superset that accretes components from multiple projects, two components that no project ever activates together could collide and break *every* command. Therefore: a conflict *within the active view* is an error; a conflict that exists only in
 the superset is a warning, and the component in the active view wins.
 
-### 8.6 Partial status is derived
+### 8.6 Update status is derived
 
-Local state does not record a "partial" flag. When the upstream manifest is available, an installation is displayed as partial if its installed component set is a proper subset of the channel's complete set. When upstream is unavailable, partial status is not displayed.
+Local state does not record an "update available" flag. When the upstream manifest is available, an installation is displayed as having an update if the manifest's content changed for it.
+
+The comparison is manifest content alone. The pins install records on an authority — a branch's latest commit, a path's modification time — exist only locally and move on their own, so they are excluded: drift behind a pin is reconciled by `update` itself, which is what pinning is for, and a listing performs no source or network I/O beyond the manifest fetch.
 
 Components with no physical output (`command` with zero artifacts) count as installed for membership purposes and are exempt from physical verification (§9.6).
 
@@ -569,7 +571,7 @@ upstream is unavailable the annotation is omitted entirely rather than derived l
 guess would be exactly the derivation networks exist to eliminate, and a stale one would tell a user
 they are on mainnet when they are not. The other markers are unchanged: `(needs reinstallation)` is
 derived from local state alone - a migrated record with no publication - and is always shown, while
-`(partially installed)` and `(unavailable upstream)` need upstream and are omitted with it.
+`(update available)` and `(unavailable upstream)` need upstream and are omitted with it.
 
 ---
 

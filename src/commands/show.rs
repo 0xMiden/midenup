@@ -3,11 +3,23 @@ use colored::Colorize;
 
 use super::Flags;
 use crate::{
+    channel::UpstreamMatch,
     config::Config,
     report,
     state::LocalState,
     toolchain::{Toolchain, ToolchainJustification},
 };
+
+/// Appends a status marker to a listing row: yellow as one span when color is on, plain otherwise.
+fn push_marker(line: &mut String, text: &str, use_color: bool) {
+    use core::fmt::Write;
+
+    if use_color {
+        write!(line, " {}", text.yellow()).unwrap();
+    } else {
+        write!(line, " {text}").unwrap();
+    }
+}
 
 #[derive(Debug, Subcommand)]
 pub enum ShowCommand {
@@ -65,8 +77,8 @@ impl ShowCommand {
             Self::List { .. } => {
                 // Installed toolchains are recorded locally, so this works with no network at all.
                 // Upstream only adds *markers* -- which networks name a channel, which
-                // installations are partial or no longer published -- so when it is unavailable
-                // they are simply omitted rather than guessed at.
+                // installations have updates or are no longer published -- so when it is
+                // unavailable they are simply omitted rather than guessed at.
                 let upstream = config.upstream_manifest().ok();
                 // The upstream lookup may have emitted a report to stderr, so restore stdout's
                 // color policy immediately before rendering the result.
@@ -112,17 +124,12 @@ impl ShowCommand {
                                 if linked != name {
                                     continue;
                                 }
-                                if let Some(marker) = crate::networks::drift(
+                                if let Some(notice) = crate::networks::drift(
                                     network,
                                     linked,
                                     manifest.network_version(network),
                                 ) {
-                                    if use_color {
-                                        write!(&mut line, " {}", marker.yellow()).unwrap();
-                                    } else {
-                                        line.push(' ');
-                                        line.push_str(&marker);
-                                    }
+                                    push_marker(&mut line, &notice, use_color);
                                 }
                             }
                         }
@@ -132,37 +139,46 @@ impl ShowCommand {
                         // point: the user's toolchain still works, but only after it is installed
                         // properly, and they should not have to infer that from a failure.
                         if !installation.is_managed() {
-                            if use_color {
-                                write!(&mut line, " {}", "(needs reinstallation)".yellow())
-                                    .unwrap();
-                            } else {
-                                line.push_str(" (needs reinstallation)");
-                            }
-                            write!(&mut line, " -- run `midenup install {name}`").unwrap();
+                            push_marker(
+                                &mut line,
+                                &format!("(needs reinstallation) -- run `midenup install {name}`"),
+                                use_color,
+                            );
                         }
 
-                        if let Some(manifest) = upstream {
-                            match manifest.get_channel_by_name(name) {
-                                Some(channel)
-                                    if installation
-                                        .as_channel()
-                                        .is_partially_installed(channel) =>
-                                {
-                                    if use_color {
-                                        write!(&mut line, " {}", "(partially installed)".yellow())
-                                            .unwrap();
-                                    } else {
-                                        line.push_str(" (partially installed)");
+                        if upstream.is_some() {
+                            // The lookup follows migration lineage the way `update` does, so a
+                            // superseded channel shows as updatable rather than gone. Verbatim
+                            // manifest content: a listing pins nothing and reaches for no source.
+                            match installation.as_channel().upstream_counterpart_raw(config) {
+                                // An unmanaged record already carries its one instruction, the
+                                // reinstall above; a second directive would contradict it.
+                                Some(_) if !installation.is_managed() => {},
+                                Some((channel, upstream_match)) => {
+                                    let has_update = match upstream_match {
+                                        // Being superseded is the update: running it migrates.
+                                        UpstreamMatch::Migrated { .. } => true,
+                                        UpstreamMatch::UpstreamCounterpart => {
+                                            super::update::needs_update(
+                                                config,
+                                                installation,
+                                                channel,
+                                            )
+                                        },
+                                    };
+                                    if has_update {
+                                        push_marker(
+                                            &mut line,
+                                            &format!(
+                                                "(update available) -- run `midenup update {name}`"
+                                            ),
+                                            use_color,
+                                        );
                                     }
                                 },
-                                Some(_) => {},
                                 // Retained, not deleted: the user may still want `var/` and an
                                 // explicit uninstall (spec section 12.3).
-                                None if use_color => {
-                                    write!(&mut line, " {}", "(unavailable upstream)".yellow())
-                                        .unwrap()
-                                },
-                                None => line.push_str(" (unavailable upstream)"),
+                                None => push_marker(&mut line, "(unavailable upstream)", use_color),
                             }
                         }
 
