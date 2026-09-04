@@ -104,6 +104,9 @@ pub struct Installation {
     pub publication: PublicationRef,
     /// UTC epoch seconds.
     pub installed_at: i64,
+    /// The midenup version that produced this installation's on-disk layout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub midenup_version: Option<semver::Version>,
 }
 
 impl Installation {
