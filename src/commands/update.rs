@@ -410,7 +410,7 @@ fn work_for(
 }
 
 /// Whether the manifest's content changed for this installation.
-pub fn needs_update(installation: &Installation, upstream: &Channel) -> bool {
+pub fn needs_update(config: &Config, installation: &Installation, upstream: &Channel) -> bool {
     match crate::resolve::resolve(upstream, &installation.intent) {
         Ok(resolved) => {
             let installed_names: std::collections::BTreeSet<&str> = installation
@@ -430,7 +430,7 @@ pub fn needs_update(installation: &Installation, upstream: &Channel) -> bool {
     installation.components.iter().any(|installed| {
         upstream
             .get_component(&installed.name)
-            .is_some_and(|new| definition_changed(installed, new))
+            .is_some_and(|new| definition_changed(installed, new, &config.working_directory))
     })
 }
 
@@ -439,11 +439,19 @@ pub fn needs_update(installation: &Installation, upstream: &Channel) -> bool {
 /// The pins install records on an authority -- a branch's commit, a path's modification time --
 /// exist only locally and move on their own, so they are normalized away: drift behind them is
 /// reconciled by the update itself, which is what pins for ([`classify`]); a listing must not.
-fn definition_changed(installed: &Component, upstream: &Component) -> bool {
+///
+/// A relative path is stored absolute, joined onto `cwd` at install time, so the upstream form is
+/// joined the same way before comparing.
+fn definition_changed(installed: &Component, upstream: &Component, cwd: &Path) -> bool {
     let normalized = |component: &Component| {
         let mut component = component.clone();
         match &mut component.version {
-            Authority::Path { last_modification, .. } => *last_modification = None,
+            Authority::Path { path, last_modification } => {
+                if path.is_relative() {
+                    *path = cwd.join(&*path);
+                }
+                *last_modification = None;
+            },
             Authority::Git {
                 target: GitTarget::Branch { latest_revision, .. },
                 ..
@@ -738,7 +746,7 @@ mod tests {
             };
             component
         };
-        assert!(!definition_changed(&on_branch(Some("abc123")), &on_branch(None)));
+        assert!(!definition_changed(&on_branch(Some("abc123")), &on_branch(None), cwd()));
 
         let at_path = |last_modification: Option<std::time::SystemTime>| {
             let mut component = base();
@@ -746,7 +754,22 @@ mod tests {
             component
         };
         let pinned = at_path(Some(std::time::SystemTime::UNIX_EPOCH));
-        assert!(!definition_changed(&pinned, &at_path(None)));
+        assert!(!definition_changed(&pinned, &at_path(None), cwd()));
+    }
+
+    /// Install stores a relative path joined onto the working directory; the manifest still says
+    /// the relative form, and the two are the same definition.
+    #[test]
+    fn a_relative_path_matches_its_installed_absolute_form() {
+        let cwd = Path::new("/work");
+        let at_path = |path: &str, last_modification: Option<std::time::SystemTime>| {
+            let mut component = base();
+            component.version = Authority::Path { path: path.into(), last_modification };
+            component
+        };
+        let installed = at_path("/work/vm", Some(std::time::SystemTime::UNIX_EPOCH));
+        assert!(!definition_changed(&installed, &at_path("vm", None), cwd));
+        assert!(definition_changed(&installed, &at_path("other", None), cwd));
     }
 
     /// Normalizing the pin must not mask a real change riding alongside it.
@@ -770,7 +793,7 @@ mod tests {
                 latest_revision: None,
             },
         };
-        assert!(definition_changed(&installed, &upstream));
+        assert!(definition_changed(&installed, &upstream, cwd()));
     }
 
     /// An artifact is a file in the publication, so a component whose artifact URI moves to a new

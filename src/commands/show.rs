@@ -159,7 +159,11 @@ impl ShowCommand {
                                         // Being superseded is the update: running it migrates.
                                         UpstreamMatch::Migrated { .. } => true,
                                         UpstreamMatch::UpstreamCounterpart => {
-                                            super::update::needs_update(installation, channel)
+                                            super::update::needs_update(
+                                                config,
+                                                installation,
+                                                channel,
+                                            )
                                         },
                                     };
                                     if has_update {
