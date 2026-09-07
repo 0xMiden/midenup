@@ -203,7 +203,7 @@ impl<'a> ToolchainEnvironment<'a> {
             .iter()
             .filter_map(|comp| match comp.kind() {
                 ComponentKind::Package | ComponentKind::LegacyPackage { .. } => {
-                    Some(comp.name.as_ref())
+                    Some(format!("  {}\n", comp.name.bold()))
                 },
                 _ => None,
             })
