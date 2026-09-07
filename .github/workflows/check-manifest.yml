@@ -1,0 +1,52 @@
+name: check manifest
+
+on:
+  workflow_call:
+    inputs:
+      base:
+        description: Git ref holding the manifest this change replaces
+        required: true
+        type: string
+      allow-downgrade:
+        description: Accept a network moving to an older toolchain
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+      - name: Validate the channel manifest
+        run: cargo make check-manifest
+      - name: Check the manifest against the one it replaces
+        env:
+          BASE: ${{ inputs.base }}
+          ALLOW_DOWNGRADE: ${{ inputs.allow-downgrade && '--allow-downgrade' || '' }}
+        run: |
+          set -euo pipefail
+          if ! git fetch --depth=1 origin "${BASE}"; then
+            echo "::error::cannot fetch ${BASE}, the manifest this change replaces; was the branch force-pushed?"
+            exit 1
+          fi
+          git show FETCH_HEAD:manifest/channel-manifest.json > "${RUNNER_TEMP}/base-manifest.json"
+          # ALLOW_DOWNGRADE is deliberately unquoted: it is either a flag or nothing
+          # shellcheck disable=SC2086
+          cargo make check-manifest --against "file://${RUNNER_TEMP}/base-manifest.json" ${ALLOW_DOWNGRADE}
+      - name: How to allow a deliberate downgrade
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        run: echo "::notice::If the check refused a network moving to an older toolchain and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."
