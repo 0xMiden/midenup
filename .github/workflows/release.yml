@@ -367,3 +367,38 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cargo make release finalize --plan "${RUNNER_TEMP}/plan.json"
+
+  # Install from the release that was just published, the way the README tells users to.
+  # This is the only check that reaches the installer through its published asset URL, and
+  # the only one that runs against the artifacts of this release rather than the previous one.
+  smoke:
+    name: install from release
+    needs: [finalize]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      artifact-metadata: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}
+
+      - name: Run the published installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="$(jq -r '.intent.tags[] | select(.unit == "main") | .name' "${RUNNER_TEMP}/plan.json")"
+          echo "Installing midenup ${tag}"
+          curl --retry 10 -L --proto '=https' --tlsv1.2 -sSf -O \
+            "https://github.com/0xMiden/midenup/releases/download/${tag}/installer.sh"
+          bash installer.sh --version "${tag}"
+
+      - name: Verify `midenup` installation
+        run: |
+          which midenup
+          midenup --version
