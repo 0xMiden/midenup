@@ -21,6 +21,8 @@ pub enum InvalidArtifactId {
     LeadingDash(String),
     #[error("invalid artifact id '{0}': must not contain a NUL byte")]
     InteriorNul(String),
+    #[error("invalid artifact id '{0}': must not contain an empty path segment")]
+    EmptySegment(String),
 }
 
 /// A component kind that this build cannot compute a destination for.
@@ -70,6 +72,32 @@ pub fn validate_artifact_id(id: &str) -> Result<(), InvalidArtifactId> {
     Ok(())
 }
 
+/// Validates that `id` is usable as a relative path of one or more installed filenames.
+///
+/// Every `/`-separated segment must satisfy [validate_artifact_id], so a path cannot escape the
+/// directory it is joined onto.
+pub fn validate_artifact_path(id: &str) -> Result<(), InvalidArtifactId> {
+    if id.is_empty() {
+        return Err(InvalidArtifactId::Empty);
+    }
+    for segment in id.split('/') {
+        if segment.is_empty() {
+            return Err(InvalidArtifactId::EmptySegment(id.to_string()));
+        }
+        validate_artifact_id(segment)?;
+    }
+    Ok(())
+}
+
+/// Validates `id` under the rule for `component`'s kind: assets and commands install files under
+/// `etc/<component>/`, so their ids may be relative paths; every other kind installs a single file.
+pub fn validate_artifact_id_for(component: &Component, id: &str) -> Result<(), InvalidArtifactId> {
+    match component.kind() {
+        ComponentKind::Asset | ComponentKind::Command { .. } => validate_artifact_path(id),
+        _ => validate_artifact_id(id),
+    }
+}
+
 /// Computes where `artifact_id` of `component` installs within `sysroot`.
 ///
 /// | Kind                          | Destination                          | Mode   |
@@ -80,13 +108,14 @@ pub fn validate_artifact_id(id: &str) -> Result<(), InvalidArtifactId> {
 /// | `asset`, `command`            | `etc/<component>/<artifact-id>`      | `0644` |
 ///
 /// Note that executables ignore `artifact_id` for naming: the installed name comes from
-/// `installed-executable`, and the matrix requires the two to agree.
+/// `installed-executable`, and the matrix requires the two to agree. An asset or command artifact
+/// id may be a relative path, so a component can install files into subdirectories of its `etc`.
 pub fn destination_for(
     component: &Component,
     artifact_id: &str,
     sysroot: &Path,
 ) -> Result<Destination, DestinationError> {
-    validate_artifact_id(artifact_id)?;
+    validate_artifact_id_for(component, artifact_id)?;
 
     let destination = match component.kind() {
         ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. } => {
@@ -174,12 +203,42 @@ mod tests {
         }
     }
 
+    #[test]
+    fn rejects_unsafe_artifact_paths() {
+        for bad in ["", "/a", "a/", "a//b", "a/./b", "a/../b", "a/-b", "a\\b", "a/b\0"] {
+            assert!(validate_artifact_path(bad).is_err(), "should reject {bad:?}");
+        }
+        for good in ["docker-compose.yml", "compose/node.yml", "a/b/c.d"] {
+            assert!(validate_artifact_path(good).is_ok(), "should accept {good:?}");
+        }
+    }
+
     /// A traversal attempt must be rejected outright, not normalized into something plausible.
     #[test]
     fn a_traversal_id_never_produces_a_path_outside_the_sysroot() {
         let pkg = component("core", ComponentKind::Package);
         let err = destination_for(&pkg, "../../etc/passwd", Path::new("/sysroot")).unwrap_err();
         assert!(matches!(err, DestinationError::InvalidId(InvalidArtifactId::NotASegment(_))));
+
+        let asset = component("node", ComponentKind::Asset);
+        let err = destination_for(&asset, "../../etc/passwd", Path::new("/sysroot")).unwrap_err();
+        assert!(matches!(
+            err,
+            DestinationError::InvalidId(InvalidArtifactId::RelativeSegment(_))
+        ));
+    }
+
+    /// Only the kinds that install under `etc/<component>/` accept a path.
+    #[test]
+    fn a_path_id_is_accepted_only_for_assets_and_commands() {
+        let root = Path::new("/sysroot");
+        let pkg = component("core", ComponentKind::Package);
+        let err = destination_for(&pkg, "sub/core.masp", root).unwrap_err();
+        assert!(matches!(err, DestinationError::InvalidId(InvalidArtifactId::NotASegment(_))));
+
+        let asset = component("node", ComponentKind::Asset);
+        let d = destination_for(&asset, "compose/node.yml", root).unwrap();
+        assert_eq!(d.path, root.join("etc").join("node").join("compose").join("node.yml"));
     }
 
     #[test]

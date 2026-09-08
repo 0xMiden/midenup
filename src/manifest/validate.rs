@@ -28,7 +28,7 @@
 use std::collections::{BTreeSet, HashMap};
 
 use super::{Channel, Component, ComponentKind, Manifest};
-use crate::plan::{destination_for, validate_artifact_id};
+use crate::plan::{destination_for, validate_artifact_id, validate_artifact_id_for};
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ValidationError {
@@ -317,7 +317,7 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
         }
 
         for (id, artifact) in component.artifacts.artifacts.iter() {
-            if let Err(err) = validate_artifact_id(id) {
+            if let Err(err) = validate_artifact_id_for(component, id) {
                 errors.push(invalid("artifact id", err.to_string()));
             }
 
