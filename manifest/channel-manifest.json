@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1788664559,
+  "date": 1788877220,
   "networks": {
     "devnet": "0.16.0",
     "mainnet": "0.15.0",
@@ -1856,7 +1856,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.1"
+            "version": "0.16.0"
           }
         },
         {
@@ -1875,7 +1875,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.29.1"
+            "version": "0.29.4"
           }
         },
         {
@@ -1931,7 +1931,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.1"
+            "version": "0.16.0"
           }
         },
         {
@@ -1959,7 +1959,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.29.2"
+            "version": "0.29.4"
           }
         },
         {
@@ -1987,7 +1987,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.29.2"
+            "version": "0.29.4"
           }
         },
         {
@@ -2130,7 +2130,7 @@
           },
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.3"
+            "version": "0.16.0"
           }
         },
         {
@@ -2152,7 +2152,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0-rc.9"
+            "version": "0.16.1"
           }
         },
         {
@@ -2160,14 +2160,14 @@
           "installation_method": {
             "crate_name": "miden-remote-prover",
             "kind": "cargo",
-            "rustup_channel": "1.96"
+            "rustup_channel": "1.98"
           },
           "installed-executable": "miden-remote-prover",
           "kind": "executable",
           "name": "remote-prover",
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.3"
+            "version": "0.16.0"
           }
         },
         {
@@ -2175,14 +2175,14 @@
           "installation_method": {
             "crate_name": "miden-validator",
             "kind": "cargo",
-            "rustup_channel": "1.96"
+            "rustup_channel": "1.98"
           },
           "installed-executable": "miden-validator",
           "kind": "executable",
           "name": "validator",
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.3"
+            "version": "0.16.0"
           }
         },
         {
@@ -2232,7 +2232,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.29.2"
+            "version": "0.29.4"
           }
         }
       ]
