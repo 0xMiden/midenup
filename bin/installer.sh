@@ -91,9 +91,9 @@ do_verify_attestation() {
 }
 
 install_via_cargo() {
-    case "${0:-}" in
+    case "${1:-}" in
         "")  cargo install --force --locked --bin midenup --no-track midenup ;;
-        *)  cargo install --force --locked --bin midenup --no-track --version "$0" midenup;;
+        *)  cargo install --force --locked --bin midenup --no-track --version "$1" midenup;;
     esac
 }
 
