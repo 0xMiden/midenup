@@ -142,17 +142,21 @@ aliases. These aliases exist to facilitate the execution of common miden task.
 
 Here's a table with all the currently available aliases:
 
-| Alias            | Action                            | Corresponds to                                                       |
-|------------------|-----------------------------------|----------------------------------------------------------------------|
-| miden account    | Create local account              | miden-client account                                                 |
-| miden faucet     | Fund account via faucet           | miden-client mint                                                    |
-| miden new        | Create new project                | cargo miden new                                                      |
-| miden build      | Build project                     | cargo miden build                                                    |
-| miden deploy     | Deploy a contract                 | miden-client -s public --account-type regular-account-immutable-code |
-| miden new-wallet | Create a wallet                   | miden-client new-wallet --deploy                                     |
-| miden call       | Call a procedure on an account    | miden-client call                                          |
-| miden send       | Send transaction (state-changing) | miden-client send                                                    |
-| miden simulate   | Simulate transaction (no commit)  | miden-client exec                                                    |
+| Alias                  | Action                                  | Corresponds to                        |
+|------------------------|-----------------------------------------|---------------------------------------|
+| miden new              | Create new project                      | cargo miden new                       |
+| miden build            | Build project                           | midenc                                |
+| miden format           | Format Miden Assembly                   | miden-format                          |
+| miden registry         | Run a local package registry            | miden-registry                        |
+| miden mint             | Fund account via faucet                 | miden-faucet-client mint              |
+| miden account          | View and manage accounts                | miden-client account                  |
+| miden new-wallet       | Create a wallet                         | miden-client new-wallet               |
+| miden sync             | Sync client state with the network      | miden-client sync                     |
+| miden consumable-notes | List notes that can be consumed         | miden-client notes --list consumable  |
+| miden consume-notes    | Consume notes                           | miden-client consume-notes            |
+| miden transfer         | Create a pay-to-id transaction          | miden-client transfer                 |
+| miden call             | Call a procedure on an account          | miden-client call                     |
+| miden exec             | Execute a program against an account    | miden-client exec                     |
 
 
 ### Uninstalling a toolchain
