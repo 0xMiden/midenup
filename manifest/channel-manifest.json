@@ -3,8 +3,8 @@
   "date": 1788877220,
   "networks": {
     "devnet": "0.16.0",
-    "mainnet": "0.15.0",
-    "testnet": "0.15.0"
+    "mainnet": "0.16.0",
+    "testnet": "0.16.0"
   },
   "channels": [
     {
