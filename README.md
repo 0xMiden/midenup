@@ -73,7 +73,7 @@ You are now ready to install your first toolchain!
 The repository doubles as a composite action that installs `midenup` and a toolchain in one step:
 
 ```yaml
-- uses: 0xMiden/midenup@v1
+- uses: 0xMiden/midenup@v1.1.0  # We use immutable releases, and only exact tags
   with:
     toolchain: testnet          # network or version, default `mainnet`
     profile: minimal            # `minimal` or `complete`, default `minimal`
@@ -81,6 +81,13 @@ The repository doubles as a composite action that installs `midenup` and a toolc
 ```
 
 The requested toolchain becomes the system default, so `miden` uses it in later steps. Set `midenup-version` to pin a specific `midenup` release instead of the latest.
+
+> [!IMPORTANT]
+> If your repository contains a `miden-toolchain.toml`, it will take precedence
+> over the system default selected by the action. If you intend to run commands
+> with a different toolchain than your repository pins, then you must specify
+> that when invoking those commands, e.g. `miden +0.16.0 build` or by setting
+> the `MIDENUP_TOOLCHAIN` environment variable, e.g. `MIDENUP_TOOLCHAIN=0.16.0`.
 
 ### Installing a toolchain
 

@@ -47,4 +47,4 @@ jobs:
       - name: Check the toolchain is active
         run: |
           midenup show active-toolchain
-          miden vm --version
+          miden help vm
