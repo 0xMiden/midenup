@@ -68,6 +68,20 @@ The `midenup init` command initializes the `$MIDENUP_HOME` directory, and create
 
 You are now ready to install your first toolchain!
 
+### Use in GitHub Actions
+
+The repository doubles as a composite action that installs `midenup` and a toolchain in one step:
+
+```yaml
+- uses: 0xMiden/midenup@v1
+  with:
+    toolchain: testnet          # network or version, default `mainnet`
+    profile: minimal            # `minimal` or `complete`, default `minimal`
+    components: client,vm       # optional extra components
+```
+
+The requested toolchain becomes the system default, so `miden` uses it in later steps. Set `midenup-version` to pin a specific `midenup` release instead of the latest.
+
 ### Installing a toolchain
 
 After initializing `midenup`, the first thing you will want to do is actually
