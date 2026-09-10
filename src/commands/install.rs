@@ -333,6 +333,10 @@ fn target_installation(
             target: config.target().to_string(),
         },
         installed_at: chrono::Utc::now().timestamp(),
+        midenup_version: Some(
+            semver::Version::parse(env!("CARGO_PKG_VERSION"))
+                .expect("CARGO_PKG_VERSION is always valid semver"),
+        ),
     })
 }
 
