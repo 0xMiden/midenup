@@ -44,6 +44,7 @@ jobs:
       contents: read
     outputs:
       subject: ${{ steps.subject.outputs.sha }}
+      tag: ${{ steps.intent.outputs.tag }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -91,10 +92,14 @@ jobs:
         run: cargo make release lint
 
       - name: Generate the intent
+        id: intent
         run: |
+          set -euo pipefail
           cargo make release plan \
             --subject "${GITHUB_SHA}" --output "${RUNNER_TEMP}/intent.json"
           cat "${RUNNER_TEMP}/intent.json"
+          tag_name=$(jq -r '.tags[0].name' < "${RUNNER_TEMP}/intent.json")
+          echo "tag=${tag_name}" >> "${GITHUB_OUTPUT}"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -368,3 +373,17 @@ jobs:
         run: |
           cargo make release finalize --plan "${RUNNER_TEMP}/plan.json"
 
+  smoke:
+    name: Run smoke tests
+    needs: [plan, finalize]
+    if: ${{ needs.plan.result == 'success' && needs.finalize.result == 'success' }}
+    # A called workflow can only *downgrade* the calling job's token, so this
+    # grant is the ceiling for every job in `smoke.yml`. Without it the
+    # job inherits the top-level permissions and the call is rejected as an escalation
+    # when the run graph is built -- which fails the whole run before any job
+    # starts, rather than failing this one.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/smoke.yml
+    with:
+      release: ${{ needs.plan.outputs.tag }}

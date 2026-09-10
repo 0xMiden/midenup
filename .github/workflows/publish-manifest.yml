@@ -9,6 +9,7 @@ on:
 
 # Grant GITHUB_TOKEN the permissions required to make a Pages deployment
 permissions:
+  contents: read
   pages: write
   id-token: write
 
@@ -37,3 +38,18 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  smoke:
+    name: Run smoke tests
+    needs: deploy
+    if: ${{ needs.deploy.result == 'success' }}
+    # A called workflow can only *downgrade* the calling job's token, so this
+    # grant is the ceiling for every job in `smoke.yml`. Without it the
+    # job inherits the top-level permissions and the call is rejected as an escalation
+    # when the run graph is built -- which fails the whole run before any job
+    # starts, rather than failing this one.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/smoke.yml
+    with:
+      release: latest
