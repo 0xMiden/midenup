@@ -495,24 +495,26 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
     let fixture = Fixture::new(env.tmp_dir.path());
     let manifest = fixture.manifest_with_command("manifest.json");
 
-    let (mut state, config) = test_setup(&env, &manifest);
+    let (mut state, mut config) = test_setup(&env, &manifest);
     Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
 
-    // `docker` is not installed here, and that is the point: the failure names what midenup tried
-    // to run, which is what proves the expansion happened.
-    let err = Midenup::try_parse_from(["miden", "node", "up"])
+    let output = config.capture_output();
+    Midenup::try_parse_from(["miden", "node", "up"])
         .unwrap()
         .execute_with_state(&config, &mut state)
-        .expect_err("docker is not available in the test environment");
+        .expect("the declared subcommand must dispatch to the component");
 
-    let message = format!("{err:#}");
+    let output = output.borrow();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1));
     assert!(
-        message.contains("miden node up"),
-        "the failure must name the user's command: {message}"
+        stderr.contains("no service selected"),
+        "the failure must come from docker compose reading the generated command: {stderr}"
     );
+    drop(output);
 
     // ...and asking for help on it lists the verbs rather than trying to run one.
     Midenup::try_parse_from(["miden", "help", "node"])
@@ -584,6 +586,68 @@ fn integration_an_alias_conflict_inside_the_active_view_is_an_error() {
     assert!(
         message.contains("first") && message.contains("second"),
         "and both components that define it: {message}"
+    );
+}
+
+/// Discovery without a project is discovery over everything installed.
+///
+/// Section 8.5 scopes the view to *this project's* request -- profile plus components from its
+/// toolchain file. Where there is no toolchain file there is no request, and re-deriving one
+/// (`minimal`, no components) drops every component belonging to no profile -- which is exactly
+/// what `midenup install <channel> --component <name>` installs. It would be absent from
+/// `miden help toolchain` and reachable only through the outside-the-view fallback, warning that a
+/// component is not part of the toolchain it was deliberately installed into.
+#[test]
+fn integration_without_a_toolchain_file_discovery_covers_everything_installed() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("view_without_a_project");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    // `first` and `second` belong to no profile, and `first` declares the alias `run`.
+    let manifest = fixture.manifest_with_conflicting_aliases("manifest.json");
+
+    let (mut state, config) = test_setup(&env, &manifest);
+    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--component", "first"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install");
+    assert_eq!(installed(&state), vec!["first", "vm"]);
+
+    // `miden` decides what it is from `argv[0]` and locates the home the way a shell would, so
+    // this is a real process reached through a symlink, as `midenup init` sets up.
+    let bin = env.tmp_dir.path().join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let miden = bin.join("miden");
+    std::os::unix::fs::symlink(env!("CARGO_BIN_EXE_midenup"), &miden).unwrap();
+
+    let listing = |directory: &Path| -> String {
+        let output = midenup_command_via_xdg(&miden, &env, &manifest)
+            .args(["help", "toolchain"])
+            .current_dir(directory)
+            .output()
+            .expect("failed to run miden");
+        assert!(
+            output.status.success(),
+            "`miden help toolchain` must succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    };
+
+    let elsewhere = env.tmp_dir.path().join("no-project");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+
+    let unnarrowed = listing(&elsewhere);
+    assert!(
+        unnarrowed.contains("first"),
+        "a component installed on purpose must be listed: {unnarrowed}"
+    );
+    assert!(unnarrowed.contains("run"), "and so must its alias: {unnarrowed}");
+
+    // A toolchain file *is* a request, and it still narrows: this project asked for neither.
+    let declared = listing(&project(&env, "project-vm", &[]));
+    assert!(
+        !declared.contains("first"),
+        "a project's declared toolchain still scopes discovery: {declared}"
     );
 }
 

@@ -104,6 +104,37 @@ fn integration_miden_test() {
         .eq(installed_toolchains);
 }
 
+#[test]
+#[cfg(unix)]
+fn integration_miden_preserves_component_exit_code() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_miden_preserves_component_exit_code");
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
+    let vm_binary = fixture.dir.join("0.15.0").join("miden-vm");
+
+    std::fs::write(&vm_binary, b"#!/bin/sh\nexit 42\n").expect("failed to write fixture binary");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&vm_binary, std::fs::Permissions::from_mode(0o755))
+            .expect("failed to chmod fixture binary");
+    }
+
+    let installed = run_midenup(&test_env, &fixture.manifest_uri, &["install", "0.15.0"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let output = midenup_command(
+        test_env.cargo_home.join("bin").join("miden"),
+        &test_env,
+        &fixture.manifest_uri,
+    )
+    .arg("vm")
+    .output()
+    .expect("failed to run miden");
+
+    assert_eq!(output.status.code(), Some(42));
+}
+
 /// Checks that the `miden` utility recognizes the existence of a `miden-toolchain.toml` file.
 ///
 /// This file contains the required toolchain for the current project, along with a list of

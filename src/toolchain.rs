@@ -174,13 +174,26 @@ impl Toolchain {
             roots: current_toolchain.components.iter().cloned().collect(),
         };
 
+        // Only a `miden-toolchain.toml` narrows the view: section 8.5 defines the active view as
+        // *this project's* request -- profile plus components from its toolchain file. The other
+        // three justifications carry no request at all; `profile` and `components` above are
+        // synthesized empty, so resolving them narrows dispatch to the `minimal` profile and hides
+        // whatever else this machine installed deliberately -- a component added with
+        // `midenup install <channel> --component <name>` belongs to no profile, and would
+        // otherwise be missing from `miden help toolchain` and reachable only through the
+        // outside-the-view fallback, warning that an explicitly installed component is not part of
+        // the toolchain it was installed into. Without a project file there is nothing to narrow
+        // by, so there is no view and dispatch works against the installed set.
+        let project_view =
+            matches!(justification, ToolchainJustification::MidenToolchainFile { .. });
+
         // Everything the project asked for is installed: nothing to fetch, nothing to install.
         //
         // The active view is resolved against the *installed* snapshot rather than upstream, which
         // is what section 8.5 says it is -- this project's request, against what this machine has.
         if let Some(view) = active_view(config, state, desired_channel, &intent) {
             crate::info!("current toolchain is {desired_channel} and is installed");
-            return Ok((current_toolchain, justification, Some(view)));
+            return Ok((current_toolchain, justification, project_view.then_some(view)));
         }
 
         // Something is missing, so upstream is needed after all.
@@ -216,11 +229,18 @@ impl Toolchain {
             resolved.iter().map(|component| (*component).clone()).collect(),
         ));
 
+        // Name both the network and the version it resolves to, so the user knows what is about
+        // to be installed before anything is fetched.
+        let target = match desired_channel {
+            UserChannel::Version(_) => channel.name.to_string(),
+            UserChannel::Named(network) => format!("{network} ({})", channel.name),
+        };
+
         match state.get(&channel.name).filter(|installation| installation.is_managed()) {
             Some(installed) => {
                 let installed_components: HashSet<&str> =
                     HashSet::from_iter(installed.components.iter().map(|comp| comp.name.as_ref()));
-                crate::info!("installing missing components of the current toolchain:");
+                crate::info!("installing missing components of the current toolchain {target}:");
                 for component in resolved
                     .iter()
                     .map(|component| component.name.as_ref())
@@ -230,7 +250,7 @@ impl Toolchain {
                 }
             },
             None => {
-                crate::info!("current toolchain is {desired_channel}, but not yet installed");
+                crate::info!("current toolchain is {target}, but not yet installed");
             },
         }
 
@@ -244,7 +264,7 @@ impl Toolchain {
         // against what was true before the wait.
         *state = config.local_state()?;
         if let Some(view) = active_view(config, state, desired_channel, &intent) {
-            return Ok((current_toolchain, justification, Some(view)));
+            return Ok((current_toolchain, justification, project_view.then_some(view)));
         }
 
         // Activation goes through exactly the same code path as everything else: the full upstream
@@ -258,7 +278,7 @@ impl Toolchain {
         commands::install(config, channel, state, &options)?;
 
         // Now installed
-        Ok((current_toolchain, justification, upstream_view))
+        Ok((current_toolchain, justification, upstream_view.filter(|_| project_view)))
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.

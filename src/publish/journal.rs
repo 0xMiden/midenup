@@ -407,6 +407,7 @@ mod tests {
                 target: "aarch64-apple-darwin".to_string(),
             },
             installed_at: 1735689600,
+            midenup_version: None,
         }
     }
 
