@@ -253,7 +253,7 @@ Several networks may name one channel, which is the normal state once a testnet 
 
 Validation (§14.2) requires that every network name a channel in the same document, that no network is named like a channel or after one of the synonyms, and that `mainnet` is declared. There is deliberately **no ordering invariant** between networks: a mainnet hotfix legitimately puts mainnet ahead of testnet, and a validator that has to be overridden during an incident is worse than none.
 
-Local state records channel versions only and never a network name, so a stale local copy cannot disagree with upstream about what `mainnet` means. `toolchains/<network>` (§3.4) is derived, rebuilt after every successful operation that installs the channel it names.
+Local state records channel versions only and never a network name, so a stale local copy cannot disagree with upstream about what `mainnet` means. `toolchains/<network>` (§3.4) is written by the operations that install or update *that network*: a network the user never named gets no link, even when upstream says it runs the same channel.
 
 ---
 
@@ -673,7 +673,7 @@ Multi-object publication cannot be made atomic by a single filesystem operation.
 3. VERIFY    structural check (§9.6); write receipt.json
 4. COMMIT    atomically repoint toolchains/<channel>  <- THE COMMIT POINT
 5. RECORD    atomically commit state.json
-6. DERIVE    repoint every toolchains/<network> naming this channel, and
+6. DERIVE    repoint toolchains/<network> for the network requested, if any, and
              $MIDENUP_HOME/opt
 7. CLEAN     release the old publication (see 3.1); delete the journal
 ```
@@ -1177,7 +1177,7 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 * v1.0.1 migration with an unreachable upstream still commits `state.json`;
 * v1.0.0 is rejected and the file is byte-for-byte unchanged;
 * an `unsupported` component parses, shows, and is installable-around, but errors when selected;
-* installing a channel that several networks name writes a link for each of them, and uninstalling it removes all of them while leaving other channels' links resolving;
+* installing a network that shares its channel with others writes a link for that network only, and uninstalling the channel removes every link naming it while leaving other channels' links resolving;
 * a synonym reaches the same channel as the network it names, and produces the network's link;
 * `update <network>` follows a promotion the user does not have installed, and follows a rollback both to a channel they do have and to one they do not, leaving `var/<network>` in place in each case;
 * `update <network>` leaves other networks alone, and still updates its own channel when the pointer has not moved;

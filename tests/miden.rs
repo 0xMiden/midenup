@@ -200,11 +200,12 @@ fn integration_miden_toolchain_toml() {
     assert_eq!(installed_channel.components.len(), 3);
 
     // Now, we try updating the installed toolchain. An update re-resolves the *recorded* intent,
-    // which is `minimal` plus the project's `debug`, so it must not pull in anything else.
-    let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
+    // which is `minimal` plus the project's `debug`, so it must not pull in anything else. The
+    // toolchain was installed by version, so no network names it here and it is updated by version.
+    let command = Midenup::try_parse_from(["midenup", "update", "0.16.0"]).unwrap();
     command
         .execute_with_state(&config, &mut local_manifest)
-        .expect("failed to update stable toolchain");
+        .expect("failed to update 0.16.0 toolchain");
 
     // No components should have been added
     let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();

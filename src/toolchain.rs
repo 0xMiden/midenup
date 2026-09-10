@@ -272,6 +272,12 @@ impl Toolchain {
         // already asked for. Activating one project must never take components away from another.
         let options = InstallationOptions {
             intent_update: Some(IntentUpdate::Union(intent.clone())),
+            // The project named this network, so it is installed here: without the link, the next
+            // dispatch would not find it and install again.
+            network: match desired_channel {
+                UserChannel::Named(name) => Some(name.to_string()),
+                UserChannel::Version(_) => None,
+            },
             ..Default::default()
         };
 

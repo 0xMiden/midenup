@@ -72,11 +72,9 @@ impl ShowCommand {
                 // color policy immediately before rendering the result.
                 let use_color = report::prepare_stdout_color();
 
-                // Check every `toolchains/<network>` links on this machine to compare with
-                // upstream.
-                let local_links = upstream
-                    .map(|_| crate::networks::links(&config.midenup_home))
-                    .unwrap_or_default();
+                // Every `toolchains/<network>` link on this machine: the networks the user
+                // installed, and what to compare with upstream.
+                let local_links = crate::networks::links(&config.midenup_home);
 
                 let toolchains_display: Vec<_> = state
                     .installations
@@ -85,13 +83,14 @@ impl ShowCommand {
                         let name = &installation.channel;
                         let mut line = format!("{name}");
 
-                        // Several networks may name one channel, so this is a list rather than a
-                        // single marker. Omitted entirely when upstream is unavailable: which
-                        // networks name a channel is upstream's answer, never one derived from
-                        // what happens to be on disk here.
-                        let networks: Vec<&str> = upstream
-                            .map(|manifest| manifest.networks_for(name).collect())
-                            .unwrap_or_default();
+                        // The networks the user installed onto this channel, not every network
+                        // upstream says runs it. Several may share one channel, so this is a
+                        // list rather than a single marker.
+                        let networks: Vec<&str> = local_links
+                            .iter()
+                            .filter(|(_, linked)| *linked == name)
+                            .map(|(network, _)| network.as_str())
+                            .collect();
                         if !networks.is_empty() {
                             if use_color {
                                 write!(

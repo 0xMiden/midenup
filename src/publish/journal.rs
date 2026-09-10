@@ -11,7 +11,7 @@
 //! 3. VERIFY    structural check; write receipt.json
 //! 4. COMMIT    repoint toolchains/<channel>          <- THE COMMIT POINT
 //! 5. RECORD    commit state.json
-//! 6. DERIVE    rebuild the network links and opt
+//! 6. DERIVE    write toolchains/<network> for the network requested, if any
 //! 7. CLEAN     release the old publication; delete the journal
 //! ```
 //!
@@ -228,8 +228,9 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
 
 /// Steps 5 and 7 together, for a caller with no step 6 of its own to run.
 ///
-/// Recovery uses this: rebuilding the derived symlinks (step 6) is idempotent and happens on every
-/// command anyway, so completing an interrupted operation does not need to interleave with it.
+/// Recovery uses this. Step 6 writes the link for the network the user named, which the journal
+/// does not record, so an operation interrupted before it completes without that link: the
+/// channel is installed, and `midenup install <network>` writes the link.
 pub fn finish(
     home: &Path,
     entry: &JournalEntry,

@@ -7,12 +7,13 @@ mod common;
 
 use common::*;
 
-/// Installing a channel that several networks name writes a symlink for each of them.
+/// Installing a network writes a symlink for that network only.
 ///
-/// This is the state right after a testnet toolchain is promoted to mainnet. Names belong to the
-/// networks rather than to the channel, so one channel can carry all of them at once.
+/// Right after a testnet toolchain is promoted to mainnet, several networks name one channel. The
+/// user asked for one of them, so only that link is written: the others were not installed here,
+/// and must not later be reported on or updated as if they were.
 #[test]
-fn integration_networks_one_install_writes_every_naming_link() {
+fn integration_networks_one_install_writes_only_the_requested_link() {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup("integration_networks_shared");
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
@@ -32,12 +33,15 @@ fn integration_networks_one_install_writes_every_naming_link() {
         .expect("failed to install");
 
     let toolchains = test_env.midenup_home.join("toolchains");
-    for network in ["mainnet", "testnet", "devnet"] {
-        assert_eq!(
-            std::fs::read_link(toolchains.join(network))
-                .unwrap_or_else(|err| panic!("the {network} link must exist: {err}")),
-            std::path::PathBuf::from("0.15.0"),
-            "{network} must name the installed channel"
+    assert_eq!(
+        std::fs::read_link(toolchains.join("mainnet")).expect("the mainnet link must exist"),
+        std::path::PathBuf::from("0.15.0"),
+        "mainnet must name the installed channel"
+    );
+    for network in ["testnet", "devnet"] {
+        assert!(
+            toolchains.join(network).symlink_metadata().is_err(),
+            "{network} was not installed, so no link may be written for it"
         );
     }
 }
@@ -314,7 +318,11 @@ fn integration_networks_dispatch_gives_each_network_its_own_var() {
     let manifest_uri = format!("file://{}", manifest_path.display());
 
     let (mut state, config) = test_setup(&test_env, &manifest_uri);
-    for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "install", "testnet"],
+    ] {
         Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
