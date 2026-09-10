@@ -329,6 +329,20 @@ fn check_against_the_deployed_manifest() {
         .expect("the flag must allow it");
 }
 
+/// A v1 document is migrated to the current schema when read, which would hide the schema change
+/// from the rule above; the declared versions are what get compared.
+#[test]
+fn check_against_a_v1_manifest_reports_the_schema_change() {
+    let (_dir, next) = fixture();
+    let v1 = concat!(
+        "file://",
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../tests/data/v1_manifest/channel-manifest.json"
+    );
+    let err = run(&next, &["check", "--against", v1]).expect_err("must fail");
+    assert!(err.contains("manifest_version moves from 1.0.1 to 3.0.0"), "{err}");
+}
+
 /// A clone must not inherit its source's predecessor: the update path picks a successor by that
 /// field, and two channels claiming one predecessor is refused by `check`.
 #[test]

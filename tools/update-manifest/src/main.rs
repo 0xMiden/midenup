@@ -8,7 +8,8 @@ use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
     channel::{self, UserChannel},
     manifest::{
-        Component, ComponentKind, Manifest, Promotion, VersionedManifest, validate::ValidationError,
+        Component, ComponentKind, Manifest, Promotion, VersionedManifest,
+        validate::ValidationError, version,
     },
     profile::Profile,
     version::Authority,
@@ -212,19 +213,37 @@ impl Cli {
 
                 // Last, because the rules above must hold before a comparison means anything.
                 if let Some(uri) = against {
-                    let previous = VersionedManifest::load_from(uri)
+                    // Parsing migrates a v1 document to the current schema and stamps it as
+                    // such, so the schema each document declares is read from its text.
+                    let previous_text = VersionedManifest::read_from(uri)
                         .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
-                    midenup::manifest::validate::validate_against(
+                    let previous_schema =
+                        version::read_version_header(&previous_text, "manifest_version")?.version;
+                    let next_text = std::fs::read_to_string(&self.manifest_path)?;
+                    let next_schema =
+                        version::read_version_header(&next_text, "manifest_version")?.version;
+                    let previous = VersionedManifest::parse_str(&previous_text)
+                        .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
+
+                    let mut errors = midenup::manifest::validate::validate_against(
                         &previous,
                         &manifest,
                         *allow_downgrade,
                     )
-                    .map_err(|errors| {
-                        report_errors(
+                    .err()
+                    .unwrap_or_default();
+                    if previous_schema.major != next_schema.major {
+                        errors.push(ValidationError::SchemaMajorChanged {
+                            previous: previous_schema,
+                            next: next_schema,
+                        });
+                    }
+                    if !errors.is_empty() {
+                        return Err(report_errors(
                             &format!("manifest cannot replace the one at '{uri}'"),
                             errors,
-                        )
-                    })?;
+                        ));
+                    }
                 }
                 Ok(())
             },
