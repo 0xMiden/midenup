@@ -201,7 +201,8 @@ pub fn record(
 /// is simply unreferenced, and unreferenced publications are what `midenup gc` reclaims (spec
 /// section 11.6).
 ///
-/// An *uninstall* does delete it, because that is what was asked for.
+/// An *uninstall* does delete it, because that is what was asked for, along with every
+/// `toolchains/<network>` link naming the channel.
 ///
 /// Everything here is best effort except deleting the journal. A state record that is already
 /// committed must not be undone because a directory could not be removed. The journal is
@@ -219,6 +220,19 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
         let link = paths::toolchain_link(home, &entry.channel);
         if is_tombstone(&link) {
             let _ = std::fs::remove_file(&link);
+        }
+
+        // Found by scanning rather than by asking upstream which networks name this channel:
+        // uninstall has to work offline, and a network may have moved upstream since this machine
+        // last looked, in which case upstream would not name the link that is actually here.
+        // [`crate::networks::links`] excludes `default`, which is the user's override and not a
+        // derived link; the caller repairs it if it dangles.
+        for (network, linked) in crate::networks::links(home) {
+            if linked == entry.channel {
+                let link = paths::network_link(home, &network);
+                crate::trace!("removing {}", link.display());
+                let _ = std::fs::remove_file(&link);
+            }
         }
     }
 
@@ -503,6 +517,8 @@ mod tests {
     fn a_tombstoned_symlink_completes_the_uninstall() {
         let (env, old) = Env::with_installed("0.15.0");
         let entry = JournalEntry::uninstall(v("0.15.0"), Some(old.clone()));
+        utils::fs::symlink(&paths::network_link(&env.home, "mainnet"), &PathBuf::from("0.15.0"))
+            .unwrap();
 
         prepare(&env.home, &entry).unwrap();
         commit_symlink(&env.home, &entry).unwrap();
@@ -515,6 +531,10 @@ mod tests {
         assert!(
             std::fs::symlink_metadata(paths::toolchain_link(&env.home, &v("0.15.0"))).is_err(),
             "the tombstone must be cleaned up once the removal is recorded"
+        );
+        assert!(
+            std::fs::symlink_metadata(paths::network_link(&env.home, "mainnet")).is_err(),
+            "a network link naming the removed channel must be cleaned up with it"
         );
         assert!(env.journal_is_empty());
     }

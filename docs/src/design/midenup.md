@@ -48,7 +48,7 @@ Installation is not atomic — it touches a staged tree, a symlink, `state.json`
 3. VERIFY    structural check; write receipt.json
 4. COMMIT    repoint toolchains/<channel>            <- the commit point
 5. RECORD    commit state.json
-6. DERIVE    repoint every toolchains/<network> naming this channel, and opt
+6. DERIVE    repoint toolchains/<network> for the network requested, if any, and opt
 7. CLEAN     release the old publication; delete the journal
 ```
 

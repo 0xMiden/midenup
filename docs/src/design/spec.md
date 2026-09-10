@@ -113,7 +113,7 @@ It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/t
 - Install, update, republication, and pointer moves **never** read, write, move, or delete `var/`.
 - Exactly two operations move it, and this is the whole list. Channel migration (§11.4) **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
 - The other is the one-time conversion of a pre-network home (§12.5), which **renames** `var/<version>` to `var/mainnet`. Such a home kept a single store under the channel it tracked, and that store is the default network's - unless the home records a pin on that version, in which case the version is already the selector and nothing moves.
-- `midenup uninstall <selector>` removes the publication and the state record. It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
+- `midenup uninstall <selector>` removes the publication and the state record - or, for a network whose channel other networks on this machine still name, only that network's link (§11.5). It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
 - `%var` resolves to `$MIDENUP_HOME/var/<selector>`, created on demand at dispatch time.
 
 Previously, `var/` lived inside the publication, and every toolchain update would destroy the user's client data (if it was in the toolchain `var` directory).
@@ -777,7 +777,7 @@ Update re-resolves the **persisted intent** against the new upstream channel:
 
 ### 11.4 Channel migration
 
-When an upstream channel declares `migrates_from: <old>` and `<old>` is installed, the installation is carried to the new channel: intent transfers verbatim, is resolved against the new channel, the new publication is installed, and the old one is removed after the new state record commits. A root missing in the new channel blocks the migration.
+When an upstream channel declares `migrates_from: <old>` and `<old>` is installed, the installation is carried to the new channel: intent transfers verbatim, is resolved against the new channel, the new publication is installed, every `toolchains/<network>` link naming the old channel is repointed at the new one, and the old channel is removed after the new state record commits. A root missing in the new channel blocks the migration.
 
 `var/<old-channel>` is **renamed** to `var/<new-channel>` as part of the migration. Both are pinned-version selectors, and migration is the one operation that retires one, so the data would otherwise be stranded under a key nothing can select. A network's store is unaffected.
 
@@ -785,7 +785,9 @@ When an upstream channel declares `migrates_from: <old>` and `<old>` is installe
 
 Uninstall consults the receipt for the exact owned paths, tolerates hidden executables with no symlink, and uses the tombstoned unpublish sequence (§9.5). It removes the publication, the state record, and the derived symlinks. `var/<selector>` - keyed by the selector as given - is retained unless `--purge` is given.
 
-Every `toolchains/<network>` link naming the channel is removed, before the commit point: they are derived, so a discarded operation costs nothing and the next install or update recomputes them. They are found by *scanning* the toolchains directory rather than by asking upstream which networks name this channel, because uninstall must work offline, and a network may have moved upstream since this machine last acted on it - in which case upstream would not name the link that is actually here. `default` is removed after the commit point instead, and only if it has been left dangling: it is the user's `midenup override` choice rather than a derived link, so nothing would recompute it.
+A network is one of possibly several names for a channel on this machine. `midenup uninstall <network>` while another `toolchains/<network>` link names the same channel removes only the named network's link, and none of the above: the channel stays installed for the networks that still name it. Uninstalling by version, or uninstalling the last network naming a channel, removes the channel.
+
+When the channel is removed, every `toolchains/<network>` link naming it is removed in the CLEAN step, together with the publication and the tombstone, so recovery removes them too. Nothing happens between PREPARE and COMMIT, so a prepared uninstall is never discarded. The links are found by *scanning* the toolchains directory rather than by asking upstream which networks name this channel, because uninstall must work offline, and a network may have moved upstream since this machine last acted on it - in which case upstream would not name the link that is actually here. `default` is removed only if it has been left dangling: it is the user's `midenup override` choice rather than a derived link, so nothing would recompute it.
 
 ### 11.6 Reclamation
 

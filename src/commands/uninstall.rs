@@ -72,43 +72,20 @@ pub fn uninstall(
         let entry = JournalEntry::uninstall(channel.clone(), publication);
         crate::publish::journal::prepare(home, &entry)?;
 
-        // Network links are derived, so removing them before the commit costs nothing if the
-        // operation is discarded: the next install or update recomputes them from upstream.
-        //
-        // Found by scanning rather than by asking upstream which networks name this channel.
-        // Uninstall has to work offline, and a network may have moved upstream since this machine
-        // last looked -- in which case upstream would not name the link that is actually here.
-        //
-        // This relies on [`crate::networks::links`] excluding `default`, and that exclusion is
-        // load bearing *here* rather than merely tidy: `midenup override <version>` points
-        // `default` at a version directly under `toolchains/`, which is the shape of a network
-        // link, so only the name tells the two apart. Were `default` to appear in this scan it
-        // would be removed before the commit point below, and a discarded uninstall would leave
-        // the user without the override it never actually removed -- which is why `default` is
-        // handled after the commit instead.
-        for (network, linked) in crate::networks::links(home) {
-            if linked == channel {
-                let link = paths::network_link(home, &network);
-                crate::trace!("removing {}", link.display());
-                std::fs::remove_file(link)?;
-            }
-        }
-
         // The commit point: after this the channel is uninstalled, and an interrupted run is
-        // completed rather than rolled back.
+        // completed rather than rolled back. Nothing happens between preparing the journal and
+        // this, so a prepared uninstall is never discarded.
         crate::publish::journal::commit_symlink(home, &entry)?;
 
-        // Removes the state record, reclaims the publication, clears the tombstone, deletes the
-        // journal.
+        // Removes the state record, reclaims the publication, clears the tombstone and the network
+        // links naming the channel, deletes the journal.
         crate::publish::journal::finish(home, &entry, state)?;
     }
 
-    // `default` is the user's `midenup override` choice, not a derived link, so nothing would
-    // recompute it -- which is why it is removed after the commit point rather than with the
-    // network links. Either override form dangles once what it names is gone: one names a network
-    // link that has just been removed, the other names the toolchain directory the commit
-    // tombstoned. Testing for dangling covers both, and repairs one left over from any earlier
-    // cause.
+    // `default` is the user's `midenup override` choice, so nothing recomputes it. Either override
+    // form dangles once what it names is gone: one names a network link that has just been
+    // removed, the other names the toolchain directory the commit tombstoned. Testing for dangling
+    // covers both, and repairs one left over from any earlier cause.
     let default = paths::toolchains_dir(home).join("default");
     if std::fs::symlink_metadata(&default).is_ok() && default.canonicalize().is_err() {
         std::fs::remove_file(&default)?;
