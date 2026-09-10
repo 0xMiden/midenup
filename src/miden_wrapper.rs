@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::VecDeque, ffi::OsString, string::ToString};
+use std::{borrow::Cow, collections::VecDeque, ffi::OsString, process::ExitCode, string::ToString};
 
 use anyhow::{Context, anyhow, bail};
 use colored::Colorize;
@@ -348,7 +348,7 @@ pub fn miden_wrapper(
     argv: &[OsString],
     config: &Config,
     state: &mut LocalState,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<ExitCode> {
     // Handle toolchain overrides given via `miden +channel`
     let (toolchain_override, argv) = match argv {
         [miden, first, rest @ ..]
@@ -372,11 +372,11 @@ pub fn miden_wrapper(
         MidenSubcommand::Help(HelpMessage::Default) => {
             crate::report::prepare_stdout_color();
             println!("{}", default_help());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         },
         MidenSubcommand::Version => {
             println!("{}", display_version(config));
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         },
         _ => (),
     };
@@ -410,7 +410,7 @@ pub fn miden_wrapper(
 
             println!("{help}");
 
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         },
         MidenSubcommand::Help(HelpMessage::Resolve { .. }) => true,
         _ => false,
@@ -491,7 +491,7 @@ pub fn miden_wrapper(
                     for subcommand in available {
                         println!("  {subcommand}");
                     }
-                    return Ok(());
+                    return Ok(ExitCode::SUCCESS);
                 },
                 Err(err) => {
                     crate::report::prepare_stderr_color();
@@ -513,12 +513,28 @@ pub fn miden_wrapper(
         format!("failed to run '{user_input}'")
     })?;
 
-    if status.success() {
-        Ok(())
-    } else {
-        let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-        bail!("'{}' failed with status {}", user_input, status.code().unwrap_or(1))
+    Ok(exit_code_from_status(status))
+}
+
+fn exit_code_from_status(status: std::process::ExitStatus) -> ExitCode {
+    if let Some(code) = status.code() {
+        return exit_code_from_i32(code);
     }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+
+        if let Some(signal) = status.signal() {
+            return exit_code_from_i32(128 + signal);
+        }
+    }
+
+    ExitCode::FAILURE
+}
+
+fn exit_code_from_i32(code: i32) -> ExitCode {
+    ExitCode::from(code.try_into().unwrap_or(1))
 }
 
 pub fn display_version(config: &Config) -> String {

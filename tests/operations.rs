@@ -495,24 +495,26 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
     let fixture = Fixture::new(env.tmp_dir.path());
     let manifest = fixture.manifest_with_command("manifest.json");
 
-    let (mut state, config) = test_setup(&env, &manifest);
+    let (mut state, mut config) = test_setup(&env, &manifest);
     Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
 
-    // `docker` is not installed here, and that is the point: the failure names what midenup tried
-    // to run, which is what proves the expansion happened.
-    let err = Midenup::try_parse_from(["miden", "node", "up"])
+    let output = config.capture_output();
+    Midenup::try_parse_from(["miden", "node", "up"])
         .unwrap()
         .execute_with_state(&config, &mut state)
-        .expect_err("docker is not available in the test environment");
+        .expect("the declared subcommand must dispatch to the component");
 
-    let message = format!("{err:#}");
+    let output = output.borrow();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert_eq!(output.status.code(), Some(1));
     assert!(
-        message.contains("miden node up"),
-        "the failure must name the user's command: {message}"
+        stderr.contains("no service selected"),
+        "the failure must come from docker compose reading the generated command: {stderr}"
     );
+    drop(output);
 
     // ...and asking for help on it lists the verbs rather than trying to run one.
     Midenup::try_parse_from(["miden", "help", "node"])
