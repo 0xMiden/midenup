@@ -2042,46 +2042,61 @@
         },
         {
           "artifacts": {
-            "bootstrap.yml": {
+            "compose/bootstrap.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
             },
             "docker-compose.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
             },
-            "explorer.yml": {
+            "compose/explorer.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer.yml"
             },
-            "faucet.yml": {
+            "compose/explorer/backend.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/backend.yml"
+            },
+            "compose/explorer/database.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/database.yml"
+            },
+            "compose/explorer/frontend.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/frontend.yml"
+            },
+            "compose/explorer/indexer.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/indexer.yml"
+            },
+            "compose/explorer/migration.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/migration.yml"
+            },
+            "compose/faucet.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/faucet.yml"
             },
-            "monitor.yml": {
+            "compose/monitor.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/monitor.yml"
             },
-            "node.yml": {
+            "compose/node.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/node.yml"
             },
-            "note-transport.yml": {
+            "compose/note-transport.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/note-transport.yml"
             },
-            "ntx-builder.yml": {
+            "compose/ntx-builder.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/ntx-builder.yml"
             },
-            "otel-collector.yml": {
+            "compose/otel-collector.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/otel-collector.yml"
             },
-            "router.yml": {
+            "compose/router.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/router.yml"
             },
-            "seed.yml": {
+            "compose/seed.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/seed.yml"
             },
-            "telemetry.yml": {
+            "compose/telemetry.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/telemetry.yml"
             },
-            "tx-prover.yml": {
+            "compose/tx-prover.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/tx-prover.yml"
             },
-            "validator.yml": {
+            "compose/validator.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/validator.yml"
             }
           },
