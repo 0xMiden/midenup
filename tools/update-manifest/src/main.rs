@@ -8,8 +8,7 @@ use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
     channel::{self, UserChannel},
     manifest::{
-        Component, ComponentKind, Manifest, Promotion, VersionedManifest,
-        validate::ValidationError, version,
+        Component, ComponentKind, Manifest, Promotion, VersionedManifest, validate::ValidationError,
     },
     profile::Profile,
     version::Authority,
@@ -35,9 +34,9 @@ enum Command {
     /// Check that the manifest is valid
     Check {
         /// Also check the manifest as a replacement for the previous one at this URI, e.g. the
-        /// deployed manifest or the one on the base branch: refuses a stale timestamp, a schema
-        /// major change, a removed network, a network moving backwards, and removing a channel a
-        /// network names without a successor
+        /// deployed manifest or the one on the base branch: refuses a stale timestamp, a removed
+        /// network, a network moving backwards, and removing a channel a network names without a
+        /// successor
         #[arg(long, value_name = "URI")]
         against: Option<String>,
         /// Allow a network to move to an older toolchain than the previous manifest names
@@ -213,37 +212,19 @@ impl Cli {
 
                 // Last, because the rules above must hold before a comparison means anything.
                 if let Some(uri) = against {
-                    // Parsing migrates a v1 document to the current schema and stamps it as
-                    // such, so the schema each document declares is read from its text.
-                    let previous_text = VersionedManifest::read_from(uri)
+                    let previous = VersionedManifest::load_from(uri)
                         .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
-                    let previous_schema =
-                        version::read_version_header(&previous_text, "manifest_version")?.version;
-                    let next_text = std::fs::read_to_string(&self.manifest_path)?;
-                    let next_schema =
-                        version::read_version_header(&next_text, "manifest_version")?.version;
-                    let previous = VersionedManifest::parse_str(&previous_text)
-                        .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
-
-                    let mut errors = midenup::manifest::validate::validate_against(
+                    midenup::manifest::validate::validate_against(
                         &previous,
                         &manifest,
                         *allow_downgrade,
                     )
-                    .err()
-                    .unwrap_or_default();
-                    if previous_schema.major != next_schema.major {
-                        errors.push(ValidationError::SchemaMajorChanged {
-                            previous: previous_schema,
-                            next: next_schema,
-                        });
-                    }
-                    if !errors.is_empty() {
-                        return Err(report_errors(
+                    .map_err(|errors| {
+                        report_errors(
                             &format!("manifest cannot replace the one at '{uri}'"),
                             errors,
-                        ));
-                    }
+                        )
+                    })?;
                 }
                 Ok(())
             },

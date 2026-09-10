@@ -31,6 +31,25 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: check-manifest
+      - name: Check that the latest release reads the manifest
+        # Whatever midenup users have installed must be able to read what gets published. A
+        # schema change therefore ships in a midenup release first, and the manifest that uses
+        # it only once that release is out. Fields and component kinds newer than the release
+        # are tolerated, as they are by the installed midenup. The home must be empty: with a
+        # cached manifest present, midenup falls back to it and succeeds.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIDENUP_HOME: ${{ runner.temp }}/midenup-home
+          MIDENUP_MANIFEST_URI: file://${{ github.workspace }}/manifest/channel-manifest.json
+        run: |
+          set -euo pipefail
+          tag=$(gh release view --json tagName --jq .tagName)
+          gh release download "${tag}" --pattern 'midenup-x86_64-unknown-linux-gnu.tar.gz' --output - | tar xz -C "${RUNNER_TEMP}"
+          mkdir "${MIDENUP_HOME}"
+          if ! "${RUNNER_TEMP}/midenup" list; then
+            echo "::error::midenup ${tag}, the latest release, cannot read this manifest; a schema change ships in a midenup release before the manifest that uses it"
+            exit 1
+          fi
       - name: Validate the channel manifest
         run: cargo make check-manifest
       - name: Check the manifest against the one it replaces

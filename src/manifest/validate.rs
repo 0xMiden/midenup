@@ -151,14 +151,6 @@ pub enum ValidationError {
          `update-manifest touch`"
     )]
     StaleTimestamp { previous: i64, next: i64 },
-    #[error(
-        "manifest_version moves from {previous} to {next}: a major version change requires a new \
-         midenup release before the manifest can be published"
-    )]
-    SchemaMajorChanged {
-        previous: semver::Version,
-        next: semver::Version,
-    },
     #[error("network '{network}' is declared by the previous manifest but not by this one")]
     NetworkRemoved { network: String },
     #[error(
@@ -352,13 +344,6 @@ pub fn validate_against(
 
     if next.date <= previous.date {
         errors.push(ValidationError::StaleTimestamp { previous: previous.date, next: next.date });
-    }
-
-    if next.manifest_version().major != previous.manifest_version().major {
-        errors.push(ValidationError::SchemaMajorChanged {
-            previous: previous.manifest_version().clone(),
-            next: next.manifest_version().clone(),
-        });
     }
 
     for (network, tracked) in previous.networks.iter() {
@@ -799,25 +784,6 @@ mod tests {
             errors_against(&m)
                 .iter()
                 .any(|e| matches!(e, ValidationError::StaleTimestamp { .. }))
-        );
-    }
-
-    #[test]
-    fn a_schema_major_change_is_rejected_but_a_minor_is_not() {
-        let mut m = successor();
-        m.manifest_version = semver::Version::new(4, 0, 0);
-        assert!(
-            errors_against(&m)
-                .iter()
-                .any(|e| matches!(e, ValidationError::SchemaMajorChanged { .. }))
-        );
-
-        let mut m = successor();
-        m.manifest_version = semver::Version::new(3, 1, 0);
-        assert!(
-            !errors_against(&m)
-                .iter()
-                .any(|e| matches!(e, ValidationError::SchemaMajorChanged { .. }))
         );
     }
 
