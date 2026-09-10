@@ -1,0 +1,69 @@
+# Install midenup and a toolchain the way the README tells users to, from the published
+# release assets and the live channel manifest.
+name: smoke
+
+on:
+  workflow_run:
+    workflows:
+      - release
+      - Publish midenup manifest to Github Pages
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  install:
+    name: install from release
+    # Only a successful run has published anything to install from.
+    if: github.event.workflow_run.conclusion == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      actions: read
+      artifact-metadata: read
+    steps:
+      # After a release, install exactly the version that was just released. After a manifest
+      # deployment, install the latest release.
+      - name: Download the release plan
+        if: github.event.workflow_run.name == 'release'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-plan
+          path: ${{ runner.temp }}
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve the release tag
+        run: |
+          tag=""
+          if [ -f "${RUNNER_TEMP}/plan.json" ]; then
+            tag="$(jq -r '.intent.tags[] | select(.unit == "main") | .name' "${RUNNER_TEMP}/plan.json")"
+          fi
+          echo "TAG=${tag}" >> "$GITHUB_ENV"
+
+      - name: Run the published installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -n "${TAG}" ]; then
+            url="https://github.com/0xMiden/midenup/releases/download/${TAG}/installer.sh"
+          else
+            url="https://github.com/0xMiden/midenup/releases/latest/download/installer.sh"
+          fi
+          echo "Installing midenup ${TAG:-latest}"
+          curl --retry 10 -L --proto '=https' --tlsv1.2 -sSf -O "${url}"
+          bash installer.sh ${TAG:+--version "${TAG}"}
+
+      - name: Verify `midenup` installation
+        run: |
+          which midenup
+          midenup --version
+
+      - name: Install the mainnet toolchain from the live manifest
+        run: |
+          midenup install mainnet
+          midenup show list
