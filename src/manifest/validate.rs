@@ -30,7 +30,10 @@ use std::collections::{BTreeSet, HashMap};
 use super::{Channel, Component, ComponentKind, Extra, Manifest};
 use crate::{
     artifact::Artifact,
-    plan::{destination_for, validate_artifact_id},
+    plan::{
+        destination::DestinationClaims, destination_for, validate_artifact_id,
+        validate_artifact_id_for,
+    },
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -65,9 +68,13 @@ pub enum ValidationError {
         field: &'static str,
         reason: String,
     },
-    #[error("channel {channel}: components '{first}' and '{second}' both install to '{path}'")]
+    #[error(
+        "channel {channel}: component '{first}' installs to '{first_path}', which conflicts with \
+         '{path}' from component '{second}'"
+    )]
     DestinationCollision {
         channel: semver::Version,
+        first_path: String,
         first: String,
         second: String,
         path: String,
@@ -550,7 +557,7 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
         }
 
         for (id, artifact) in component.artifacts.artifacts.iter() {
-            if let Err(err) = validate_artifact_id(id) {
+            if let Err(err) = validate_artifact_id_for(component, id) {
                 errors.push(invalid("artifact id", err.to_string()));
             }
 
@@ -614,7 +621,7 @@ fn undeclared_archive(
 fn validate_destinations(channel: &Channel, errors: &mut Vec<ValidationError>) {
     // A notional root: collisions are a property of the manifest, not of where it is installed.
     let root = std::path::Path::new("/");
-    let mut claimed: HashMap<std::path::PathBuf, &Component> = HashMap::new();
+    let mut claimed = DestinationClaims::default();
 
     for component in channel.components.iter() {
         for id in component.artifacts.artifacts.keys() {
@@ -622,12 +629,11 @@ fn validate_destinations(channel: &Channel, errors: &mut Vec<ValidationError>) {
                 // Unsupported kinds and invalid ids are reported by their own rules.
                 continue;
             };
-            if let Some(previous) = claimed.insert(destination.path.clone(), component)
-                && previous.name != component.name
-            {
+            if let Err(previous) = claimed.claim(&destination.path, component.name.as_ref()) {
                 errors.push(ValidationError::DestinationCollision {
                     channel: channel.name.clone(),
-                    first: previous.name.to_string(),
+                    first: previous.owner,
+                    first_path: previous.path.display().to_string(),
                     second: component.name.to_string(),
                     path: destination.path.display().to_string(),
                 });
@@ -1392,6 +1398,32 @@ mod tests {
             .expect("must parse"),
         );
 
+        assert!(validate_manifest(&with_mainnet(manifest(vec![c]))).is_ok());
+    }
+
+    #[test]
+    fn nested_artifact_file_directory_collisions_are_rejected() {
+        let c = with_artifact(
+            with_artifact(component("node", ComponentKind::Asset), "compose"),
+            "compose/node.yml",
+        );
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::DestinationCollision { first, second, .. }
+                    if first == "node" && second == "node"
+            )),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn nested_artifact_siblings_and_similar_prefixes_are_valid() {
+        let mut c = component("node", ComponentKind::Asset);
+        for id in ["compose/node.yml", "compose/monitor.yml", "compose.yml"] {
+            c = with_artifact(c, id);
+        }
         assert!(validate_manifest(&with_mainnet(manifest(vec![c]))).is_ok());
     }
 
