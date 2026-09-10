@@ -4,7 +4,10 @@
 //! the table in [destination_for]). Letting a manifest declare a destination directly would make
 //! every path a potential traversal, and would let two components disagree about who owns a file.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use crate::manifest::{Component, ComponentKind};
 
@@ -42,6 +45,37 @@ pub enum DestinationError {
 pub struct Destination {
     pub path: PathBuf,
     pub mode: u32,
+}
+
+/// Files claimed by a manifest or plan. No file can also be another file's parent.
+#[derive(Default)]
+pub(crate) struct DestinationClaims(BTreeMap<PathBuf, String>);
+
+pub(crate) struct DestinationConflict {
+    pub path: PathBuf,
+    pub owner: String,
+}
+
+impl DestinationClaims {
+    pub fn claim(&mut self, path: &Path, owner: &str) -> Result<(), DestinationConflict> {
+        for (previous_path, previous_owner) in &self.0 {
+            // A component can describe the same output through multiple target artifacts.
+            // Sharing a file is allowed only in that case; a file/directory conflict never is.
+            let conflicts = if previous_path == path {
+                previous_owner != owner
+            } else {
+                previous_path.starts_with(path) || path.starts_with(previous_path)
+            };
+            if conflicts {
+                return Err(DestinationConflict {
+                    path: previous_path.clone(),
+                    owner: previous_owner.clone(),
+                });
+            }
+        }
+        self.0.insert(path.to_path_buf(), owner.to_string());
+        Ok(())
+    }
 }
 
 /// Mode for anything meant to be executed.
@@ -191,6 +225,33 @@ mod tests {
                 },
             },
         )
+    }
+
+    #[test]
+    fn destination_claims_reject_ancestors_in_either_order() {
+        let parent = Path::new("/etc/node/compose");
+        let child = Path::new("/etc/node/compose/node.yml");
+        for (first, second) in [(parent, child), (child, parent)] {
+            for owner in ["node", "other"] {
+                let mut claims = DestinationClaims::default();
+                assert!(claims.claim(first, "node").is_ok());
+                let conflict = claims.claim(second, owner).expect_err("paths overlap");
+                assert_eq!(conflict.path, first);
+                assert_eq!(conflict.owner, "node");
+                assert!(claims.claim(first, "node").is_ok(), "rejection keeps the prior claim");
+            }
+        }
+    }
+
+    #[test]
+    fn only_one_component_can_claim_the_same_file() {
+        let mut claims = DestinationClaims::default();
+        let path = Path::new("/bin/miden-vm");
+        assert!(claims.claim(path, "vm").is_ok());
+        assert!(claims.claim(path, "vm").is_ok());
+        let conflict = claims.claim(path, "other").expect_err("different owners collide");
+        assert_eq!(conflict.path, path);
+        assert_eq!(conflict.owner, "vm");
     }
 
     #[test]
