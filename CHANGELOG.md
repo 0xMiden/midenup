@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Added a composite GitHub Action (`uses: 0xMiden/midenup@v1`) that installs `midenup` and a toolchain.
+
 ## [1.0.0]
 
 ### Added

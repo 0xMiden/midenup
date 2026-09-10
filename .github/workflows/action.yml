@@ -1,0 +1,50 @@
+name: Test action
+
+on:
+  merge_group:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+    paths:
+      - action.yml
+      - bin/installer.sh
+      - .github/workflows/action.yml
+  push:
+    branches:
+      - main
+    paths:
+      - action.yml
+      - bin/installer.sh
+      - .github/workflows/action.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  artifact-metadata: read
+
+jobs:
+  install:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./
+        with:
+          toolchain: testnet
+          components: vm
+
+      - name: Check the toolchain is active
+        run: |
+          midenup show active-toolchain
+          miden help vm

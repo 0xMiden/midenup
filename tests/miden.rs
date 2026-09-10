@@ -341,3 +341,52 @@ fn integration_miden_explicit_toolchain_override() {
     assert!(output.status.success());
     assert_eq!(core::str::from_utf8(&output.stdout).unwrap(), "miden-vm 0.16.0\n");
 }
+
+/// An explicit selection must survive command completion, even when the environment is invalid.
+#[test]
+fn integration_miden_explicit_override_survives_environment() {
+    let test_env = environment_setup("explicit_override_survives_environment");
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_channel("0.16.0")
+        .build();
+    let binary = env!("CARGO_BIN_EXE_midenup");
+    for channel in ["0.15.0", "0.16.0"] {
+        let output = midenup_command(binary, &test_env, &fixture.manifest_uri)
+            .env_remove("MIDENUP_TOOLCHAIN")
+            .args(["install", channel])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    for environment in ["", "../invalid", "0.16.0"] {
+        let output = midenup_command(binary, &test_env, &fixture.manifest_uri)
+            .env_remove("MIDENUP_TOOLCHAIN")
+            .args(["override", "0.16.0"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+        let output = midenup_command(
+            test_env.cargo_home.join("bin/miden"),
+            &test_env,
+            &fixture.manifest_uri,
+        )
+        .env("MIDENUP_TOOLCHAIN", environment)
+        .args(["+0.15.0", "help", "vm"])
+        .output()
+        .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "miden-vm 0.15.0\n");
+        assert!(
+            output.status.success(),
+            "command failed with MIDENUP_TOOLCHAIN={environment:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::canonicalize(test_env.midenup_home.join("opt")).unwrap(),
+            std::fs::canonicalize(test_env.midenup_home.join("toolchains/0.15.0/opt")).unwrap(),
+            "the opt link must follow the explicitly selected toolchain"
+        );
+    }
+}
