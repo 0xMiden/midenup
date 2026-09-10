@@ -870,3 +870,53 @@ fn integration_networks_show_list_reports_a_network_that_moved_upstream() {
         "listing must not repoint the network"
     );
 }
+
+/// Two networks naming one channel are two names for it. Uninstalling one by network removes that
+/// network's link only; the channel stays installed for the other, and goes when the last one does.
+#[test]
+fn integration_networks_uninstall_of_a_shared_network_removes_only_its_link() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_uninstall_shared");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+    let (mut state, config) = test_setup(&test_env, &fixture.with_networks_on_one_channel());
+
+    for args in [
+        vec!["midenup", "init"],
+        vec!["midenup", "install", "devnet"],
+        vec!["midenup", "install", "mainnet"],
+        vec!["midenup", "uninstall", "mainnet"],
+    ] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    let toolchains = test_env.midenup_home.join("toolchains");
+    assert!(
+        std::fs::symlink_metadata(toolchains.join("mainnet")).is_err(),
+        "mainnet was uninstalled and its link must be gone"
+    );
+    assert!(
+        toolchains.join("devnet").canonicalize().is_ok(),
+        "devnet still names the channel and must keep resolving"
+    );
+    assert!(
+        state.get(&"0.15.0".parse().unwrap()).is_some(),
+        "the channel devnet names must still be installed"
+    );
+
+    Midenup::try_parse_from(["midenup", "uninstall", "devnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("uninstalling the last network must remove the channel");
+
+    assert!(
+        std::fs::symlink_metadata(toolchains.join("devnet")).is_err(),
+        "devnet was the last network naming the channel and its link must be gone"
+    );
+    assert!(
+        state.get(&"0.15.0".parse().unwrap()).is_none(),
+        "no network names the channel any more, so it must be uninstalled"
+    );
+}
