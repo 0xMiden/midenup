@@ -30,7 +30,8 @@ pub struct Component {
     /// Fields declared by a newer schema that this build does not recognize.
     ///
     /// Preserved verbatim so an older `midenup` rewriting a manifest -- `update-manifest`, most
-    /// importantly -- cannot silently strip them.
+    /// importantly -- cannot silently strip them. A field nested inside a known object, such as
+    /// `installation_method` or `version`, is keyed by its dotted path.
     pub extra: Extra,
 }
 
@@ -87,8 +88,8 @@ impl Serialize for Component {
         if let serde_json::Value::Object(kind) = kind {
             object.extend(kind);
         }
-        for (key, value) in self.extra.iter() {
-            object.entry(key.clone()).or_insert_with(|| value.clone());
+        for (path, value) in self.extra.iter() {
+            insert_at_path(object, path, value);
         }
 
         out.serialize(serializer)
@@ -105,23 +106,34 @@ impl<'de> Deserialize<'de> for Component {
         let base = ComponentBase::deserialize(value.clone()).map_err(D::Error::custom)?;
 
         // Anything neither the base nor the kind round-trips is unknown to this build.
-        let mut extra = match &value {
-            serde_json::Value::Object(map) => map.clone(),
-            _ => Extra::new(),
-        };
-        for known in [
+        let mut known = Extra::new();
+        for typed in [
             serde_json::to_value(&base).map_err(D::Error::custom)?,
             serde_json::to_value(&kind).map_err(D::Error::custom)?,
         ] {
-            if let serde_json::Value::Object(known) = known {
-                for key in known.keys() {
-                    extra.remove(key);
-                    // Also drop the separator-swapped spelling. Fields carry `#[serde(alias)]`
-                    // for the other of kebab/snake so the schema can migrate gradually, but the
-                    // "known = whatever the typed form serializes" rule cannot see aliases: an
-                    // input using the alias would be retained as an unknown field and then
-                    // emitted *alongside* the canonical one, producing duplicate keys.
-                    extra.remove(&swap_separator(key));
+            if let serde_json::Value::Object(typed) = typed {
+                known.extend(typed);
+            }
+        }
+        let mut extra = Extra::new();
+        if let serde_json::Value::Object(input) = &value {
+            for (key, value) in input {
+                // Also accept the separator-swapped spelling. Fields carry `#[serde(alias)]` for
+                // the other of kebab/snake so the schema can migrate gradually, but the "known =
+                // whatever the typed form serializes" rule cannot see aliases: an input using the
+                // alias would be retained as an unknown field and then emitted *alongside* the
+                // canonical one, producing duplicate keys. Nested types declare no aliases, so
+                // the swap applies only here.
+                match known.get(key).or_else(|| known.get(&swap_separator(key))) {
+                    None => {
+                        extra.insert(key.clone(), value.clone());
+                    },
+                    Some(serde_json::Value::Object(known)) => {
+                        if let serde_json::Value::Object(input) = value {
+                            collect_unknown(input, known, key, &mut extra);
+                        }
+                    },
+                    Some(_) => {},
                 }
             }
         }
@@ -135,6 +147,41 @@ impl<'de> Deserialize<'de> for Component {
             artifacts: base.artifacts,
             extra,
         })
+    }
+}
+
+/// Records under `path.<key>` every key of `input` that `known` does not emit, descending into
+/// objects both carry so a typo inside `installation_method` or `version` is found as well.
+fn collect_unknown(input: &Extra, known: &Extra, path: &str, extra: &mut Extra) {
+    for (key, value) in input {
+        match known.get(key) {
+            None => {
+                extra.insert(format!("{path}.{key}"), value.clone());
+            },
+            Some(serde_json::Value::Object(known)) => {
+                if let serde_json::Value::Object(input) = value {
+                    collect_unknown(input, known, &format!("{path}.{key}"), extra);
+                }
+            },
+            Some(_) => {},
+        }
+    }
+}
+
+/// Inserts `value` at the dotted `path` unless the typed form already emits that key.
+///
+/// A path whose parent object is gone -- the component changed `kind`, say -- is dropped along
+/// with the parent.
+fn insert_at_path(object: &mut Extra, path: &str, value: &serde_json::Value) {
+    match path.split_once('.') {
+        None => {
+            object.entry(path.to_string()).or_insert_with(|| value.clone());
+        },
+        Some((head, rest)) => {
+            if let Some(serde_json::Value::Object(inner)) = object.get_mut(head) {
+                insert_at_path(inner, rest, value);
+            }
+        },
     }
 }
 

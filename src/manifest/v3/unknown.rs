@@ -168,6 +168,26 @@ mod manifest_round_trip_tests {
         );
     }
 
+    /// An unknown field inside `installation_method` or `version` must survive as well, in place.
+    #[test]
+    fn nested_unknown_fields_round_trip() {
+        let mut src = source();
+        let component = &mut src["channels"][0]["components"][0];
+        component["installation_method"]["future_method_field"] = serde_json::json!(true);
+        component["version"]["future_version_field"] = serde_json::json!("keep me");
+
+        let parsed = VersionedManifest::parse_str(&src.to_string()).expect("parse");
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&parsed).unwrap()).unwrap();
+
+        let component = &out["channels"][0]["components"][0];
+        assert_eq!(
+            component["installation_method"]["future_method_field"],
+            serde_json::json!(true)
+        );
+        assert_eq!(component["version"]["future_version_field"], serde_json::json!("keep me"));
+    }
+
     /// The flattened `kind` must not be duplicated into the extras.
     ///
     /// A naive `#[serde(flatten)] extra` next to the flattened `kind` emits `kind` and every

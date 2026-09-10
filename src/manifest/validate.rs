@@ -196,6 +196,16 @@ pub enum ValidationError {
          field from a newer schema cannot be published by this build"
     )]
     UnknownField { location: String, field: String },
+    #[error(
+        "channel {channel}: component '{component}' has unknown kind '{kind}'; a misspelled kind \
+         is kept but never installed, and a kind from a newer schema cannot be published by this \
+         build"
+    )]
+    UnknownKind {
+        channel: semver::Version,
+        component: String,
+        kind: String,
+    },
 }
 
 /// Validates a whole manifest, returning every problem found.
@@ -431,6 +441,13 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
             errors.push(ValidationError::DuplicateComponent {
                 channel: channel.name.clone(),
                 component: component.name.to_string(),
+            });
+        }
+        if let ComponentKind::Unsupported { tag, .. } = &component.kind {
+            errors.push(ValidationError::UnknownKind {
+                channel: channel.name.clone(),
+                component: component.name.to_string(),
+                kind: tag.clone(),
             });
         }
     }
@@ -891,6 +908,64 @@ mod tests {
                 .iter()
                 .any(|(at, f)| at.ends_with("artifact 'miden-vm'") && f == "digset")
         );
+    }
+
+    /// A misspelled `kind` parses as an unsupported kind, which resolution skips: the component
+    /// would vanish from the toolchain without a word.
+    #[test]
+    fn an_unknown_component_kind_is_rejected() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "vm",
+                "version": {"kind": "registry", "version": "0.15.0"},
+                "kind": "exectuable",
+                "installation_method": {"kind": "prebuilt"},
+                "installed-executable": "miden-vm"
+            }]}]
+        })
+        .to_string();
+        let manifest = crate::manifest::VersionedManifest::parse_str(&src).expect("must parse");
+        assert!(errors_of(&manifest).iter().any(|e| matches!(
+            e,
+            ValidationError::UnknownKind { component, kind, .. }
+                if component == "vm" && kind == "exectuable"
+        )));
+    }
+
+    /// A typo inside a nested object is as silent as one at the top level: `featurs` would leave
+    /// the component building without its features. Driven by JSON so it exercises the parser.
+    #[test]
+    fn an_unknown_field_nested_in_a_known_object_is_rejected() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "vm",
+                "version": {"kind": "registry", "version": "0.15.0", "vesion": "0.15.0"},
+                "kind": "executable",
+                "installation_method": {
+                    "kind": "cargo",
+                    "crate_name": "miden-vm",
+                    "featurs": ["nonexistent"],
+                    "features": []
+                },
+                "installed-executable": "miden-vm"
+            }]}]
+        })
+        .to_string();
+        let manifest = crate::manifest::VersionedManifest::parse_str(&src).expect("must parse");
+        let fields: Vec<String> = errors_of(&manifest)
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::UnknownField { field, .. } => Some(field),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fields, ["installation_method.featurs", "version.vesion"]);
     }
 
     /// An explicitly empty field the schema omits when empty parses into the extras; it is not a
