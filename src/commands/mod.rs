@@ -500,7 +500,6 @@ impl Midenup {
                 // it takes the lock itself at that point (`ensure_current_is_installed`).
                 let code = miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
-                config.update_opt_symlinks()?;
                 return Ok(code);
             },
             Behavior::Midenup { version, command: subcommand, .. } => {

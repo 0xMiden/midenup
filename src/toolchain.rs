@@ -89,11 +89,12 @@ impl Toolchain {
         Toolchain { channel, components, profile }
     }
 
-    /// Returns the current active Toolchain according to the following prescedence:
+    /// Returns the current active Toolchain according to the following precedence:
     ///
     /// 1. An explicit toolchain specified on the command-line
-    /// 2. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
-    /// 3. The toolchain that has been set as the system's default. If set, a `default` symlink is
+    /// 2. The `MIDENUP_TOOLCHAIN` env var has been set
+    /// 3. The toolchain specified by a `miden-toolchain.toml` file in the present working directory
+    /// 4. The toolchain that has been set as the system's default. If set, a `default` symlink is
     ///    added to the `midenup` directory.
     ///
     /// If none of the previous conditions are met, then the default network (`mainnet`) is used.
@@ -103,8 +104,9 @@ impl Toolchain {
     ) -> anyhow::Result<(Toolchain, ToolchainJustification)> {
         let local_toolchain = Self::toolchain_file(&config.working_directory);
         let global_toolchain = config.midenup_home.join("toolchains").join("default");
+        let env_override = std::env::var("MIDENUP_TOOLCHAIN").ok();
 
-        if let Some(channel_name) = toolchain_override {
+        if let Some(channel_name) = toolchain_override.or(env_override.as_deref()) {
             let channel = channel_name
                 .parse::<UserChannel>()
                 .with_context(|| format!("invalid channel name '{channel_name}'"))?;
