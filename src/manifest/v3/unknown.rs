@@ -19,10 +19,68 @@
 //! So those types get hand-written `Serialize`/`Deserialize` built on [`split_extra`] and
 //! [`merge_extra`] instead.
 
+use std::collections::BTreeMap;
+
 use serde::{Serialize, de::DeserializeOwned};
 
 /// Fields present in a document that this build does not recognize.
 pub type Extra = serde_json::Map<String, serde_json::Value>;
+
+/// Unknown fields of an object, and those inside the known objects nested in it.
+///
+/// A key is kept literally, so a field named `vendor.flag` stays one field and is never confused
+/// with a field `flag` inside a known object `vendor`.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct UnknownFields {
+    /// Fields of this object that this build does not recognize, verbatim.
+    pub fields: Extra,
+    /// Unknown fields inside known objects, by the canonical key of that object.
+    pub nested: BTreeMap<String, UnknownFields>,
+}
+
+impl UnknownFields {
+    pub fn is_empty(&self) -> bool {
+        self.fields.is_empty() && self.nested.is_empty()
+    }
+
+    /// Records every key of `input` that `known` does not emit, descending into objects both
+    /// carry so a typo inside `installation_method` or `version` is found as well.
+    pub fn collect(input: &Extra, known: &Extra) -> Self {
+        let mut out = Self::default();
+        for (key, value) in input {
+            match known.get(key) {
+                None => {
+                    out.fields.insert(key.clone(), value.clone());
+                },
+                Some(serde_json::Value::Object(known)) => {
+                    if let serde_json::Value::Object(input) = value {
+                        let inner = Self::collect(input, known);
+                        if !inner.is_empty() {
+                            out.nested.insert(key.clone(), inner);
+                        }
+                    }
+                },
+                Some(_) => {},
+            }
+        }
+        out
+    }
+
+    /// Re-attaches these fields to `object`, the serialized typed form.
+    ///
+    /// The typed value wins a collision. Nested fields whose known object is gone -- the
+    /// component changed `kind`, say -- are dropped along with it.
+    pub fn merge_into(&self, object: &mut Extra) {
+        for (key, value) in &self.fields {
+            object.entry(key.clone()).or_insert_with(|| value.clone());
+        }
+        for (key, inner) in &self.nested {
+            if let Some(serde_json::Value::Object(target)) = object.get_mut(key) {
+                inner.merge_into(target);
+            }
+        }
+    }
+}
 
 /// Deserializes `T` from `value`, returning whatever keys `T` does not itself round-trip.
 ///
@@ -166,6 +224,66 @@ mod manifest_round_trip_tests {
             out["channels"][0]["components"][0]["future_component_field"],
             serde_json::json!([1, 2, 3])
         );
+    }
+
+    /// An unknown field inside `installation_method` or `version` must survive as well, in place.
+    #[test]
+    fn nested_unknown_fields_round_trip() {
+        let mut src = source();
+        let component = &mut src["channels"][0]["components"][0];
+        component["installation_method"]["future_method_field"] = serde_json::json!(true);
+        component["version"]["future_version_field"] = serde_json::json!("keep me");
+
+        let parsed = VersionedManifest::parse_str(&src.to_string()).expect("parse");
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&parsed).unwrap()).unwrap();
+
+        let component = &out["channels"][0]["components"][0];
+        assert_eq!(
+            component["installation_method"]["future_method_field"],
+            serde_json::json!(true)
+        );
+        assert_eq!(component["version"]["future_version_field"], serde_json::json!("keep me"));
+    }
+
+    /// A literal key containing a dot is one field, not a path into a known object.
+    #[test]
+    fn literal_dotted_keys_round_trip() {
+        let mut src = source();
+        let component = &mut src["channels"][0]["components"][0];
+        component["vendor.flag"] = serde_json::Value::Null;
+        component["version.future"] = serde_json::json!(true);
+
+        let parsed = VersionedManifest::parse_str(&src.to_string()).expect("parse");
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&parsed).unwrap()).unwrap();
+
+        let component = &out["channels"][0]["components"][0];
+        assert_eq!(component["vendor.flag"], serde_json::Value::Null);
+        assert_eq!(component["version.future"], serde_json::json!(true));
+        assert!(component["version"].get("future").is_none(), "{component}");
+    }
+
+    /// An unknown field inside `installation-method`, the accepted alias, is written back under
+    /// the canonical `installation_method` the typed form emits.
+    #[test]
+    fn nested_unknown_fields_under_an_alias_round_trip() {
+        let mut src = source();
+        let component = src["channels"][0]["components"][0].as_object_mut().unwrap();
+        let mut method = component.remove("installation_method").unwrap();
+        method["future_method_field"] = serde_json::json!(true);
+        component.insert("installation-method".to_string(), method);
+
+        let parsed = VersionedManifest::parse_str(&src.to_string()).expect("parse");
+        let out: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&parsed).unwrap()).unwrap();
+
+        let component = &out["channels"][0]["components"][0];
+        assert_eq!(
+            component["installation_method"]["future_method_field"],
+            serde_json::json!(true)
+        );
+        assert!(component.get("installation-method").is_none(), "{component}");
     }
 
     /// The flattened `kind` must not be duplicated into the extras.

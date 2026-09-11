@@ -27,9 +27,13 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use super::{Channel, Component, ComponentKind, Manifest};
-use crate::plan::{
-    destination::DestinationClaims, destination_for, validate_artifact_id, validate_artifact_id_for,
+use super::{Channel, Component, ComponentKind, Extra, Manifest, UnknownFields};
+use crate::{
+    artifact::Artifact,
+    plan::{
+        destination::DestinationClaims, destination_for, validate_artifact_id,
+        validate_artifact_id_for,
+    },
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -142,6 +146,53 @@ pub enum ValidationError {
         artifact: String,
         format: &'static str,
     },
+    #[error(
+        "manifest timestamp {next} does not advance past the previous manifest's {previous}; run \
+         `update-manifest touch`"
+    )]
+    StaleTimestamp { previous: i64, next: i64 },
+    #[error("network '{network}' is declared by the previous manifest but not by this one")]
+    NetworkRemoved { network: String },
+    #[error(
+        "network '{network}' moves back from {from} to {to}; pass --allow-downgrade if that is \
+         intended"
+    )]
+    NetworkDowngraded {
+        network: String,
+        from: semver::Version,
+        to: semver::Version,
+    },
+    #[error(
+        "channel {0} is in the previous manifest but not in this one; a channel is never removed, \
+         since users may still have it installed"
+    )]
+    ChannelRemoved(semver::Version),
+    #[error("channel {0} declares `migrates_from` itself")]
+    SelfMigration(semver::Version),
+    #[error(
+        "channels {first} and {second} both declare `migrates_from` {from}; an installation of \
+         {from} can only be carried to one of them"
+    )]
+    AmbiguousMigration {
+        from: semver::Version,
+        first: semver::Version,
+        second: semver::Version,
+    },
+    #[error(
+        "{location}: unknown field '{field}'; a misspelled field is kept but never read, and a \
+         field from a newer schema cannot be published by this build"
+    )]
+    UnknownField { location: String, field: String },
+    #[error(
+        "channel {channel}: component '{component}' has unknown kind '{kind}'; a misspelled kind \
+         is kept but never installed, and a kind from a newer schema cannot be published by this \
+         build"
+    )]
+    UnknownKind {
+        channel: semver::Version,
+        component: String,
+        kind: String,
+    },
 }
 
 /// Validates a whole manifest, returning every problem found.
@@ -161,6 +212,164 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
     }
 
     validate_networks(manifest, &mut errors);
+    validate_migrations(manifest, &mut errors);
+    validate_unknown_fields(manifest, &mut errors);
+
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Rules over fields the parser preserved without recognizing.
+///
+/// Reading tolerates them so that a newer manifest does not break an older `midenup`; publishing
+/// must not, because in the checked-in manifest an unknown key is a typo that would be kept and
+/// never read. An empty value is exempt: a field the schema omits when empty is filed under the
+/// extras too when it is written out explicitly, and nothing distinguishes it from an unknown key
+/// there. A misspelled field whose value is empty therefore goes unreported; it is also the one
+/// typo with no effect, since an empty field and an absent one read the same.
+fn validate_unknown_fields(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
+    fn is_empty_value(value: &serde_json::Value) -> bool {
+        match value {
+            serde_json::Value::Null => true,
+            serde_json::Value::Array(items) => items.is_empty(),
+            serde_json::Value::Object(members) => members.is_empty(),
+            _ => false,
+        }
+    }
+
+    fn report(location: &str, extra: &Extra, errors: &mut Vec<ValidationError>) {
+        for (field, _) in extra.iter().filter(|(_, value)| !is_empty_value(value)) {
+            errors.push(ValidationError::UnknownField {
+                location: location.to_string(),
+                field: field.clone(),
+            });
+        }
+    }
+
+    /// Reports `unknown.fields` under `path`, then each nested object under `path<key>.`.
+    fn report_nested(
+        location: &str,
+        path: &str,
+        unknown: &UnknownFields,
+        errors: &mut Vec<ValidationError>,
+    ) {
+        for (field, _) in unknown.fields.iter().filter(|(_, value)| !is_empty_value(value)) {
+            errors.push(ValidationError::UnknownField {
+                location: location.to_string(),
+                field: format!("{path}{field}"),
+            });
+        }
+        for (key, inner) in unknown.nested.iter() {
+            report_nested(location, &format!("{path}{key}."), inner, errors);
+        }
+    }
+
+    report("manifest", &manifest.extra, errors);
+    for channel in manifest.channels.iter() {
+        report(&format!("channel {}", channel.name), &channel.extra, errors);
+        for component in channel.components.iter() {
+            let at = format!("channel {}: component '{}'", channel.name, component.name);
+            report_nested(&at, "", &component.extra, errors);
+            for (id, artifact) in component.artifacts.artifacts.iter() {
+                let at = format!("{at}, artifact '{id}'");
+                match artifact {
+                    Artifact::TargetSpecific {
+                        substitutions, targets, archive, extra, ..
+                    } => {
+                        report(&at, extra, errors);
+                        if let Some(substitutions) = substitutions {
+                            report(&format!("{at} substitutions"), &substitutions.extra, errors);
+                        }
+                        for (target, substitutions) in targets {
+                            report(
+                                &format!("{at} target '{target}'"),
+                                &substitutions.extra,
+                                errors,
+                            );
+                        }
+                        if let Some(archive) = archive {
+                            report(&format!("{at} archive"), &archive.extra, errors);
+                        }
+                    },
+                    Artifact::TargetAgnostic { archive, extra, .. } => {
+                        report(&at, extra, errors);
+                        if let Some(archive) = archive {
+                            report(&format!("{at} archive"), &archive.extra, errors);
+                        }
+                    },
+                }
+            }
+        }
+    }
+}
+
+/// Rules over `migrates_from`, which `update` follows to find a removed channel's successor.
+///
+/// The named channel need not exist: it is usually the one that was removed. What must hold is
+/// that following the declaration has exactly one answer.
+fn validate_migrations(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
+    let mut successors: HashMap<&semver::Version, &semver::Version> = HashMap::new();
+    for channel in manifest.channels.iter() {
+        let Some(from) = channel.migrates_from.as_ref() else {
+            continue;
+        };
+        if from == &channel.name {
+            errors.push(ValidationError::SelfMigration(channel.name.clone()));
+            continue;
+        }
+        if let Some(previous) = successors.insert(from, &channel.name) {
+            errors.push(ValidationError::AmbiguousMigration {
+                from: from.clone(),
+                first: previous.clone(),
+                second: channel.name.clone(),
+            });
+        }
+    }
+}
+
+/// Validates `next` as a replacement for `previous`, returning every problem found.
+///
+/// Every rule here needs two documents: it is about what a change does to users of the previous
+/// manifest, which no single document can say.
+pub fn validate_against(
+    previous: &Manifest,
+    next: &Manifest,
+    allow_downgrade: bool,
+) -> Result<(), Vec<ValidationError>> {
+    // An unchanged manifest replaces the previous one trivially. Checked first so that a pull
+    // request leaving the manifest alone is not failed for not advancing its timestamp.
+    if previous == next {
+        return Ok(());
+    }
+
+    let mut errors = Vec::new();
+
+    if next.date <= previous.date {
+        errors.push(ValidationError::StaleTimestamp { previous: previous.date, next: next.date });
+    }
+
+    for (network, tracked) in previous.networks.iter() {
+        match next.network_version(network) {
+            None => errors.push(ValidationError::NetworkRemoved { network: network.clone() }),
+            Some(now) if now < tracked && !allow_downgrade => {
+                errors.push(ValidationError::NetworkDowngraded {
+                    network: network.clone(),
+                    from: tracked.clone(),
+                    to: now.clone(),
+                });
+            },
+            Some(_) => {},
+        }
+    }
+
+    // Any published channel may be installed somewhere, whether or not a network still names it:
+    // a user who has not run `update` since a promotion is on the channel it moved away from.
+    // `update` needs the channel in the manifest to carry that installation forward, so no
+    // channel is ever removed.
+    for channel in previous.channels.iter() {
+        if next.get_channel_by_name(&channel.name).is_none() {
+            errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
+        }
+    }
 
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
@@ -221,6 +430,13 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
             errors.push(ValidationError::DuplicateComponent {
                 channel: channel.name.clone(),
                 component: component.name.to_string(),
+            });
+        }
+        if let ComponentKind::Unsupported { tag, .. } = &component.kind {
+            errors.push(ValidationError::UnknownKind {
+                channel: channel.name.clone(),
+                component: component.name.to_string(),
+                kind: tag.clone(),
             });
         }
     }
@@ -517,6 +733,257 @@ mod tests {
     fn with_mainnet(mut m: Manifest) -> Manifest {
         m.promote(crate::channel::DEFAULT_NETWORK, semver::Version::new(0, 15, 0));
         m
+    }
+
+    /// A previous manifest with `mainnet` on 0.15.0 and a 0.16.0 toolchain waiting.
+    fn previous() -> Manifest {
+        let mut m = with_mainnet(manifest(vec![executable("vm", "miden-vm")]));
+        m.channels.push(Channel::new(semver::Version::new(0, 16, 0), vec![]));
+        m.date = 1000;
+        m
+    }
+
+    /// A successor to [`previous`] whose only change is an advanced timestamp.
+    fn successor() -> Manifest {
+        let mut m = previous();
+        m.date = 2000;
+        m
+    }
+
+    fn errors_against(next: &Manifest) -> Vec<ValidationError> {
+        validate_against(&previous(), next, false).err().unwrap_or_default()
+    }
+
+    #[test]
+    fn a_successor_that_only_advances_the_timestamp_passes() {
+        assert_eq!(validate_against(&previous(), &successor(), false), Ok(()));
+    }
+
+    /// Most pull requests do not touch the manifest at all; those must not be judged.
+    #[test]
+    fn an_unchanged_manifest_passes_without_advancing_the_timestamp() {
+        assert_eq!(validate_against(&previous(), &previous(), false), Ok(()));
+    }
+
+    #[test]
+    fn a_timestamp_that_does_not_advance_is_rejected() {
+        let mut m = successor();
+        m.promote("mainnet", semver::Version::new(0, 16, 0));
+        m.date = 1000;
+        assert!(
+            errors_against(&m).iter().any(|e| matches!(
+                e,
+                ValidationError::StaleTimestamp { previous: 1000, next: 1000 }
+            ))
+        );
+        m.date = 999;
+        assert!(
+            errors_against(&m)
+                .iter()
+                .any(|e| matches!(e, ValidationError::StaleTimestamp { .. }))
+        );
+    }
+
+    #[test]
+    fn a_removed_network_is_rejected() {
+        let mut m = successor();
+        m.networks.clear();
+        assert!(errors_against(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::NetworkRemoved { network } if network == "mainnet"
+        )));
+    }
+
+    #[test]
+    fn a_network_moving_backwards_needs_the_flag() {
+        let mut ahead = previous();
+        ahead.promote("mainnet", semver::Version::new(0, 16, 0));
+        let mut next = successor();
+        next.promote("mainnet", semver::Version::new(0, 15, 0));
+
+        let errors = validate_against(&ahead, &next, false).err().unwrap_or_default();
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            ValidationError::NetworkDowngraded { network, .. } if network == "mainnet"
+        )));
+        assert_eq!(validate_against(&ahead, &next, true), Ok(()));
+    }
+
+    #[test]
+    fn a_network_moving_forward_passes() {
+        let mut m = successor();
+        m.promote("mainnet", semver::Version::new(0, 16, 0));
+        assert_eq!(validate_against(&previous(), &m, false), Ok(()));
+    }
+
+    /// The channel `mainnet` names disappears. A successor declaring `migrates_from` it does not
+    /// make that acceptable: users who never ran `update` still need the channel described.
+    #[test]
+    fn removing_a_tracked_channel_is_rejected_even_with_a_successor() {
+        let mut m = successor();
+        m.promote("mainnet", semver::Version::new(0, 16, 0));
+        m.remove_channel(semver::Version::new(0, 15, 0));
+        m.get_channel_by_name_mut(&semver::Version::new(0, 16, 0))
+            .unwrap()
+            .migrates_from = Some(semver::Version::new(0, 15, 0));
+        assert!(errors_against(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::ChannelRemoved(channel) if *channel == semver::Version::new(0, 15, 0)
+        )));
+    }
+
+    #[test]
+    fn an_unknown_field_is_rejected_wherever_it_appears() {
+        let mut m =
+            with_mainnet(manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]));
+        m.extra = Extra::from_iter([("dat".to_string(), serde_json::json!(1))]);
+        m.channels[0].extra =
+            Extra::from_iter([("migrate_from".to_string(), serde_json::json!("0.14.0"))]);
+        m.channels[0].components[0].extra.fields =
+            Extra::from_iter([("instaled-executable".to_string(), serde_json::json!("miden-vm"))]);
+        if let Artifact::TargetAgnostic { extra, .. } =
+            m.channels[0].components[0].artifacts.artifacts.get_mut("miden-vm").unwrap()
+        {
+            *extra = Extra::from_iter([("digset".to_string(), serde_json::json!("sha256:00"))]);
+        }
+
+        let fields: Vec<(String, String)> = errors_of(&m)
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::UnknownField { location, field } => Some((location, field)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fields.len(), 4, "{fields:?}");
+        assert!(fields.contains(&("manifest".to_string(), "dat".to_string())));
+        assert!(fields.iter().any(|(at, f)| at == "channel 0.15.0" && f == "migrate_from"));
+        assert!(
+            fields
+                .iter()
+                .any(|(at, f)| at.ends_with("component 'vm'") && f == "instaled-executable")
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|(at, f)| at.ends_with("artifact 'miden-vm'") && f == "digset")
+        );
+    }
+
+    /// A misspelled `kind` parses as an unsupported kind, which resolution skips: the component
+    /// would vanish from the toolchain without a word.
+    #[test]
+    fn an_unknown_component_kind_is_rejected() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "vm",
+                "version": {"kind": "registry", "version": "0.15.0"},
+                "kind": "exectuable",
+                "installation_method": {"kind": "prebuilt"},
+                "installed-executable": "miden-vm"
+            }]}]
+        })
+        .to_string();
+        let manifest = crate::manifest::VersionedManifest::parse_str(&src).expect("must parse");
+        assert!(errors_of(&manifest).iter().any(|e| matches!(
+            e,
+            ValidationError::UnknownKind { component, kind, .. }
+                if component == "vm" && kind == "exectuable"
+        )));
+    }
+
+    /// A typo inside a nested object is as silent as one at the top level: `featurs` would leave
+    /// the component building without its features. Driven by JSON so it exercises the parser.
+    #[test]
+    fn an_unknown_field_nested_in_a_known_object_is_rejected() {
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [{"name": "0.15.0", "components": [{
+                "name": "vm",
+                "version": {"kind": "registry", "version": "0.15.0", "vesion": "0.15.0"},
+                "kind": "executable",
+                "installation_method": {
+                    "kind": "cargo",
+                    "crate_name": "miden-vm",
+                    "featurs": ["nonexistent"],
+                    "features": []
+                },
+                "installed-executable": "miden-vm"
+            }]}]
+        })
+        .to_string();
+        let manifest = crate::manifest::VersionedManifest::parse_str(&src).expect("must parse");
+        let fields: Vec<String> = errors_of(&manifest)
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::UnknownField { field, .. } => Some(field),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(fields, ["installation_method.featurs", "version.vesion"]);
+    }
+
+    /// An explicitly empty field the schema omits when empty parses into the extras; it is not a
+    /// typo and must not be reported.
+    #[test]
+    fn an_empty_unknown_value_is_not_reported() {
+        let mut m = with_mainnet(manifest(vec![executable("vm", "miden-vm")]));
+        m.channels[0].components[0].extra.fields = Extra::from_iter([
+            ("requires".to_string(), serde_json::json!([])),
+            ("aliases".to_string(), serde_json::json!({})),
+            ("symlink-name".to_string(), serde_json::Value::Null),
+        ]);
+        assert!(!errors_of(&m).iter().any(|e| matches!(e, ValidationError::UnknownField { .. })));
+    }
+
+    #[test]
+    fn a_channel_migrating_from_itself_is_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.channels[0].migrates_from = Some(semver::Version::new(0, 15, 0));
+        assert!(errors_of(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::SelfMigration(v) if *v == semver::Version::new(0, 15, 0)
+        )));
+    }
+
+    #[test]
+    fn two_channels_migrating_from_the_same_one_are_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.channels[0].migrates_from = Some(semver::Version::new(0, 14, 0));
+        let mut other = Channel::new(semver::Version::new(0, 16, 0), vec![]);
+        other.migrates_from = Some(semver::Version::new(0, 14, 0));
+        m.channels.push(other);
+        assert!(errors_of(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::AmbiguousMigration { from, .. } if *from == semver::Version::new(0, 14, 0)
+        )));
+    }
+
+    /// The predecessor is usually the channel that was removed, so it need not be present.
+    #[test]
+    fn migrating_from_an_absent_channel_is_valid() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.channels[0].migrates_from = Some(semver::Version::new(0, 14, 0));
+        assert!(!errors_of(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::SelfMigration(_) | ValidationError::AmbiguousMigration { .. }
+        )));
+    }
+
+    /// A channel no network names may still be installed by users who have not run `update`
+    /// since the network moved on, so it is not removable either.
+    #[test]
+    fn removing_an_untracked_channel_is_rejected() {
+        let mut m = successor();
+        m.remove_channel(semver::Version::new(0, 16, 0));
+        assert!(errors_against(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::ChannelRemoved(channel) if *channel == semver::Version::new(0, 16, 0)
+        )));
     }
 
     #[test]

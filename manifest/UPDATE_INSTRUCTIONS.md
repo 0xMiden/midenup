@@ -36,7 +36,11 @@ bin/update-manifest --manifest-path manifest/channel-manifest.json \
 toolchain is named by its version and never by a network.
 
 Note that the clone deliberately does **not** carry any network across: the new toolchain is a
-draft, and no user is tracking it. It reaches users only once it is promoted (see below).
+draft, and no user is tracking it. It reaches users only once it is promoted (see below). Nor does
+it carry the source's `migrates_from`. A toolchain is never removed from the manifest, since users
+may still have it installed. If the new toolchain supersedes one that is already absent, say so with
+`--migrates-from <VERSION>`: `midenup update` then carries installations of the absent toolchain to
+the new one.
 
 Next, you will need to update each component in the cloned toolchain, as appropriate. See the section on updating an existing toolchain for details.
 
@@ -104,16 +108,43 @@ change against in review. A promotion that changes nothing says so and writes no
 ## Checking the result
 
 ```
-make check-manifest
+cargo make check-manifest
 ```
 
 Validation covers the networks map as well as the channels: every network must name a toolchain that
 exists in the same document, no network may be named like a toolchain or after one of the synonyms,
 and `mainnet` must be declared, since it is the toolchain `midenup` uses when nothing else selects
-one.
+one. No two toolchains may declare `migrates_from` the same one, since `midenup update` must find
+exactly one successor. A field the schema does not define is refused: `midenup` preserves such
+fields when reading, so a misspelled one would be published and silently never read. The exception
+is a field whose value is empty (`[]`, `{}` or `null`), which is indistinguishable from a known
+field the schema omits when empty; such a typo is harmless, since an empty field reads the same as
+an absent one.
 
 There is deliberately no ordering rule between networks: a mainnet hotfix can legitimately put
 mainnet ahead of testnet.
+
+To also judge the change as a replacement for the manifest it supersedes, compare against that one.
+`--against` takes any manifest URI; the one on the branch you are targeting is the usual choice:
+
+```
+git show origin/next:manifest/channel-manifest.json > /tmp/previous-manifest.json
+cargo make check-manifest --against file:///tmp/previous-manifest.json
+```
+
+This refuses a timestamp that did not advance, a removed network, a network moving to an older
+toolchain (unless `--allow-downgrade` is passed), and a removed toolchain. CI runs this comparison
+on every pull request against the base branch as it was when the pull request was last updated, on
+every push to `next` against the previous tip, and before every deployment against the manifest
+currently deployed. On a pull request a downgrade is allowed by labelling it
+`manifest:allow-downgrade`, so the decision is visible in review; the push and deployment checks
+allow it, since the pull request already settled it.
+
+Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
+against the candidate manifest, and fails if that release cannot read it. Support for a new schema
+therefore ships in a `midenup` release first, and the manifest starts using it only once that
+release is out. Fields and component kinds the release does not know are tolerated, as they are by
+the `midenup` users have installed.
 
 ## Publishing
 

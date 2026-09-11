@@ -305,6 +305,7 @@ install_crate_args = ["--locked"]
 args = [
     "nextest",
     "run",
+    "--workspace",
 	"--no-run",
 ]
 
@@ -316,6 +317,7 @@ install_crate_args = ["--locked"]
 args = [
     "nextest",
     "run",
+    "--workspace",
 	"--no-tests=pass",
     "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
     "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
@@ -332,6 +334,7 @@ install_crate_args = ["--locked"]
 args = [
     "nextest",
     "run",
+    "--workspace",
 	"--no-tests=pass",
 	"-E",
 	"test(/integration_/) and not test(/prerelease/)",
@@ -348,6 +351,7 @@ install_crate_args = ["--locked"]
 args = [
     "nextest",
     "run",
+    "--workspace",
 	"--no-tests=pass",
 	"-E",
 	"test(/prerelease/)",
@@ -364,9 +368,25 @@ install_crate_args = ["--locked"]
 args = [
     "nextest",
     "run",
+    "--workspace",
 	"--no-tests=pass",
     "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
     "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
+    "${@}",
+]
+
+[tasks.check-manifest]
+category = "Test"
+description = "Validates the channel manifest; extra arguments go to `update-manifest check`"
+command = "cargo"
+args = [
+    "run",
+    "-p",
+    "update-manifest",
+    "--",
+    "--manifest-path",
+    "manifest/channel-manifest.json",
+    "check",
     "${@}",
 ]
 
