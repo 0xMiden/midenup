@@ -1,0 +1,49 @@
+# Install midenup and a toolchain the way the README tells users to, from the published
+# release assets and the live channel manifest.
+name: smoke
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: The release tag to test, or latest
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  install:
+    name: install from release
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      # The `release` input is either a tag name, or the string 'latest'
+      - name: Run the published installer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ inputs.release }}" != "latest" ]; then
+            tag="${{ inputs.release }}"
+            url="https://github.com/0xMiden/midenup/releases/download/${tag}/installer.sh"
+          else
+            tag=
+            url="https://github.com/0xMiden/midenup/releases/latest/download/installer.sh"
+          fi
+          echo "Installing midenup ${tag}"
+          curl --retry 10 -L --proto '=https' --tlsv1.2 -sSf -O "${url}"
+          chmod +x installer.sh
+          ./installer.sh ${tag:+--version "${tag}"}
+
+      - name: Verify `midenup` installation
+        run: |
+          which midenup
+          midenup --version
+
+      - name: Install the mainnet toolchain from the live manifest
+        run: |
+          midenup install mainnet
+          midenup show list

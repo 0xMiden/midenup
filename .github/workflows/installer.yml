@@ -10,12 +10,14 @@ on:
     paths:
       - bin/installer.sh
       - .github/workflows/installer.yml
+      - .github/workflows/release.yml
   push:
     branches:
       - main
     paths:
       - bin/installer.sh
       - .github/workflows/installer.yml
+      - .github/workflows/release.yml
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref || github.event.pull_request.number || github.sha }}
@@ -75,6 +77,17 @@ jobs:
         run: |
           which midenup
           midenup --version
+
+      # Exercise the opt-out flags: the binary must land in the requested directory, no
+      # verification may run, and `midenup init` must not create MIDENUP_HOME.
+      - name: Install with all opt-out flags
+        run: |
+          install_path="$(mktemp -d 2>/dev/null || mktemp -d -t 'install-path')"
+          export MIDENUP_HOME="${RUNNER_TEMP}/no-init-home"
+          bin/installer.sh --install-path "${install_path}" --no-init --no-verify --ignore-attestation --no-cargo-fallback 2>&1 | tee "${RUNNER_TEMP}/installer.log"
+          test -x "${install_path}/midenup"
+          if grep -q 'Verifying' "${RUNNER_TEMP}/installer.log"; then echo "verification ran despite opt-out flags"; exit 1; fi
+          if [ -e "${MIDENUP_HOME}" ]; then echo "init ran despite --no-init"; exit 1; fi
 
   # Dummy job to have a stable name for the "all tests pass" requirement
   tests-pass:

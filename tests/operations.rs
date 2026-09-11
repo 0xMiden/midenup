@@ -683,8 +683,8 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         String::from_utf8_lossy(&shown.stdout)
     );
     assert!(
-        String::from_utf8_lossy(&shown.stdout).contains("(mainnet"),
-        "and so must the networks naming the channel: {}",
+        !String::from_utf8_lossy(&shown.stdout).contains("(mainnet"),
+        "a channel installed by version was installed as no network: {}",
         String::from_utf8_lossy(&shown.stdout)
     );
 

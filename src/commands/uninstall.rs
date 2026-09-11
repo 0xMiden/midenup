@@ -8,7 +8,8 @@ use crate::{
     state::{LocalState, PublicationRef},
 };
 
-/// Removes an installed channel.
+/// Removes an installed channel, or only a network's link to it when other networks on this
+/// machine still name the same channel.
 ///
 /// Uses the same journalled sequence as install (spec section 9.5), with one difference: the commit
 /// point replaces `toolchains/<channel>` with a **tombstone** rather than repointing it. That is
@@ -42,60 +43,57 @@ pub fn uninstall(
         bail!("channel {requested} is not installed, nothing to uninstall");
     };
     let channel = installation.channel.clone();
-    let publication = match &installation.publication {
-        PublicationRef::Managed { id, .. } => Some(id.clone()),
-        // Carried over from v1: nothing describes what it owns, so there is no publication to
-        // reclaim. The state record still goes.
-        PublicationRef::NeedsReinstall => None,
+    let home = &config.midenup_home;
+
+    // The network to unlink when the channel it names stays installed for other networks.
+    let shared_network = match requested {
+        UserChannel::Named(network)
+            if crate::networks::links(home)
+                .into_iter()
+                .any(|(other, linked)| other != network.as_ref() && linked == channel) =>
+        {
+            Some(network.as_ref())
+        },
+        _ => None,
     };
 
-    let home = &config.midenup_home;
-    let entry = JournalEntry::uninstall(channel.clone(), publication);
-    crate::publish::journal::prepare(home, &entry)?;
+    if let Some(network) = shared_network {
+        let link = paths::network_link(home, network);
+        crate::trace!("removing {}", link.display());
+        std::fs::remove_file(link)?;
+    } else {
+        let publication = match &installation.publication {
+            PublicationRef::Managed { id, .. } => Some(id.clone()),
+            // Carried over from v1: nothing describes what it owns, so there is no publication to
+            // reclaim. The state record still goes.
+            PublicationRef::NeedsReinstall => None,
+        };
 
-    // Network links are derived, so removing them before the commit costs nothing if the operation
-    // is discarded: the next install or update recomputes them from upstream.
-    //
-    // Found by scanning rather than by asking upstream which networks name this channel. Uninstall
-    // has to work offline, and a network may have moved upstream since this machine last looked --
-    // in which case upstream would not name the link that is actually here.
-    //
-    // This relies on [`crate::networks::links`] excluding `default`, and that exclusion is load
-    // bearing *here* rather than merely tidy: `midenup override <version>` points `default` at a
-    // version directly under `toolchains/`, which is the shape of a network link, so only the name
-    // tells the two apart. Were `default` to appear in this scan it would be removed before the
-    // commit point below, and a discarded uninstall would leave the user without the override it
-    // never actually removed -- which is why `default` is handled after the commit instead.
-    for (network, linked) in crate::networks::links(home) {
-        if linked == channel {
-            let link = paths::network_link(home, &network);
-            crate::trace!("removing {}", link.display());
-            std::fs::remove_file(link)?;
-        }
+        let entry = JournalEntry::uninstall(channel.clone(), publication);
+        crate::publish::journal::prepare(home, &entry)?;
+
+        // The commit point: after this the channel is uninstalled, and an interrupted run is
+        // completed rather than rolled back. Nothing happens between preparing the journal and
+        // this, so a prepared uninstall is never discarded.
+        crate::publish::journal::commit_symlink(home, &entry)?;
+
+        // Removes the state record, reclaims the publication, clears the tombstone and the network
+        // links naming the channel, deletes the journal.
+        crate::publish::journal::finish(home, &entry, state)?;
     }
 
-    // The commit point: after this the channel is uninstalled, and an interrupted run is completed
-    // rather than rolled back.
-    crate::publish::journal::commit_symlink(home, &entry)?;
-
-    // `default` is the user's `midenup override` choice, not a derived link, so nothing would
-    // recompute it -- which is why it is removed after the commit point rather than with the
-    // network links. Either override form dangles once the channel is gone: one names a network
-    // link that has just been removed, the other names the toolchain directory the commit
-    // tombstoned. Testing for dangling covers both, and repairs one left over from any earlier
-    // cause.
+    // `default` is the user's `midenup override` choice, so nothing recomputes it. Either override
+    // form dangles once what it names is gone: one names a network link that has just been
+    // removed, the other names the toolchain directory the commit tombstoned. Testing for dangling
+    // covers both, and repairs one left over from any earlier cause.
     let default = paths::toolchains_dir(home).join("default");
     if std::fs::symlink_metadata(&default).is_ok() && default.canonicalize().is_err() {
         std::fs::remove_file(&default)?;
         crate::info!(
-            "removed the 'default' override, which named {channel}. Set a new one with:\n    \
+            "removed the 'default' override, which named {requested}. Set a new one with:\n    \
              midenup override <channel>"
         );
     }
-
-    // Removes the state record, reclaims the publication, clears the tombstone, deletes the
-    // journal.
-    crate::publish::journal::finish(home, &entry, state)?;
 
     // Only now, and only if asked. Deliberately after the commit: this is the one part of an
     // uninstall that cannot be undone by reinstalling.
@@ -114,7 +112,14 @@ pub fn uninstall(
         }
     }
 
-    crate::info!("uninstalled channel '{channel}'");
+    if shared_network.is_some() {
+        crate::info!(
+            "removed network '{requested}'; channel '{channel}' stays installed for the other \
+             networks that name it"
+        );
+    } else {
+        crate::info!("uninstalled channel '{channel}'");
+    }
 
     Ok(())
 }

@@ -200,11 +200,12 @@ fn integration_miden_toolchain_toml() {
     assert_eq!(installed_channel.components.len(), 3);
 
     // Now, we try updating the installed toolchain. An update re-resolves the *recorded* intent,
-    // which is `minimal` plus the project's `debug`, so it must not pull in anything else.
-    let command = Midenup::try_parse_from(["midenup", "update", "stable"]).unwrap();
+    // which is `minimal` plus the project's `debug`, so it must not pull in anything else. The
+    // toolchain was installed by version, so no network names it here and it is updated by version.
+    let command = Midenup::try_parse_from(["midenup", "update", "0.16.0"]).unwrap();
     command
         .execute_with_state(&config, &mut local_manifest)
-        .expect("failed to update stable toolchain");
+        .expect("failed to update 0.16.0 toolchain");
 
     // No components should have been added
     let installed_channel = local_manifest.get(&semver::Version::new(0, 16, 0)).unwrap();
@@ -340,4 +341,53 @@ fn integration_miden_explicit_toolchain_override() {
     let output = output_handle.borrow();
     assert!(output.status.success());
     assert_eq!(core::str::from_utf8(&output.stdout).unwrap(), "miden-vm 0.16.0\n");
+}
+
+/// An explicit selection must survive command completion, even when the environment is invalid.
+#[test]
+fn integration_miden_explicit_override_survives_environment() {
+    let test_env = environment_setup("explicit_override_survives_environment");
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_channel("0.16.0")
+        .build();
+    let binary = env!("CARGO_BIN_EXE_midenup");
+    for channel in ["0.15.0", "0.16.0"] {
+        let output = midenup_command(binary, &test_env, &fixture.manifest_uri)
+            .env_remove("MIDENUP_TOOLCHAIN")
+            .args(["install", channel])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    for environment in ["", "../invalid", "0.16.0"] {
+        let output = midenup_command(binary, &test_env, &fixture.manifest_uri)
+            .env_remove("MIDENUP_TOOLCHAIN")
+            .args(["override", "0.16.0"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+
+        let output = midenup_command(
+            test_env.cargo_home.join("bin/miden"),
+            &test_env,
+            &fixture.manifest_uri,
+        )
+        .env("MIDENUP_TOOLCHAIN", environment)
+        .args(["+0.15.0", "help", "vm"])
+        .output()
+        .unwrap();
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "miden-vm 0.15.0\n");
+        assert!(
+            output.status.success(),
+            "command failed with MIDENUP_TOOLCHAIN={environment:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            std::fs::canonicalize(test_env.midenup_home.join("opt")).unwrap(),
+            std::fs::canonicalize(test_env.midenup_home.join("toolchains/0.15.0/opt")).unwrap(),
+            "the opt link must follow the explicitly selected toolchain"
+        );
+    }
 }

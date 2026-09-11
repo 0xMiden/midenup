@@ -34,6 +34,8 @@ pub enum FaultPoint {
     PostRecord,
     /// After the derived symlinks, before the old publication and journal are cleaned up.
     PostDerive,
+    /// During uninstall cleanup, after the tombstone is removed but before the journal is deleted.
+    PostUninstallTombstone,
     /// Inside v1 migration, after the state document is built and before it is written.
     ///
     /// Not part of the publication protocol: migration has its own single commit point (the rename
@@ -44,13 +46,14 @@ pub enum FaultPoint {
 
 impl FaultPoint {
     /// Every point that can be armed.
-    pub const ALL: [FaultPoint; 7] = [
+    pub const ALL: [FaultPoint; 8] = [
         Self::PostPrepare,
         Self::PostStage,
         Self::PostVerify,
         Self::PostCommit,
         Self::PostRecord,
         Self::PostDerive,
+        Self::PostUninstallTombstone,
         Self::PreMigrationCommit,
     ];
     /// The publication protocol's points, in order.
@@ -71,6 +74,7 @@ impl FaultPoint {
             Self::PostCommit => "post-commit",
             Self::PostRecord => "post-record",
             Self::PostDerive => "post-derive",
+            Self::PostUninstallTombstone => "post-uninstall-tombstone",
             Self::PreMigrationCommit => "pre-migration-commit",
         }
     }
