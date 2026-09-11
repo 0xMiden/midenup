@@ -32,6 +32,8 @@ pub const RECEIPT_FILE: &str = "receipt.json";
 
 #[derive(Debug, thiserror::Error)]
 pub enum PublishError {
+    #[error(transparent)]
+    InjectedFault(#[from] crate::fault::InjectedFault),
     #[error("failed to read the publication receipt '{path}': {source}")]
     ReadReceipt {
         path: PathBuf,

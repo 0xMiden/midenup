@@ -217,11 +217,6 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
     }
 
     if matches!(entry.kind, OperationKind::Uninstall) {
-        let link = paths::toolchain_link(home, &entry.channel);
-        if is_tombstone(&link) {
-            let _ = std::fs::remove_file(&link);
-        }
-
         // Found by scanning rather than by asking upstream which networks name this channel:
         // uninstall has to work offline, and a network may have moved upstream since this machine
         // last looked, in which case upstream would not name the link that is actually here.
@@ -234,6 +229,15 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
                 let _ = std::fs::remove_file(&link);
             }
         }
+
+        // Keep the commit evidence until network cleanup finishes. Once the tombstone is gone,
+        // recovery discards the journal rather than retrying cleanup; no network link may remain
+        // to be silently reactivated by a later install of this version.
+        let link = paths::toolchain_link(home, &entry.channel);
+        if is_tombstone(&link) {
+            let _ = std::fs::remove_file(&link);
+        }
+        crate::fault::fail_at(crate::fault::FaultPoint::PostUninstallTombstone)?;
     }
 
     let path = entry_path(home, &entry.id);
