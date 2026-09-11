@@ -138,23 +138,18 @@ pub fn install(
     crate::publish::journal::record(home, &entry, state)?;
     fault::fail_at(fault::FaultPoint::PostRecord)?;
 
-    // 6. DERIVE. Which channel a network names is a property of the upstream manifest, recomputed
-    // from it rather than remembered, so a stale local copy can never disagree with upstream. A
-    // loop rather than a conditional because several networks may name one channel -- the state
-    // right after a testnet toolchain is promoted to mainnet.
-    //
-    // Only the channel being installed gets links. Repointing a network at a channel that is not
-    // installed would leave a dangling symlink; `midenup update <network>` is what advances it.
-    let relative_channel_target = PathBuf::from(format!("{}", channel.name));
-    for network in config.upstream_manifest()?.networks_for(&channel.name) {
+    // 6. DERIVE. Only the network the user named gets a link. Other networks that happen to name
+    // the same channel upstream were not asked for, so `toolchains/<network>` records exactly the
+    // networks this machine installed, and only those are reported on and updated later.
+    if let Some(network) = &options.network {
         // A network name becomes a path segment under `toolchains/`, and `replace_symlink` renames
         // over whatever is at that path. Loading a manifest is deliberately permissive, so the
         // authoring gate in `manifest::validate` cannot be the only thing standing between a
         // manifest and a symlink written outside `$MIDENUP_HOME`.
-        if crate::plan::validate_artifact_id(network).is_err() {
-            continue;
-        }
+        crate::plan::validate_artifact_id(network)
+            .with_context(|| format!("'{network}' is not a valid network name"))?;
 
+        let relative_channel_target = PathBuf::from(format!("{}", channel.name));
         let link = paths::network_link(home, network);
         crate::trace!("linking {} -> {}", link.display(), relative_channel_target.display());
         utils::fs::replace_symlink(&link, &relative_channel_target).with_context(|| {

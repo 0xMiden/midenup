@@ -188,12 +188,46 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
             FaultPoint::PostCommit | FaultPoint::PostRecord | FaultPoint::PostDerive => 2,
             // Not reachable: this loop walks `PUBLICATION`, and migration has its own commit
             // point and its own test.
-            FaultPoint::PreMigrationCommit => unreachable!("not a publication step"),
+            FaultPoint::PreMigrationCommit | FaultPoint::PostUninstallTombstone => {
+                unreachable!("not an install publication step")
+            },
         };
         assert_eq!(
             publications.len(),
             expected,
             "{point}: unexpected publications on disk: {publications:?}"
+        );
+    }
+}
+
+/// Removing the tombstone erases the evidence that uninstall committed. By then, no network
+/// link may remain for recovery to miss or for a later version install to reactivate.
+#[test]
+fn integration_recovery_after_uninstall_tombstone_removal_keeps_networks_uninstalled() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("uninstall_cleanup_recovery");
+    let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
+    for network in ["mainnet", "testnet"] {
+        let output = run_midenup(&env, &fixture.manifest_uri, &["install", network]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let output = midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, &fixture.manifest_uri)
+        .args(["uninstall", "0.15.0"])
+        .env(FAULT_POINT_ENV, FaultPoint::PostUninstallTombstone.as_str())
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("post-uninstall-tombstone"));
+    assert!(midenup::publish::journal::read(&env.midenup_home).unwrap().is_some());
+
+    let state = restart(&env, &fixture.manifest_uri);
+    assert!(state.get(&semver::Version::new(0, 15, 0)).is_none());
+    assert!(midenup::publish::journal::read(&env.midenup_home).unwrap().is_none());
+    for network in ["mainnet", "testnet"] {
+        assert!(
+            paths::network_link(&env.midenup_home, network).symlink_metadata().is_err(),
+            "recovery must not leave {network} installed"
         );
     }
 }

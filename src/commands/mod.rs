@@ -317,7 +317,14 @@ impl Commands {
                 };
                 crate::info!("installing {target}");
 
-                install(config, channel, state, options)
+                let options = options::InstallationOptions {
+                    network: match requested {
+                        channel::UserChannel::Named(name) => Some(name.to_string()),
+                        channel::UserChannel::Version(_) => None,
+                    },
+                    ..options.clone()
+                };
+                install(config, channel, state, &options)
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
             // exactly one a user needs to be able to uninstall (spec section 12.3).
