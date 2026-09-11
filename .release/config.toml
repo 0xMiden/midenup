@@ -23,9 +23,10 @@ changelog = "CHANGELOG.md"
 changelog-headings = ["Added", "Changed", "Fixed", "Migration and breaking changes"]
 latest = true
 # The release workflow's matrix builds `${binary}-${target}.tar.gz` for the midenup binary
-# across two targets. They route here.
-assets = ["midenup-*.tar.gz"]
-required-assets = ["midenup-*.tar.gz"]
+# across two targets, and uploads `bin/installer.sh` so users can fetch it from the release.
+# They route here.
+assets = ["midenup-*.tar.gz", "installer.sh"]
+required-assets = ["midenup-*.tar.gz", "installer.sh"]
 
 
 # Repository infrastructure, never published.
