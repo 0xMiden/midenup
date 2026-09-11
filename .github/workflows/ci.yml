@@ -74,12 +74,16 @@ jobs:
 
   check_manifest:
     name: check manifest
+    # Pushes are checked by check-manifest.yml's own trigger, which also sees manifest-only
+    # pushes that this workflow ignores.
+    if: github.event_name == 'pull_request'
     uses: ./.github/workflows/check-manifest.yml
     with:
-      base: ${{ github.base_ref || github.event.before }}
-      # A deliberate downgrade is acknowledged with a label on the pull request. A push has
-      # already been reviewed that way, so it is allowed there.
-      allow-downgrade: ${{ github.event_name == 'push' || contains(github.event.pull_request.labels.*.name, 'manifest:allow-downgrade') }}
+      # The base as it was when the pull request was last updated: the merge commit being
+      # checked was built on it, so the comparison does not shift when the base branch moves.
+      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/channel-manifest.json
+      # A deliberate downgrade is acknowledged with a label on the pull request.
+      allow-downgrade: ${{ contains(github.event.pull_request.labels.*.name, 'manifest:allow-downgrade') }}
 
   unit_tests:
     name: unit tests

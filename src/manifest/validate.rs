@@ -27,7 +27,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use super::{Channel, Component, ComponentKind, Extra, Manifest};
+use super::{Channel, Component, ComponentKind, Extra, Manifest, UnknownFields};
 use crate::{
     artifact::Artifact,
     plan::{
@@ -163,14 +163,10 @@ pub enum ValidationError {
         to: semver::Version,
     },
     #[error(
-        "channel {channel} is named by network(s) {} in the previous manifest but is not in this \
-         one, and no channel declares `migrates_from` it",
-        networks.join(", ")
+        "channel {0} is in the previous manifest but not in this one; a channel is never removed, \
+         since users may still have it installed"
     )]
-    TrackedChannelRemoved {
-        channel: semver::Version,
-        networks: Vec<String>,
-    },
+    ChannelRemoved(semver::Version),
     #[error("channel {0} declares `migrates_from` itself")]
     SelfMigration(semver::Version),
     #[error(
@@ -181,14 +177,6 @@ pub enum ValidationError {
         from: semver::Version,
         first: semver::Version,
         second: semver::Version,
-    },
-    #[error(
-        "channel {channel} declares `migrates_from` {from}, which is newer; a channel can only \
-         supersede an older one"
-    )]
-    BackwardMigration {
-        channel: semver::Version,
-        from: semver::Version,
     },
     #[error(
         "{location}: unknown field '{field}'; a misspelled field is kept but never read, and a \
@@ -235,12 +223,13 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
 /// Reading tolerates them so that a newer manifest does not break an older `midenup`; publishing
 /// must not, because in the checked-in manifest an unknown key is a typo that would be kept and
 /// never read. An empty value is exempt: a field the schema omits when empty is filed under the
-/// extras too when it is written out explicitly.
+/// extras too when it is written out explicitly, and nothing distinguishes it from an unknown key
+/// there. A misspelled field whose value is empty therefore goes unreported; it is also the one
+/// typo with no effect, since an empty field and an absent one read the same.
 fn validate_unknown_fields(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
     fn is_empty_value(value: &serde_json::Value) -> bool {
         match value {
             serde_json::Value::Null => true,
-            serde_json::Value::Bool(set) => !set,
             serde_json::Value::Array(items) => items.is_empty(),
             serde_json::Value::Object(members) => members.is_empty(),
             _ => false,
@@ -256,12 +245,30 @@ fn validate_unknown_fields(manifest: &Manifest, errors: &mut Vec<ValidationError
         }
     }
 
+    /// Reports `unknown.fields` under `path`, then each nested object under `path<key>.`.
+    fn report_nested(
+        location: &str,
+        path: &str,
+        unknown: &UnknownFields,
+        errors: &mut Vec<ValidationError>,
+    ) {
+        for (field, _) in unknown.fields.iter().filter(|(_, value)| !is_empty_value(value)) {
+            errors.push(ValidationError::UnknownField {
+                location: location.to_string(),
+                field: format!("{path}{field}"),
+            });
+        }
+        for (key, inner) in unknown.nested.iter() {
+            report_nested(location, &format!("{path}{key}."), inner, errors);
+        }
+    }
+
     report("manifest", &manifest.extra, errors);
     for channel in manifest.channels.iter() {
         report(&format!("channel {}", channel.name), &channel.extra, errors);
         for component in channel.components.iter() {
             let at = format!("channel {}: component '{}'", channel.name, component.name);
-            report(&at, &component.extra, errors);
+            report_nested(&at, "", &component.extra, errors);
             for (id, artifact) in component.artifacts.artifacts.iter() {
                 let at = format!("{at}, artifact '{id}'");
                 match artifact {
@@ -309,12 +316,6 @@ fn validate_migrations(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
             errors.push(ValidationError::SelfMigration(channel.name.clone()));
             continue;
         }
-        if from > &channel.name {
-            errors.push(ValidationError::BackwardMigration {
-                channel: channel.name.clone(),
-                from: from.clone(),
-            });
-        }
         if let Some(previous) = successors.insert(from, &channel.name) {
             errors.push(ValidationError::AmbiguousMigration {
                 from: from.clone(),
@@ -360,17 +361,13 @@ pub fn validate_against(
         }
     }
 
-    // A channel users track may disappear only if update can carry them somewhere: `update`
-    // follows a channel declaring `migrates_from` the one that vanished.
-    let tracked: BTreeSet<&semver::Version> = previous.networks.values().collect();
-    for channel in tracked {
-        let still_present = next.get_channel_by_name(channel).is_some();
-        let superseded = next.channels.iter().any(|c| c.migrates_from.as_ref() == Some(channel));
-        if !still_present && !superseded {
-            errors.push(ValidationError::TrackedChannelRemoved {
-                channel: channel.clone(),
-                networks: previous.networks_for(channel).map(str::to_string).collect(),
-            });
+    // Any published channel may be installed somewhere, whether or not a network still names it:
+    // a user who has not run `update` since a promotion is on the channel it moved away from.
+    // `update` needs the channel in the manifest to carry that installation forward, so no
+    // channel is ever removed.
+    for channel in previous.channels.iter() {
+        if next.get_channel_by_name(&channel.name).is_none() {
+            errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
         }
     }
 
@@ -819,30 +816,20 @@ mod tests {
         assert_eq!(validate_against(&previous(), &m, false), Ok(()));
     }
 
-    /// The channel `mainnet` names disappears, and nothing takes over from it.
+    /// The channel `mainnet` names disappears. A successor declaring `migrates_from` it does not
+    /// make that acceptable: users who never ran `update` still need the channel described.
     #[test]
-    fn removing_a_tracked_channel_is_rejected() {
-        let mut m = successor();
-        m.promote("mainnet", semver::Version::new(0, 16, 0));
-        m.remove_channel(semver::Version::new(0, 15, 0));
-        assert!(errors_against(&m).iter().any(|e| matches!(
-            e,
-            ValidationError::TrackedChannelRemoved { channel, networks }
-                if *channel == semver::Version::new(0, 15, 0) && networks == &["mainnet"]
-        )));
-    }
-
-    /// The same removal is fine when a channel declares `migrates_from` the removed one, because
-    /// `update` follows that declaration.
-    #[test]
-    fn removing_a_tracked_channel_with_a_successor_passes() {
+    fn removing_a_tracked_channel_is_rejected_even_with_a_successor() {
         let mut m = successor();
         m.promote("mainnet", semver::Version::new(0, 16, 0));
         m.remove_channel(semver::Version::new(0, 15, 0));
         m.get_channel_by_name_mut(&semver::Version::new(0, 16, 0))
             .unwrap()
             .migrates_from = Some(semver::Version::new(0, 15, 0));
-        assert_eq!(validate_against(&previous(), &m, false), Ok(()));
+        assert!(errors_against(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::ChannelRemoved(channel) if *channel == semver::Version::new(0, 15, 0)
+        )));
     }
 
     #[test]
@@ -852,7 +839,7 @@ mod tests {
         m.extra = Extra::from_iter([("dat".to_string(), serde_json::json!(1))]);
         m.channels[0].extra =
             Extra::from_iter([("migrate_from".to_string(), serde_json::json!("0.14.0"))]);
-        m.channels[0].components[0].extra =
+        m.channels[0].components[0].extra.fields =
             Extra::from_iter([("instaled-executable".to_string(), serde_json::json!("miden-vm"))]);
         if let Artifact::TargetAgnostic { extra, .. } =
             m.channels[0].components[0].artifacts.artifacts.get_mut("miden-vm").unwrap()
@@ -945,10 +932,9 @@ mod tests {
     #[test]
     fn an_empty_unknown_value_is_not_reported() {
         let mut m = with_mainnet(manifest(vec![executable("vm", "miden-vm")]));
-        m.channels[0].components[0].extra = Extra::from_iter([
+        m.channels[0].components[0].extra.fields = Extra::from_iter([
             ("requires".to_string(), serde_json::json!([])),
             ("aliases".to_string(), serde_json::json!({})),
-            ("hide".to_string(), serde_json::json!(false)),
             ("symlink-name".to_string(), serde_json::Value::Null),
         ]);
         assert!(!errors_of(&m).iter().any(|e| matches!(e, ValidationError::UnknownField { .. })));
@@ -977,16 +963,6 @@ mod tests {
         )));
     }
 
-    #[test]
-    fn migrating_from_a_newer_channel_is_rejected() {
-        let mut m = with_mainnet(manifest(vec![]));
-        m.channels[0].migrates_from = Some(semver::Version::new(0, 16, 0));
-        assert!(errors_of(&m).iter().any(|e| matches!(
-            e,
-            ValidationError::BackwardMigration { from, .. } if *from == semver::Version::new(0, 16, 0)
-        )));
-    }
-
     /// The predecessor is usually the channel that was removed, so it need not be present.
     #[test]
     fn migrating_from_an_absent_channel_is_valid() {
@@ -998,12 +974,16 @@ mod tests {
         )));
     }
 
-    /// Removing a channel no network names is cleanup, not a release break.
+    /// A channel no network names may still be installed by users who have not run `update`
+    /// since the network moved on, so it is not removable either.
     #[test]
-    fn removing_an_untracked_channel_passes() {
+    fn removing_an_untracked_channel_is_rejected() {
         let mut m = successor();
         m.remove_channel(semver::Version::new(0, 16, 0));
-        assert_eq!(validate_against(&previous(), &m, false), Ok(()));
+        assert!(errors_against(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::ChannelRemoved(channel) if *channel == semver::Version::new(0, 16, 0)
+        )));
     }
 
     #[test]

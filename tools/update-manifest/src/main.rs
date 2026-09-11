@@ -35,8 +35,7 @@ enum Command {
     Check {
         /// Also check the manifest as a replacement for the previous one at this URI, e.g. the
         /// deployed manifest or the one on the base branch: refuses a stale timestamp, a removed
-        /// network, a network moving backwards, and removing a channel a network names without a
-        /// successor
+        /// network, a network moving backwards, and a removed channel
         #[arg(long, value_name = "URI")]
         against: Option<String>,
         /// Allow a network to move to an older toolchain than the previous manifest names
@@ -59,8 +58,8 @@ enum Command {
         /// The name of the channel that will be created
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         to: channel::UserChannel,
-        /// The toolchain the new one supersedes: installations of it are carried to the new
-        /// toolchain by `midenup update` once it is removed from the manifest
+        /// A toolchain absent from the manifest that the new one supersedes: `midenup update`
+        /// carries installations of it to the new toolchain
         #[arg(long, value_name = "VERSION")]
         migrates_from: Option<semver::Version>,
     },

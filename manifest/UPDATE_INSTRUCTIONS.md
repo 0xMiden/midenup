@@ -37,9 +37,10 @@ toolchain is named by its version and never by a network.
 
 Note that the clone deliberately does **not** carry any network across: the new toolchain is a
 draft, and no user is tracking it. It reaches users only once it is promoted (see below). Nor does
-it carry the source's `migrates_from`. If the new toolchain supersedes one that will be removed from
-the manifest, say so with `--migrates-from <VERSION>`: `midenup update` then carries installations
-of the removed toolchain to the new one.
+it carry the source's `migrates_from`. A toolchain is never removed from the manifest, since users
+may still have it installed. If the new toolchain supersedes one that is already absent, say so with
+`--migrates-from <VERSION>`: `midenup update` then carries installations of the absent toolchain to
+the new one.
 
 Next, you will need to update each component in the cloned toolchain, as appropriate. See the section on updating an existing toolchain for details.
 
@@ -113,10 +114,12 @@ cargo make check-manifest
 Validation covers the networks map as well as the channels: every network must name a toolchain that
 exists in the same document, no network may be named like a toolchain or after one of the synonyms,
 and `mainnet` must be declared, since it is the toolchain `midenup` uses when nothing else selects
-one. A toolchain may only declare `migrates_from` an older toolchain, and no two toolchains may
-declare `migrates_from` the same one, since `midenup update` must find exactly one successor. A field
-the schema does not define is refused: `midenup` preserves such fields when reading, so a misspelled
-one would be published and silently never read.
+one. No two toolchains may declare `migrates_from` the same one, since `midenup update` must find
+exactly one successor. A field the schema does not define is refused: `midenup` preserves such
+fields when reading, so a misspelled one would be published and silently never read. The exception
+is a field whose value is empty (`[]`, `{}` or `null`), which is indistinguishable from a known
+field the schema omits when empty; such a typo is harmless, since an empty field reads the same as
+an absent one.
 
 There is deliberately no ordering rule between networks: a mainnet hotfix can legitimately put
 mainnet ahead of testnet.
@@ -130,11 +133,12 @@ cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 
 This refuses a timestamp that did not advance, a removed network, a network moving to an older
-toolchain (unless `--allow-downgrade` is passed), and removing a toolchain a network names unless
-another toolchain declares `migrates_from` it. CI runs this comparison on every pull request against
-the base branch, and before every deployment against the previous tip of `main`. On a pull request a
-downgrade is allowed by labelling it `manifest:allow-downgrade`, so the decision is visible in
-review; the deployment check allows it, since the pull request already settled it.
+toolchain (unless `--allow-downgrade` is passed), and a removed toolchain. CI runs this comparison
+on every pull request against the base branch as it was when the pull request was last updated, on
+every push to `next` against the previous tip, and before every deployment against the manifest
+currently deployed. On a pull request a downgrade is allowed by labelling it
+`manifest:allow-downgrade`, so the decision is visible in review; the push and deployment checks
+allow it, since the pull request already settled it.
 
 Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
 against the candidate manifest, and fails if that release cannot read it. Support for a new schema

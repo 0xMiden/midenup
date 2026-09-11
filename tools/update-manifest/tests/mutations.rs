@@ -386,30 +386,6 @@ fn clone_toolchain_can_declare_what_it_supersedes() {
         .find(|c| c["name"] == "0.17.0")
         .expect("the clone must exist");
     assert_eq!(cloned["migrates_from"], "0.16.0");
-
-    // A predecessor newer than the clone fails validation, so the write is refused.
-    let err = run(
-        &path,
-        &[
-            "clone-toolchain",
-            "--from",
-            "0.16.0",
-            "--to",
-            "0.14.0",
-            "--migrates-from",
-            "0.16.0",
-        ],
-    )
-    .expect_err("must fail");
-    assert!(err.contains("newer"), "{err}");
-    assert!(
-        !read_manifest(&path)["channels"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|c| c["name"] == "0.14.0"),
-        "a refused clone must not be written"
-    );
 }
 
 #[test]
