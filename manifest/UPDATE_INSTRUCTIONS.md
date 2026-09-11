@@ -129,13 +129,18 @@ git show origin/next:manifest/channel-manifest.json > /tmp/previous-manifest.jso
 cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 
-This refuses a timestamp that did not advance, a `manifest_version` major change, a removed network,
-a network moving to an older toolchain (unless `--allow-downgrade` is passed), and removing a
-toolchain a network names unless another toolchain declares `migrates_from` it. CI runs this
-comparison on every pull request against the base branch, and before every deployment against the
-previous tip of `main`. On a pull request a downgrade is allowed by labelling it
-`manifest:allow-downgrade`, so the decision is visible in review; the deployment check allows it,
-since the pull request already settled it.
+This refuses a timestamp that did not advance, a removed network, a network moving to an older
+toolchain (unless `--allow-downgrade` is passed), and removing a toolchain a network names unless
+another toolchain declares `migrates_from` it. CI runs this comparison on every pull request against
+the base branch, and before every deployment against the previous tip of `main`. On a pull request a
+downgrade is allowed by labelling it `manifest:allow-downgrade`, so the decision is visible in
+review; the deployment check allows it, since the pull request already settled it.
+
+Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
+against the candidate manifest, and fails if that release cannot read it. Support for a new schema
+therefore ships in a `midenup` release first, and the manifest starts using it only once that
+release is out. Fields and component kinds the release does not know are tolerated, as they are by
+the `midenup` users have installed.
 
 ## Publishing
 
