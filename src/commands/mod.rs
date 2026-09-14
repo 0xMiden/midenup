@@ -8,7 +8,7 @@ mod show;
 mod uninstall;
 mod update;
 
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, path::PathBuf, process::ExitCode};
 
 use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, Parser, Subcommand, builder::ArgPredicate};
@@ -317,7 +317,14 @@ impl Commands {
                 };
                 crate::info!("installing {target}");
 
-                install(config, channel, state, options)
+                let options = options::InstallationOptions {
+                    network: match requested {
+                        channel::UserChannel::Named(name) => Some(name.to_string()),
+                        channel::UserChannel::Version(_) => None,
+                    },
+                    ..options.clone()
+                };
+                install(config, channel, state, &options)
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
             // exactly one a user needs to be able to uninstall (spec section 12.3).
@@ -466,7 +473,7 @@ impl Midenup {
     }
 
     /// Execute this session with the provided configuration.
-    pub fn execute(&self, config: &config::Config) -> anyhow::Result<()> {
+    pub fn execute(&self, config: &config::Config) -> anyhow::Result<ExitCode> {
         let mut state = config.local_state()?;
         self.execute_with_state(config, &mut state)
     }
@@ -476,7 +483,7 @@ impl Midenup {
         &self,
         config: &config::Config,
         state: &mut crate::state::LocalState,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<ExitCode> {
         use crate::miden_wrapper;
 
         // Migration first, before recovery and before anything reads local state. `config()`
@@ -498,8 +505,9 @@ impl Midenup {
             Behavior::Miden(argv) => {
                 // No lock: dispatch is read-only until it discovers the toolchain is missing, and
                 // it takes the lock itself at that point (`ensure_current_is_installed`).
-                miden_wrapper::miden_wrapper(argv, config, state)
+                let code = miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
+                return Ok(code);
             },
             Behavior::Midenup { version, command: subcommand, .. } => {
                 if *version {
@@ -527,7 +535,7 @@ impl Midenup {
         // (update, set) and some remove the directory entirely (uninstall)
         config.update_opt_symlinks()?;
 
-        Ok(())
+        Ok(ExitCode::SUCCESS)
     }
 }
 

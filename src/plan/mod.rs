@@ -12,7 +12,7 @@ pub use self::{
     },
     destination::{
         Destination, DestinationError, InvalidArtifactId, MODE_DATA, MODE_EXECUTABLE,
-        destination_for, validate_artifact_id,
+        destination_for, validate_artifact_id, validate_artifact_id_for, validate_artifact_path,
     },
     key::{ArtifactInput, ComponentInputs, KeyInputs, PlanKey, compute as compute_plan_key},
 };

@@ -32,6 +32,8 @@ pub const RECEIPT_FILE: &str = "receipt.json";
 
 #[derive(Debug, thiserror::Error)]
 pub enum PublishError {
+    #[error(transparent)]
+    InjectedFault(#[from] crate::fault::InjectedFault),
     #[error("failed to read the publication receipt '{path}': {source}")]
     ReadReceipt {
         path: PathBuf,
@@ -384,6 +386,7 @@ mod tests {
                 target: "aarch64-apple-darwin".to_string(),
             },
             installed_at: 1735689600,
+            midenup_version: None,
         });
 
         assert_eq!(
@@ -426,6 +429,7 @@ mod tests {
                     target: "aarch64-apple-darwin".to_string(),
                 },
                 installed_at: 1735689600,
+                midenup_version: None,
             },
         );
         journal::prepare(home, &entry).unwrap();

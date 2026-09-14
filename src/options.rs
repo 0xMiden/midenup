@@ -51,6 +51,10 @@ pub struct InstallationOptions {
     /// this explicitly.
     #[arg(skip)]
     pub intent_update: Option<IntentUpdate>,
+    /// The network the user named, which `toolchains/<network>` will point at the installed
+    /// channel. `None` when a version was requested directly: no network link is written.
+    #[arg(skip)]
+    pub network: Option<String>,
 }
 
 /// Optional update settings.
@@ -90,6 +94,7 @@ impl From<UpdateOptions> for InstallationOptions {
             held_back: Vec::new(),
             // An update re-resolves what is already recorded; it does not restate intent.
             intent_update: Some(IntentUpdate::Preserve),
+            network: None,
         }
     }
 }

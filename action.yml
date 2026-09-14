@@ -1,0 +1,56 @@
+name: 'Install Miden toolchain'
+description: 'Install midenup and a Miden toolchain, and make it the default'
+branding:
+  icon: 'download'
+  color: 'orange'
+
+inputs:
+  toolchain:
+    description: 'Network or version to install, e.g. `mainnet`, `testnet`, `devnet` or `0.15.0`'
+    required: false
+    default: 'mainnet'
+  profile:
+    description: 'Toolchain profile to install: `minimal` or `complete`'
+    required: false
+    default: 'minimal'
+  components:
+    description: 'Comma-separated components to install in addition to the profile, e.g. `client,vm`'
+    required: false
+    default: ''
+  midenup-version:
+    description: 'midenup release to install, e.g. `1.0.0`. Defaults to the latest release'
+    required: false
+    default: ''
+  github-token:
+    description: 'Token used to verify the attestation of the downloaded midenup release'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install midenup
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        MIDENUP_VERSION: ${{ inputs.midenup-version }}
+      run: |
+        args=()
+        if [ -n "$MIDENUP_VERSION" ]; then args+=(--version "$MIDENUP_VERSION"); fi
+        "${{ github.action_path }}/bin/installer.sh" "${args[@]}"
+
+    - name: Install toolchain
+      shell: bash
+      env:
+        TOOLCHAIN: ${{ inputs.toolchain }}
+        PROFILE: ${{ inputs.profile }}
+        COMPONENTS: ${{ inputs.components }}
+      run: |
+        args=(--profile "$PROFILE")
+        IFS=',' read -ra components <<< "$COMPONENTS"
+        for component in "${components[@]}"; do
+          component="${component// /}"
+          if [ -n "$component" ]; then args+=(--component "$component"); fi
+        done
+        midenup install "$TOOLCHAIN" "${args[@]}"
+        midenup override "$TOOLCHAIN"

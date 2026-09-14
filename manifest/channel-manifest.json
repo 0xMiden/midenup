@@ -1,10 +1,10 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1788664559,
+  "date": 1788975844,
   "networks": {
     "devnet": "0.16.0",
-    "mainnet": "0.15.0",
-    "testnet": "0.15.0"
+    "mainnet": "0.16.0",
+    "testnet": "0.16.0"
   },
   "channels": [
     {
@@ -1812,23 +1812,33 @@
           "aliases": {
             "account": [
               "%installed-executable",
-              "new-account"
+              "account"
             ],
             "call": [
               "%installed-executable",
               "call"
             ],
-            "faucet": [
+            "consumable-notes": [
               "%installed-executable",
-              "mint"
+              "notes",
+              "--list",
+              "consumable"
+            ],
+            "consume-notes": [
+              "%installed-executable",
+              "consume-notes"
+            ],
+            "exec": [
+              "%installed-executable",
+              "exec"
             ],
             "new-wallet": [
               "%installed-executable",
               "new-wallet"
             ],
-            "simulate": [
+            "sync": [
               "%installed-executable",
-              "exec"
+              "sync"
             ],
             "transfer": [
               "%installed-executable",
@@ -1856,7 +1866,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.1"
+            "version": "0.16.0"
           }
         },
         {
@@ -1875,7 +1885,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.29.1"
+            "version": "0.29.4"
           }
         },
         {
@@ -1931,7 +1941,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.1"
+            "version": "0.16.0"
           }
         },
         {
@@ -1959,7 +1969,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.29.2"
+            "version": "0.29.4"
           }
         },
         {
@@ -1987,7 +1997,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.29.2"
+            "version": "0.29.4"
           }
         },
         {
@@ -2032,46 +2042,61 @@
         },
         {
           "artifacts": {
-            "bootstrap.yml": {
+            "compose/bootstrap.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
             },
             "docker-compose.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
             },
-            "explorer.yml": {
+            "compose/explorer.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer.yml"
             },
-            "faucet.yml": {
+            "compose/explorer/backend.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/backend.yml"
+            },
+            "compose/explorer/database.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/database.yml"
+            },
+            "compose/explorer/frontend.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/frontend.yml"
+            },
+            "compose/explorer/indexer.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/indexer.yml"
+            },
+            "compose/explorer/migration.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/migration.yml"
+            },
+            "compose/faucet.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/faucet.yml"
             },
-            "monitor.yml": {
+            "compose/monitor.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/monitor.yml"
             },
-            "node.yml": {
+            "compose/node.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/node.yml"
             },
-            "note-transport.yml": {
+            "compose/note-transport.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/note-transport.yml"
             },
-            "ntx-builder.yml": {
+            "compose/ntx-builder.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/ntx-builder.yml"
             },
-            "otel-collector.yml": {
+            "compose/otel-collector.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/otel-collector.yml"
             },
-            "router.yml": {
+            "compose/router.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/router.yml"
             },
-            "seed.yml": {
+            "compose/seed.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/seed.yml"
             },
-            "telemetry.yml": {
+            "compose/telemetry.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/telemetry.yml"
             },
-            "tx-prover.yml": {
+            "compose/tx-prover.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/tx-prover.yml"
             },
-            "validator.yml": {
+            "compose/validator.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/validator.yml"
             }
           },
@@ -2130,7 +2155,7 @@
           },
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.3"
+            "version": "0.16.0"
           }
         },
         {
@@ -2152,7 +2177,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0-rc.9"
+            "version": "0.16.1"
           }
         },
         {
@@ -2160,14 +2185,14 @@
           "installation_method": {
             "crate_name": "miden-remote-prover",
             "kind": "cargo",
-            "rustup_channel": "1.96"
+            "rustup_channel": "1.98"
           },
           "installed-executable": "miden-remote-prover",
           "kind": "executable",
           "name": "remote-prover",
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.3"
+            "version": "0.16.0"
           }
         },
         {
@@ -2175,14 +2200,14 @@
           "installation_method": {
             "crate_name": "miden-validator",
             "kind": "cargo",
-            "rustup_channel": "1.96"
+            "rustup_channel": "1.98"
           },
           "installed-executable": "miden-validator",
           "kind": "executable",
           "name": "validator",
           "version": {
             "kind": "registry",
-            "version": "0.16.0-alpha.3"
+            "version": "0.16.0"
           }
         },
         {
@@ -2232,7 +2257,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.29.2"
+            "version": "0.29.4"
           }
         }
       ]

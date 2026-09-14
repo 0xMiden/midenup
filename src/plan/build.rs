@@ -15,7 +15,7 @@ use crate::{
     manifest::{Channel, Component, ComponentKind, InstallationMethod, PackageInstallationMethod},
     plan::{
         ArtifactInput, ComponentInputs, Destination, DestinationError, KeyInputs, PlanKey,
-        ResolvedAuthority, compute_plan_key, destination_for,
+        ResolvedAuthority, compute_plan_key, destination::DestinationClaims, destination_for,
     },
     resolve::{Intent, ResolutionError, resolve},
 };
@@ -57,8 +57,12 @@ pub enum PlanError {
          Cargo fallback"
     )]
     TargetUnsupported { component: String, target: String },
-    #[error("components '{first}' and '{second}' both install to '{path}'")]
+    #[error(
+        "component '{first}' installs to '{first_path}', which conflicts with '{path}' from \
+         component '{second}'"
+    )]
     DestinationCollision {
+        first_path: String,
         first: String,
         second: String,
         path: String,
@@ -227,7 +231,7 @@ pub fn build_in(
     let mut steps = Vec::new();
     let mut symlinks = Vec::new();
     let mut key_components = Vec::with_capacity(components.len());
-    let mut claimed: HashMap<PathBuf, String> = HashMap::new();
+    let mut claimed = DestinationClaims::default();
     let mut cargo_units: HashMap<String, String> = HashMap::new();
 
     for component in components {
@@ -256,12 +260,10 @@ pub fn build_in(
         // Claim destinations after the component is planned, so a component colliding with
         // *itself* is reported the same way as one colliding with another.
         for step in steps.iter().filter(|s| s.owner() == component.name.as_ref()) {
-            if let Some(previous) =
-                claimed.insert(step.dest().to_path_buf(), component.name.to_string())
-                && previous != component.name.as_ref()
-            {
+            if let Err(previous) = claimed.claim(step.dest(), component.name.as_ref()) {
                 return Err(PlanError::DestinationCollision {
-                    first: previous,
+                    first: previous.owner,
+                    first_path: previous.path.display().to_string(),
                     second: component.name.to_string(),
                     path: step.dest().display().to_string(),
                 });
@@ -1107,6 +1109,36 @@ mod tests {
         ])
         .expect_err("must fail");
         assert!(matches!(err, PlanError::CargoUnitConflict { .. }), "{err}");
+    }
+
+    #[test]
+    fn nested_artifact_file_directory_collisions_are_rejected() {
+        let err = plan_of(vec![component(
+            "node",
+            ComponentKind::Asset,
+            &[
+                ("compose", agnostic("https://example.invalid/a")),
+                ("compose/node.yml", agnostic("https://example.invalid/b")),
+            ],
+        )])
+        .expect_err("a file cannot also be a directory");
+        assert!(matches!(err, PlanError::DestinationCollision { first, second, .. }
+            if first == "node" && second == "node"));
+    }
+
+    #[test]
+    fn nested_artifact_siblings_and_similar_prefixes_are_valid() {
+        let plan = plan_of(vec![component(
+            "node",
+            ComponentKind::Asset,
+            &[
+                ("compose/node.yml", agnostic("https://example.invalid/a")),
+                ("compose/monitor.yml", agnostic("https://example.invalid/b")),
+                ("compose.yml", agnostic("https://example.invalid/c")),
+            ],
+        )])
+        .expect("sibling paths do not conflict");
+        assert_eq!(plan.steps.len(), 3);
     }
 
     #[test]

@@ -195,16 +195,19 @@ impl Config {
 
     /// Points `$MIDENUP_HOME/opt` at the active toolchain's shims.
     ///
-    /// Runs after every command, including `miden` dispatch, so it resolves the active channel from
-    /// *local* state: asking upstream which channel `mainnet` names would put a network round trip
-    /// after every component invocation, which is exactly what section 13.1 forbids.
+    /// Used after `midenup` commands, which may change the selected toolchain. Component dispatch
+    /// instead passes its already-resolved selection to `update_opt_symlinks_for`.
     pub fn update_opt_symlinks(&self) -> anyhow::Result<()> {
         let (current_toolchain, _) = Toolchain::current(self, None)?;
+        self.update_opt_symlinks_for(&current_toolchain)
+    }
 
+    /// Updates the shims from a resolved selection, without re-reading overrides or upstream.
+    pub(crate) fn update_opt_symlinks_for(&self, toolchain: &Toolchain) -> anyhow::Result<()> {
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
 
-        let Some(active_channel) = self.local_channel(&current_toolchain.channel) else {
+        let Some(active_channel) = self.local_channel(&toolchain.channel) else {
             // Nothing installed for it, so there is nothing to point at. Not an error: `midenup
             // install` runs this on the way to installing exactly that.
             return Ok(());
@@ -234,9 +237,8 @@ impl Config {
         };
 
         if update {
-            // Atomically, because this runs at the end of *every* command, including ones that
-            // take no lock: two `miden` invocations would otherwise race to create it and one
-            // would fail with `EEXIST`.
+            // Atomically, because dispatch takes no lock: two `miden` invocations would otherwise
+            // race to create it and one would fail with `EEXIST`.
             let opt_path = toolchain_dir.join("opt");
             utils::fs::replace_symlink(&opt_dir, &opt_path).with_context(|| {
                 format!(

@@ -281,6 +281,16 @@ fn migrate(
     // neither the source nor the destination here.
     carry_var_to(&config.midenup_home, &installation.channel, &upstream.name)?;
 
+    // A network naming the old channel follows the installation to the new one: the old channel
+    // ceases to exist, and the uninstall below removes every link still naming it.
+    for (network, linked) in crate::networks::links(&config.midenup_home) {
+        if linked == installation.channel {
+            let link = crate::paths::network_link(&config.midenup_home, &network);
+            crate::utils::fs::replace_symlink(&link, Path::new(&upstream.name.to_string()))
+                .with_context(|| format!("failed to point '{network}' at {}", upstream.name))?;
+        }
+    }
+
     // Not purged: the data has already been renamed to the new channel, and purging would delete a
     // directory that no longer belongs to the channel being removed.
     commands::uninstall(
