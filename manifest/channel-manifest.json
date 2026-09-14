@@ -2141,6 +2141,13 @@
               "-f"
             ],
             "up": [
+              "env",
+              "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v0.16.0",
+              "MIDEN_VALIDATOR_IMAGE=ghcr.io/0xmiden/miden-validator:v0.16.0",
+              "MIDEN_NTX_BUILDER_IMAGE=ghcr.io/0xmiden/miden-ntx-builder:v0.16.0",
+              "MIDEN_REMOTE_PROVER_IMAGE=ghcr.io/0xmiden/miden-remote-prover:v0.16.0",
+              "MIDEN_NETWORK_MONITOR_IMAGE=ghcr.io/0xmiden/miden-network-monitor:v0.16.0",
+              "MIDEN_BENCHMARK_IMAGE=ghcr.io/0xmiden/miden-node-tps-benchmark:v0.16.0",
               "docker",
               "compose",
               "-f",
