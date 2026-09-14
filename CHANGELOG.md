@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Added the `%version` substitution for command arguments, which resolves to the registry version
+  of the component. The `node` component uses it to point `miden node up` at the published
+  `ghcr.io/0xmiden` images for the toolchain version.
+
 ### Changed
 
 - `midenup install` now sets the installed toolchain as the default when no default is set yet.

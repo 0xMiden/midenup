@@ -955,8 +955,17 @@ Resolved against the active publication at dispatch time:
 | `%etc(<path>)` | `<sysroot>/etc/<path>` |
 | `%var` | `$MIDENUP_HOME/var/<selector>` |
 | `%var(<name>)` | `$MIDENUP_HOME/var/<selector>/<name>` |
+| `%version` | the registry version of the owning component |
 
 `%lib` and `%etc` resolve into the **immutable publication**; `%var` resolves **outside** it (§3.2). A `%etc` or `%lib` path that does not exist in the active publication is an error naming the component that declared it - not a silently passed argument.
+
+Each argument is a template containing literal text and any number of these expressions. For example, `IMAGE=ghcr.io/0xmiden/miden-node:v%version` expands the version inside an image tag, and `CONFIG=%etc(node/config),DATA=%var(data)` combines two paths into one argument. Expansion preserves argument boundaries and does not perform shell evaluation. Empty argument strings are preserved.
+
+Keywords consume Unicode letters and digits and underscores, so `%version2`, `%version_suffix`, and `%versioned` are unknown keywords rather than partial `%version` expansions. Use braces to separate a substitution from adjacent text: `v%{version}ed` expands to a version followed by `ed`. Path arguments belong inside the braces, as in `%{etc(node/config)}`; `%{lib}(suffix)` instead appends literal `(suffix)` to the library directory. `%%` emits a literal `%`, so `%%version` is passed as `%version`. Unknown keywords, bare `%` characters, and unclosed expression delimiters are errors.
+
+Path arguments contain literal text rather than nested expressions. Inside parentheses, `%)` emits a literal closing parenthesis and `%%` emits a literal percent sign; other percent sequences stay literal. For example, `%var(data%)cache)` names the path `data)cache` within the mutable state directory.
+
+Serialization escapes literal percent signs and path delimiters and braces substitutions within templates, preserving their meaning when manifests and local state are read back. `%version` requires a registry authority; a component with a `git` or `path` authority that uses it is an error naming the component and the argument in its canonical serialized form. Bracing a standalone expression does not change its meaning or permit `%lib` or `%var` to serve as the program. Legacy v1 verbatim arguments retain their literal meaning during conversion.
 
 `<sysroot>` is the publication reached through `toolchains/<channel>`, resolved once per invocation.
 
