@@ -317,7 +317,14 @@ impl Commands {
                 };
                 crate::info!("installing {target}");
 
-                install(config, channel, state, options)
+                let options = options::InstallationOptions {
+                    network: match requested {
+                        channel::UserChannel::Named(name) => Some(name.to_string()),
+                        channel::UserChannel::Version(_) => None,
+                    },
+                    ..options.clone()
+                };
+                install(config, channel, state, &options)
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
             // exactly one a user needs to be able to uninstall (spec section 12.3).
@@ -500,7 +507,6 @@ impl Midenup {
                 // it takes the lock itself at that point (`ensure_current_is_installed`).
                 let code = miden_wrapper::miden_wrapper(argv, config, state)
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
-                config.update_opt_symlinks()?;
                 return Ok(code);
             },
             Behavior::Midenup { version, command: subcommand, .. } => {

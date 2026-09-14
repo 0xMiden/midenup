@@ -352,6 +352,10 @@ pub fn miden_wrapper(
     let (toolchain, _justification, partial_channel) =
         Toolchain::ensure_current_is_installed(config, state, toolchain_override)?;
 
+    // Use the same selection for the shims and dispatch. Re-resolving after execution would lose
+    // an explicit +channel and could fail on an environment value that it correctly overrode.
+    config.update_opt_symlinks_for(&toolchain)?;
+
     // Resolved entirely from local state. `state.json` records what is installed, and
     // `toolchains/<network>` records the last answer upstream gave about which channel that
     // network names, so dispatch never needs the network to find its own toolchain (spec section
