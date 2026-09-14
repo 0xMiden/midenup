@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Added
+
+- Added the `%version` substitution for command arguments, which resolves to the registry version
+  of the component. The `node` component uses it to point `miden node up` at the published
+  `ghcr.io/0xmiden` images for the toolchain version.
+
 ## [1.0.1]
 
 ### Added

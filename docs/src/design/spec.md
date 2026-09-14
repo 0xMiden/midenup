@@ -955,8 +955,11 @@ Resolved against the active publication at dispatch time:
 | `%etc(<path>)` | `<sysroot>/etc/<path>` |
 | `%var` | `$MIDENUP_HOME/var/<selector>` |
 | `%var(<name>)` | `$MIDENUP_HOME/var/<selector>/<name>` |
+| `%version` | the registry version of the owning component, substituted inside any other word (e.g. `IMAGE=ghcr.io/0xmiden/miden-node:v%version`) |
 
 `%lib` and `%etc` resolve into the **immutable publication**; `%var` resolves **outside** it (§3.2). A `%etc` or `%lib` path that does not exist in the active publication is an error naming the component that declared it - not a silently passed argument.
+
+The path expressions above match a whole word. `%version` is replaced wherever it appears in a word, so that it can form part of a `KEY=value` pair or an image tag. It requires a registry authority; a component with a `git` or `path` authority that uses it is an error naming the component and the word.
 
 `<sysroot>` is the publication reached through `toolchains/<channel>`, resolved once per invocation.
 

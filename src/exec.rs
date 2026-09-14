@@ -2,7 +2,7 @@ use std::{ffi::OsString, fmt, path::PathBuf, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::Component;
+use crate::{manifest::Component, version::Authority};
 
 /// Represents an executable action that can be invoked by the `miden` CLI
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq, Hash)]
@@ -29,7 +29,7 @@ impl From<Executable> for Vec<String> {
                 Expr::VarPath(None) => out.push("%var".to_string()),
                 Expr::VarPath(Some(name)) => out.push(format!("%var({name})")),
                 Expr::EtcPath(name) => out.push(format!("%etc({name})")),
-                Expr::Verbatim(expr) => out.push(expr),
+                Expr::Versioned(expr) | Expr::Verbatim(expr) => out.push(expr),
             }
         }
 
@@ -62,7 +62,7 @@ impl TryFrom<Vec<crate::manifest::v1::CliCommand>> for Executable {
                         ) => return Err(InvalidExecutable::InvalidVarExpr(cmd.to_string())),
                     }
                 },
-                CliCommand::Verbatim(arg) => exprs.push(Expr::Verbatim(arg)),
+                CliCommand::Verbatim(arg) => exprs.push(Expr::word(arg)),
             }
         }
 
@@ -109,8 +109,25 @@ pub enum Expr {
     VarPath(Option<String>),
     /// Resolve the command to a file in the toolchain etc directory (`<toolchain>/etc/<file>`).
     EtcPath(String),
+    /// An argument that contains `%version`. Each occurrence is replaced with the registry
+    /// version of the owning component, and the rest of the word is passed as is.
+    ///
+    /// Unlike the path expressions, this is not a whole-word match: `%version` can form part of a
+    /// larger value such as an image tag or a `KEY=value` pair.
+    Versioned(String),
     /// An argument that is passed verbatim, as is.
     Verbatim(String),
+}
+
+impl Expr {
+    /// Classifies a word that is not a path expression.
+    fn word(value: String) -> Self {
+        if value.contains("%version") {
+            Expr::Versioned(value)
+        } else {
+            Expr::Verbatim(value)
+        }
+    }
 }
 
 impl fmt::Display for Expr {
@@ -122,7 +139,7 @@ impl fmt::Display for Expr {
             Expr::VarPath(None) => f.write_str("%var"),
             Expr::VarPath(Some(name)) => write!(f, "%var({name})"),
             Expr::EtcPath(name) => write!(f, "%etc({name})"),
-            Expr::Verbatim(arg) => f.write_str(arg),
+            Expr::Versioned(arg) | Expr::Verbatim(arg) => f.write_str(arg),
         }
     }
 }
@@ -160,7 +177,7 @@ impl FromStr for Expr {
                 .ok_or_else(|| InvalidExecutable::InvalidEtcExpr(rest.to_string()))?;
             Ok(Expr::EtcPath(name.to_string()))
         } else {
-            Ok(Expr::Verbatim(value.to_string()))
+            Ok(Expr::word(value.to_string()))
         }
     }
 }
@@ -206,6 +223,11 @@ pub enum InvalidExecutable {
     Var { path: PathBuf, reason: String },
     #[error("invalid executable: unknown package component '{0}'")]
     UnknownPackage(String),
+    #[error(
+        "component '{component}' refers to `%version` in '{expression}', but it has no registry \
+         version"
+    )]
+    VersionUnavailable { component: String, expression: String },
 }
 
 /// Where `%`-expressions resolve to, for one invocation.
@@ -281,6 +303,15 @@ impl Resolver {
                 })
             },
             Expr::Verbatim(arg) => Ok(arg.clone().into()),
+            Expr::Versioned(arg) => {
+                let Authority::Registry { version } = &component.version else {
+                    return Err(InvalidExecutable::VersionUnavailable {
+                        component: component.name.to_string(),
+                        expression: arg.clone(),
+                    });
+                };
+                Ok(arg.replace("%version", &version.to_string()).into())
+            },
         }
     }
 
@@ -506,6 +537,40 @@ mod tests {
                 "--extra"
             ])
         );
+    }
+
+    /// `%version` inside a verbatim word resolves to the registry version of the component, so a
+    /// manifest can name a release-specific value such as an image tag without hard-coding it.
+    #[test]
+    fn version_substitution_inside_a_verbatim_word_uses_the_component_registry_version() {
+        let env = Env::new();
+        let node = node();
+
+        let argv = executable(&["env", "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v%version"])
+            .to_argv(&node, &env.resolver())
+            .expect("should resolve");
+
+        assert_eq!(argv, args(&["env", "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v0.1.0"]));
+    }
+
+    /// A component without a registry version has nothing for `%version` to resolve to, and the
+    /// error names the component and the offending word rather than passing `%version` through.
+    #[test]
+    fn version_substitution_without_a_registry_version_is_an_error() {
+        let env = Env::new();
+        let mut node = node();
+        node.version = crate::version::Authority::Path {
+            path: PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let err = executable(&["env", "TAG=v%version"])
+            .to_argv(&node, &env.resolver())
+            .expect_err("should fail");
+
+        let message = err.to_string();
+        assert!(message.contains("node"), "names the component: {message}");
+        assert!(message.contains("TAG=v%version"), "names the word: {message}");
     }
 
     #[test]
