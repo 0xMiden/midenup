@@ -12,7 +12,7 @@ use super::ManifestError;
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 0, 0);
 
 /// The global manifest of all known channels and their toolchains
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Manifest {
     /// The schema version this document declares.
     ///
