@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::VecDeque, ffi::OsString, process::ExitCode, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
@@ -538,17 +538,17 @@ pub fn display_version(config: &Config) -> String {
     let cargo_version = cargo_version.trim();
 
     let toolchain_version = Toolchain::current(config, None)
-        .and_then(|(toolchain, _)| {
-            // `midenup --version` is informational and must not reach for the network.
-            config
-                .local_channel(&toolchain.channel)
-                .map(|channel| channel.to_string())
-                .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
-        })
         .inspect_err(|err| {
             crate::warn!("failed to obtain the current toolchain ({err}); leaving it as unknown")
         })
-        .unwrap_or("unknown".to_string());
+        .map_or("unknown".to_string(), |(toolchain, _)| {
+            // `midenup --version` is informational and must not reach for the network, so an
+            // uninstalled channel is reported as such rather than resolved upstream.
+            config
+                .local_channel(&toolchain.channel)
+                .map(|channel| channel.to_string())
+                .unwrap_or_else(|| format!("{} (not installed)", toolchain.channel))
+        });
 
     let github_issue = {
         let short_body = format!(
