@@ -547,7 +547,7 @@ pub fn display_version(config: &Config) -> String {
             config
                 .local_channel(&toolchain.channel)
                 .map(|channel| channel.to_string())
-                .unwrap_or_else(|| format!("{} (not installed)", toolchain.channel))
+                .unwrap_or_else(|| "not installed".to_string())
         });
 
     let github_issue = {
