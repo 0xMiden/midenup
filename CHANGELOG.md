@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed `midenup --version` showing an empty revision when `midenup` was installed from crates.io,
+  and reporting the active toolchain as `unknown` when it is simply not installed yet.
+
 ## [1.0.1]
 
 ### Added
