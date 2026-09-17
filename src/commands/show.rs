@@ -169,7 +169,7 @@ impl ShowCommand {
                                         push_marker(
                                             &mut line,
                                             &format!(
-                                                "(update available) -- run `midenup update {name}`"
+                                                "(update available -- run `midenup update {name}`)"
                                             ),
                                             use_color,
                                         );
