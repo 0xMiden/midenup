@@ -158,11 +158,52 @@ pub fn install(
     }
     fault::fail_at(fault::FaultPoint::PostDerive)?;
 
+    // When no system default exists yet, make this installation the active
+    // toolchain. Otherwise a bare `miden ...` falls back to mainnet and may
+    // install a second channel the user never asked for (#272).
+    maybe_set_default_toolchain(config, channel, options)?;
+
     // 7. CLEAN.
     crate::publish::journal::clean(home, &entry)?;
 
     crate::info!("installed channel '{}'", channel.name);
 
+    Ok(())
+}
+
+/// Sets `toolchains/default` when the machine has no system default yet.
+///
+/// Only fills an empty default: an existing `default` symlink is left alone so
+/// installing a second network does not silently steal the active toolchain.
+fn maybe_set_default_toolchain(
+    config: &Config,
+    channel: &Channel,
+    options: &InstallationOptions,
+) -> anyhow::Result<()> {
+    let default_path = config.midenup_home.join("toolchains").join("default");
+    // `symlink_metadata`, not `exists`: a dangling default must still count as
+    // "already set" so we do not overwrite a user's broken link mid-recovery.
+    if std::fs::symlink_metadata(&default_path).is_ok() {
+        return Ok(());
+    }
+
+    let target = if let Some(network) = &options.network {
+        paths::network_link(&config.midenup_home, network)
+    } else {
+        channel.get_channel_dir(config)
+    };
+
+    crate::info!(
+        "no default toolchain configured; setting {} as the system default",
+        options
+            .network
+            .as_deref()
+            .map(str::to_string)
+            .unwrap_or_else(|| channel.name.to_string())
+    );
+    utils::fs::symlink(&default_path, &target).context(
+        "failed to set the newly installed channel as the system default toolchain",
+    )?;
     Ok(())
 }
 

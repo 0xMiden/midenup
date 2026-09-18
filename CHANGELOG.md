@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed `midenup --version` printing a blank revision when git was unavailable at build time; it now
+  reports `unknown` instead of an empty string ([#273](https://github.com/0xMiden/midenup/issues/273)).
+- Fixed `midenup --version` reporting `toolchain: unknown` when nothing is active; it now reports
+  `none` ([#273](https://github.com/0xMiden/midenup/issues/273)).
+- Fixed `midenup install <network>` leaving no system default when none existed, which made a later
+  bare `miden` command fall back to mainnet and install a second toolchain
+  ([#272](https://github.com/0xMiden/midenup/issues/272)).
+
 ## [1.0.1]
 
 ### Added
