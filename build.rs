@@ -44,21 +44,28 @@ fn write_command_to_file(command: &[&str], file: &str) {
     let full_command =
         command.iter().fold(String::new(), |acc, argument| format!("{acc} {argument}"));
 
-    let output = {
-        let command =
-            Command::new(command.first().expect("command must have at leaste one element"))
-                .args(command.iter().skip(1))
-                .output()
-                .unwrap_or_else(|err| {
-                    panic!("Couldn't run {full_command} because of: {err}");
-                })
-                .stdout;
+    let output = Command::new(command.first().expect("command must have at leaste one element"))
+        .args(command.iter().skip(1))
+        .output()
+        .unwrap_or_else(|err| {
+            panic!("Couldn't run {full_command} because of: {err}");
+        });
 
-        String::from_utf8(command).unwrap_or_else(|err| {
+    // A failed command often still yields empty stdout. Writing that empty
+    // string made `midenup --version` print a blank revision when git was
+    // unavailable (for example a source tarball without `.git`). Prefer an
+    // explicit placeholder over a silent blank.
+    let text = if output.status.success() {
+        String::from_utf8(output.stdout).unwrap_or_else(|err| {
             panic!("failed to parse {full_command} output as string, because of {err}")
         })
+    } else {
+        String::new()
     };
 
-    std::fs::write(file, output.trim())
+    let trimmed = text.trim();
+    let contents = if trimmed.is_empty() { "unknown" } else { trimmed };
+
+    std::fs::write(file, contents)
         .unwrap_or_else(|err| panic!("Failed to write to {file}: {err}"));
 }
