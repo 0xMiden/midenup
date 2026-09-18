@@ -513,7 +513,8 @@ pub fn display_version(config: &Config) -> String {
 
     let compiled_cargo_version = include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
 
-    let git_revision = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in"));
+    let git_revision_raw = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in")).trim();
+    let git_revision = if git_revision_raw.is_empty() { "unknown" } else { git_revision_raw };
 
     let midenup_version = env!(
         "CARGO_PKG_VERSION",
@@ -546,9 +547,9 @@ pub fn display_version(config: &Config) -> String {
                 .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
         })
         .inspect_err(|err| {
-            crate::warn!("failed to obtain the current toolchain ({err}); leaving it as unknown")
+            crate::warn!("failed to obtain the current toolchain ({err}); leaving it as none")
         })
-        .unwrap_or("unknown".to_string());
+        .unwrap_or("none".to_string());
 
     let github_issue = {
         let short_body = format!(
