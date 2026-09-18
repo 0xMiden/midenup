@@ -117,6 +117,61 @@ fn integration_install_creates_default_symlinks() {
     );
 }
 
+/// The first install on a machine with no system default must become the active
+/// toolchain, so a later bare `miden` command does not fall back to mainnet (#272).
+#[test]
+fn integration_install_sets_system_default_when_none_exists() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_sets_system_default_when_none_exists");
+
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let default = test_env.midenup_home.join("toolchains").join("default");
+    assert!(
+        std::fs::symlink_metadata(&default).is_err(),
+        "fixture must start with no system default"
+    );
+
+    Midenup::try_parse_from(["midenup", "install", "devnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install devnet");
+
+    let target = std::fs::read_link(&default).expect("install must create toolchains/default");
+    assert_eq!(
+        target.file_name().and_then(|name| name.to_str()),
+        Some("devnet"),
+        "default must point at the network that was just installed, got {target:?}"
+    );
+}
+
+/// A later install must not steal an existing system default.
+#[test]
+fn integration_install_leaves_existing_system_default_alone() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_leaves_existing_system_default_alone");
+
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install mainnet");
+
+    let default = test_env.midenup_home.join("toolchains").join("default");
+    let before = std::fs::read_link(&default).expect("first install must set default");
+
+    Midenup::try_parse_from(["midenup", "install", "devnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install devnet");
+
+    let after = std::fs::read_link(&default).expect("default must still exist");
+    assert_eq!(before, after, "a second install must not replace an existing default");
+}
+
 /// An artifact published inside a tarball installs exactly like a bare one: same destination, mode
 /// and receipt, since nothing downstream of acquisition can tell the difference.
 ///
