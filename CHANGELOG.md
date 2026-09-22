@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `midenup install` now sets the installed toolchain as the default when no default is set yet.
+
 ### Fixed
 
 - Fixed `midenup --version` showing an empty revision when `midenup` was installed from crates.io,
