@@ -1,0 +1,75 @@
+name: check manifest
+
+on:
+  workflow_call:
+    inputs:
+      against:
+        description: URI of the manifest this change replaces
+        required: true
+        type: string
+      allow-downgrade:
+        description: Accept a network moving to an older toolchain
+        required: false
+        default: false
+        type: boolean
+  # ci.yml ignores manifest-only pushes, so those are checked here directly. A push to next
+  # was reviewed on a pull request, where a downgrade is acknowledged by label, so it is allowed.
+  push:
+    branches: [next]
+    paths:
+      - manifest/**
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+      - name: Validate the channel manifest
+        run: cargo make check-manifest
+      - name: Check that the latest release reads the manifest
+        # Whatever midenup users have installed must be able to read what gets published. A
+        # schema change therefore ships in a midenup release first, and the manifest that uses
+        # it only once that release is out. Fields and component kinds newer than the release
+        # are tolerated, as they are by the installed midenup. The home must be empty: with a
+        # cached manifest present, midenup falls back to it and succeeds. Runs after the
+        # validator above, so a manifest this build rejects is reported as such and not as a
+        # schema change.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MIDENUP_HOME: ${{ runner.temp }}/midenup-home
+          MIDENUP_MANIFEST_URI: file://${{ github.workspace }}/manifest/channel-manifest.json
+        run: |
+          set -euo pipefail
+          tag=$(gh release view --json tagName --jq .tagName)
+          gh release download "${tag}" --pattern 'midenup-x86_64-unknown-linux-gnu.tar.gz' --output - | tar xz -C "${RUNNER_TEMP}"
+          mkdir "${MIDENUP_HOME}"
+          if ! "${RUNNER_TEMP}/midenup" list; then
+            echo "::error::midenup ${tag}, the latest release, cannot read this manifest; a schema change ships in a midenup release before the manifest that uses it"
+            exit 1
+          fi
+      - name: Check the manifest against the one it replaces
+        env:
+          # On a push, the manifest at the previous tip of the branch
+          AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/channel-manifest.json', github.repository, github.event.before) }}
+          ALLOW_DOWNGRADE: ${{ (inputs.allow-downgrade || github.event_name == 'push') && '--allow-downgrade' || '' }}
+        run: |
+          set -euo pipefail
+          # ALLOW_DOWNGRADE is deliberately unquoted: it is either a flag or nothing
+          # shellcheck disable=SC2086
+          cargo make check-manifest --against "${AGAINST}" ${ALLOW_DOWNGRADE}
+      - name: How to allow a deliberate downgrade
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        run: echo "::notice::If the check refused a network moving to an older toolchain and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."

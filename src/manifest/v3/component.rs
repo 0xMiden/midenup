@@ -6,7 +6,10 @@ use crate::{
     artifact::Artifacts,
     config::Config,
     exec::Executable,
-    manifest::{Alias, ManifestError, v3::unknown::Extra},
+    manifest::{
+        Alias, ManifestError,
+        v3::unknown::{Extra, UnknownFields},
+    },
     profile::Profile,
     utils,
     version::{Authority, GitTarget},
@@ -30,8 +33,9 @@ pub struct Component {
     /// Fields declared by a newer schema that this build does not recognize.
     ///
     /// Preserved verbatim so an older `midenup` rewriting a manifest -- `update-manifest`, most
-    /// importantly -- cannot silently strip them.
-    pub extra: Extra,
+    /// importantly -- cannot silently strip them. A field nested inside a known object, such as
+    /// `installation_method` or `version`, is kept under that object's canonical key.
+    pub extra: UnknownFields,
 }
 
 /// The derivable part of [Component].
@@ -87,9 +91,7 @@ impl Serialize for Component {
         if let serde_json::Value::Object(kind) = kind {
             object.extend(kind);
         }
-        for (key, value) in self.extra.iter() {
-            object.entry(key.clone()).or_insert_with(|| value.clone());
-        }
+        self.extra.merge_into(object);
 
         out.serialize(serializer)
     }
@@ -105,25 +107,38 @@ impl<'de> Deserialize<'de> for Component {
         let base = ComponentBase::deserialize(value.clone()).map_err(D::Error::custom)?;
 
         // Anything neither the base nor the kind round-trips is unknown to this build.
-        let mut extra = match &value {
-            serde_json::Value::Object(map) => map.clone(),
-            _ => Extra::new(),
-        };
-        for known in [
+        let mut known = Extra::new();
+        for typed in [
             serde_json::to_value(&base).map_err(D::Error::custom)?,
             serde_json::to_value(&kind).map_err(D::Error::custom)?,
         ] {
-            if let serde_json::Value::Object(known) = known {
-                for key in known.keys() {
-                    extra.remove(key);
-                    // Also drop the separator-swapped spelling. Fields carry `#[serde(alias)]`
-                    // for the other of kebab/snake so the schema can migrate gradually, but the
-                    // "known = whatever the typed form serializes" rule cannot see aliases: an
-                    // input using the alias would be retained as an unknown field and then
-                    // emitted *alongside* the canonical one, producing duplicate keys.
-                    extra.remove(&swap_separator(key));
-                }
+            if let serde_json::Value::Object(typed) = typed {
+                known.extend(typed);
             }
+        }
+        let mut extra = UnknownFields::default();
+        if let serde_json::Value::Object(input) = &value {
+            // Also accept the separator-swapped spelling. Fields carry `#[serde(alias)]` for the
+            // other of kebab/snake so the schema can migrate gradually, but the "known = whatever
+            // the typed form serializes" rule cannot see aliases: an input using the alias would
+            // be retained as an unknown field and then emitted *alongside* the canonical one,
+            // producing duplicate keys, and an unknown field inside it would be filed under a key
+            // the output never has. A key whose canonical spelling is also present is not an
+            // alias but a stray, and stays unknown. Nested types declare no aliases, so the swap
+            // applies only here.
+            let canonical: Extra = input
+                .iter()
+                .map(|(key, value)| {
+                    let swapped = swap_separator(key);
+                    let key = if known.contains_key(&swapped) && !input.contains_key(&swapped) {
+                        swapped
+                    } else {
+                        key.clone()
+                    };
+                    (key, value.clone())
+                })
+                .collect();
+            extra = UnknownFields::collect(&canonical, &known);
         }
 
         Ok(Component {
@@ -1129,6 +1144,23 @@ mod field_alias_tests {
             "the alias must not survive as an unknown field: {keys:?}"
         );
         assert!(keys.iter().any(|k| k.as_str() == "installation_method"));
+    }
+
+    /// A separator-swapped key next to the canonical one is a stray, not an alias, and must
+    /// survive as unknown so validation can report it.
+    #[test]
+    fn a_swapped_spelling_next_to_the_canonical_one_stays_unknown() {
+        let mut src: serde_json::Value =
+            serde_json::from_str(&manifest_with("installation_method")).unwrap();
+        src["channels"][0]["components"][0]["installed_executable"] = "miden-vm-new".into();
+        let manifest = VersionedManifest::parse_str(&src.to_string()).unwrap();
+        let vm = manifest.get_channels().next().unwrap().get_component("vm").unwrap();
+        assert_eq!(
+            vm.extra.fields.get("installed_executable"),
+            Some(&serde_json::json!("miden-vm-new")),
+            "{:?}",
+            vm.extra
+        );
     }
 
     /// An unknown spelling must not be silently swallowed into the unknown-field capture.
