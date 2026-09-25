@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1790260629,
+  "date": 1790261448,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.16.0",
@@ -2045,6 +2045,9 @@
             "compose/bootstrap.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
             },
+            "docker-compose.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
+            },
             "compose/explorer.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer.yml"
             },
@@ -2095,9 +2098,6 @@
             },
             "compose/validator.yml": {
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/validator.yml"
-            },
-            "docker-compose.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
             }
           },
           "kind": "command",
@@ -2307,7 +2307,7 @@
           "symlink-name": "cargo-miden",
           "version": {
             "kind": "registry",
-            "version": "0.11.0-rc.2"
+            "version": "0.11.0-rc.3"
           }
         },
         {
@@ -2368,7 +2368,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.2"
+            "version": "0.17.0-rc.3"
           }
         },
         {
@@ -2441,7 +2441,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.1"
+            "version": "0.17.0-rc.2"
           }
         },
         {
@@ -2537,7 +2537,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.11.0-rc.2"
+            "version": "0.11.0-rc.3"
           }
         },
         {
