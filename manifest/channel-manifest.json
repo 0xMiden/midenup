@@ -1,8 +1,8 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1789420301,
+  "date": 1790261448,
   "networks": {
-    "devnet": "0.16.0",
+    "devnet": "0.17.0",
     "mainnet": "0.16.0",
     "testnet": "0.16.0"
   },
@@ -2265,6 +2265,504 @@
           "version": {
             "kind": "registry",
             "version": "0.29.4"
+          }
+        }
+      ]
+    },
+    {
+      "name": "0.17.0",
+      "components": [
+        {
+          "aliases": {
+            "new": [
+              "cargo",
+              "miden",
+              "new"
+            ]
+          },
+          "artifacts": {
+            "cargo-miden": {
+              "archive": "tar.gz",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/cargo-miden-%target.tar.gz"
+            }
+          },
+          "call-format": [
+            "cargo",
+            "miden"
+          ],
+          "hide": true,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "cargo-miden",
+          "kind": "cargo-extension",
+          "name": "cargo-miden",
+          "profiles": [
+            "minimal"
+          ],
+          "symlink-name": "cargo-miden",
+          "version": {
+            "kind": "registry",
+            "version": "0.11.0-rc.3"
+          }
+        },
+        {
+          "aliases": {
+            "account": [
+              "%installed-executable",
+              "account"
+            ],
+            "call": [
+              "%installed-executable",
+              "call"
+            ],
+            "consumable-notes": [
+              "%installed-executable",
+              "notes",
+              "--list",
+              "consumable"
+            ],
+            "consume-notes": [
+              "%installed-executable",
+              "consume-notes"
+            ],
+            "exec": [
+              "%installed-executable",
+              "exec"
+            ],
+            "new-wallet": [
+              "%installed-executable",
+              "new-wallet"
+            ],
+            "sync": [
+              "%installed-executable",
+              "sync"
+            ],
+            "transfer": [
+              "%installed-executable",
+              "transfer"
+            ]
+          },
+          "artifacts": {
+            "miden-client": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/rust-sdk/releases/download/v%version/miden-client-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-client",
+          "kind": "executable",
+          "name": "client",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.17.0-rc.3"
+          }
+        },
+        {
+          "artifacts": {
+            "miden-core.masp": {
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
+            }
+          },
+          "kind": "package",
+          "name": "core",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.33.0"
+          }
+        },
+        {
+          "artifacts": {
+            "miden-debug": {
+              "archive": "tar.gz",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-debug/releases/download/v%version/miden-debug-%target.tar.gz"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-debug",
+          "kind": "executable",
+          "name": "debug",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.16.0"
+          }
+        },
+        {
+          "aliases": {
+            "mint": [
+              "%installed-executable",
+              "mint"
+            ]
+          },
+          "artifacts": {
+            "miden-faucet-client": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-faucet/releases/download/v%version/miden-faucet-client-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-faucet-client",
+          "kind": "executable",
+          "name": "faucet-client",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.17.0-rc.2"
+          }
+        },
+        {
+          "aliases": {
+            "format": [
+              "%installed-executable"
+            ]
+          },
+          "artifacts": {
+            "miden-format": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-format-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-format",
+          "kind": "executable",
+          "name": "format",
+          "profiles": [],
+          "version": {
+            "kind": "registry",
+            "version": "0.33.0"
+          }
+        },
+        {
+          "aliases": {
+            "registry": [
+              "%installed-executable"
+            ]
+          },
+          "artifacts": {
+            "miden-registry": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-registry-%target"
+            }
+          },
+          "hide": true,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-registry",
+          "kind": "executable",
+          "name": "local-registry",
+          "profiles": [],
+          "version": {
+            "kind": "registry",
+            "version": "0.33.0"
+          }
+        },
+        {
+          "aliases": {
+            "build": [
+              "%installed-executable"
+            ]
+          },
+          "artifacts": {
+            "midenc": {
+              "archive": "tar.gz",
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/midenc-%target.tar.gz"
+            }
+          },
+          "call-format": [
+            "%installed-executable",
+            "-L",
+            "%lib"
+          ],
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "midenc",
+          "kind": "executable",
+          "name": "midenc",
+          "profiles": [
+            "minimal"
+          ],
+          "requires": [
+            "core",
+            "protocol"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.11.0-rc.3"
+          }
+        },
+        {
+          "artifacts": {
+            "compose/bootstrap.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
+            },
+            "compose/explorer.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer.yml"
+            },
+            "compose/explorer/backend.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/backend.yml"
+            },
+            "compose/explorer/database.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/database.yml"
+            },
+            "compose/explorer/frontend.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/frontend.yml"
+            },
+            "compose/explorer/indexer.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/indexer.yml"
+            },
+            "compose/explorer/migration.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/migration.yml"
+            },
+            "compose/funding-service.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/funding-service.yml"
+            },
+            "compose/monitor.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/monitor.yml"
+            },
+            "compose/node.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/node.yml"
+            },
+            "compose/note-transport.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/note-transport.yml"
+            },
+            "compose/ntx-builder.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/ntx-builder.yml"
+            },
+            "compose/otel-collector.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/otel-collector.yml"
+            },
+            "compose/router.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/router.yml"
+            },
+            "compose/telemetry.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/telemetry.yml"
+            },
+            "compose/tx-prover.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/tx-prover.yml"
+            },
+            "compose/validator.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/validator.yml"
+            },
+            "docker-compose.yml": {
+              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
+            }
+          },
+          "kind": "command",
+          "name": "node",
+          "subcommands": {
+            "delete": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "--profile",
+              "telemetry",
+              "--profile",
+              "monitor",
+              "down",
+              "-v",
+              "--remove-orphans"
+            ],
+            "down": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "--profile",
+              "telemetry",
+              "--profile",
+              "monitor",
+              "down",
+              "--remove-orphans"
+            ],
+            "logs": [
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "--profile",
+              "telemetry",
+              "--profile",
+              "monitor",
+              "logs",
+              "-f"
+            ],
+            "up": [
+              "env",
+              "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v0.17.0-rc.2",
+              "MIDEN_VALIDATOR_IMAGE=ghcr.io/0xmiden/miden-validator:v0.17.0-rc.2",
+              "MIDEN_NTX_BUILDER_IMAGE=ghcr.io/0xmiden/miden-ntx-builder:v0.17.0-rc.2",
+              "MIDEN_REMOTE_PROVER_IMAGE=ghcr.io/0xmiden/miden-remote-prover:v0.17.0-rc.2",
+              "MIDEN_NETWORK_MONITOR_IMAGE=ghcr.io/0xmiden/miden-network-monitor:v0.17.0-rc.2",
+              "MIDEN_FUNDING_SERVICE_IMAGE=ghcr.io/0xmiden/miden-funding-service:v0.17.0-rc.2",
+              "MIDEN_USDCX_GENESIS_IMAGE=ghcr.io/0xmiden/miden-usdcx-genesis:v0.17.0-rc.2",
+              "docker",
+              "compose",
+              "-f",
+              "%etc(node/docker-compose.yml)",
+              "--profile",
+              "telemetry",
+              "--profile",
+              "monitor",
+              "up",
+              "-d"
+            ]
+          },
+          "version": {
+            "kind": "registry",
+            "version": "0.17.0-rc.2"
+          }
+        },
+        {
+          "artifacts": {
+            "miden-protocol.masp": {
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
+            },
+            "miden-standards.masp": {
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards.masp"
+            },
+            "miden-tx-kernel.masp": {
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-tx-kernel.masp"
+            }
+          },
+          "kind": "package",
+          "name": "protocol",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.17.0-rc.7"
+          }
+        },
+        {
+          "hide": false,
+          "installation_method": {
+            "crate_name": "miden-remote-prover",
+            "kind": "cargo",
+            "rustup_channel": "1.98"
+          },
+          "installed-executable": "miden-remote-prover",
+          "kind": "executable",
+          "name": "remote-prover",
+          "version": {
+            "kind": "registry",
+            "version": "0.17.0-rc.2"
+          }
+        },
+        {
+          "hide": false,
+          "installation_method": {
+            "crate_name": "miden-validator",
+            "kind": "cargo",
+            "rustup_channel": "1.98"
+          },
+          "installed-executable": "miden-validator",
+          "kind": "executable",
+          "name": "validator",
+          "version": {
+            "kind": "registry",
+            "version": "0.17.0-rc.2"
+          }
+        },
+        {
+          "artifacts": {
+            "miden-verify": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/walnuthq/miden-verify/releases/download/v%version/miden-verify-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-verify",
+          "kind": "executable",
+          "name": "verify",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.6.0"
+          }
+        },
+        {
+          "artifacts": {
+            "miden-vm": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-vm-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-vm",
+          "kind": "executable",
+          "name": "vm",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.33.0"
           }
         }
       ]
