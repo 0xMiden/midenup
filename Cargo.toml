@@ -80,6 +80,7 @@ upon = { version = "0.10", default-features = false, features = [
 
 [build-dependencies]
 cargo_toml = "1.0.0"
+serde_json.workspace = true
 
 [dev-dependencies]
 libc = "0.2"
