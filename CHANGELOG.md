@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `miden-toolchain.toml` now accepts a `[patches]` table that builds individual components from a
+  git repository, a local path or another registry version instead of the channel's published
+  release.
+
 ### Changed
 
 - `midenup install` now sets the installed toolchain as the default when no default is set yet.

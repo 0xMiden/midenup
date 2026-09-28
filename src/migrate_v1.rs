@@ -178,6 +178,7 @@ pub fn migrate_if_needed(home: &Path) -> Result<MigrationOutcome, MigrationError
             publication: PublicationRef::NeedsReinstall,
             installed_at,
             midenup_version: None,
+            patches: Default::default(),
         });
     }
 

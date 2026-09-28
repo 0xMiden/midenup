@@ -332,6 +332,7 @@ fn target_installation(
             semver::Version::parse(env!("CARGO_PKG_VERSION"))
                 .expect("CARGO_PKG_VERSION is always valid semver"),
         ),
+        patches: options.patches.clone(),
     })
 }
 

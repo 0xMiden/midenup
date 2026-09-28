@@ -116,6 +116,30 @@ midenup set 0.17.0
 This will create a `miden-toolchain.toml` file in the present working directory (similar to`rustup`'s `rust-toolchain.toml` file).
 With this file now in place, toolchain version 0.17.0 will be the active toolchain in that directory and in all of if sub-directories.
 
+### Patching components
+
+A `[patches]` table in `miden-toolchain.toml` builds individual components from a git repository, a local path or another registry version instead of the channel's published release:
+
+```toml title="miden-toolchain.toml"
+[toolchain]
+channel = "0.17.0"
+profile = "empty"
+components = ["vm"]
+
+[patches.vm]
+crate_name = "miden-vm"
+features = ["executable"]
+version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.git", revision = "8160d8a22bc5342b01946ae00a6dc4c1f224fc35" }
+```
+
+`version` accepts `kind = "git"` (with `tag`, `branch` or `revision`), `kind = "path"` (relative to the `miden-toolchain.toml` file) and `kind = "registry"`. A patched component is always built with `cargo install`; `crate_name` is required when the channel only publishes it pre-built, and `features` replaces the cargo features it is built with (`miden-vm` needs `executable`). Components that are only distributed as pre-built files (packages, assets and commands) cannot be patched. A patched component must be part of the project's toolchain, through `profile`, `components` or a dependency of one of them; patching anything else is an error.
+
+:::note
+Patches apply to the toolchain's shared installation. Running `miden` with different patches in effect, such as outside the project, reinstalls the toolchain to match.
+
+A patched toolchain differs from what the manifest publishes, so `midenup list` and `midenup show` always report it as `(update available)`. Running `midenup update` on it may undo the patches; they are applied again on the next `miden` run inside the project.
+:::
+
 ## Updating a toolchain
 
 Toolchains can periodically require updates, which can be in one of the following forms:

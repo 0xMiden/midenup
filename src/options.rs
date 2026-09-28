@@ -1,6 +1,8 @@
+use std::collections::BTreeMap;
+
 use clap::{Parser, ValueEnum};
 
-use crate::{manifest::Component, profile::Profile, resolve::Intent};
+use crate::{manifest::Component, profile::Profile, resolve::Intent, toolchain::Patch};
 
 /// How an installation affects the selection persisted for a channel.
 ///
@@ -55,6 +57,9 @@ pub struct InstallationOptions {
     /// channel. `None` when a version was requested directly: no network link is written.
     #[arg(skip)]
     pub network: Option<String>,
+    /// The toolchain file patches applied to the channel being installed.
+    #[arg(skip)]
+    pub patches: BTreeMap<String, Patch>,
 }
 
 /// Optional update settings.
@@ -95,6 +100,7 @@ impl From<UpdateOptions> for InstallationOptions {
             // An update re-resolves what is already recorded; it does not restate intent.
             intent_update: Some(IntentUpdate::Preserve),
             network: None,
+            patches: BTreeMap::new(),
         }
     }
 }
