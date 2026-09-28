@@ -28,8 +28,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use super::{Channel, Component, ComponentKind, Manifest};
-use crate::plan::{
-    destination::DestinationClaims, destination_for, validate_artifact_id, validate_artifact_id_for,
+use crate::{
+    plan::{
+        destination::DestinationClaims, destination_for, validate_artifact_id,
+        validate_artifact_id_for,
+    },
+    version::Authority,
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -161,7 +165,8 @@ pub enum ValidationError {
         reason: String,
     },
     #[error(
-        "channel {channel}: invalid format for subcommand '{subcommand}' of component '{component}': {reason}"
+        "channel {channel}: invalid format for subcommand '{subcommand}' of component \
+         '{component}': {reason}"
     )]
     InvalidSubcommandFormat {
         channel: semver::Version,
@@ -170,13 +175,23 @@ pub enum ValidationError {
         reason: String,
     },
     #[error(
-        "channel {channel}: invalid format for alias '{alias}' of component '{component}': {reason}"
+        "channel {channel}: invalid format for alias '{alias}' of component '{component}': \
+         {reason}"
     )]
     InvalidAliasFormat {
         channel: semver::Version,
         component: String,
         alias: String,
         reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid artifact uri '{uri}' of component '{component}': component is \
+         not versioned via registry"
+    )]
+    InvalidArtifactUri {
+        channel: semver::Version,
+        component: String,
+        uri: String,
     },
 }
 
@@ -429,6 +444,20 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
                     }
                 },
                 _ => (),
+            }
+        }
+
+        if !matches!(component.version, Authority::Registry { .. }) {
+            for artifact in component.artifacts.artifacts.values() {
+                let (crate::artifact::Artifact::TargetSpecific { uri, .. }
+                | crate::artifact::Artifact::TargetAgnostic { uri, .. }) = artifact;
+                if uri.contains("%version") {
+                    errors.push(ValidationError::InvalidArtifactUri {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        uri: uri.clone(),
+                    });
+                }
             }
         }
 
@@ -1103,6 +1132,35 @@ mod tests {
                )),
                "{errors:?}"
            );
+    }
+
+    /// An artifact URI with `%version` has the same problem, reported before install fails on it.
+    #[test]
+    fn a_version_uri_on_a_component_without_a_registry_version_is_rejected() {
+        let mut asset = component("tool", ComponentKind::Asset);
+        asset.artifacts.insert(
+            "tool.tar.gz".to_string(),
+            Artifact::TargetAgnostic {
+                uri: "https://example.invalid/v%version/tool.tar.gz".to_string(),
+                digest: None,
+                archive: None,
+                extra: Default::default(),
+            },
+        );
+        asset.version = Authority::Path {
+            path: std::path::PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let errors = errors_of(&manifest(vec![asset]));
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::InvalidArtifactUri { component, uri, .. }
+                    if component == "tool" && uri == "https://example.invalid/v%version/tool.tar.gz"
+            )),
+            "{errors:?}"
+        );
     }
 
     /// The same word is valid on a component with a registry version.
