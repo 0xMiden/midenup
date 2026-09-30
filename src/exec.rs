@@ -426,6 +426,10 @@ pub struct Resolver {
     /// `$MIDENUP_HOME/var/<selector>`: mutable state, deliberately *outside* the publication, so
     /// it survives every republication of the toolchain (spec section 3.2).
     var: PathBuf,
+    /// Used when validating manifests independently of an installation, this flag indicates that
+    /// the resolver should skip any checks that would require a live installation (e.g. file
+    /// existence)
+    no_sysroot: bool,
 }
 
 impl Resolver {
@@ -440,6 +444,19 @@ impl Resolver {
         Self {
             sysroot: sysroot.into(),
             var: crate::paths::var_dir(home, selector),
+            no_sysroot: false,
+        }
+    }
+
+    /// Creates a resolver with dummy sysroot/home paths, in order to verify a manifest without
+    /// requiring a live midenup installation.
+    pub fn no_sysroot(selector: &crate::channel::UserChannel) -> Self {
+        let home = std::env::temp_dir().join("midenup-no-sysroot");
+        let sysroot = home.join("toolchains").join(selector.to_string());
+        Self {
+            sysroot,
+            var: crate::paths::var_dir(&home, selector),
+            no_sysroot: true,
         }
     }
 
@@ -490,10 +507,14 @@ impl Resolver {
             // database directory, which does not exist until the client makes it, so requiring it
             // to exist would fail on every fresh installation.
             Expr::VarPath(file) => {
-                std::fs::create_dir_all(&self.var).map_err(|source| InvalidExecutable::Var {
-                    path: self.var.clone(),
-                    reason: source.to_string(),
-                })?;
+                if !self.no_sysroot {
+                    std::fs::create_dir_all(&self.var).map_err(|source| {
+                        InvalidExecutable::Var {
+                            path: self.var.clone(),
+                            reason: source.to_string(),
+                        }
+                    })?;
+                }
                 Ok(match file {
                     Some(file) => self.var.join(file).into_os_string(),
                     None => self.var.clone().into_os_string(),
@@ -523,15 +544,15 @@ impl Resolver {
     /// for it.
     ///
     /// `%lib` and `%etc` name *installed* files. One that is missing means the toolchain is not
-    /// what its receipt says it is, which is worth saying plainly -- passing the path through and
-    /// letting the component fail on it names the wrong culprit.
+    /// what its receipt says it is, and thus passing the path through and letting the component
+    /// fail on it names the wrong culprit.
     fn existing(
         &self,
         path: PathBuf,
         component: &Component,
         expr: &Expr,
     ) -> Result<OsString, InvalidExecutable> {
-        if path.try_exists().is_ok_and(|exists| exists) {
+        if self.no_sysroot || path.try_exists().is_ok_and(|exists| exists) {
             Ok(path.into_os_string())
         } else {
             Err(InvalidExecutable::MissingPath {
