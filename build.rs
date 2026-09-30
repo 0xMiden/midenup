@@ -34,10 +34,33 @@ fn main() {
     let build_script = std::env::var("OUT_DIR").unwrap();
 
     write_command_to_file(&["cargo", "--version"], &(build_script.clone() + "/cargo_version.in"));
-    write_command_to_file(
-        &["git", "rev-parse", "--verify", "HEAD"],
-        &(build_script + "/git_revision.in"),
-    );
+    std::fs::write(build_script + "/git_revision.in", git_revision())
+        .expect("Failed to write git_revision.in");
+}
+
+/// The commit this build comes from: `HEAD` in a checkout, the sha recorded by `cargo publish` in
+/// a crates.io tarball, or `unknown`.
+fn git_revision() -> String {
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/index");
+    println!("cargo:rerun-if-changed=.cargo_vcs_info.json");
+
+    let from_git = Command::new("git")
+        .args(["rev-parse", "--verify", "HEAD"])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|sha| sha.trim().to_string())
+        .filter(|sha| !sha.is_empty());
+
+    let from_vcs_info = || {
+        let contents = std::fs::read_to_string(".cargo_vcs_info.json").ok()?;
+        let info: serde_json::Value = serde_json::from_str(&contents).ok()?;
+        info["git"]["sha1"].as_str().map(str::to_string)
+    };
+
+    from_git.or_else(from_vcs_info).unwrap_or_else(|| "unknown".to_string())
 }
 
 fn write_command_to_file(command: &[&str], file: &str) {

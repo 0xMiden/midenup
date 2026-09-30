@@ -324,7 +324,14 @@ impl Commands {
                     },
                     ..options.clone()
                 };
-                install(config, channel, state, &options)
+                install(config, channel, state, &options)?;
+
+                // The first installed toolchain becomes the default
+                let default = crate::paths::toolchains_dir(&config.midenup_home).join("default");
+                if std::fs::symlink_metadata(&default).is_err() {
+                    r#override(config, state, requested)?;
+                }
+                Ok(())
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
             // exactly one a user needs to be able to uninstall (spec section 12.3).

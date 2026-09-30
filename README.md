@@ -293,7 +293,7 @@ installed.
 
 #### Setting a global default toolchain
 
-You can customize your system's default toolchain with `midenup override <TOOLCHAIN>`. For example, to set `0.16.0` as the default toolchain, run:
+The first toolchain you install becomes your system's default. You can change it with `midenup override <TOOLCHAIN>`. For example, to set `0.16.0` as the default toolchain, run:
 ```
 midenup override 0.16.0
 ```
