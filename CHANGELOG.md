@@ -11,6 +11,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - `miden-toolchain.toml` now accepts a `[patches]` table that builds individual components from a
   git repository, a local path or another registry version instead of the channel's published
   release.
+- Added the `%version` substitution for command arguments, which resolves to the registry version
+  of the component. The `node` component uses it to point `miden node up` at the published
+  `ghcr.io/0xmiden` images for the toolchain version.
 
 ### Changed
 
