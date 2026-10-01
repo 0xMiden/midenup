@@ -28,8 +28,12 @@
 use std::collections::{BTreeSet, HashMap};
 
 use super::{Channel, Component, ComponentKind, Manifest};
-use crate::plan::{
-    destination::DestinationClaims, destination_for, validate_artifact_id, validate_artifact_id_for,
+use crate::{
+    plan::{
+        destination::DestinationClaims, destination_for, validate_artifact_id,
+        validate_artifact_id_for,
+    },
+    version::Authority,
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -141,6 +145,53 @@ pub enum ValidationError {
         component: String,
         artifact: String,
         format: &'static str,
+    },
+    #[error("channel {channel}: invalid 'format' for component '{component}': {reason}")]
+    InvalidExecutableFormat {
+        channel: semver::Version,
+        component: String,
+        reason: String,
+    },
+    #[error("channel {channel}: invalid 'call_format' for component '{component}': {reason}")]
+    InvalidCallFormat {
+        channel: semver::Version,
+        component: String,
+        reason: String,
+    },
+    #[error("channel {channel}: invalid 'initialization' for component '{component}': {reason}")]
+    InvalidInitializationFormat {
+        channel: semver::Version,
+        component: String,
+        reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid format for subcommand '{subcommand}' of component \
+         '{component}': {reason}"
+    )]
+    InvalidSubcommandFormat {
+        channel: semver::Version,
+        component: String,
+        subcommand: String,
+        reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid format for alias '{alias}' of component '{component}': \
+         {reason}"
+    )]
+    InvalidAliasFormat {
+        channel: semver::Version,
+        component: String,
+        alias: String,
+        reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid artifact uri '{uri}' of component '{component}': component is \
+         not versioned via registry"
+    )]
+    InvalidArtifactUri {
+        channel: semver::Version,
+        component: String,
+        uri: String,
     },
 }
 
@@ -320,6 +371,94 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
                 channel: channel.name.clone(),
                 component: component.name.to_string(),
             });
+        }
+
+        // Ensure that argument vectors containing templates expand properly
+        {
+            match component.kind() {
+                ComponentKind::Command { format, subcommands, aliases, .. } => {
+                    let selector = crate::channel::UserChannel::Version(channel.name.clone());
+                    let resolver = crate::exec::Resolver::no_sysroot(&selector);
+                    if let Err(err) = format.to_argv(component, &resolver) {
+                        errors.push(ValidationError::InvalidExecutableFormat {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    for (subcommand, exec) in subcommands {
+                        if exec.is_empty() {
+                            continue;
+                        }
+                        if let Err(err) = exec.to_argv(component, &resolver) {
+                            errors.push(ValidationError::InvalidSubcommandFormat {
+                                channel: channel.name.clone(),
+                                component: component.name.to_string(),
+                                subcommand: subcommand.clone(),
+                                reason: err.to_string(),
+                            });
+                        }
+                    }
+                    for (alias, exec) in aliases {
+                        if let Err(err) = exec.to_argv(component, &resolver) {
+                            errors.push(ValidationError::InvalidAliasFormat {
+                                channel: channel.name.clone(),
+                                component: component.name.to_string(),
+                                alias: alias.clone(),
+                                reason: err.to_string(),
+                            });
+                        }
+                    }
+                },
+                ComponentKind::Executable { spec, .. }
+                | ComponentKind::CargoExtension { spec, .. } => {
+                    let selector = crate::channel::UserChannel::Version(channel.name.clone());
+                    let resolver = crate::exec::Resolver::no_sysroot(&selector);
+                    if let Some(format) = spec.call_format.as_ref()
+                        && let Err(err) = format.to_argv(component, &resolver)
+                    {
+                        errors.push(ValidationError::InvalidCallFormat {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    if let Some(format) = spec.initialization.as_ref()
+                        && let Err(err) = format.to_argv(component, &resolver)
+                    {
+                        errors.push(ValidationError::InvalidInitializationFormat {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    for (alias, exec) in spec.aliases.iter() {
+                        if let Err(err) = exec.to_argv(component, &resolver) {
+                            errors.push(ValidationError::InvalidAliasFormat {
+                                channel: channel.name.clone(),
+                                component: component.name.to_string(),
+                                alias: alias.clone(),
+                                reason: err.to_string(),
+                            });
+                        }
+                    }
+                },
+                _ => (),
+            }
+        }
+
+        if !matches!(component.version, Authority::Registry { .. }) {
+            for artifact in component.artifacts.artifacts.values() {
+                let (crate::artifact::Artifact::TargetSpecific { uri, .. }
+                | crate::artifact::Artifact::TargetAgnostic { uri, .. }) = artifact;
+                if uri.contains("%version") {
+                    errors.push(ValidationError::InvalidArtifactUri {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        uri: uri.clone(),
+                    });
+                }
+            }
         }
 
         for (id, artifact) in component.artifacts.artifacts.iter() {
@@ -958,6 +1097,94 @@ mod tests {
             !errors_of(&manifest(vec![cmd]))
                 .iter()
                 .any(|e| matches!(e, ValidationError::UnreachableCommand { .. }))
+        );
+    }
+
+    /// `%version` has nothing to resolve to on a component without a registry version, so the
+    /// manifest is rejected before dispatch.
+    #[test]
+    fn a_version_word_on_a_component_without_a_registry_version_is_rejected() {
+        let mut cmd = component(
+            "tool",
+            ComponentKind::Command {
+                command_name: None,
+                format: Executable::default(),
+                subcommands: [(
+                    "run".to_string(),
+                    Executable::try_from(vec!["--tag=v%version".to_string()]).unwrap(),
+                )]
+                .into_iter()
+                .collect(),
+                aliases: Default::default(),
+            },
+        );
+        cmd.version = Authority::Path {
+            path: std::path::PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let errors = errors_of(&manifest(vec![cmd]));
+        assert!(
+               errors.iter().any(|e| matches!(
+                   e,
+                   ValidationError::InvalidSubcommandFormat { component, subcommand, reason, .. }
+                       if component == "tool" && subcommand == "run" && reason.contains("it has no registry version")
+               )),
+               "{errors:?}"
+           );
+    }
+
+    /// An artifact URI with `%version` has the same problem, reported before install fails on it.
+    #[test]
+    fn a_version_uri_on_a_component_without_a_registry_version_is_rejected() {
+        let mut asset = component("tool", ComponentKind::Asset);
+        asset.artifacts.insert(
+            "tool.tar.gz".to_string(),
+            Artifact::TargetAgnostic {
+                uri: "https://example.invalid/v%version/tool.tar.gz".to_string(),
+                digest: None,
+                archive: None,
+                extra: Default::default(),
+            },
+        );
+        asset.version = Authority::Path {
+            path: std::path::PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let errors = errors_of(&manifest(vec![asset]));
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::InvalidArtifactUri { component, uri, .. }
+                    if component == "tool" && uri == "https://example.invalid/v%version/tool.tar.gz"
+            )),
+            "{errors:?}"
+        );
+    }
+
+    /// The same word is valid on a component with a registry version.
+    #[test]
+    fn a_version_word_on_a_registry_component_is_accepted() {
+        let cmd = component(
+            "tool",
+            ComponentKind::Command {
+                command_name: None,
+                format: Executable::default(),
+                subcommands: [(
+                    "run".to_string(),
+                    Executable::try_from(vec!["--tag=v%version".to_string()]).unwrap(),
+                )]
+                .into_iter()
+                .collect(),
+                aliases: Default::default(),
+            },
+        );
+
+        assert!(
+            !errors_of(&manifest(vec![cmd]))
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidSubcommandFormat { .. }))
         );
     }
 
