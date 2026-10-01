@@ -137,7 +137,7 @@ version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.
 :::note
 Patches apply to the toolchain's shared installation. Running `miden` with different patches in effect, such as outside the project, reinstalls the toolchain to match.
 
-A patched toolchain differs from what the manifest publishes, so `midenup list` and `midenup show` always report it as `(update available)`. Running `midenup update` on it may undo the patches; they are applied again on the next `miden` run inside the project.
+A patched toolchain differs from what the manifest publishes, so `midenup list` and `midenup show` always report it as `(update available)`. Running `midenup update` or `midenup install` on it replaces the patched components with the channel's published ones, whatever `--path-update` says; the patches are applied again on the next `miden` run inside the project.
 :::
 
 ## Updating a toolchain

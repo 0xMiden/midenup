@@ -52,7 +52,11 @@ pub fn install(
     // say; a directory listing cannot distinguish installed content from anything else that
     // happens to be there.
     let previous = previous_publication(config, state, &channel.name);
-    let stale = options.stale.clone();
+    // A component whose patch changed must be rebuilt, not seeded from the previous publication.
+    let mut stale = options.stale.clone();
+    if let Some(installed) = state.get(&channel.name) {
+        stale.extend(crate::toolchain::changed_patches(&installed.patches, &options.patches));
+    }
 
     // 1. PREPARE. The record this operation intends to commit is written down *before* any of it
     // happens, so that a crash anywhere after this point can be completed or discarded rather than

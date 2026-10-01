@@ -122,7 +122,10 @@ fn ensure_patches_requested<'a>(
 }
 
 /// The components whose patch differs between `a` and `b`, including those patched in only one.
-fn changed_patches(a: &BTreeMap<String, Patch>, b: &BTreeMap<String, Patch>) -> Vec<String> {
+pub(crate) fn changed_patches(
+    a: &BTreeMap<String, Patch>,
+    b: &BTreeMap<String, Patch>,
+) -> Vec<String> {
     let changed: BTreeSet<&String> =
         a.keys().chain(b.keys()).filter(|name| a.get(*name) != b.get(*name)).collect();
     changed.into_iter().cloned().collect()
@@ -409,14 +412,6 @@ impl Toolchain {
         // Activation goes through exactly the same code path as everything else: the full upstream
         // channel, and an intent that *adds* this project's request to whatever other projects have
         // already asked for. Activating one project must never take components away from another.
-        // A component whose patch changed must be rebuilt, not seeded from the previous
-        // publication.
-        let installed_patches = state.get(&channel.name).map(|installation| &installation.patches);
-        let stale = changed_patches(
-            installed_patches.unwrap_or(&BTreeMap::new()),
-            &current_toolchain.patches,
-        );
-
         let options = InstallationOptions {
             intent_update: Some(IntentUpdate::Union(intent.clone())),
             // The project named this network, so it is installed here: without the link, the next
@@ -426,7 +421,6 @@ impl Toolchain {
                 UserChannel::Version(_) => None,
             },
             patches: current_toolchain.patches.clone(),
-            stale,
             ..Default::default()
         };
 

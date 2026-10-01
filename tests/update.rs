@@ -212,10 +212,7 @@ fn integration_interactive_path_update_uses_stderr() {
     assert!(skipped.status.success(), "{}", String::from_utf8_lossy(&skipped.stderr));
     assert!(skipped.stdout.is_empty(), "prompt leaked to stdout: {:?}", skipped.stdout);
     let stderr = String::from_utf8_lossy(&skipped.stderr);
-    assert!(
-        stderr.contains("Would you like to update this component?"),
-        "missing prompt: {stderr}"
-    );
+    assert!(stderr.contains("Would you like to update prover?"), "missing prompt: {stderr}");
     assert!(stderr.contains("Skipping prover"), "missing acknowledgement: {stderr}");
 
     let cancelled = interact(&["update", "--path-update=interactive", "-q"], b"c\n");
@@ -223,7 +220,7 @@ fn integration_interactive_path_update_uses_stderr() {
     assert!(cancelled.stdout.is_empty(), "prompt leaked to stdout: {:?}", cancelled.stdout);
     let stderr = String::from_utf8_lossy(&cancelled.stderr);
     assert!(
-        stderr.contains("Would you like to update this component?"),
+        stderr.contains("Would you like to update prover?"),
         "quiet suppressed the prompt: {stderr}"
     );
     assert!(stderr.contains("Cancelling update"), "missing acknowledgement: {stderr}");

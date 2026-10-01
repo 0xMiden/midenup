@@ -35,7 +35,8 @@ pub struct InstallationOptions {
     /// publication.
     ///
     /// Empty for a fresh install: there is nothing to carry forward. An update fills it with the
-    /// components it determined have actually changed.
+    /// components it determined have actually changed. The install itself adds every component
+    /// whose patch differs from the installed one.
     #[arg(skip)]
     pub stale: Vec<String>,
     /// Components to record exactly as they are already installed, rather than as upstream
@@ -76,9 +77,7 @@ pub enum PathUpdate {
     /// Skip updating the component
     #[default]
     Off,
-    /// Force the component to be updated
-    ///
-    /// TODO(pauls): Clarify the semantics of what this option does
+    /// Rebuild the component from its source whenever the source or its definition changed
     All,
     /// Prompt the user to determine how to proceed
     Interactive,

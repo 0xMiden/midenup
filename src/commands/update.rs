@@ -326,10 +326,20 @@ fn changes_for(
             ChangeClass::GraphOnly | ChangeClass::RuntimeMetadataOnly => {
                 changes.logical_only = true;
             },
-            ChangeClass::InstallationImpacting => match update_decision(installed, options)? {
-                ComponentUpdateDecision::Abort => return Ok(None),
-                ComponentUpdateDecision::Keep => changes.held_back.push(installed.clone()),
-                ComponentUpdateDecision::Update => changes.stale.push(installed.name.to_string()),
+            ChangeClass::InstallationImpacting => {
+                // The update drops the toolchain file's patches, so a patched component is always
+                // re-acquired: keeping it would record the patch while dropping it from `patches`.
+                if installation.patches.contains_key(installed.name.as_ref()) {
+                    changes.stale.push(installed.name.to_string());
+                    continue;
+                }
+                match update_decision(installed, options)? {
+                    ComponentUpdateDecision::Abort => return Ok(None),
+                    ComponentUpdateDecision::Keep => changes.held_back.push(installed.clone()),
+                    ComponentUpdateDecision::Update => {
+                        changes.stale.push(installed.name.to_string())
+                    },
+                }
             },
         }
     }
@@ -361,7 +371,7 @@ fn install_for_update(
     match work_for(upstream, state, &install_options, logical_only)? {
         Work::Physical => {
             display_warnings(upstream, &install_options, options);
-            crate::info!("Updating toolchain {}..", upstream.name);
+            crate::info!("Updating toolchain {}", upstream.name);
             commands::install(config, upstream, state, &install_options)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
@@ -571,7 +581,7 @@ fn handle_path_uninstall_interactive_with_io<R: BufRead, W: Write + ?Sized>(
     let component_name = &component.name;
     writeln!(
         output,
-        "Would you like to update this component? (N/y/c)
+        "Would you like to update {component_name}? (N/y/c)
    - N: no, skip this component
    - y: yes, update this component
    - c: cancel the update all-together (no changes will be applied)"
@@ -881,7 +891,7 @@ mod tests {
 
             assert_eq!(result, expected);
             let rendered = String::from_utf8(output.bytes).unwrap();
-            assert!(rendered.contains("Would you like to update this component?"));
+            assert!(rendered.contains("Would you like to update vm?"));
             assert!(rendered.contains(acknowledgement), "missing acknowledgement: {rendered}");
             assert_eq!(output.flushes, 2, "prompt and acknowledgement must both be flushed");
         }
