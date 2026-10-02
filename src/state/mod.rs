@@ -182,6 +182,7 @@ mod tests {
                 },
                 installed_at: 1735689600,
                 midenup_version: None,
+                patches: Default::default(),
             }],
         }
     }

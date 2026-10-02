@@ -387,6 +387,7 @@ mod tests {
             },
             installed_at: 1735689600,
             midenup_version: None,
+            patches: Default::default(),
         });
 
         assert_eq!(
@@ -430,6 +431,7 @@ mod tests {
                 },
                 installed_at: 1735689600,
                 midenup_version: None,
+                patches: Default::default(),
             },
         );
         journal::prepare(home, &entry).unwrap();
