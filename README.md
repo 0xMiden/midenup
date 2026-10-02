@@ -307,10 +307,10 @@ features = ["executable"]
 version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.git", revision = "8160d8a22bc5342b01946ae00a6dc4c1f224fc35" }
 ```
 
-`version` takes the same forms as in the channel manifest (`git`, `path` or `registry`), and patched
-components are built with `cargo install`. Patches apply to the channel's shared installation, so
-running `miden` elsewhere reverts them, and `midenup update` may undo them, until the next `miden`
-run in the project.
+`version` takes the same forms as in the channel manifest (`git`, `path` or `registry`). Patched
+executables are built with `cargo install`, and legacy packages are extracted from the patched
+Rust crate. Patches apply to the channel's shared installation, so running `miden` elsewhere
+reverts them, and `midenup update` may undo them, until the next `miden` run in the project.
 See [Patching components](docs/src/getting-started/usage.md#patching-components) for the full rules.
 
 
