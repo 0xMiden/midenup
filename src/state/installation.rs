@@ -1,8 +1,10 @@
 //! What `midenup` has installed, as recorded on this machine.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::{manifest::Component, plan::PlanKey, resolve::Intent};
+use crate::{manifest::Component, plan::PlanKey, resolve::Intent, toolchain::Patch};
 
 /// An opaque identifier for one immutable published installation.
 ///
@@ -107,6 +109,9 @@ pub struct Installation {
     /// The midenup version that produced this installation's on-disk layout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midenup_version: Option<semver::Version>,
+    /// The toolchain file patches `components` were built with.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub patches: BTreeMap<String, Patch>,
 }
 
 impl Installation {

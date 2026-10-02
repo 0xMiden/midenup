@@ -939,7 +939,8 @@ mod initialization_tests {
     /// which is far cheaper than trying to observe the absence of a side effect at runtime.
     #[test]
     fn no_new_code_path_references_initialization() {
-        const ALLOWED: &[&str] = &["manifest/v1/component.rs", "manifest/v3/component.rs"];
+        const ALLOWED: &[&str] =
+            &["manifest/v1/component.rs", "manifest/v3/component.rs", "manifest/validate.rs"];
 
         fn walk(dir: &std::path::Path, found: &mut Vec<String>, root: &std::path::Path) {
             for entry in std::fs::read_dir(dir).expect("readable source dir").flatten() {

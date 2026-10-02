@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1790261448,
+  "date": 1790958345,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.16.0",
@@ -1596,55 +1596,33 @@
               "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/telemetry.yml"
             }
           },
+          "format": [
+            "docker",
+            "compose",
+            "-f",
+            "%etc(node/docker-compose.yml)",
+            "-f",
+            "%etc(node/telemetry.yml)",
+            "-f",
+            "%etc(node/monitor.yml)"
+          ],
           "kind": "command",
           "name": "node",
           "subcommands": {
             "delete": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "-f",
-              "%etc(node/telemetry.yml)",
-              "-f",
-              "%etc(node/monitor.yml)",
               "down",
               "-v",
               "--remove-orphans"
             ],
             "down": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "-f",
-              "%etc(node/telemetry.yml)",
-              "-f",
-              "%etc(node/monitor.yml)",
               "down",
               "--remove-orphans"
             ],
             "logs": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "-f",
-              "%etc(node/telemetry.yml)",
-              "-f",
-              "%etc(node/monitor.yml)",
               "logs",
               "-f"
             ],
             "up": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "-f",
-              "%etc(node/telemetry.yml)",
-              "-f",
-              "%etc(node/monitor.yml)",
               "up",
               "-d"
             ]
@@ -2041,121 +2019,33 @@
           }
         },
         {
-          "artifacts": {
-            "compose/bootstrap.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
-            },
-            "docker-compose.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
-            },
-            "compose/explorer.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer.yml"
-            },
-            "compose/explorer/backend.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/backend.yml"
-            },
-            "compose/explorer/database.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/database.yml"
-            },
-            "compose/explorer/frontend.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/frontend.yml"
-            },
-            "compose/explorer/indexer.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/indexer.yml"
-            },
-            "compose/explorer/migration.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/migration.yml"
-            },
-            "compose/faucet.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/faucet.yml"
-            },
-            "compose/monitor.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/monitor.yml"
-            },
-            "compose/node.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/node.yml"
-            },
-            "compose/note-transport.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/note-transport.yml"
-            },
-            "compose/ntx-builder.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/ntx-builder.yml"
-            },
-            "compose/otel-collector.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/otel-collector.yml"
-            },
-            "compose/router.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/router.yml"
-            },
-            "compose/seed.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/seed.yml"
-            },
-            "compose/telemetry.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/telemetry.yml"
-            },
-            "compose/tx-prover.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/tx-prover.yml"
-            },
-            "compose/validator.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/validator.yml"
-            }
-          },
+          "format": [
+            "docker",
+            "compose",
+            "-f",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "--profile",
+            "telemetry",
+            "--profile",
+            "monitor"
+          ],
           "kind": "command",
           "name": "node",
           "subcommands": {
             "delete": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "down",
               "-v",
               "--remove-orphans"
             ],
             "down": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "down",
               "--remove-orphans"
             ],
             "logs": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "logs",
               "-f"
             ],
             "up": [
-              "env",
-              "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v0.16.0",
-              "MIDEN_VALIDATOR_IMAGE=ghcr.io/0xmiden/miden-validator:v0.16.0",
-              "MIDEN_NTX_BUILDER_IMAGE=ghcr.io/0xmiden/miden-ntx-builder:v0.16.0",
-              "MIDEN_REMOTE_PROVER_IMAGE=ghcr.io/0xmiden/miden-remote-prover:v0.16.0",
-              "MIDEN_NETWORK_MONITOR_IMAGE=ghcr.io/0xmiden/miden-network-monitor:v0.16.0",
-              "MIDEN_BENCHMARK_IMAGE=ghcr.io/0xmiden/miden-node-tps-benchmark:v0.16.0",
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "up",
               "-d"
             ]
@@ -2368,7 +2258,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.3"
+            "version": "0.17.0-rc.5"
           }
         },
         {
@@ -2384,7 +2274,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.33.0"
+            "version": "0.35.0"
           }
         },
         {
@@ -2410,7 +2300,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.16.0"
+            "version": "0.18.0"
           }
         },
         {
@@ -2441,7 +2331,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.2"
+            "version": "0.17.0-rc.3"
           }
         },
         {
@@ -2469,7 +2359,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.33.0"
+            "version": "0.35.0"
           }
         },
         {
@@ -2497,7 +2387,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.33.0"
+            "version": "0.35.0"
           }
         },
         {
@@ -2541,126 +2431,40 @@
           }
         },
         {
-          "artifacts": {
-            "compose/bootstrap.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/bootstrap.yml"
-            },
-            "compose/explorer.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer.yml"
-            },
-            "compose/explorer/backend.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/backend.yml"
-            },
-            "compose/explorer/database.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/database.yml"
-            },
-            "compose/explorer/frontend.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/frontend.yml"
-            },
-            "compose/explorer/indexer.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/indexer.yml"
-            },
-            "compose/explorer/migration.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/explorer/migration.yml"
-            },
-            "compose/funding-service.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/funding-service.yml"
-            },
-            "compose/monitor.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/monitor.yml"
-            },
-            "compose/node.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/node.yml"
-            },
-            "compose/note-transport.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/note-transport.yml"
-            },
-            "compose/ntx-builder.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/ntx-builder.yml"
-            },
-            "compose/otel-collector.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/otel-collector.yml"
-            },
-            "compose/router.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/router.yml"
-            },
-            "compose/telemetry.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/telemetry.yml"
-            },
-            "compose/tx-prover.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/tx-prover.yml"
-            },
-            "compose/validator.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/compose/validator.yml"
-            },
-            "docker-compose.yml": {
-              "uri": "https://raw.githubusercontent.com/0xMiden/node/refs/tags/v%version/docker-compose.yml"
-            }
-          },
+          "format": [
+            "docker",
+            "compose",
+            "-f",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "--profile",
+            "telemetry",
+            "--profile",
+            "monitor"
+          ],
           "kind": "command",
           "name": "node",
           "subcommands": {
             "delete": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "down",
               "-v",
               "--remove-orphans"
             ],
             "down": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "down",
               "--remove-orphans"
             ],
             "logs": [
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "logs",
               "-f"
             ],
             "up": [
-              "env",
-              "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v0.17.0-rc.2",
-              "MIDEN_VALIDATOR_IMAGE=ghcr.io/0xmiden/miden-validator:v0.17.0-rc.2",
-              "MIDEN_NTX_BUILDER_IMAGE=ghcr.io/0xmiden/miden-ntx-builder:v0.17.0-rc.2",
-              "MIDEN_REMOTE_PROVER_IMAGE=ghcr.io/0xmiden/miden-remote-prover:v0.17.0-rc.2",
-              "MIDEN_NETWORK_MONITOR_IMAGE=ghcr.io/0xmiden/miden-network-monitor:v0.17.0-rc.2",
-              "MIDEN_FUNDING_SERVICE_IMAGE=ghcr.io/0xmiden/miden-funding-service:v0.17.0-rc.2",
-              "MIDEN_USDCX_GENESIS_IMAGE=ghcr.io/0xmiden/miden-usdcx-genesis:v0.17.0-rc.2",
-              "docker",
-              "compose",
-              "-f",
-              "%etc(node/docker-compose.yml)",
-              "--profile",
-              "telemetry",
-              "--profile",
-              "monitor",
               "up",
               "-d"
             ]
           },
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.2"
+            "version": "0.17.0-rc.4"
           }
         },
         {
@@ -2682,7 +2486,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.7"
+            "version": "0.17.0-rc.9"
           }
         },
         {
@@ -2697,7 +2501,7 @@
           "name": "remote-prover",
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.2"
+            "version": "0.17.0-rc.4"
           }
         },
         {
@@ -2712,7 +2516,7 @@
           "name": "validator",
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.2"
+            "version": "0.17.0-rc.4"
           }
         },
         {
@@ -2762,7 +2566,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.33.0"
+            "version": "0.35.0"
           }
         }
       ]

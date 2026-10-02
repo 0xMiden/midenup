@@ -290,6 +290,29 @@ sharing a channel cannot remove each other's components: if one asks for less, t
 components stay. Use `midenup install <channel> --profile <profile>` to deliberately reduce what is
 installed.
 
+#### Patching components
+
+A `[patches]` table builds individual components from a different source than the channel
+publishes, which is useful for testing an unreleased component against a toolchain:
+
+```toml
+[toolchain]
+channel = "0.17.0"
+profile = "empty"
+components = ["vm"]
+
+[patches.vm]
+crate_name = "miden-vm"
+features = ["executable"]
+version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.git", revision = "8160d8a22bc5342b01946ae00a6dc4c1f224fc35" }
+```
+
+`version` takes the same forms as in the channel manifest (`git`, `path` or `registry`). Patched
+executables are built with `cargo install`, and legacy packages are extracted from the patched
+Rust crate. Patches apply to the channel's shared installation, so running `miden` elsewhere
+reverts them, and `midenup update` may undo them, until the next `miden` run in the project.
+See [Patching components](docs/src/getting-started/usage.md#patching-components) for the full rules.
+
 
 #### Setting a global default toolchain
 

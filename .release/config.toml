@@ -17,7 +17,7 @@ private-version = "0.1.0"
 
 [units.main]
 kind = "crates"
-version-source = "own"
+version-source = "workspace"
 tag = "v{version}"
 changelog = "CHANGELOG.md"
 changelog-headings = ["Added", "Changed", "Fixed", "Migration and breaking changes"]
