@@ -111,6 +111,9 @@ fn update_network(
     }
 
     upstream.sync(config);
+    let Some(changes) = changes_for_target(config, state, &upstream, options)? else {
+        return Ok(());
+    };
     install_for_update(
         config,
         &upstream,
@@ -118,7 +121,7 @@ fn update_network(
         // Intent transfers verbatim and is re-resolved against the channel now being tracked, so
         // it gains components that did not exist there before.
         IntentUpdate::Replace(installation.intent.clone()),
-        Changes::default(),
+        changes,
         options,
     )?;
 
@@ -212,12 +215,8 @@ fn update_installed_channel(
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
             .with_context(|| format!("failed to migrate channel {old_channel}")),
         None => {
-            let Some(changes) = changes_for(config, installation, &upstream.channel, options)?
+            let Some(changes) = changes_for_target(config, state, &upstream.channel, options)?
             else {
-                crate::info!(
-                    "Aborting update of {} due to user input/configuration",
-                    installation.channel
-                );
                 return Ok(());
             };
 
@@ -260,6 +259,9 @@ fn migrate(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
+    let Some(changes) = changes_for_target(config, state, upstream, options)? else {
+        return Ok(());
+    };
     crate::warn!("migrating {} to {}", installation.channel, upstream.name);
 
     install_for_update(
@@ -268,7 +270,7 @@ fn migrate(
         state,
         // Intent transfers verbatim and is resolved against the new channel.
         IntentUpdate::Replace(installation.intent.clone()),
-        Changes::default(),
+        changes,
         options,
     )?;
 
@@ -301,6 +303,23 @@ fn migrate(
     )
 }
 
+/// Classifies the installed target, including when a network or migration changes channels.
+fn changes_for_target(
+    config: &Config,
+    state: &LocalState,
+    upstream: &Channel,
+    options: &UpdateOptions,
+) -> anyhow::Result<Option<Changes>> {
+    let Some(installation) = state.get(&upstream.name) else {
+        return Ok(Some(Changes::default()));
+    };
+    let changes = changes_for(config, installation, upstream, options)?;
+    if changes.is_none() {
+        crate::info!("Aborting update of {} due to user input/configuration", upstream.name);
+    }
+    Ok(changes)
+}
+
 /// Decides which components have to be re-acquired, applying the path-update policy.
 ///
 /// `None` means the user cancelled.
@@ -310,7 +329,11 @@ fn changes_for(
     upstream: &Channel,
     options: &UpdateOptions,
 ) -> anyhow::Result<Option<Changes>> {
-    let mut changes = Changes::default();
+    let mut changes = Changes {
+        // Even an equivalent patch must be removed from the installation's recorded metadata.
+        logical_only: !installation.patches.is_empty(),
+        ..Default::default()
+    };
     let cwd = &config.working_directory;
 
     for installed in &installation.components {
@@ -319,6 +342,15 @@ fn changes_for(
         let Some(upstream_component) = upstream.get_component(&installed.name) else {
             continue;
         };
+
+        // Plan keys normalize mutable source pins. Removing a patch must still rebuild when
+        // its recorded authority no longer matches the synchronized upstream authority.
+        if installation.patches.contains_key(installed.name.as_ref())
+            && installed.version != upstream_component.version
+        {
+            changes.stale.push(installed.name.to_string());
+            continue;
+        }
 
         match classify(installed, upstream_component, config.target(), cwd) {
             ChangeClass::None => continue,
@@ -429,8 +461,12 @@ fn work_for(
     Ok(Work::Nothing)
 }
 
-/// Whether the manifest's content changed for this installation.
+/// Whether the installation needs reconciliation with the unpatched upstream channel.
 pub fn needs_update(config: &Config, installation: &Installation, upstream: &Channel) -> bool {
+    if !installation.patches.is_empty() {
+        return true;
+    }
+
     match crate::resolve::resolve(upstream, &installation.intent) {
         Ok(resolved) => {
             let installed_names: std::collections::BTreeSet<&str> = installation
@@ -505,6 +541,7 @@ fn record_logical_changes(
         .get_mut(&upstream.name)
         .with_context(|| format!("channel {} is not installed", upstream.name))?;
     installation.intent = intent;
+    installation.patches = options.patches.clone();
 
     for component in installation.components.iter_mut() {
         let Some(upstream_component) = upstream.get_component(&component.name) else {
