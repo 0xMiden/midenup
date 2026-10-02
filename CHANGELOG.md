@@ -6,23 +6,64 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.1.0]
+
 ### Added
 
 - `miden-toolchain.toml` now accepts a `[patches]` table that builds individual components from a
   git repository, a local path or another registry version instead of the channel's published
-  release.
-- Added the `%version` substitution for command arguments, which resolves to the registry version
-  of the component. The `node` component uses it to point `miden node up` at the published
-  `ghcr.io/0xmiden` images for the toolchain version.
+  release. Patched executables are built with cargo; legacy packages distributed as Rust crates
+  are extracted from the patched crate. Relative paths resolve from the toolchain file, and
+  patching an executable published only pre-built requires `crate_name`.
+- Command argument templates can now combine literal text with multiple substitutions in one
+  argument, use `%{...}` to separate substitutions from adjacent text, and use `%version` for the
+  owning component's registry version.
+- Added the 0.17.0 toolchain with updated release candidates, including client 0.17.0-rc.5,
+  node 0.17.0-rc.4, protocol 0.17.0-rc.9, cargo-miden and midenc 0.11.0-rc.3, and core/VM 0.35.0.
 
 ### Changed
 
-- `midenup install` now sets the installed toolchain as the default when no default is set yet.
+- Updated `miden-verify` in the 0.16.0 toolchain from 0.5.0 to 0.6.0.
+- Interactive path-update prompts now name the component being updated.
 
 ### Fixed
 
 - Fixed `midenup --version` showing an empty revision when `midenup` was installed from crates.io,
-  and reporting the active toolchain as `unknown` when it is simply not installed yet.
+  and reporting the active toolchain as `unknown` when it is simply not installed yet. An
+  uninstalled toolchain is reported as `not installed`, without a network name.
+- Fixed the parentheses around update instructions in `midenup show`.
+- Fixed installations reusing a component's previous build after its patch is added, changed or
+  removed.
+- Fixed updates leaving patches recorded when they match the published component definitions;
+  these patches are now cleared without rebuilding unchanged components. Network moves and
+  channel migrations also reconcile patches and changed components in an already installed target.
+
+### Migration and breaking changes
+
+- `midenup install` now makes the installed toolchain the global default when no default is set.
+  Use `midenup override <TOOLCHAIN>` afterward if a different default is required.
+- `devnet` now tracks 0.17.0 instead of 0.16.0. Pin `0.16.0` in `miden-toolchain.toml` or use
+  `midenup override 0.16.0` to keep using that toolchain instead of following devnet.
+- The 0.16.0 and 0.17.0 `miden node` commands now load the versioned
+  `ghcr.io/0xmiden/miden-local-network` Compose configuration through an `oci://` reference,
+  replacing downloaded Compose files and, for 0.16.0, correcting the Docker image references.
+  Use a Docker Compose installation that supports OCI configurations, and update workflows that
+  relied on the installed `etc/node` Compose files.
+- Patches affect the channel's shared installation. Running `miden` outside the project or with
+  different patches reinstalls affected components. `midenup install` and `midenup update` restore
+  the published components regardless of `--path-update`; the next `miden` run inside the project
+  reapplies its patches. Patched installations are always marked `(update available)`.
+- Manifest command arguments now interpret `%` substitutions anywhere in the string. Escape
+  literal percent signs as `%%` (for example, change a literal `printf` argument `%s` to `%%s`);
+  bare percent signs, unknown keywords and unclosed delimiters are errors. Legacy v1 verbatim
+  arguments keep their literal meaning.
+- Custom manifests now reject invalid executable argument formats and `%version` in arguments or
+  artifact URIs on components with a git or path authority. Correct invalid formats, and replace
+  those version substitutions with explicit values or use a registry authority.
+- Rust API users constructing `InstallationOptions`, `state::Installation` or `Toolchain` with
+  struct literals must add `patches: Default::default()` when no patches are needed. Update
+  exhaustive matches on `Expr` for `Template` and `Version`, and on `InvalidExecutable` and
+  `manifest::validate::ValidationError` for the new template and manifest validation errors.
 
 ## [1.0.1]
 
@@ -116,5 +157,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   construction and matches to use `Current { flags }` and `List { flags }`. Reporting is now
   configured through `report::set`.
 
+[1.1.0]: https://github.com/0xMiden/midenup/releases/tag/v1.1.0
 [1.0.1]: https://github.com/0xMiden/midenup/releases/tag/v1.0.1
 [1.0.0]: https://github.com/0xMiden/midenup/releases/tag/v1.0.0
