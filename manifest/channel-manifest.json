@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1790958345,
+  "date": 1791312773,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.16.0",
@@ -2197,7 +2197,7 @@
           "symlink-name": "cargo-miden",
           "version": {
             "kind": "registry",
-            "version": "0.11.0-rc.3"
+            "version": "0.11.0"
           }
         },
         {
@@ -2258,7 +2258,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.5"
+            "version": "0.17.2"
           }
         },
         {
@@ -2331,7 +2331,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.3"
+            "version": "0.17.0"
           }
         },
         {
@@ -2427,7 +2427,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.11.0-rc.3"
+            "version": "0.11.0"
           }
         },
         {
@@ -2464,7 +2464,7 @@
           },
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.4"
+            "version": "0.17.1"
           }
         },
         {
@@ -2486,7 +2486,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.9"
+            "version": "0.17.1"
           }
         },
         {
@@ -2501,7 +2501,7 @@
           "name": "remote-prover",
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.4"
+            "version": "0.17.1"
           }
         },
         {
@@ -2516,7 +2516,7 @@
           "name": "validator",
           "version": {
             "kind": "registry",
-            "version": "0.17.0-rc.4"
+            "version": "0.17.1"
           }
         },
         {
