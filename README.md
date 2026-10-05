@@ -24,6 +24,12 @@ The `midenup` executable facilitates two primary tasks:
 >
 > Run `midenup component list` to see a list of all available components for the active toolchain.
 
+## Prerequisites
+
+- [Rust](https://rustup.rs), latest stable.
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
+  `node` component (`miden node`).
+
 ## Usage
 
 To get started, you must first install `midenup`, and then initialize its
