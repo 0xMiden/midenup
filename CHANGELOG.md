@@ -35,6 +35,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Project installation rules no longer make unrelated maintenance and reporting commands fail.
   Bare updates validate the active definition and detect conflicts before changing installations.
 - Network-identity conflicts consistently direct users to choose a new toolchain name.
+- `midenup gc` reclaims Cargo path-build caches after their last installation reference is gone,
+  while preserving caches shared by installed variants or pending operations.
  
 ### Migration and breaking changes
 

@@ -172,10 +172,11 @@ enum Commands {
         #[clap(flatten)]
         options: options::InstallationOptions,
     },
-    /// Reclaim disk space from toolchain installations nothing refers to any more.
+    /// Reclaim unreferenced toolchain publications and Cargo build caches.
     ///
     /// Every change to an installed channel publishes a new copy and leaves the previous one in
-    /// place, because another process may still be running out of it. This removes those.
+    /// place, because another process may still be running out of it. This removes those and
+    /// build caches no installed toolchain or pending operation uses.
     Gc {
         /// General configuration flags
         #[clap(flatten)]

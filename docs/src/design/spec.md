@@ -74,6 +74,7 @@ $MIDENUP_HOME/
 ├── state.json                          # local installation state (sole logical authority)
 ├── .lock                               # advisory lock; guards mutating operations only
 ├── channel-manifest.json               # cached copy of the last successfully fetched upstream manifest
+├── cache/cargo/<source-path-hash>/      # reusable Cargo outputs for a canonical path source
 ├── journal/
 │   └── <operation-id>.json             # at most one; present only during a physical operation
 ├── publications/
@@ -684,6 +685,11 @@ For `https` sources the destination filename comes from the **plan**, never from
 
 `Config::cargo_home` therefore governs only where the `miden` symlink is placed, which is its actual purpose.
 
+For path sources, both `--target-dir` and `CARGO_BUILD_BUILD_DIR` point into
+`$MIDENUP_HOME/cache/cargo/<source-path-hash>`. Different source paths cannot share Cargo
+fingerprints, while repeated builds of the same source reuse their cache. Registry and Git builds
+retain Cargo's normal output locations. Unreferenced path-build caches are reclaimed by `gc` (§11.6).
+
 ```
 cargo [+<rustup-channel>] install --locked --profile <dev|release> [--quiet]
       --bin <installed-executable>
@@ -848,7 +854,7 @@ a canonical installation sharing its upstream channel is unaffected.
 
 ### 11.6 Reclamation
 
-`midenup gc` removes publication directories not referenced by any `state.json` record and not named by an active journal. It is idempotent and never removes a referenced or in-flight publication.
+`midenup gc` removes publication directories not referenced by any `state.json` record and not named by an active journal. It also removes Cargo path-build cache directories not referenced by path authorities in installed components or the active journal’s target installation. Caches shared by multiple installations remain while any installation uses that source; uninstall leaves caches for this explicit cleanup. It is idempotent and never removes a referenced or in-flight publication or build cache. Source trees and runtime data are outside its scope.
 
 This is the **only** thing that reclaims a replaced publication (§3.1), so it is not optional housekeeping: without it, every update leaves its predecessor on disk. It is deliberately explicit and user-initiated, because "unreferenced" does not mean "unused" - a process that was already running when the publication was replaced is still executing out of it.
 

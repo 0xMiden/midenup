@@ -213,8 +213,9 @@ those, reclaim them with:
 midenup gc
 ```
 
-This only ever removes installations nothing refers to any more. It never touches an installed
-toolchain, and it is safe to run at any time.
+This removes unreferenced publications and Cargo path-build caches no installed toolchain uses.
+Caches shared by several variants remain while any variant uses their source. Installed toolchains,
+in-flight operations, source trees, and runtime data are preserved.
 
 ### Upgrading from an older `midenup`
 

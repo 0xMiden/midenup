@@ -200,14 +200,7 @@ fn source_build_cache(step: &PlanStep, build_cache: &Path) -> Option<PathBuf> {
     else {
         return None;
     };
-    use sha2::Digest as _;
-    let digest = sha2::Sha256::digest(canonical.as_os_str().as_encoded_bytes());
-    let mut key = String::with_capacity(64);
-    for byte in digest {
-        use std::fmt::Write;
-        write!(&mut key, "{byte:02x}").expect("writing to a String cannot fail");
-    }
-    Some(build_cache.join(key))
+    Some(crate::paths::cargo_source_cache(build_cache, canonical))
 }
 
 /// The set of files currently in `<staging_root>/bin`.

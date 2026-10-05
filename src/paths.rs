@@ -45,6 +45,21 @@ pub fn cargo_build_cache(home: &Path) -> PathBuf {
     home.join("cache").join("cargo")
 }
 
+/// A path source's reusable build outputs beneath [`cargo_build_cache`].
+///
+/// `canonical` is the source path pinned by the installation plan. Modification times are not
+/// part of the key: edits within that source should reuse Cargo's incremental build cache.
+pub fn cargo_source_cache(build_cache: &Path, canonical: &Path) -> PathBuf {
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    let mut key = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write;
+        write!(&mut key, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    build_cache.join(key)
+}
+
 /// The directory of `toolchains/<channel>` symlinks, plus the derived network links and `default`.
 pub fn toolchains_dir(home: &Path) -> PathBuf {
     home.join("toolchains")

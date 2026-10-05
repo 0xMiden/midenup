@@ -160,8 +160,8 @@ pub fn receipt_for(
 /// Publication directories no `state.json` record refers to and no journal names.
 ///
 /// Because a replaced publication is left on disk rather than deleted -- another process may be
-/// executing out of it (§3.1) -- this is what accumulates, and reclaiming it is `midenup gc`'s
-/// whole job.
+/// executing out of it (§3.1) -- this is what accumulates, and reclaiming it is one part of
+/// `midenup gc`.
 ///
 /// Two things are deliberately *not* treated as garbage: a publication an in-flight operation
 /// names, which is either about to be published or about to be replaced; and anything that is not a
