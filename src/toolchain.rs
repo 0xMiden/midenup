@@ -317,7 +317,6 @@ impl Toolchain {
                 }
             }
 
-            current_toolchain.validate()?;
             Ok((
                 current_toolchain,
                 ToolchainJustification::MidenToolchainFile { path: local_toolchain },
@@ -401,11 +400,12 @@ impl Toolchain {
     }
 
     /// Resolves and validates the active view entirely from the installed snapshot.
-    fn installed_view(
+    pub(crate) fn installed_view(
         &self,
         config: &Config,
         state: &LocalState,
     ) -> anyhow::Result<Option<Channel>> {
+        self.validate()?;
         if let UserChannel::Custom(name) = &self.channel {
             let installation =
                 state.get_by_id(&InstallationId::Custom(name.clone())).with_context(|| {
@@ -478,6 +478,7 @@ impl Toolchain {
         options: &InstallationOptions,
     ) -> anyhow::Result<Self> {
         let (mut toolchain, justification) = Self::current(config, None)?;
+        toolchain.validate()?;
         if matches!(toolchain.channel, UserChannel::Custom(_)) {
             Self::install_selected(config, state, &toolchain.channel, options)?;
             return Ok(toolchain);

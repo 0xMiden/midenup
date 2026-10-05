@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Legacy migration preserves named defaults such as `custom:stable` and their runtime data.
 - Path-source builds use separate Cargo artifact and intermediate directories, preventing a
   shared Cargo build directory from reusing another patch source's binary.
+- Project installation rules no longer make unrelated maintenance and reporting commands fail.
+  Bare updates validate the active definition and detect conflicts before changing installations.
 
 ### Migration and breaking changes
 
@@ -28,7 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   state remains readable and is upgraded on write without reinstalling its publications.
 - Network names `custom`, `default`, and the `custom:` selector prefix are reserved.
 
-## [1.1.1]
+## [1.2.0]
 
 ### Added
 

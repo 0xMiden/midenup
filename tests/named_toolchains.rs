@@ -142,6 +142,103 @@ fn patched_project(env: &TestEnvironment, name: &str, source: &Path) {
     .unwrap();
 }
 
+fn unnamed_patch_project(env: &TestEnvironment) {
+    std::fs::write(
+        env.present_working_dir.join("miden-toolchain.toml"),
+        "[toolchain]\nchannel = \"0.15.0\"\n[patches.vm]\ncrate_name = \"miden-vm\"\nversion = { \
+         kind = \"registry\", version = \"0.1.0\" }\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn integration_unnamed_patches_do_not_break_unrelated_commands() {
+    let env = environment_setup("unnamed_patch_maintenance");
+    let fixture = OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
+    success(command(&env, &fixture.manifest_uri, &["install", "0.15.0"]));
+    unnamed_patch_project(&env);
+    success(
+        midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, &fixture.manifest_uri)
+            .env_remove("MIDENUP_TOOLCHAIN")
+            .args(["show", "home"])
+            .output()
+            .unwrap(),
+    );
+    for args in [vec!["gc"], vec!["update", "0.15.0"]] {
+        success(command(&env, &fixture.manifest_uri, &args));
+    }
+    for output in [
+        command(&env, &fixture.manifest_uri, &["install"]),
+        dispatch(&env, &fixture.manifest_uri, &["help", "vm"]),
+    ] {
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("patches require"));
+    }
+    success(command(&env, &fixture.manifest_uri, &["uninstall", "0.15.0"]));
+}
+
+#[test]
+fn integration_unnamed_patches_fail_update_before_mutating_installations() {
+    let env = environment_setup("unnamed_patch_update_preflight");
+    let fixture = OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
+    success(command(&env, &fixture.manifest_uri, &["install", "0.15.0"]));
+    let state_path = midenup::paths::state_path(&env.midenup_home);
+    let before = std::fs::read_to_string(&state_path).unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&fixture.manifest_path).unwrap()).unwrap();
+    let vm = manifest["channels"][0]["components"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|component| component["name"] == "vm")
+        .unwrap();
+    vm["aliases"] = serde_json::json!({"new-alias": ["%installed-executable"]});
+    std::fs::write(&fixture.manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    unnamed_patch_project(&env);
+
+    let output = command(&env, &fixture.manifest_uri, &["update"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("patches require"));
+    assert_eq!(
+        std::fs::read_to_string(&state_path).unwrap(),
+        before,
+        "invalid active definitions must fail before updating anything"
+    );
+}
+
+#[test]
+fn integration_named_conflicts_fail_update_before_mutating_installations() {
+    let env = environment_setup("named_update_preflight");
+    let fixture = OfflineFixture::new(env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_channel("0.16.0")
+        .build();
+    project(&env, "project-dev", "0.15.0");
+    success(command(&env, &fixture.manifest_uri, &["install"]));
+    let state_path = midenup::paths::state_path(&env.midenup_home);
+    let before = std::fs::read_to_string(&state_path).unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&fixture.manifest_path).unwrap()).unwrap();
+    let vm = manifest["channels"][0]["components"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|component| component["name"] == "vm")
+        .unwrap();
+    vm["aliases"] = serde_json::json!({"new-alias": ["%installed-executable"]});
+    std::fs::write(&fixture.manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    project(&env, "project-dev", "0.16.0");
+
+    let output = command(&env, &fixture.manifest_uri, &["update"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("midenup install"));
+    assert_eq!(
+        std::fs::read_to_string(&state_path).unwrap(),
+        before,
+        "known definition conflicts must fail before updating anything"
+    );
+}
+
 fn fork_crate(original: &Path, destination: &Path, marker: &str) {
     std::fs::create_dir_all(destination.join("src")).unwrap();
     for file in ["Cargo.toml", "Cargo.lock"] {

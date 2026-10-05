@@ -50,6 +50,11 @@ pub fn update(
             update_installed_channel(config, &installation, state, options)
         },
         None => {
+            // Validate the active declaration before updating any installed toolchains. Selection
+            // alone is also used by unrelated commands and must not enforce installation rules.
+            let (toolchain, _) = Toolchain::current(config, None)?;
+            toolchain.installed_view(config, state)?;
+
             // Update everything else. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
                 if installation.custom.is_some() {
@@ -59,7 +64,7 @@ pub fn update(
                 }
             }
 
-            // Ensure that the current toolchain is installed/synchronized
+            // Migration may remove a pinned default, so resolve selection again after updates.
             let (toolchain, justification) = Toolchain::current(config, None)?;
             toolchain.ensure_installed(config, state, &justification)?;
 
