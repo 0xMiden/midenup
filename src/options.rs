@@ -2,7 +2,10 @@ use std::collections::BTreeMap;
 
 use clap::{Parser, ValueEnum};
 
-use crate::{manifest::Component, profile::Profile, resolve::Intent, toolchain::Patch};
+use crate::{
+    identity::InstallationId, manifest::Component, profile::Profile, resolve::Intent,
+    toolchain::Patch,
+};
 
 /// How an installation affects the selection persisted for a channel.
 ///
@@ -64,6 +67,16 @@ pub struct InstallationOptions {
     /// The toolchain file patches applied to the channel being installed.
     #[arg(skip)]
     pub patches: BTreeMap<String, Patch>,
+}
+
+impl InstallationOptions {
+    /// The local identity being installed, independently of its upstream version.
+    pub(crate) fn installation_id(&self, version: &semver::Version) -> InstallationId {
+        match &self.custom {
+            Some(custom) => InstallationId::Custom(custom.name.clone()),
+            None => InstallationId::Version(version.clone()),
+        }
+    }
 }
 
 /// Optional update settings.

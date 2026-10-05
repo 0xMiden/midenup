@@ -47,7 +47,7 @@ pub fn install(
     commands::setup_midenup(config)?;
 
     let home = &config.midenup_home;
-    let installation_id = installation_id(channel, options);
+    let installation_id = options.installation_id(&channel.name);
 
     // Every install produces a *new* publication, named opaquely. Nothing may infer identity from
     // the name: a name derived from the plan key would invite treating equal keys as equal bytes,
@@ -82,7 +82,7 @@ pub fn install(
                 .iter()
                 .filter(|step| step.owner() == old.name.as_ref())
                 .filter_map(|step| step.authority())
-                .any(|authority| source_pin_changed(&old.version, authority));
+                .any(|authority| old.version.source_pin().changed_to(authority.source_pin()));
             (changed_source
                 || matches!(
                     commands::update::classify(
@@ -231,31 +231,6 @@ pub fn install(
     Ok(())
 }
 
-/// Mutable source pins describe the bytes installed, while plan keys describe source identity.
-fn source_pin_changed(old: &Authority, planned: &crate::plan::ResolvedAuthority) -> bool {
-    use crate::plan::ResolvedAuthority;
-    match (old, planned) {
-        (Authority::Path { last_modification, .. }, ResolvedAuthority::Path { mtime, .. }) => {
-            last_modification.is_none() || mtime.is_none() || last_modification != mtime
-        },
-        (
-            Authority::Git {
-                target: GitTarget::Branch { latest_revision, .. },
-                ..
-            },
-            ResolvedAuthority::Git { revision, .. },
-        ) => latest_revision.as_ref() != Some(revision),
-        _ => false,
-    }
-}
-
-fn installation_id(channel: &Channel, options: &InstallationOptions) -> InstallationId {
-    match &options.custom {
-        Some(custom) => InstallationId::Custom(custom.name.clone()),
-        None => InstallationId::Version(channel.name.clone()),
-    }
-}
-
 /// What this operation wants installed.
 ///
 /// Installing and *recording what the user wants* are separate concerns, and this is where they
@@ -274,7 +249,7 @@ pub(crate) fn effective_intent(
         roots: options.components.iter().cloned().collect(),
     };
     let previous = state
-        .get_by_id(&installation_id(channel, options))
+        .get_by_id(&options.installation_id(&channel.name))
         .map(|installation| installation.intent.clone());
 
     match options.intent_update.clone() {

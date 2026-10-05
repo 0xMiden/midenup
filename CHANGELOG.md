@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Network-identity conflicts consistently direct users to choose a new toolchain name.
 - `midenup gc` reclaims Cargo path-build caches after their last installation reference is gone,
   while preserving caches shared by installed variants or pending operations.
+- Installation and update share installation-identity and mutable-source comparison rules.
  
 ### Migration and breaking changes
 

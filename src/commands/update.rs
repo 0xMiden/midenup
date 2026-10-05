@@ -355,28 +355,6 @@ fn migrate(
     )
 }
 
-/// Build keys describe source identity, not the revision previously installed from a mutable
-/// source. Compare recorded pins before classifying the rest of the component definition.
-pub(crate) fn mutable_source_changed(old: &Authority, new: &Authority) -> bool {
-    match (old, new) {
-        (
-            Authority::Path { last_modification: old, .. },
-            Authority::Path { last_modification: new, .. },
-        ) => old.is_none() || new.is_none() || old != new,
-        (
-            Authority::Git {
-                target: GitTarget::Branch { latest_revision: old, .. },
-                ..
-            },
-            Authority::Git {
-                target: GitTarget::Branch { latest_revision: new, .. },
-                ..
-            },
-        ) => old.is_none() || new.is_none() || old != new,
-        _ => false,
-    }
-}
-
 /// Classifies the installed target, including when a network or migration changes channels.
 fn changes_for_target(
     config: &Config,
@@ -427,7 +405,11 @@ fn changes_for(
             continue;
         }
 
-        let change = if mutable_source_changed(&installed.version, &upstream_component.version) {
+        let change = if installed
+            .version
+            .source_pin()
+            .changed_to(upstream_component.version.source_pin())
+        {
             ChangeClass::InstallationImpacting
         } else {
             classify(installed, upstream_component, config.target(), cwd)
@@ -493,7 +475,7 @@ fn perform_update(
     logical_only: bool,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let id = installation_id(upstream, install_options);
+    let id = install_options.installation_id(&upstream.name);
     match work_for(upstream, state, install_options, logical_only)? {
         Work::Physical => {
             display_warnings(upstream, install_options, options);
@@ -523,14 +505,6 @@ enum Work {
     Nothing,
 }
 
-fn installation_id(upstream: &Channel, options: &InstallationOptions) -> InstallationId {
-    options
-        .custom
-        .as_ref()
-        .map(|custom| InstallationId::Custom(custom.name.clone()))
-        .unwrap_or_else(|| InstallationId::Version(upstream.name.clone()))
-}
-
 fn work_for(
     upstream: &Channel,
     state: &LocalState,
@@ -541,7 +515,7 @@ fn work_for(
         return Ok(Work::Physical);
     }
 
-    let Some(installed) = state.get_by_id(&installation_id(upstream, options)) else {
+    let Some(installed) = state.get_by_id(&options.installation_id(&upstream.name)) else {
         // Not installed yet -- a carried-over or migrated channel.
         return Ok(Work::Physical);
     };
@@ -655,7 +629,7 @@ fn record_logical_changes(
     let intent = commands::install::effective_intent(state, upstream, options);
 
     let installation = state
-        .get_mut_by_id(&installation_id(upstream, options))
+        .get_mut_by_id(&options.installation_id(&upstream.name))
         .with_context(|| format!("channel {} is not installed", upstream.name))?;
     installation.intent = intent;
     installation.patches = options.patches.clone();

@@ -98,6 +98,45 @@ pub enum Authority {
     },
 }
 
+/// Observed content of a mutable source, separate from its structural identity.
+///
+/// `None` inside a pin means the content is unknown, never that it is unchanged. Sources without
+/// mutable content are compared through their structural definition instead.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SourcePin<'a> {
+    Path(Option<SystemTime>),
+    Git(Option<&'a str>),
+    Immutable,
+}
+
+impl SourcePin<'_> {
+    pub(crate) fn changed_to(self, next: SourcePin<'_>) -> bool {
+        match (self, next) {
+            (SourcePin::Path(old), SourcePin::Path(new)) => {
+                old.is_none() || new.is_none() || old != new
+            },
+            (SourcePin::Git(old), SourcePin::Git(new)) => {
+                old.is_none() || new.is_none() || old != new
+            },
+            // A change of source kind is handled by structural classification.
+            _ => false,
+        }
+    }
+}
+
+impl Authority {
+    pub(crate) fn source_pin(&self) -> SourcePin<'_> {
+        match self {
+            Self::Path { last_modification, .. } => SourcePin::Path(*last_modification),
+            Self::Git {
+                target: GitTarget::Branch { latest_revision, .. },
+                ..
+            } => SourcePin::Git(latest_revision.as_deref()),
+            Self::Git { .. } | Self::Registry { .. } => SourcePin::Immutable,
+        }
+    }
+}
+
 impl core::str::FromStr for Authority {
     type Err = serde_json::Error;
 
@@ -114,6 +153,93 @@ impl fmt::Display for Authority {
                 write!(f, "{repository_url}:{target}")
             },
             Authority::Path { path, .. } => write!(f, "{}", path.display()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plan::ResolvedAuthority;
+
+    fn path_pin(mtime: Option<SystemTime>) -> Authority {
+        Authority::Path {
+            path: "/source".into(),
+            last_modification: mtime,
+        }
+    }
+
+    fn branch_pin(revision: Option<&str>) -> Authority {
+        Authority::Git {
+            repository_url: "https://example.invalid/source".into(),
+            subpath: None,
+            target: GitTarget::Branch {
+                name: "main".into(),
+                latest_revision: revision.map(str::to_owned),
+            },
+        }
+    }
+
+    #[test]
+    fn path_source_pin_comparison_agrees_before_and_after_planning() {
+        let first = SystemTime::UNIX_EPOCH;
+        let second = first + std::time::Duration::from_secs(1);
+        for (old, new, changed) in [
+            (None, None, true),
+            (None, Some(first), true),
+            (Some(first), None, true),
+            (Some(first), Some(first), false),
+            (Some(first), Some(second), true),
+        ] {
+            let installed = path_pin(old);
+            let upstream = path_pin(new);
+            let planned = ResolvedAuthority::Path { canonical: "/source".into(), mtime: new };
+            assert_eq!(installed.source_pin().changed_to(upstream.source_pin()), changed);
+            assert_eq!(installed.source_pin().changed_to(planned.source_pin()), changed);
+        }
+    }
+
+    #[test]
+    fn branch_source_pin_comparison_agrees_before_and_after_planning() {
+        for (old, new, changed) in [
+            (None, None, true),
+            (None, Some("first"), true),
+            (Some("first"), None, true),
+            (Some("first"), Some("first"), false),
+            (Some("first"), Some("second"), true),
+        ] {
+            let installed = branch_pin(old);
+            let upstream = branch_pin(new);
+            assert_eq!(installed.source_pin().changed_to(upstream.source_pin()), changed);
+            if let Some(revision) = new {
+                let planned = ResolvedAuthority::Git {
+                    url: "https://example.invalid/source".into(),
+                    revision: revision.into(),
+                    subpath: None,
+                };
+                assert_eq!(installed.source_pin().changed_to(planned.source_pin()), changed);
+            }
+        }
+    }
+
+    #[test]
+    fn immutable_sources_and_changes_of_source_kind_use_structural_comparison() {
+        let registry = Authority::Registry { version: semver::Version::new(1, 0, 0) };
+        let git = branch_pin(Some("first"));
+        let path = path_pin(Some(SystemTime::UNIX_EPOCH));
+        for (old, new) in [(&registry, &registry), (&git, &path), (&path, &git)] {
+            assert!(!old.source_pin().changed_to(new.source_pin()));
+        }
+        for target in [
+            GitTarget::Revision { hash: "first".into() },
+            GitTarget::Tag { name: "v1".into() },
+        ] {
+            let fixed = Authority::Git {
+                repository_url: "https://example.invalid/source".into(),
+                subpath: None,
+                target,
+            };
+            assert!(!fixed.source_pin().changed_to(git.source_pin()));
         }
     }
 }
