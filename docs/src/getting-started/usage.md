@@ -18,6 +18,13 @@ midenup install mainnet
 ```
 
 This command will install the toolchain mainnet currently runs, using the [official midenup channel](https://0xmiden.github.io/midenup/channel-manifest.json). Which toolchain that is comes from the manifest, so when a network is promoted to a newer toolchain, `midenup update mainnet` follows it.
+
+Omit the channel to install the active toolchain selected by `MIDENUP_TOOLCHAIN`, the project's
+`miden-toolchain.toml`, the system default, or finally `mainnet`. When a project file selects the
+toolchain, its profile, components and patches apply. `--profile` overrides that profile, and
+`--component` adds to the project's components. As with an explicit-channel install, the resulting
+selection replaces the previously recorded selection for that toolchain.
+
 However, midenup also supports "custom channels", where one can create a customized version of a toolchain. In order to use a custom channel, `midenup` must called with the`MIDENUP_MANIFEST_URI` environment variable, like so:
 
 ```shell title=">_ Terminal"
@@ -137,7 +144,7 @@ version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.
 :::note
 Patches apply to the toolchain's shared installation. Running `miden` with different patches in effect, such as outside the project, reinstalls the toolchain to match.
 
-A patched toolchain differs from what the manifest publishes, so `midenup list` and `midenup show` always report it as `(update available)`. Running `midenup update` or `midenup install` on it replaces the patched components with the channel's published ones, whatever `--path-update` says; the patches are applied again on the next `miden` run inside the project.
+A patched toolchain differs from what the manifest publishes, so `midenup list` and `midenup show` always report it as `(update available)`. Running `midenup update <channel>` or `midenup install <channel>` replaces the patched components with the channel's published ones, whatever `--path-update` says; the patches are applied again on the next `miden` run inside the project. Channel-less `install` uses the active project's patches, and channel-less `update` reapplies them after updating the installed toolchains.
 :::
 
 ## Updating a toolchain
@@ -154,12 +161,13 @@ If no `<toolchain>` is passed, like so:
 midenup update
 ```
 
-then `midenup` will look for updates on every installed toolchain.
+then `midenup` will look for updates on every installed toolchain, then ensure the active toolchain
+and its requested components are installed. This also installs the active toolchain on a fresh
+machine, which requires access to the upstream manifest or a cached copy.
 
-Note that this form works through the toolchains you have installed, *by version*, and does not
-consult the network pointers at all: a toolchain your network was promoted to is not installed yet,
-so a bare `midenup update` will never bring you to it. Following a promotion means naming the
-network, as below.
+The update pass works through installed toolchains *by version*. When the active network's
+installed toolchain already satisfies the project's request, a bare update keeps that local
+network selection. To follow an upstream promotion explicitly, name the network as below.
 
 ### Updating a network
 

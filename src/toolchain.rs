@@ -285,19 +285,9 @@ impl Toolchain {
         toolchain_override: Option<&str>,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
         let (current_toolchain, justification) = Toolchain::current(config, toolchain_override)?;
-        let desired_channel = &current_toolchain.channel;
-
-        // Resolve the project's declared toolchain into an exact component set. An omitted
-        // profile means `minimal` (Profile::default), and listed components are explicit roots on
-        // top of it.
-        let intent = Intent {
-            profiles: [current_toolchain.profile.unwrap_or_default()].into_iter().collect(),
-            roots: current_toolchain.components.iter().cloned().collect(),
-        };
-
         // Only a `miden-toolchain.toml` narrows the view: section 8.5 defines the active view as
         // *this project's* request -- profile plus components from its toolchain file. The other
-        // three justifications carry no request at all; `profile` and `components` above are
+        // three justifications carry no request at all; `profile` and `components` are
         // synthesized empty, so resolving them narrows dispatch to the `minimal` profile and hides
         // whatever else this machine installed deliberately -- a component added with
         // `midenup install <channel> --component <name>` belongs to no profile, and would
@@ -308,22 +298,90 @@ impl Toolchain {
         let project_view =
             matches!(justification, ToolchainJustification::MidenToolchainFile { .. });
 
-        // Everything the project asked for is installed: nothing to fetch, nothing to install.
-        //
-        // The active view is resolved against the *installed* snapshot rather than upstream, which
-        // is what section 8.5 says it is -- this project's request, against what this machine has.
-        if let Some(view) =
-            active_view(config, state, desired_channel, &intent, &current_toolchain.patches)
-        {
+        let view = match current_toolchain.installed_view(config, state)? {
+            Some(view) => view,
+            None => {
+                // Dispatch becomes a writer only when installation is needed. Re-read state
+                // after waiting: another process may have installed the toolchain in the meantime.
+                let _lock = crate::lock::acquire(&config.midenup_home)?;
+                *state = config.local_state()?;
+                current_toolchain.ensure_installed(config, state, &justification)?
+            },
+        };
+
+        Ok((current_toolchain, justification, project_view.then_some(view)))
+    }
+
+    fn intent(&self) -> Intent {
+        Intent {
+            profiles: [self.profile.unwrap_or_default()].into_iter().collect(),
+            roots: self.components.iter().cloned().collect(),
+        }
+    }
+
+    /// Resolves and validates the active view entirely from the installed snapshot.
+    fn installed_view(
+        &self,
+        config: &Config,
+        state: &LocalState,
+    ) -> anyhow::Result<Option<Channel>> {
+        let view = active_view(config, state, &self.channel, &self.intent(), &self.patches);
+        if let Some(view) = &view {
             ensure_patches_requested(
-                &current_toolchain.patches,
+                &self.patches,
                 view.components.iter().map(|component| component.name.as_ref()),
             )?;
-            crate::info!("current toolchain is {desired_channel} and is installed");
-            return Ok((current_toolchain, justification, project_view.then_some(view)));
+            crate::info!("current toolchain is {} and is installed", self.channel);
         }
+        Ok(view)
+    }
 
-        // Something is missing or was built with other patches, so upstream is needed after all.
+    /// Ensures this toolchain is usable. The caller must hold the home lock and have reloaded state
+    /// after acquiring it. Activation adds to the shared installation, never shrinking it.
+    pub(crate) fn ensure_installed(
+        &self,
+        config: &Config,
+        state: &mut LocalState,
+        justification: &ToolchainJustification,
+    ) -> anyhow::Result<Channel> {
+        if let Some(view) = self.installed_view(config, state)? {
+            return Ok(view);
+        }
+        self.install(config, state, justification, IntentUpdate::Union(self.intent()))
+    }
+
+    /// Installs the active toolchain using project settings with explicit CLI selections applied.
+    /// Like an explicit-channel install, this replaces the recorded intent, even if every requested
+    /// component is already installed. The caller must hold the home lock.
+    pub(crate) fn install_current(
+        config: &Config,
+        state: &mut LocalState,
+        options: &InstallationOptions,
+    ) -> anyhow::Result<Self> {
+        let (mut toolchain, justification) = Self::current(config, None)?;
+        toolchain.profile = options.profile.or(toolchain.profile);
+        toolchain.components.extend(options.components.iter().cloned());
+        toolchain.install(
+            config,
+            state,
+            &justification,
+            IntentUpdate::Replace(toolchain.intent()),
+        )?;
+        Ok(toolchain)
+    }
+
+    /// Shared installation path for an active toolchain. Lock ownership and whether intent is
+    /// replaced or accumulated are decided by the caller, outside the publication machinery.
+    fn install(
+        &self,
+        config: &Config,
+        state: &mut LocalState,
+        justification: &ToolchainJustification,
+        intent_update: IntentUpdate,
+    ) -> anyhow::Result<Channel> {
+        let desired_channel = &self.channel;
+        let intent = self.intent();
+        // Install against the full upstream channel, with the active project's patches applied.
         let manifest = config.upstream_manifest()?;
         let Some(upstream) = manifest.get_channel(desired_channel) else {
             bail!(
@@ -343,7 +401,7 @@ impl Toolchain {
             );
         };
 
-        let channel = &apply_patches(upstream, &current_toolchain.patches)?;
+        let channel = &apply_patches(upstream, &self.patches)?;
 
         let resolved =
             crate::resolve::resolve(channel, &intent).with_context(|| match &justification {
@@ -353,14 +411,14 @@ impl Toolchain {
                 _ => format!("unable to resolve the {} toolchain", channel.name),
             })?;
         ensure_patches_requested(
-            &current_toolchain.patches,
+            &self.patches,
             resolved.iter().map(|component| component.name.as_ref()),
         )?;
 
-        let upstream_view = Some(Channel::new(
+        let upstream_view = Channel::new(
             channel.name.clone(),
             resolved.iter().map(|component| (*component).clone()).collect(),
-        ));
+        );
 
         // Name both the network and the version it resolves to, so the user knows what is about
         // to be installed before anything is fetched.
@@ -370,8 +428,11 @@ impl Toolchain {
         };
 
         match state.get(&channel.name).filter(|installation| installation.is_managed()) {
-            Some(installed) if installed.patches != current_toolchain.patches => {
+            Some(installed) if installed.patches != self.patches => {
                 crate::info!("reinstalling the current toolchain {target} to apply its patches");
+            },
+            Some(_) if matches!(intent_update, IntentUpdate::Replace(_)) => {
+                crate::info!("installing the current toolchain {target}");
             },
             Some(installed) => {
                 let installed_components: HashSet<&str> =
@@ -390,44 +451,22 @@ impl Toolchain {
             },
         }
 
-        // Dispatch has decided it must install, which makes it a writer. It takes the lock here,
-        // for the install only, and releases it before exec'ing the component: two `miden`
-        // invocations in two project directories are otherwise two concurrent writers against one
-        // MIDENUP_HOME, with no user involved in making that happen.
-        let _lock = crate::lock::acquire(&config.midenup_home)?;
-
-        // Another invocation may have installed it while we waited. Re-read rather than plan
-        // against what was true before the wait.
-        *state = config.local_state()?;
-        if let Some(view) =
-            active_view(config, state, desired_channel, &intent, &current_toolchain.patches)
-        {
-            ensure_patches_requested(
-                &current_toolchain.patches,
-                view.components.iter().map(|component| component.name.as_ref()),
-            )?;
-            return Ok((current_toolchain, justification, project_view.then_some(view)));
-        }
-
-        // Activation goes through exactly the same code path as everything else: the full upstream
-        // channel, and an intent that *adds* this project's request to whatever other projects have
-        // already asked for. Activating one project must never take components away from another.
         let options = InstallationOptions {
-            intent_update: Some(IntentUpdate::Union(intent.clone())),
+            intent_update: Some(intent_update),
             // The project named this network, so it is installed here: without the link, the next
             // dispatch would not find it and install again.
             network: match desired_channel {
                 UserChannel::Named(name) => Some(name.to_string()),
                 UserChannel::Version(_) => None,
             },
-            patches: current_toolchain.patches.clone(),
+            patches: self.patches.clone(),
             ..Default::default()
         };
 
         commands::install(config, channel, state, &options)?;
 
         // Now installed
-        Ok((current_toolchain, justification, upstream_view.filter(|_| project_view)))
+        Ok(upstream_view)
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.
