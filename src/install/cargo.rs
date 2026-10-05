@@ -3,7 +3,7 @@
 //! # On `CARGO_HOME`
 //!
 //! midenup deliberately does **not** override `CARGO_HOME` for builds, and `Config::cargo_home` is
-//! not consulted here. The two things `cargo install` is told about location serve different
+//! not consulted here. The three locations used for Cargo installation serve different
 //! purposes:
 //!
 //! * `--root` decides where the built binary and Cargo's install bookkeeping go. That *is*
@@ -12,8 +12,12 @@
 //!   are shared caches. Isolating them would mean re-downloading the crates.io index for every
 //!   `MIDENUP_HOME`, which is slow and buys nothing -- a cache entry is identical whoever fetched
 //!   it, and credentials are the user's.
+//! * `--target-dir` and `CARGO_BUILD_BUILD_DIR` isolate path build outputs under
+//!   `MIDENUP_HOME/cache/cargo`, partitioned by canonical source path. Cargo does not distinguish
+//!   all checkouts of the same path package in a shared build directory. Registry and Git builds
+//!   retain Cargo's normal output locations.
 //!
-//! Concurrency is handled by the `MIDENUP_HOME` advisory lock rather than by cache isolation.
+//! The `MIDENUP_HOME` advisory lock serializes access to the path build cache.
 
 use std::{
     ffi::OsString,
@@ -57,6 +61,7 @@ const CARGO_BOOKKEEPING: &[&str] = &[".crates.toml", ".crates2.json"];
 pub fn build(
     step: &PlanStep,
     staging_root: &Path,
+    build_cache: &Path,
     verbose: bool,
     debug: bool,
 ) -> Result<(), CargoError> {
@@ -72,7 +77,7 @@ pub fn build(
     // against the whole directory would flag every component after the first.
     let before = binaries_in(staging_root);
 
-    let argv = argv_for(step, staging_root, verbose, debug);
+    let argv = argv_for(step, staging_root, build_cache, verbose, debug);
     let rendered = argv
         .iter()
         .map(|a| a.to_string_lossy().into_owned())
@@ -82,6 +87,10 @@ pub fn build(
     crate::trace!("running: cargo {rendered}");
 
     let mut command = std::process::Command::new("cargo");
+    if let Some(directory) = source_build_cache(step, build_cache) {
+        // Override both inherited environment and Cargo config files for intermediate outputs.
+        command.env("CARGO_BUILD_BUILD_DIR", directory);
+    }
     command.args(&argv).stderr(std::process::Stdio::inherit()).stdout(if verbose {
         std::process::Stdio::inherit()
     } else {
@@ -104,7 +113,13 @@ pub fn build(
 /// The exact argument vector for a build step.
 ///
 /// Split out so the shape of the command can be asserted without running a compiler.
-pub fn argv_for(step: &PlanStep, staging_root: &Path, verbose: bool, debug: bool) -> Vec<OsString> {
+pub fn argv_for(
+    step: &PlanStep,
+    staging_root: &Path,
+    build_cache: &Path,
+    verbose: bool,
+    debug: bool,
+) -> Vec<OsString> {
     let PlanStep::CargoBuild {
         crate_name,
         authority,
@@ -158,6 +173,11 @@ pub fn argv_for(step: &PlanStep, staging_root: &Path, verbose: bool, debug: bool
         },
     }
 
+    if let Some(directory) = source_build_cache(step, build_cache) {
+        argv.push("--target-dir".into());
+        argv.push(directory.into());
+    }
+
     if !features.is_empty() {
         argv.push("--features".into());
         argv.push(features.join(",").into());
@@ -167,6 +187,27 @@ pub fn argv_for(step: &PlanStep, staging_root: &Path, verbose: bool, debug: bool
     argv.push(staging_root.into());
 
     argv
+}
+
+/// Cargo can consider different path packages with the same name/version fresh in a shared
+/// build directory. Separate both artifacts and fingerprints by source, but retain the cache
+/// across edits to that source. Registry and Git sources already have distinct Cargo identities.
+fn source_build_cache(step: &PlanStep, build_cache: &Path) -> Option<PathBuf> {
+    let PlanStep::CargoBuild {
+        authority: ResolvedAuthority::Path { canonical, .. },
+        ..
+    } = step
+    else {
+        return None;
+    };
+    use sha2::Digest as _;
+    let digest = sha2::Sha256::digest(canonical.as_os_str().as_encoded_bytes());
+    let mut key = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write;
+        write!(&mut key, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    Some(build_cache.join(key))
 }
 
 /// The set of files currently in `<staging_root>/bin`.
@@ -245,8 +286,13 @@ mod tests {
     /// bare toolchain selector, ever reaches cargo.
     #[test]
     fn unset_optional_arguments_are_omitted_entirely() {
-        let argv =
-            rendered(&argv_for(&step(registry(), &[], None), Path::new("/staging"), false, true));
+        let argv = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/staging"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
 
         assert!(!argv.iter().any(|a| a.is_empty()), "no empty argv entries: {argv:?}");
         assert!(!argv.iter().any(|a| a == "+"), "no bare toolchain flag: {argv:?}");
@@ -256,8 +302,13 @@ mod tests {
     /// A multi-binary crate would otherwise deposit every binary it defines into the toolchain.
     #[test]
     fn the_expected_binary_is_always_named() {
-        let argv =
-            rendered(&argv_for(&step(registry(), &[], None), Path::new("/staging"), false, true));
+        let argv = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/staging"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
         let index = argv.iter().position(|a| a == "--bin").expect("--bin must be passed");
         assert_eq!(argv[index + 1], "miden-vm");
     }
@@ -267,6 +318,7 @@ mod tests {
         let argv = rendered(&argv_for(
             &step(registry(), &[], Some("nightly")),
             Path::new("/staging"),
+            Path::new("/cache"),
             false,
             true,
         ));
@@ -275,21 +327,44 @@ mod tests {
 
     #[test]
     fn verbosity_suppresses_the_quiet_flag() {
-        let quiet = rendered(&argv_for(&step(registry(), &[], None), Path::new("/s"), false, true));
+        let quiet = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
         assert!(quiet.iter().any(|a| a == "--quiet"));
 
-        let loud = rendered(&argv_for(&step(registry(), &[], None), Path::new("/s"), true, true));
+        let loud = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            true,
+            true,
+        ));
         assert!(!loud.iter().any(|a| a == "--quiet"));
     }
 
     #[test]
     fn the_debug_flag_selects_the_profile() {
-        let dev = rendered(&argv_for(&step(registry(), &[], None), Path::new("/s"), false, true));
+        let dev = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
         let index = dev.iter().position(|a| a == "--profile").unwrap();
         assert_eq!(dev[index + 1], "dev");
 
-        let release =
-            rendered(&argv_for(&step(registry(), &[], None), Path::new("/s"), false, false));
+        let release = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            false,
+            false,
+        ));
         let index = release.iter().position(|a| a == "--profile").unwrap();
         assert_eq!(release[index + 1], "release");
     }
@@ -299,6 +374,7 @@ mod tests {
         let argv = rendered(&argv_for(
             &step(registry(), &["std", "concurrent"], None),
             Path::new("/s"),
+            Path::new("/cache"),
             false,
             true,
         ));
@@ -308,7 +384,13 @@ mod tests {
 
     #[test]
     fn a_registry_authority_passes_the_crate_and_version() {
-        let argv = rendered(&argv_for(&step(registry(), &[], None), Path::new("/s"), false, true));
+        let argv = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
         assert!(argv.contains(&"miden-vm".to_string()));
         let index = argv.iter().position(|a| a == "--version").unwrap();
         assert_eq!(argv[index + 1], "0.15.0");
@@ -322,7 +404,13 @@ mod tests {
             revision: "abc123".to_string(),
             subpath: None,
         };
-        let argv = rendered(&argv_for(&step(authority, &[], None), Path::new("/s"), false, true));
+        let argv = rendered(&argv_for(
+            &step(authority, &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
 
         let index = argv.iter().position(|a| a == "--rev").expect("--rev must be passed");
         assert_eq!(argv[index + 1], "abc123");
@@ -335,15 +423,26 @@ mod tests {
             canonical: PathBuf::from("/src/miden-vm"),
             mtime: None,
         };
-        let argv = rendered(&argv_for(&step(authority, &[], None), Path::new("/s"), false, true));
+        let argv = rendered(&argv_for(
+            &step(authority, &[], None),
+            Path::new("/s"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
         let index = argv.iter().position(|a| a == "--path").unwrap();
         assert_eq!(argv[index + 1], "/src/miden-vm");
     }
 
     #[test]
     fn the_staging_root_is_always_passed() {
-        let argv =
-            rendered(&argv_for(&step(registry(), &[], None), Path::new("/staging"), false, true));
+        let argv = rendered(&argv_for(
+            &step(registry(), &[], None),
+            Path::new("/staging"),
+            Path::new("/cache"),
+            false,
+            true,
+        ));
         let index = argv.iter().position(|a| a == "--root").expect("--root must be passed");
         assert_eq!(argv[index + 1], "/staging");
     }
@@ -434,7 +533,8 @@ mod tests {
             archive: None,
             fallback: None,
         };
-        assert!(argv_for(&step, Path::new("/s"), false, true).is_empty());
-        build(&step, Path::new("/s"), false, true).expect("a download is not a build");
+        assert!(argv_for(&step, Path::new("/s"), Path::new("/cache"), false, true).is_empty());
+        build(&step, Path::new("/s"), Path::new("/cache"), false, true)
+            .expect("a download is not a build");
     }
 }

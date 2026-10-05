@@ -171,6 +171,8 @@ version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.
 
 `version` accepts `kind = "git"` (with `tag`, `branch` or `revision`), `kind = "path"` (relative to the `miden-toolchain.toml` file) and `kind = "registry"`. A patched executable is always built with `cargo install`; `crate_name` is required when the channel only publishes it pre-built, and `features` replaces the cargo features it is built with (`miden-vm` needs `executable`). A package that the channel extracts from a Rust crate, as older channels do, is extracted from the patched crate instead, with `crate_name` and `features` overriding the channel's. Components that are only distributed as pre-built files (pre-built packages, assets and commands) cannot be patched. A patched component must be part of the project's toolchain, through `profile`, `components` or a dependency of one of them; patching anything else is an error.
 
+Local path builds keep their Cargo outputs in `$MIDENUP_HOME/cache/cargo`, partitioned by the canonical source path. This prevents different checkouts of the same crate from sharing stale build outputs, including when Cargo is configured with a shared target or build directory. Rebuilding the same source reuses its cache; registry and Git downloads still use your normal Cargo cache. The build cache is disposable and can be removed when no installation or update is running.
+
 The shared `0.17.0` installation and other named variants are unaffected. Selecting the named
 installation outside this project preserves its patches. Updating it also preserves its source and
 patches, and path patches follow the existing `--path-update` policy.

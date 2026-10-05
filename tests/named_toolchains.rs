@@ -260,6 +260,20 @@ fn integration_named_path_update_honors_policy_and_keeps_the_patch() {
 
 #[test]
 fn integration_implicit_conflicting_patch_requires_explicit_install() {
+    conflicting_patch_requires_explicit_install("target");
+}
+
+#[test]
+fn integration_patch_replacement_isolates_shared_cargo_intermediates() {
+    conflicting_patch_requires_explicit_install("build");
+}
+
+#[test]
+fn integration_patch_replacement_isolates_cargo_config_build_directories() {
+    conflicting_patch_requires_explicit_install("config");
+}
+
+fn conflicting_patch_requires_explicit_install(shared_directory: &str) {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("named_patch_conflict");
     let fixture = OfflineFixture::new(env.tmp_dir.path())
@@ -267,10 +281,43 @@ fn integration_implicit_conflicting_patch_requires_explicit_install() {
         .with_cargo_component("prover")
         .build();
     for name in ["before", "after"] {
-        fork_crate(&fixture.dir.join("prover-source"), &env.tmp_dir.path().join(name), name);
+        let source = env.tmp_dir.path().join(name);
+        fork_crate(&fixture.dir.join("prover-source"), &source, name);
+        if shared_directory == "config" {
+            std::fs::create_dir(source.join(".cargo")).unwrap();
+            std::fs::write(
+                source.join(".cargo/config.toml"),
+                format!(
+                    "[build]\ntarget-dir = {:?}\nbuild-dir = {:?}\n",
+                    env.tmp_dir.path().join("shared-target"),
+                    env.tmp_dir.path().join("shared-build")
+                ),
+            )
+            .unwrap();
+        }
     }
+    let install = || {
+        let mut install =
+            midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, &fixture.manifest_uri);
+        install
+            .env_remove("MIDENUP_TOOLCHAIN")
+            .env_remove("CARGO_TARGET_DIR")
+            .env_remove("CARGO_BUILD_BUILD_DIR")
+            .args(["install", "--plain"]);
+        match shared_directory {
+            "target" => {
+                install.env("CARGO_TARGET_DIR", env.tmp_dir.path().join("shared-target"));
+            },
+            "build" => {
+                install.env("CARGO_BUILD_BUILD_DIR", env.tmp_dir.path().join("shared-build"));
+            },
+            "config" => {},
+            _ => unreachable!(),
+        }
+        success(install.output().unwrap())
+    };
     patched_project(&env, "project-dev", &env.tmp_dir.path().join("before"));
-    success(command(&env, &fixture.manifest_uri, &["install"]));
+    install();
     patched_project(&env, "project-dev", &env.tmp_dir.path().join("after"));
     let output = dispatch(&env, &fixture.manifest_uri, &["help", "prover"]);
     assert!(!output.status.success());
@@ -283,7 +330,7 @@ fn integration_implicit_conflicting_patch_requires_explicit_install() {
         )),
         "before\n"
     );
-    success(command(&env, &fixture.manifest_uri, &["install"]));
+    install();
     assert_eq!(success(dispatch(&env, &fixture.manifest_uri, &["help", "prover"])), "after\n");
 }
 

@@ -7,6 +7,7 @@
 //! ```text
 //! $MIDENUP_HOME/
 //! |- state.json                          local installation state
+//! |- cache/cargo/<source-path-hash>/      reusable, disposable path-build outputs
 //! |- publications/
 //! |  |- <channel>-<publication-id>/       immutable; named opaquely
 //! |     |- receipt.json
@@ -37,6 +38,11 @@ pub fn state_path(home: &Path) -> PathBuf {
 /// because a network was briefly unavailable.
 pub fn manifest_cache(home: &Path) -> PathBuf {
     home.join("channel-manifest").with_extension("json")
+}
+
+/// Disposable Cargo build outputs, partitioned by canonical source path.
+pub fn cargo_build_cache(home: &Path) -> PathBuf {
+    home.join("cache").join("cargo")
 }
 
 /// The directory of `toolchains/<channel>` symlinks, plus the derived network links and `default`.

@@ -134,6 +134,7 @@ pub fn install(
     let realized = crate::install::execute(
         &plan,
         &publication,
+        &paths::cargo_build_cache(home),
         crate::report::subprocess_output_visible(),
         config.debug,
     )?;

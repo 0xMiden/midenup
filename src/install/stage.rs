@@ -141,6 +141,7 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
 pub fn execute(
     plan: &InstallationPlan,
     staging_root: &Path,
+    build_cache: &Path,
     verbose: bool,
     debug: bool,
 ) -> Result<Realized, StageError> {
@@ -169,7 +170,7 @@ pub fn execute(
 
         announce(step, &mut announced, Some(&mut progress));
 
-        let method = match run(step, staging_root, verbose, debug) {
+        let method = match run(step, staging_root, build_cache, verbose, debug) {
             Ok(method) => method,
             Err(err) => {
                 // A declared Cargo fallback is what makes an unavailable artifact recoverable
@@ -180,7 +181,7 @@ pub fn execute(
                 };
                 crate::warn!("could not acquire {}: {err}", step.owner().bold());
                 announce(fallback, &mut announced, None);
-                run(fallback, staging_root, verbose, debug)?
+                run(fallback, staging_root, build_cache, verbose, debug)?
             },
         };
 
@@ -316,6 +317,7 @@ fn announce(
 fn run(
     step: &PlanStep,
     staging_root: &Path,
+    build_cache: &Path,
     verbose: bool,
     debug: bool,
 ) -> Result<RealizedMethod, StageError> {
@@ -325,7 +327,7 @@ fn run(
             Ok(RealizedMethod::Prebuilt)
         },
         PlanStep::CargoBuild { .. } => {
-            crate::install::cargo_build(step, staging_root, verbose, debug)?;
+            crate::install::cargo_build(step, staging_root, build_cache, verbose, debug)?;
             Ok(RealizedMethod::Cargo)
         },
         // Extractions are batched into a single generated script, so one cannot be run alone --
@@ -497,7 +499,7 @@ mod tests {
         let (plan, staging) = staged(temp.path());
 
         prepare(&staging).unwrap();
-        execute(&plan, &staging, false, true).expect("should stage");
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).expect("should stage");
         verify(&plan, &staging).expect("should verify");
 
         assert_eq!(std::fs::read(staging.join("bin").join("miden-vm")).unwrap(), b"binary");
@@ -513,7 +515,7 @@ mod tests {
             let temp = tempdir::TempDir::new("stage-modes").unwrap();
             let (plan, staging) = staged(temp.path());
             prepare(&staging).unwrap();
-            execute(&plan, &staging, false, true).unwrap();
+            execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
             let mode =
                 |path: PathBuf| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
@@ -531,7 +533,7 @@ mod tests {
         let temp = tempdir::TempDir::new("stage-shims").unwrap();
         let (plan, staging) = staged(temp.path());
         prepare(&staging).unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         let shim = staging.join("opt").join("miden vm");
         let target = std::fs::read_link(&shim).expect("the shim must be a symlink");
@@ -548,7 +550,7 @@ mod tests {
         let temp = tempdir::TempDir::new("stage-missing").unwrap();
         let (plan, staging) = staged(temp.path());
         prepare(&staging).unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         std::fs::remove_file(staging.join("lib").join("core.masp")).unwrap();
         let err = verify(&plan, &staging).expect_err("must fail");
@@ -564,7 +566,7 @@ mod tests {
             let temp = tempdir::TempDir::new("stage-mode").unwrap();
             let (plan, staging) = staged(temp.path());
             prepare(&staging).unwrap();
-            execute(&plan, &staging, false, true).unwrap();
+            execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
             std::fs::set_permissions(
                 staging.join("bin").join("miden-vm"),
@@ -581,7 +583,7 @@ mod tests {
         let temp = tempdir::TempDir::new("stage-shim").unwrap();
         let (plan, staging) = staged(temp.path());
         prepare(&staging).unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         std::fs::remove_file(staging.join("opt").join("miden vm")).unwrap();
         let err = verify(&plan, &staging).expect_err("must fail");
@@ -595,7 +597,7 @@ mod tests {
         let temp = tempdir::TempDir::new("stage-dir").unwrap();
         let (plan, staging) = staged(temp.path());
         prepare(&staging).unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         let path = staging.join("lib").join("core.masp");
         std::fs::remove_file(&path).unwrap();
@@ -611,13 +613,14 @@ mod tests {
         let temp = tempdir::TempDir::new("stage-idempotent").unwrap();
         let (plan, staging) = staged(temp.path());
         prepare(&staging).unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         // Mark the file so a re-download would be detectable.
         let marked = staging.join("bin").join("miden-vm");
         std::fs::write(&marked, b"marked").unwrap();
 
-        execute(&plan, &staging, false, true).expect("re-staging must succeed");
+        execute(&plan, &staging, &temp.path().join("cache"), false, true)
+            .expect("re-staging must succeed");
         assert_eq!(
             std::fs::read(&marked).unwrap(),
             b"marked",
@@ -704,7 +707,7 @@ mod tests {
             },
         )
         .unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
         assert_eq!(std::fs::read(staging.join("bin/miden-vm")).unwrap(), b"binary");
         assert_eq!(std::fs::read(staging.join("lib/core.masp")).unwrap(), b"old-package");
     }
@@ -759,7 +762,7 @@ mod tests {
             },
         )
         .unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         assert_eq!(
             std::fs::read(staging.join("bin").join("miden-vm")).unwrap(),
@@ -792,7 +795,7 @@ mod tests {
             },
         )
         .unwrap();
-        execute(&plan, &staging, false, true).unwrap();
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
 
         assert!(!staging.join("var").exists());
     }
@@ -805,7 +808,7 @@ mod tests {
         let (plan, staging) = staged(temp.path());
         prepare(&staging).unwrap();
 
-        let realized = execute(&plan, &staging, false, true).unwrap();
+        let realized = execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
         assert_eq!(
             realized.get(&staging.join("bin").join("miden-vm")),
             Some(&RealizedMethod::Prebuilt)
@@ -834,7 +837,7 @@ mod tests {
             fallback: None,
         };
 
-        assert!(execute(&plan, &staging, false, true).is_err());
+        assert!(execute(&plan, &staging, &temp.path().join("cache"), false, true).is_err());
     }
 
     /// Spec section 9.3: a failed transfer for a component declaring a fallback is recoverable,
@@ -871,7 +874,8 @@ mod tests {
             })),
         };
 
-        let realized = execute(&plan, &staging, false, true).expect("the fallback must be taken");
+        let realized = execute(&plan, &staging, &temp.path().join("cache"), false, true)
+            .expect("the fallback must be taken");
         assert_eq!(std::fs::read(&dest).unwrap(), b"from-the-fallback");
         assert_eq!(realized.get(&dest), Some(&RealizedMethod::Prebuilt));
     }

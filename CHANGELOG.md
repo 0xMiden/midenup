@@ -17,6 +17,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Dispatch uses one immutable publication for executable, libraries, sysroot, and subprocess PATH.
 - Reinstalling changed component definitions or mutable sources no longer reuses stale files.
 - Legacy migration preserves named defaults such as `custom:stable` and their runtime data.
+- Path-source builds use separate Cargo artifact and intermediate directories, preventing a
+  shared Cargo build directory from reusing another patch source's binary.
 
 ### Migration and breaking changes
 
