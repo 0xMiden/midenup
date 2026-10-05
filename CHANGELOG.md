@@ -10,59 +10,78 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Added
 
+- Named toolchains: add `name = "project-dev"` to `[toolchain]` in `miden-toolchain.toml` to
+  install an independent variant of a version or network. Select it elsewhere with
+  `custom:project-dev`. Updates preserve its source and patches; network variants follow
+  promotions independently of the shared installation. Each variant has separate runtime data,
+  preserved on uninstall unless `--purge` is given.
 - `midenup install` now accepts an omitted channel, selecting the active toolchain from
   `MIDENUP_TOOLCHAIN`, `miden-toolchain.toml`, the system default, or finally `mainnet`, in that
   order. When the project file selects the toolchain, its profile, components and patches apply;
-  `--profile` overrides its profile and `--component` adds to its components. The resulting
-  selection replaces the previously installed selection for that toolchain and can remove
-  components outside that selection.
-- Named toolchains: `[toolchain] name` installs an independent variant of `channel`, selectable
-  with `custom:<name>`. Named updates retain patches and track network sources independently.
-  Each variant has separate runtime data, partitioned by source network.
+  `--profile` overrides the profile and `--component` adds components.
 
+### Changed
 
-### Changes
-
-- The `midenup` GitHub Action has improved support for use with projects that contain a `miden-toolchain.toml` file. Pass no options, and the action will automatically install the toolchain described by that file. The action does _not_ support overriding the profile or components of the `miden-toolchain.toml` file - you must specify the full toolchain description.
+- `midenup gc` now reclaims Cargo path-build caches when no installed toolchain or pending
+  operation uses their source. Caches shared by multiple variants remain until their last
+  reference is removed.
+- Installation documentation now lists Rust and the Docker Compose version needed for `miden node`.
 
 ### Fixed
- 
-- Dispatch uses one immutable publication for executable, libraries, sysroot, and subprocess PATH.
-- Reinstalling changed component definitions or mutable sources no longer reuses stale files.
-- Legacy migration preserves named defaults such as `custom:stable` and their runtime data.
-- Path-source builds use separate Cargo artifact and intermediate directories, preventing a
-  shared Cargo build directory from reusing another patch source's binary.
-- Project installation rules no longer make unrelated maintenance and reporting commands fail.
-  Bare updates validate the active definition and detect conflicts before changing installations.
-- Network-identity conflicts consistently direct users to choose a new toolchain name.
-- `midenup gc` reclaims Cargo path-build caches after their last installation reference is gone,
-  while preserving caches shared by installed variants or pending operations.
-- Installation and update share installation-identity and mutable-source comparison rules.
- 
+
+- Fixed `miden` mixing executable, library, sysroot or subprocess PATH files from different
+  installations when another process installs or updates a toolchain during command execution.
+- Fixed reinstallations retaining stale files after a component's definition, source or output
+  ownership changes.
+- Fixed local path builds reusing another checkout's binary when Cargo has a shared target or
+  build directory. Each source now has its own build cache under `$MIDENUP_HOME/cache/cargo`.
+- Invalid project installation definitions no longer block unrelated maintenance and reporting
+  commands. Bare updates reject invalid definitions and conflicting named toolchains before
+  changing any installations.
+- Network-identity conflicts now explain that a new toolchain name is required, instead of
+  suggesting a reinstall that would also fail.
+- Fixed startup migration losing named defaults such as `custom:stable` and their runtime data.
+
 ### Migration and breaking changes
 
-- Bare `midenup update` now updates all installed toolchains and then installs the active
-  toolchain and any requested components that are missing. With no toolchains installed, it
-  attempts installation instead of reporting nothing to update, and requires access to the
-  upstream manifest or a cached copy. Scripts that must only update an already installed
-  toolchain should pass its version explicitly.
-- When the active toolchain names a network, bare `midenup update` keeps its local network
-  selection if it satisfies the project's request. Missing requirements can now cause it to
-  install the network's current upstream version. Pin a toolchain version if you must avoid
-  following network promotions.
-- Bare `midenup update` now reapplies the active project's patches after updating installed
-  toolchains. To restore published components without reapplying project patches, pass an
-  explicit channel to `midenup update <channel>` or `midenup install <channel>`.
-- Rust API users must update `InstallationOptions.profile` from `Profile` to `Option<Profile>`.
-  Wrap explicit profiles in `Some(...)` and handle `None` when reading or matching the field.
-  `None` uses `minimal` for an explicit-channel install; an install without a channel inherits
-  the active project's profile when available.
-- Project patches require a toolchain name. Conflicting definitions for an installed name require
-  an explicit `midenup install` from the declaring project.
-- Local state writes schema version 2, which older midenup binaries cannot read. Existing version 1
-  state remains readable and is upgraded on write without reinstalling its publications.
-- Network names `custom`, `default`, and the `custom:` selector prefix are reserved.
-
+- Installing without a channel replaces the installed component selection with the active
+  project's request and any CLI overrides, potentially removing other components. Include every
+  component you want to retain in the project file or with `--component`.
+- Project patches now require `[toolchain] name`. Add a unique name to each patched project's
+  `miden-toolchain.toml` and run `midenup install` there. Patches affect that named installation
+  instead of the shared channel; select it outside the project with `custom:<name>`. Updates
+  preserve its patches; installing or updating the upstream channel no longer resets them.
+- Projects sharing a name must agree on its source and patches. After changing either, run
+  `midenup install` from the declaring project to reconcile the definition. Switching networks,
+  or switching between a network and a pinned version, requires a new name. A toolchain file
+  selecting `channel = "custom:<name>"` must omit `name`, `profile`, `components` and `[patches]`;
+  keep those settings in the declaring file.
+- Bare `midenup update` now updates installed toolchains and then installs the active toolchain
+  and any missing requested components. On a fresh installation it requires an upstream
+  manifest or cached copy instead of reporting nothing to update. Pass an explicit installed
+  version to update only that toolchain. An active network keeps its local selection if it
+  satisfies the project; missing requirements can install the network's current upstream version.
+  Pin a version to avoid following network promotions.
+- The GitHub Action now uses `miden-toolchain.toml` in the working directory when its `toolchain`
+  input is omitted, instead of installing `mainnet`. In this mode `profile` and `components`
+  inputs are ignored; put them in the file, or pass an explicit `toolchain` input to retain
+  input-based selection.
+- Local state is upgraded from schema version 1 to version 2 on write without reinstalling
+  existing publications. Older `midenup` binaries cannot read version 2; keep using this version
+  or newer with an upgraded home directory.
+- Custom manifests may no longer use network names `custom`, `default` or names beginning with
+  `custom:`. Rename these networks and update their selectors.
+- Rust API users must change `InstallationOptions.profile` from `Profile` to `Option<Profile>`:
+  wrap explicit profiles in `Some(...)` and handle `None`. An omitted profile uses the active
+  project's profile for a bare install, or `minimal` for an explicit-channel install.
+- Add `custom: None` to `InstallationOptions` and `state::Installation` struct literals for
+  canonical installations, and add `custom: None` and `previous_channel: None` to
+  `publish::JournalEntry` literals. Handle `UserChannel::Custom` in exhaustive matches. In
+  `PublishError::OperationInProgress` and `PublishError::DivergentState`, replace the `channel`
+  field with `installation: InstallationId`.
+- Calls to `install::cargo::build`, `install::cargo::argv_for` and `install::stage::execute`
+  must pass a `build_cache: &Path` after `staging_root`. Use a persistent cache directory such as
+  `$MIDENUP_HOME/cache/cargo`.
 
 ## [1.1.0]
 
@@ -215,7 +234,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   construction and matches to use `Current { flags }` and `List { flags }`. Reporting is now
   configured through `report::set`.
 
-[1.1.1]: https://github.com/0xMiden/midenup/releases/tag/v1.1.1
+[1.2.0]: https://github.com/0xMiden/midenup/releases/tag/v1.2.0
 [1.1.0]: https://github.com/0xMiden/midenup/releases/tag/v1.1.0
 [1.0.1]: https://github.com/0xMiden/midenup/releases/tag/v1.0.1
 [1.0.0]: https://github.com/0xMiden/midenup/releases/tag/v1.0.0
