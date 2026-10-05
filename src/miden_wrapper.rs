@@ -269,7 +269,12 @@ fn build_miden_command() -> clap::Command {
         // This is what allows `miden` to be dynamic.
         .allow_external_subcommands(true)
         // This adds support for the -h and --help flags.
-        .arg(clap::Arg::new(CLAP_HELP_FLAG).short('h').long("help").action(clap::ArgAction::SetTrue))
+        .arg(
+            clap::Arg::new(CLAP_HELP_FLAG)
+                .short('h')
+                .long("help")
+                .action(clap::ArgAction::SetTrue),
+        )
         // This adds support for `miden help <alias/component>`.
         .subcommand(
             clap::Command::new(CLAP_HELP_SUBCMD)
@@ -277,7 +282,11 @@ fn build_miden_command() -> clap::Command {
                 .arg(clap::Arg::new(CLAP_HELP_COMPONENT_ARG).num_args(0..=1)),
         )
         // This adds support for --version.
-        .arg(clap::Arg::new(CLAP_VERSION_FLAG).long("version").action(clap::ArgAction::SetTrue))
+        .arg(
+            clap::Arg::new(CLAP_VERSION_FLAG)
+                .long("version")
+                .action(clap::ArgAction::SetTrue),
+        )
 }
 
 /// Converts clap [ArgMatches] into a [MidenSubcommand].

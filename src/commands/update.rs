@@ -20,6 +20,7 @@ use crate::{
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
     state::{Installation, LocalState},
+    toolchain::Toolchain,
     version::{Authority, GitTarget},
 };
 
@@ -41,14 +42,15 @@ pub fn update(
             update_installed_channel(config, &installation, state, options)
         },
         None => {
-            if state.installations.is_empty() {
-                crate::info!("nothing to update: no toolchains are installed");
-                return Ok(());
-            }
-            // Update everything installed. Cloned up front because each update writes state.
+            // Update everything else. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
                 update_installed_channel(config, &installation, state, options)?;
             }
+
+            // Ensure that the current toolchain is installed/synchronized
+            let (toolchain, justification) = Toolchain::current(config, None)?;
+            toolchain.ensure_installed(config, state, &justification)?;
+
             Ok(())
         },
     }

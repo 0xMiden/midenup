@@ -132,8 +132,8 @@ fn integration_update_test() {
     assert_eq!(mainnet_points_at(), "0.16.0");
 }
 
-/// Local diagnostics must not depend on the network: with an unreachable manifest and no cache,
-/// an update with nothing installed still says so, and a missing pinned version is still named.
+/// An implicit update needs upstream to install a missing active toolchain; an explicit update of
+/// an uninstalled version must still report that local error before attempting a fetch.
 #[test]
 fn integration_update_checks_local_state_before_syncing() {
     let _guard = common::harness::mutating_test_guard();
@@ -141,10 +141,12 @@ fn integration_update_checks_local_state_before_syncing() {
     let unreachable = format!("file://{}/no-such-manifest.json", test_env.tmp_dir.path().display());
     let (mut state, config) = test_setup(&test_env, &unreachable);
 
-    Midenup::try_parse_from(["midenup", "update"])
+    let err = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
-        .expect("an update with nothing installed must not need the manifest");
+        .expect_err("installing the missing active toolchain requires upstream");
+    assert!(format!("{err:#}").contains("unable to fetch"));
+    assert!(state.installations.is_empty());
 
     let err = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()

@@ -184,7 +184,7 @@ pub(crate) fn effective_intent(
 ) -> Intent {
     // What the caller asked for on this invocation.
     let requested = Intent {
-        profiles: [options.profile].into_iter().collect(),
+        profiles: [options.profile.unwrap_or_default()].into_iter().collect(),
         roots: options.components.iter().cloned().collect(),
     };
     let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
