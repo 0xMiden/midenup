@@ -195,6 +195,25 @@ pub(crate) fn apply_patches(
     Ok(patched)
 }
 
+/// Both activation and explicit install enforce the same runtime-data boundary.
+fn ensure_network_identity(
+    name: &ToolchainName,
+    installed: &UserChannel,
+    requested: &UserChannel,
+) -> anyhow::Result<()> {
+    let network = |channel: &UserChannel| match channel {
+        UserChannel::Named(name) => Some(name.clone()),
+        _ => None,
+    };
+    if network(installed) != network(requested) {
+        bail!(
+            "cannot change the network identity of custom toolchain '{name}'; choose a new name \
+             to keep runtime data separate"
+        );
+    }
+    Ok(())
+}
+
 impl Toolchain {
     pub fn new(channel: UserChannel, profile: Option<Profile>, components: Vec<String>) -> Self {
         Toolchain {
@@ -421,6 +440,7 @@ impl Toolchain {
                 Some(installed) => {
                     let custom =
                         installed.custom.as_ref().expect("custom identity has a definition");
+                    ensure_network_identity(name, &custom.channel, &self.channel)?;
                     if custom.channel != self.channel || installed.patches != self.patches {
                         bail!(
                             "custom toolchain '{name}' has a different channel or patches; choose \
@@ -513,17 +533,7 @@ impl Toolchain {
             && let Some(installed) = state.get_by_id(&InstallationId::Custom(custom.name.clone()))
         {
             let old = &installed.custom.as_ref().expect("named installation").channel;
-            let network = |channel: &UserChannel| match channel {
-                UserChannel::Named(name) => Some(name.to_string()),
-                _ => None,
-            };
-            if network(old) != network(&self.channel) {
-                bail!(
-                    "cannot change the network identity of custom toolchain '{}'; choose a new \
-                     name to keep runtime data separate",
-                    custom.name
-                );
-            }
+            ensure_network_identity(&custom.name, old, &self.channel)?;
         }
         let intent = if matches!(intent_update, IntentUpdate::Preserve) {
             custom

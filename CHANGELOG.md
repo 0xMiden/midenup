@@ -6,30 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added
-
-- Named toolchains: `[toolchain] name` installs an independent variant of `channel`, selectable
-  with `custom:<name>`. Named updates retain patches and track network sources independently.
-  Each variant has separate runtime data, partitioned by source network.
-
-### Fixed
-
-- Dispatch uses one immutable publication for executable, libraries, sysroot, and subprocess PATH.
-- Reinstalling changed component definitions or mutable sources no longer reuses stale files.
-- Legacy migration preserves named defaults such as `custom:stable` and their runtime data.
-- Path-source builds use separate Cargo artifact and intermediate directories, preventing a
-  shared Cargo build directory from reusing another patch source's binary.
-- Project installation rules no longer make unrelated maintenance and reporting commands fail.
-  Bare updates validate the active definition and detect conflicts before changing installations.
-
-### Migration and breaking changes
-
-- Project patches require a toolchain name. Conflicting definitions for an installed name require
-  an explicit `midenup install` from the declaring project.
-- Local state writes schema version 2, which older midenup binaries cannot read. Existing version 1
-  state remains readable and is upgraded on write without reinstalling its publications.
-- Network names `custom`, `default`, and the `custom:` selector prefix are reserved.
-
 ## [1.2.0]
 
 ### Added
@@ -40,11 +16,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   `--profile` overrides its profile and `--component` adds to its components. The resulting
   selection replaces the previously installed selection for that toolchain and can remove
   components outside that selection.
+- Named toolchains: `[toolchain] name` installs an independent variant of `channel`, selectable
+  with `custom:<name>`. Named updates retain patches and track network sources independently.
+  Each variant has separate runtime data, partitioned by source network.
+
 
 ### Changes
 
 - The `midenup` GitHub Action has improved support for use with projects that contain a `miden-toolchain.toml` file. Pass no options, and the action will automatically install the toolchain described by that file. The action does _not_ support overriding the profile or components of the `miden-toolchain.toml` file - you must specify the full toolchain description.
 
+### Fixed
+ 
+- Dispatch uses one immutable publication for executable, libraries, sysroot, and subprocess PATH.
+- Reinstalling changed component definitions or mutable sources no longer reuses stale files.
+- Legacy migration preserves named defaults such as `custom:stable` and their runtime data.
+- Path-source builds use separate Cargo artifact and intermediate directories, preventing a
+  shared Cargo build directory from reusing another patch source's binary.
+- Project installation rules no longer make unrelated maintenance and reporting commands fail.
+  Bare updates validate the active definition and detect conflicts before changing installations.
+- Network-identity conflicts consistently direct users to choose a new toolchain name.
+ 
 ### Migration and breaking changes
 
 - Bare `midenup update` now updates all installed toolchains and then installs the active
@@ -63,6 +54,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Wrap explicit profiles in `Some(...)` and handle `None` when reading or matching the field.
   `None` uses `minimal` for an explicit-channel install; an install without a channel inherits
   the active project's profile when available.
+- Project patches require a toolchain name. Conflicting definitions for an installed name require
+  an explicit `midenup install` from the declaring project.
+- Local state writes schema version 2, which older midenup binaries cannot read. Existing version 1
+  state remains readable and is upgraded on write without reinstalling its publications.
+- Network names `custom`, `default`, and the `custom:` selector prefix are reserved.
+
 
 ## [1.1.0]
 

@@ -486,11 +486,21 @@ fn integration_an_existing_named_network_cannot_switch_network_identity() {
     let fixture = OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
     project(&env, "project-dev", "mainnet");
     success(command(&env, &fixture.manifest_uri, &["install"]));
-    project(&env, "project-dev", "testnet");
-    let output = command(&env, &fixture.manifest_uri, &["install"]);
-    assert!(!output.status.success(), "a network change must not reuse runtime data");
-    let error = String::from_utf8_lossy(&output.stderr);
-    assert!(error.contains("name"), "{error}");
+    for source in ["testnet", "0.15.0"] {
+        project(&env, "project-dev", source);
+        for output in [
+            dispatch(&env, &fixture.manifest_uri, &["help", "vm"]),
+            command(&env, &fixture.manifest_uri, &["install"]),
+        ] {
+            assert!(!output.status.success(), "a network change must not reuse runtime data");
+            let error = String::from_utf8_lossy(&output.stderr);
+            assert!(error.contains("choose a new name"), "{error}");
+            assert!(
+                !error.contains("midenup install"),
+                "must not suggest an install that will be rejected: {error}"
+            );
+        }
+    }
     assert_eq!(
         success(dispatch(&env, &fixture.manifest_uri, &["+custom:project-dev", "help", "vm"])),
         "miden-vm 0.15.0\n"
