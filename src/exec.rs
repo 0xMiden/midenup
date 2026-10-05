@@ -421,7 +421,7 @@ pub enum InvalidExecutable {
 /// `%etc` against another would be a very quiet kind of wrong.
 #[derive(Debug, Clone)]
 pub struct Resolver {
-    /// The active publication, reached through `toolchains/<channel>`.
+    /// The immutable publication selected for this invocation.
     sysroot: PathBuf,
     /// `$MIDENUP_HOME/var/<selector>`: mutable state, deliberately *outside* the publication, so
     /// it survives every republication of the toolchain (spec section 3.2).
@@ -441,9 +441,14 @@ impl Resolver {
         home: &std::path::Path,
         selector: &crate::channel::UserChannel,
     ) -> Self {
+        Self::with_var(sysroot, crate::paths::var_dir(home, selector))
+    }
+
+    /// Keep runtime data identity independent of the immutable publication used for this run.
+    pub fn with_var(sysroot: impl Into<PathBuf>, var: PathBuf) -> Self {
         Self {
             sysroot: sysroot.into(),
-            var: crate::paths::var_dir(home, selector),
+            var,
             no_sysroot: false,
         }
     }

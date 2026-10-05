@@ -23,7 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::{channel::UserChannel, state::PublicationId};
+use crate::{channel::UserChannel, identity::InstallationId, state::PublicationId};
 
 /// Local installation state: the sole logical authority on what is installed.
 pub fn state_path(home: &Path) -> PathBuf {
@@ -46,10 +46,18 @@ pub fn toolchains_dir(home: &Path) -> PathBuf {
 
 /// The stable name for a channel: a symlink into `publications/`.
 ///
-/// This is what every consumer -- `PATH`, `MIDEN_SYSROOT`, `%lib`, `%etc` -- refers to, which is
-/// what lets the publication behind it be replaced atomically.
+/// Installation management switches this link atomically. Dispatch resolves an immutable
+/// publication once, so its executable, libraries, sysroot and subprocess PATH stay consistent.
 pub fn toolchain_link(home: &Path, channel: &semver::Version) -> PathBuf {
-    toolchains_dir(home).join(channel.to_string())
+    installation_link(home, &InstallationId::Version(channel.clone()))
+}
+
+/// The stable link for one local installation.
+pub fn installation_link(home: &Path, id: &InstallationId) -> PathBuf {
+    match id {
+        InstallationId::Version(version) => toolchains_dir(home).join(version.to_string()),
+        InstallationId::Custom(name) => toolchains_dir(home).join("custom").join(name.as_ref()),
+    }
 }
 
 /// A network's symlink: `toolchains/<network>` -> `<channel>`.
@@ -86,7 +94,10 @@ pub fn publications_dir(home: &Path) -> PathBuf {
 /// ([`crate::migrate_networks`]), which hands the default network the single store such a home kept
 /// under its channel's version.
 pub fn var_dir(home: &Path, selector: &UserChannel) -> PathBuf {
-    home.join("var").join(selector.to_string())
+    match selector {
+        UserChannel::Custom(name) => home.join("var").join("custom").join(name.as_ref()),
+        _ => home.join("var").join(selector.to_string()),
+    }
 }
 
 /// Where an in-flight physical operation records its intent.
@@ -103,4 +114,50 @@ pub fn journal_dir(home: &Path) -> PathBuf {
 /// unique. Nothing may parse identity back out of this path.
 pub fn publication_dir(home: &Path, channel: &semver::Version, id: &PublicationId) -> PathBuf {
     publications_dir(home).join(format!("{channel}-{id}"))
+}
+
+/// Component data for the selected installation and its recorded upstream source.
+///
+/// A custom name can be reused after uninstall while its data remains. Partitioning its data by
+/// network keeps that reuse from attaching a different network to the previous database.
+pub fn runtime_var_dir(home: &Path, selector: &UserChannel, source: &UserChannel) -> PathBuf {
+    let root = var_dir(home, selector);
+    if !matches!(selector, UserChannel::Custom(_)) {
+        return root;
+    }
+    match source {
+        UserChannel::Named(network) => root.join("networks").join(network.as_ref()),
+        UserChannel::Version(_) => root.join("pinned"),
+        UserChannel::Custom(_) => {
+            unreachable!("custom installation sources must be upstream selectors")
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retained_named_data_is_partitioned_by_network() {
+        let home = Path::new("/midenup");
+        let custom: UserChannel = "custom:dev".parse().unwrap();
+        let mainnet: UserChannel = "mainnet".parse().unwrap();
+        let testnet: UserChannel = "testnet".parse().unwrap();
+        let pinned: UserChannel = "0.15.0".parse().unwrap();
+        assert_eq!(
+            runtime_var_dir(home, &custom, &mainnet),
+            Path::new("/midenup/var/custom/dev/networks/mainnet")
+        );
+        assert_eq!(
+            runtime_var_dir(home, &custom, &testnet),
+            Path::new("/midenup/var/custom/dev/networks/testnet")
+        );
+        assert_eq!(
+            runtime_var_dir(home, &custom, &pinned),
+            Path::new("/midenup/var/custom/dev/pinned")
+        );
+        assert_eq!(runtime_var_dir(home, &mainnet, &pinned), Path::new("/midenup/var/mainnet"));
+        assert_eq!(var_dir(home, &custom), Path::new("/midenup/var/custom/dev"));
+    }
 }

@@ -17,6 +17,7 @@ use crate::{
     channel::{Channel, UpstreamChannel, UpstreamMatch, UserChannel},
     commands,
     config::Config,
+    identity::InstallationId,
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
     state::{Installation, LocalState},
@@ -32,6 +33,13 @@ pub fn update(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     match channel_type {
+        Some(UserChannel::Custom(name)) => {
+            let installation = state
+                .get_by_id(&InstallationId::Custom(name.clone()))
+                .cloned()
+                .with_context(|| format!("custom toolchain '{name}' is not installed"))?;
+            update_custom(config, &installation, state, options)
+        },
         Some(UserChannel::Named(name)) => update_network(config, name, state, options),
         Some(UserChannel::Version(version)) => {
             let installation = state
@@ -44,7 +52,11 @@ pub fn update(
         None => {
             // Update everything else. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
-                update_installed_channel(config, &installation, state, options)?;
+                if installation.custom.is_some() {
+                    update_custom(config, &installation, state, options)?;
+                } else {
+                    update_installed_channel(config, &installation, state, options)?;
+                }
             }
 
             // Ensure that the current toolchain is installed/synchronized
@@ -54,6 +66,39 @@ pub fn update(
             Ok(())
         },
     }
+}
+
+/// Reconcile a named installation from its own recipe, never a global network pointer.
+fn update_custom(
+    config: &Config,
+    installation: &Installation,
+    state: &mut LocalState,
+    options: &UpdateOptions,
+) -> anyhow::Result<()> {
+    let custom = installation.custom.as_ref().expect("custom update requires a recipe");
+    let Some(upstream) = config.upstream_manifest()?.get_channel(&custom.channel) else {
+        crate::warn!(
+            "{} has no upstream channel {}; leaving it installed",
+            installation.id(),
+            custom.channel
+        );
+        return Ok(());
+    };
+    let mut upstream = crate::toolchain::apply_patches(upstream, &installation.patches)?;
+    upstream.sync(config);
+    let Some(changes) = changes_for(config, installation, &upstream, options)? else {
+        return Ok(());
+    };
+    let logical_only = changes.logical_only;
+    let install_options = InstallationOptions {
+        custom: Some(custom.clone()),
+        patches: installation.patches.clone(),
+        stale: changes.stale,
+        held_back: changes.held_back,
+        intent_update: Some(IntentUpdate::Preserve),
+        ..Default::default()
+    };
+    perform_update(config, &upstream, state, &install_options, logical_only, options)
 }
 
 /// Brings a network to the channel it now names.
@@ -305,6 +350,28 @@ fn migrate(
     )
 }
 
+/// Build keys describe source identity, not the revision previously installed from a mutable
+/// source. Compare recorded pins before classifying the rest of the component definition.
+pub(crate) fn mutable_source_changed(old: &Authority, new: &Authority) -> bool {
+    match (old, new) {
+        (
+            Authority::Path { last_modification: old, .. },
+            Authority::Path { last_modification: new, .. },
+        ) => old.is_none() || new.is_none() || old != new,
+        (
+            Authority::Git {
+                target: GitTarget::Branch { latest_revision: old, .. },
+                ..
+            },
+            Authority::Git {
+                target: GitTarget::Branch { latest_revision: new, .. },
+                ..
+            },
+        ) => old.is_none() || new.is_none() || old != new,
+        _ => false,
+    }
+}
+
 /// Classifies the installed target, including when a network or migration changes channels.
 fn changes_for_target(
     config: &Config,
@@ -333,7 +400,7 @@ fn changes_for(
 ) -> anyhow::Result<Option<Changes>> {
     let mut changes = Changes {
         // Even an equivalent patch must be removed from the installation's recorded metadata.
-        logical_only: !installation.patches.is_empty(),
+        logical_only: installation.custom.is_none() && !installation.patches.is_empty(),
         ..Default::default()
     };
     let cwd = &config.working_directory;
@@ -347,14 +414,20 @@ fn changes_for(
 
         // Plan keys normalize mutable source pins. Removing a patch must still rebuild when
         // its recorded authority no longer matches the synchronized upstream authority.
-        if installation.patches.contains_key(installed.name.as_ref())
+        if installation.custom.is_none()
+            && installation.patches.contains_key(installed.name.as_ref())
             && installed.version != upstream_component.version
         {
             changes.stale.push(installed.name.to_string());
             continue;
         }
 
-        match classify(installed, upstream_component, config.target(), cwd) {
+        let change = if mutable_source_changed(&installed.version, &upstream_component.version) {
+            ChangeClass::InstallationImpacting
+        } else {
+            classify(installed, upstream_component, config.target(), cwd)
+        };
+        match change {
             ChangeClass::None => continue,
             // Neither moves a byte on disk, but both change what local state records.
             ChangeClass::GraphOnly | ChangeClass::RuntimeMetadataOnly => {
@@ -363,7 +436,9 @@ fn changes_for(
             ChangeClass::InstallationImpacting => {
                 // The update drops the toolchain file's patches, so a patched component is always
                 // re-acquired: keeping it would record the patch while dropping it from `patches`.
-                if installation.patches.contains_key(installed.name.as_ref()) {
+                if installation.custom.is_none()
+                    && installation.patches.contains_key(installed.name.as_ref())
+                {
                     changes.stale.push(installed.name.to_string());
                     continue;
                 }
@@ -402,21 +477,33 @@ fn install_for_update(
         ..Default::default()
     };
 
-    match work_for(upstream, state, &install_options, logical_only)? {
+    perform_update(config, upstream, state, &install_options, logical_only, options)
+}
+
+fn perform_update(
+    config: &Config,
+    upstream: &Channel,
+    state: &mut LocalState,
+    install_options: &InstallationOptions,
+    logical_only: bool,
+    options: &UpdateOptions,
+) -> anyhow::Result<()> {
+    let id = installation_id(upstream, install_options);
+    match work_for(upstream, state, install_options, logical_only)? {
         Work::Physical => {
-            display_warnings(upstream, &install_options, options);
-            crate::info!("Updating toolchain {}", upstream.name);
-            commands::install(config, upstream, state, &install_options)
+            display_warnings(upstream, install_options, options);
+            crate::info!("Updating toolchain {id}");
+            commands::install(config, upstream, state, install_options)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
         // file is committed as a single atomic `state.json` write. No journal, no staging, no new
         // publication -- republishing an identical tree to record an alias would be pure cost.
         Work::LogicalOnly => {
             crate::info!("Updating recorded metadata for toolchain {}..", upstream.name);
-            record_logical_changes(config, upstream, state, &install_options)
+            record_logical_changes(config, upstream, state, install_options)
         },
         Work::Nothing => {
-            crate::info!("Toolchain {} is up to date", upstream.name);
+            crate::info!("Toolchain {id} is up to date");
             Ok(())
         },
     }
@@ -431,6 +518,14 @@ enum Work {
     Nothing,
 }
 
+fn installation_id(upstream: &Channel, options: &InstallationOptions) -> InstallationId {
+    options
+        .custom
+        .as_ref()
+        .map(|custom| InstallationId::Custom(custom.name.clone()))
+        .unwrap_or_else(|| InstallationId::Version(upstream.name.clone()))
+}
+
 fn work_for(
     upstream: &Channel,
     state: &LocalState,
@@ -441,7 +536,7 @@ fn work_for(
         return Ok(Work::Physical);
     }
 
-    let Some(installed) = state.get(&upstream.name) else {
+    let Some(installed) = state.get_by_id(&installation_id(upstream, options)) else {
         // Not installed yet -- a carried-over or migrated channel.
         return Ok(Work::Physical);
     };
@@ -454,7 +549,7 @@ fn work_for(
     let resolved_names: std::collections::BTreeSet<&str> =
         resolved.iter().map(|component| component.name.as_ref()).collect();
 
-    if installed_names != resolved_names {
+    if installed.channel != upstream.name || installed_names != resolved_names {
         return Ok(Work::Physical);
     }
     if logical_only || installed.intent != intent {
@@ -465,9 +560,24 @@ fn work_for(
 
 /// Whether the installation needs reconciliation with the unpatched upstream channel.
 pub fn needs_update(config: &Config, installation: &Installation, upstream: &Channel) -> bool {
-    if !installation.patches.is_empty() {
+    if installation.custom.is_none() && !installation.patches.is_empty() {
         return true;
     }
+    let patched;
+    let upstream = if installation.custom.is_some() {
+        if installation.channel != upstream.name {
+            return true;
+        }
+        match crate::toolchain::apply_patches(upstream, &installation.patches) {
+            Ok(channel) => {
+                patched = channel;
+                &patched
+            },
+            Err(_) => return true,
+        }
+    } else {
+        upstream
+    };
 
     match crate::resolve::resolve(upstream, &installation.intent) {
         Ok(resolved) => {
@@ -540,7 +650,7 @@ fn record_logical_changes(
     let intent = commands::install::effective_intent(state, upstream, options);
 
     let installation = state
-        .get_mut(&upstream.name)
+        .get_mut_by_id(&installation_id(upstream, options))
         .with_context(|| format!("channel {} is not installed", upstream.name))?;
     installation.intent = intent;
     installation.patches = options.patches.clone();

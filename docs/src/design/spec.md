@@ -47,13 +47,15 @@ Each term has exactly one meaning throughout this document.
 | Term | Meaning |
 |---|---|
 | **Channel** | A named, versioned set of components (e.g. `0.15.0`). Identified by a semver version. |
+| **Installation ID** | A canonical channel version or a local `custom:<name>`; independent of upstream channel and publication identity. |
+| **Named toolchain** | A complete installation derived from an upstream version or network, with a saved source selector and patches. |
 | **Network** | A moving name for a channel (`mainnet`, `testnet`, `devnet`): the toolchain that network currently runs. Declared upstream, never derived. |
 | **Component** | A named, installable (or purely virtual) unit within a channel. |
 | **Artifact** | A single named file that a component installs, plus the rules for locating it per target. |
 | **Artifact ID** | The exact filename the artifact is installed as. Also its key within a component. |
 | **Profile** | A named grouping of components: `empty`, `minimal`, `complete`. |
 | **Root** | A component explicitly selected for installation, before dependency closure. |
-| **Intent** | The persisted description of what the user wants installed for a channel: profiles plus roots. |
+| **Intent** | The persisted description of what the user wants installed for an installation: profiles plus roots. |
 | **Resolution** | Expanding intent into an ordered, deduplicated component set via dependency closure. |
 | **Installation plan** | A fully resolved, target-specific description of every acquisition and file placement. |
 | **Plan key** | A canonical digest over the material inputs of an installation plan. Diagnostic only. |
@@ -82,18 +84,22 @@ $MIDENUP_HOME/
 │       ├── etc/<component>/
 │       └── opt/
 ├── var/
+│   ├── custom/<name>/                  # named installation data
+│   │   ├── pinned/
+│   │   └── networks/<network>/
 │   └── <selector>/                     # MUTABLE USER DATA - never deleted by install/update
 │                                       # keyed by what the user selected: a network, or a version
 ├── toolchains/
 │   ├── <channel-version>  -> ../publications/<channel>-<publication-id>
 │   ├── <network>          -> <channel-version>       # one per network; derived from upstream
-│   └── default            -> <channel-version> | <network>   # set by `midenup override`
+│   ├── custom/<name>      -> ../../publications/<channel>-<publication-id>
+│   └── default            -> <channel-version> | <network> | custom/<name>
 └── opt -> toolchains/<active-channel>/opt
 ```
 
 ### 3.1 Publication immutability
 
-A publication directory is written once, verified, published, and thereafter never modified. Any change to the installed set produces a **new** publication; the `toolchains/<channel>` symlink is repointed atomically; the old publication becomes unreferenced and is reclaimed by `midenup gc` (§11.6).
+A publication directory is written once, verified, published, and thereafter never modified. Any change to the installed set produces a **new** publication; the installation's symlink is repointed atomically; the old publication becomes unreferenced and is reclaimed by `midenup gc` (§11.6).
 
 :::note
 This previously said the old publication is *removed* as a post-commit cleanup step, but it cannot be removed: another process may be executing a component out of it at that moment - `miden vm ...` in one terminal while the other installs - and removing the directory under a running program is fatal (macOS `SIGKILL`s it; on Linux a script's interpreter fails to open it).
@@ -105,7 +111,7 @@ This was confirmed with a concurrent-activation test on macOS that failed roughl
 
 `var/` holds mutable component-owned state - most importantly the Miden client's local database, referenced from the manifest as `%var(data)`. It is outside the publication because a publication is replaced wholesale on every change and this must survive that.
 
-It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/testnet`, `var/0.15.0` - and not by the channel that selector resolves to. Two consequences, both intended:
+It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/testnet`, `var/0.15.0`, `var/custom/project-dev/pinned`, `var/custom/project-dev/networks/mainnet` - and not by the channel that selector resolves to. Two consequences, both intended:
 
 - **Networks are logically distinct even when they share a toolchain.** Several networks routinely name one channel, so a channel key would pool a user's mainnet accounts and their testnet notes into one database. The selector is the identity the user is working under, and that is what their data belongs to.
 - **A selector does not move when a pointer moves.** `mainnet` advancing to a new channel leaves its store exactly where it was, so nothing is ever carried between keys and no operation has to order a pointer move against a data move.
@@ -114,13 +120,13 @@ It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/t
 - Exactly two operations move it, and this is the whole list. Channel migration (§11.4) **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
 - The other is the one-time conversion of a pre-network home (§12.5), which **renames** `var/<version>` to `var/mainnet`. Such a home kept a single store under the channel it tracked, and that store is the default network's - unless the home records a pin on that version, in which case the version is already the selector and nothing moves.
 - `midenup uninstall <selector>` removes the publication and the state record - or, for a network whose channel other networks on this machine still name, only that network's link (§11.5). It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
-- `%var` resolves to `$MIDENUP_HOME/var/<selector>`, created on demand at dispatch time.
+- `%var` resolves to `$MIDENUP_HOME/var/<selector>`, or `var/custom/<name>/pinned` / `var/custom/<name>/networks/<network>` for a named installation, created on demand at dispatch time. Named data survives source version changes and network promotions. An installed name cannot change network identity; reusing a removed name for another source selects a separate store.
 
 Previously, `var/` lived inside the publication, and every toolchain update would destroy the user's client data (if it was in the toolchain `var` directory).
 
 ### 3.3 `opt/` and the clap display shim
 
-`opt/` contains symlinks named `miden <component>` pointing at `../bin/<installed-executable>`. They exist so that `clap`, which derives program name from `argv[0]`, renders help text as `miden vm ...` rather than `miden-vm ...`. `$MIDENUP_HOME/opt` is a symlink to the active publication's `opt/`, and is prepended to `PATH` for spawned components.
+`opt/` contains symlinks named `miden <component>` pointing at `../bin/<installed-executable>`. They exist so that `clap`, which derives program name from `argv[0]`, renders help text as `miden vm ...` rather than `miden-vm ...`. `$MIDENUP_HOME/opt` is a compatibility symlink to the active installation's `opt/`. Dispatch prepends the selected immutable publication's `opt/` directly to subprocess `PATH`, so another activation cannot change its executable lookup.
 
 ### 3.4 Network links
 
@@ -155,12 +161,18 @@ Describes what this machine has installed. Written only by `midenup`; never publ
 
 ```json
 {
-  "state_version": "1.0.0",
+  "state_version": "2.0.0",
   "installations": [ /* Installation */ ]
 }
 ```
 
 The top-level discriminating key differs (`manifest_version` vs `state_version`), so the two can never be confused, and neither needs a `role` field. Loading one where the other is expected is a hard error naming both the expected and actual document type.
+
+Each installation retains its resolved upstream `channel`. A named record also stores
+`custom = { name, channel }`, where the latter `channel` is the upstream source selector, and its
+patch definitions. Identity lookup, replacement, publication seeding, uninstall and recovery use
+the installation ID rather than the resolved channel. Canonical and named records may therefore
+share an upstream version without sharing files or lifecycle.
 
 ### 4.3 Version compatibility
 
@@ -172,6 +184,10 @@ The top-level discriminating key differs (`manifest_version` vs `state_version`)
 | major < supported | Reject, except for the specific supported migration path (§12) |
 | major equal, minor/patch newer | **Accept.** Unknown fields are preserved (§4.4). |
 | major equal, minor/patch older | Accept. |
+
+State version 1 is read as canonical installation identities; subsequent writes use version 2.
+Version 2 prevents older binaries from interpreting named records as duplicate channel records.
+Legacy canonical patches remain readable and ordinary canonical install/update restores upstream.
 
 The version is read by a two-stage parse: a minimal header struct containing only the version field is deserialized first, the version is checked, and only then is the full document parsed with the matching schema. The version is never supplied by a serde default and never silently overwritten on serialize.
 
@@ -253,7 +269,7 @@ Several networks may name one channel, which is the normal state once a testnet 
 
 Validation (§14.2) requires that every network name a channel in the same document, that no network is named like a channel or after one of the synonyms, and that `mainnet` is declared. There is deliberately **no ordering invariant** between networks: a mainnet hotfix legitimately puts mainnet ahead of testnet, and a validator that has to be overridden during an incident is worse than none.
 
-Local state records channel versions only and never a network name, so a stale local copy cannot disagree with upstream about what `mainnet` means. `toolchains/<network>` (§3.4) is written by the operations that install or update *that network*: a network the user never named gets no link, even when upstream says it runs the same channel.
+Canonical installations are identified by resolved channel version; named installations additionally retain their upstream selector, including its network name. The recorded resolved version describes the installed publication; updates resolve the source selector against upstream again. `toolchains/<network>` (§3.4) is written by the operations that install or update *that network*: a network the user never named gets no link, even when upstream says it runs the same channel.
 
 ---
 
@@ -480,13 +496,13 @@ The v1 implementation applied `0755` to every downloaded file, including package
 
 ## 8. Selection and resolution
 
-### 8.1 Ownership model: one global superset per channel
+### 8.1 Ownership model: one superset per installation
 
-- A channel has **one** installed publication, holding the union of everything requested.
-- A project's `miden-toolchain.toml` declares that project's requirements. Activating it **adds** missing components to the global installation; it **never** removes components merely because a different project asked for less.
+- Each installation ID has **one** installed publication, holding the union of everything requested. Unnamed, unpatched projects share the canonical installation for their channel; named variants are independent.
+- A project's `miden-toolchain.toml` declares that project's requirements. Activating it **adds** missing components to the selected installation; it **never** removes components merely because a different project asked for less.
 - An explicit `midenup install <channel> --profile <p> [--component …]` **replaces** the intent and may remove components outside the newly resolved set.
 
-Two projects on the same channel with disjoint component sets therefore converge on a superset containing both, and neither can break the other. The superset grows monotonically over a channel's lifetime; §11.6 provides the reclamation path.
+Two projects sharing an installation with disjoint component sets therefore converge on a superset containing both, and neither can break the other. The superset grows monotonically over a channel's lifetime; §11.6 provides the reclamation path.
 
 ### 8.2 Intent
 
@@ -572,6 +588,35 @@ guess would be exactly the derivation networks exist to eliminate, and a stale o
 they are on mainnet when they are not. The other markers are unchanged: `(needs reinstallation)` is
 derived from local state alone - a migrated record with no publication - and is always shown, while
 `(update available)` and `(unavailable upstream)` need upstream and are omitted with it.
+
+### 8.7 Named declarations and selection
+
+```toml
+[toolchain]
+name = "project-dev"
+channel = "0.17.0"
+profile = "empty"
+components = ["vm"]
+
+[patches.vm]
+crate_name = "miden-vm"
+features = ["executable"]
+version = { kind = "path", path = "../miden-vm" }
+```
+
+A declaration derives a complete installation from an upstream version or network; custom sources
+cannot chain. Patches require `name`. Names contain lowercase ASCII letters, digits, `_`, `-` and interior dots,
+with no leading dot or hyphen. The explicit `custom:` namespace is separate from upstream network
+names; upstream reserves `custom`, `default` and the `custom:` prefix.
+
+`custom:project-dev` selects an existing installation in CLI arguments, `MIDENUP_TOOLCHAIN`, defaults,
+and the `channel` field of a selecting toolchain file. Selection reuses the saved source and patches;
+it never treats an absent declaration as a request to clear them.
+
+Implicit activation requires the declaration's source and patches to match the recorded definition,
+then adds missing components. Conflicts require explicit `midenup install` from the declaring project.
+An explicit install may replace patches and source versions, but changing network identity, including
+switching between network and pinned sources, requires a new name.
 
 ---
 
@@ -753,6 +798,7 @@ All of the following route through the same resolver and the same executor. The 
 | toolchain-file activation | unions | adds only |
 | `midenup update <ch>` (same version) | unchanged | re-resolve, replace changed |
 | `midenup update <network>` (pointer moved) | carried to the channel it now names | full install into that channel |
+| `midenup update custom:<name>` | preserved, including source and patches | reconcile this variant against its saved source |
 | channel migration (`migrates_from`) | carried to new channel | install new, remove old |
 
 ### 11.1 Change classification
@@ -777,9 +823,14 @@ Update re-resolves the **persisted intent** against the new upstream channel:
 - An installation whose intent is roots-only gains new transitive *dependencies* of those roots, but not unrelated new profile members.
 - An explicit root that no longer exists upstream **blocks** the update and preserves the existing installation. The schema has no component-rename declaration, so guessing is not available.
 
+Named updates resolve the saved source selector and reapply the saved patches before comparison.
+Pinned named sources stay pinned; network sources follow their own upstream pointer without moving
+canonical network links. Path patches obey §11.2. Listing compares against this derived definition,
+so the presence of a named patch alone does not imply an available update.
+
 ### 11.4 Channel migration
 
-When an upstream channel declares `migrates_from: <old>` and `<old>` is installed, the installation is carried to the new channel: intent transfers verbatim, is resolved against the new channel, the new publication is installed, every `toolchains/<network>` link naming the old channel is repointed at the new one, and the old channel is removed after the new state record commits. A root missing in the new channel blocks the migration.
+For canonical installations, when an upstream channel declares `migrates_from: <old>` and `<old>` is installed, the installation is carried to the new channel: intent transfers verbatim, is resolved against the new channel, the new publication is installed, every `toolchains/<network>` link naming the old channel is repointed at the new one, and the old channel is removed after the new state record commits. A root missing in the new channel blocks the migration.
 
 `var/<old-channel>` is **renamed** to `var/<new-channel>` as part of the migration. Both are pinned-version selectors, and migration is the one operation that retires one, so the data would otherwise be stranded under a key nothing can select. A network's store is unaffected.
 
@@ -790,6 +841,10 @@ Uninstall consults the receipt for the exact owned paths, tolerates hidden execu
 A network is one of possibly several names for a channel on this machine. `midenup uninstall <network>` while another `toolchains/<network>` link names the same channel removes only the named network's link, and none of the above: the channel stays installed for the networks that still name it. Uninstalling by version, or uninstalling the last network naming a channel, removes the channel.
 
 When the channel is removed, every `toolchains/<network>` link naming it is removed in the CLEAN step, together with the publication and the tombstone, so recovery removes them too. Nothing happens between PREPARE and COMMIT, so a prepared uninstall is never discarded. The links are found by *scanning* the toolchains directory rather than by asking upstream which networks name this channel, because uninstall must work offline, and a network may have moved upstream since this machine last acted on it - in which case upstream would not name the link that is actually here. `default` is removed only if it has been left dangling: it is the user's `midenup override` choice rather than a derived link, so nothing would recompute it.
+
+`midenup uninstall custom:<name>` removes only that installation's record, link and publication.
+Its `var/custom/<name>` data survives unless `--purge` is given. Recovery follows the same identity;
+a canonical installation sharing its upstream channel is unaffected.
 
 ### 11.6 Reclamation
 
@@ -875,7 +930,7 @@ Migration is one-way. After it commits, `midenup` 0.3.x reading `$MIDENUP_HOME` 
 
 ### 12.5 Migration to the network layout
 
-An installation made before channels were named after networks has a single `toolchains/stable` link where it now needs one link per network (§3.4). Nothing else about it is wrong: **`state_version` stays at 1.0.0**, because local state records channel versions and never a release-train name, so the state document needs no change at all. Only what is derived on disk does.
+An installation made before channels were named after networks has a single `toolchains/stable` link where it now needs one link per network (§3.4). Nothing else about it is wrong: the network-layout conversion itself does not change the state schema, because release-train names were not stored in state. Named installation support separately writes state version 2 (§4.3).
 
 ```
 1. toolchains/stable exists and toolchains/mainnet does not:
@@ -911,7 +966,9 @@ On fetch failure with a cached `channel-manifest.json` present, the cache is use
 ### 13.2 Resolution order
 
 ```
-1. Determine the active channel:  miden-toolchain.toml (searched upward from CWD)
+1. Determine the active selector: explicit +selector
+                                -> MIDENUP_TOOLCHAIN
+                                -> miden-toolchain.toml (searched upward from CWD)
                                 -> toolchains/default
                                 -> mainnet
 2. If not installed -> fetch upstream, resolve, install, then continue.
@@ -967,7 +1024,7 @@ Path arguments contain literal text rather than nested expressions. Inside paren
 
 Serialization escapes literal percent signs and path delimiters and braces substitutions within templates, preserving their meaning when manifests and local state are read back. `%version` requires a registry authority; a component with a `git` or `path` authority that uses it is an error naming the component and the argument in its canonical serialized form. Bracing a standalone expression does not change its meaning or permit `%lib` or `%var` to serve as the program. Legacy v1 verbatim arguments retain their literal meaning during conversion.
 
-`<sysroot>` is the publication reached through `toolchains/<channel>`, resolved once per invocation.
+`<sysroot>` is the immutable publication selected by the installation record, resolved once per invocation. Executables, libraries, sysroot and subprocess `PATH` all use that same publication; mutable compatibility links do not choose runtime files. Named selectors use their source-specific directory under `var/custom/<name>` for `%var` (§3.2).
 
 :::note
 If we resolved `%installed-executable` to `<sysroot>/bin/<installed-executable>`, then this would work against what §3.3 says `opt/` exists for: namely `clap` derives its program name from `argv[0]`, so executing `bin/miden-vm` makes its help read `miden-vm ...` rather than `miden vm ...`. 

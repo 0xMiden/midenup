@@ -65,7 +65,7 @@ impl ShowCommand {
                         },
                     }
                 }
-                println!("{}", toolchain.channel);
+                println!("{}", toolchain.selector());
 
                 Ok(())
             },
@@ -92,6 +92,37 @@ impl ShowCommand {
                     .installations
                     .iter()
                     .map(|installation| {
+                        if let Some(custom) = &installation.custom {
+                            let id = installation.id();
+                            let mut line = format!(
+                                "{id} (from {}, installed {})",
+                                custom.channel, installation.channel
+                            );
+                            if let Some(manifest) = upstream {
+                                match manifest.get_channel(&custom.channel) {
+                                    Some(channel)
+                                        if super::update::needs_update(
+                                            config,
+                                            installation,
+                                            channel,
+                                        ) =>
+                                    {
+                                        push_marker(
+                                            &mut line,
+                                            &format!(
+                                                "(update available -- run `midenup update {id}`)"
+                                            ),
+                                            use_color,
+                                        )
+                                    },
+                                    None => {
+                                        push_marker(&mut line, "(unavailable upstream)", use_color)
+                                    },
+                                    _ => {},
+                                }
+                            }
+                            return line;
+                        }
                         let name = &installation.channel;
                         let mut line = format!("{name}");
 

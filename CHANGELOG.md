@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Named toolchains: `[toolchain] name` installs an independent variant of `channel`, selectable
+  with `custom:<name>`. Named updates retain patches and track network sources independently.
+  Each variant has separate runtime data, partitioned by source network.
+
+### Fixed
+
+- Dispatch uses one immutable publication for executable, libraries, sysroot, and subprocess PATH.
+- Reinstalling changed component definitions or mutable sources no longer reuses stale files.
+- Legacy migration preserves named defaults such as `custom:stable` and their runtime data.
+
+### Migration and breaking changes
+
+- Project patches require a toolchain name. Conflicting definitions for an installed name require
+  an explicit `midenup install` from the declaring project.
+- Local state writes schema version 2, which older midenup binaries cannot read. Existing version 1
+  state remains readable and is upgraded on write without reinstalling its publications.
+- Network names `custom`, `default`, and the `custom:` selector prefix are reserved.
+
 ## [1.1.1]
 
 ### Added

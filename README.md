@@ -218,8 +218,11 @@ toolchain, and it is safe to run at any time.
 
 ### Upgrading from an older `midenup`
 
-The first time a newer `midenup` runs, it converts the record an older one left in
-`$MIDENUP_HOME` into its own format. It carries over which channels you had installed and which
+Local state version 2 supports named installations and reads version 1 records as canonical
+installations. Subsequent writes use version 2, which older binaries reject.
+
+For installations predating `state.json`, the first run converts the older record in
+`$MIDENUP_HOME` into the current format. It carries over which channels you had installed and which
 components you had in each, and nothing else - everything else is re-derived from the published
 manifest, which is authoritative for it. Your toolchains are reinstalled the next time you use
 them, so that `midenup` knows exactly which files it owns; `var/` is untouched throughout.
@@ -237,13 +240,13 @@ midenup show home
 
 ### Configuring the active toolchain
 
-`miden` and `midenup` determine the current active toolchain according to the following rules:
-1. If there's a `miden-toolchain.toml` file in the present working directory,
-   then `miden` will use that to determine the current active toolchain.
-2. If not, `miden` will check if a toolchain has been set as the system's
-   default (more details in the [Configuring the active toolchain](#configuring-the-active-toolchain) section).
+`miden` and `midenup` select the active toolchain in this order:
 
-If none of the previous conditions are met, then `mainnet` will be used.
+1. An explicit `+<toolchain>` selector.
+2. The `MIDENUP_TOOLCHAIN` environment override.
+3. A `miden-toolchain.toml` file, searched for from the working directory upward.
+4. The system default.
+5. `mainnet`.
 
 #### Setting a project specific toolchain
 
@@ -291,18 +294,19 @@ components = ["vm", "midenc", "client"]
 the `minimal` profile is installed, plus `vm`, `midenc` and `client` if they are not already part
 of it.
 
-Activating a project's toolchain only ever *adds* to what is installed for a channel. Two projects
-sharing a channel cannot remove each other's components: if one asks for less, the other's
+Activating an unnamed, unpatched project's toolchain only ever *adds* to what is installed for a
+channel. Two projects sharing a channel cannot remove each other's components: if one asks for less, the other's
 components stay. Use `midenup install <channel> --profile <profile>` to deliberately reduce what is
 installed.
 
 #### Patching components
 
-A `[patches]` table builds individual components from a different source than the channel
-publishes, which is useful for testing an unreleased component against a toolchain:
+Give a project toolchain a `name` to install an independent variant of an upstream channel.
+A name is required when using `[patches]` to build components from another source:
 
 ```toml
 [toolchain]
+name = "project-dev"
 channel = "0.17.0"
 profile = "empty"
 components = ["vm"]
@@ -315,8 +319,19 @@ version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.
 
 `version` takes the same forms as in the channel manifest (`git`, `path` or `registry`). Patched
 executables are built with `cargo install`, and legacy packages are extracted from the patched
-Rust crate. Patches apply to the channel's shared installation, so running `miden` elsewhere
-reverts them, and `midenup update` may undo them, until the next `miden` run in the project.
+Rust crate. Run `midenup install` in the project to install this variant; the shared `0.17.0`
+installation and other named variants remain independent.
+
+Select it elsewhere with `miden +custom:project-dev`, `MIDENUP_TOOLCHAIN=custom:project-dev`, or
+`channel = "custom:project-dev"` in another toolchain file. These selectors reuse its recorded
+source and patches. `midenup update custom:project-dev` preserves that definition; a network source
+tracks its network independently, while a version source stays pinned. Mutable data lives beneath
+`var/custom/project-dev`, separated by source network or pin, and survives uninstall unless
+`--purge` is given.
+
+Projects sharing a name must agree on its source and patches. After changing the definition, run
+`midenup install` from the declaring project to reconcile it explicitly. Changing its network
+identity requires a new name.
 See [Patching components](docs/src/getting-started/usage.md#patching-components) for the full rules.
 
 

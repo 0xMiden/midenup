@@ -91,19 +91,22 @@ impl Fixture {
     fn manifest_with_command(&self, file: &str) -> String {
         let compose = self.dir.join("docker-compose.yml");
         std::fs::write(&compose, "services: {}\n").unwrap();
+        let argv = self.dir.join("argv.sh");
+        std::fs::write(&argv, "printf '%s\\n' \"$@\"\n").unwrap();
 
         let node = serde_json::json!({
             "name": "node",
             "version": {"kind": "registry", "version": "0.1.0"},
             "kind": "command",
             "profiles": ["minimal"],
-            "format": ["docker", "compose", "-f", "%etc(node/docker-compose.yml)"],
+            "format": ["/bin/sh", "%etc(node/argv.sh)", "compose", "-f", "%etc(node/docker-compose.yml)"],
             "subcommands": {
                 "up": ["up", "-d"],
                 "down": ["down"]
             },
             "artifacts": {
-                "docker-compose.yml": {"uri": format!("file://{}", compose.display())}
+                "docker-compose.yml": {"uri": format!("file://{}", compose.display())},
+                "argv.sh": {"uri": format!("file://{}", argv.display())}
             }
         });
 
@@ -542,18 +545,31 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
         .expect("failed to install");
 
     let output = config.capture_output();
-    Midenup::try_parse_from(["miden", "node", "up"])
+    Midenup::try_parse_from(["miden", "node", "up", "service with spaces"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("the declared subcommand must dispatch to the component");
 
     let output = output.borrow();
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(
-        stderr.contains("no service selected"),
-        "the failure must come from docker compose reading the generated command: {stderr}"
+    assert!(output.status.success(), "the argv probe must execute: {stderr}");
+    let compose = env
+        .midenup_home
+        .join("toolchains/0.15.0")
+        .canonicalize()
+        .unwrap()
+        .join("etc/node/docker-compose.yml");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let argv: Vec<_> = stdout.lines().collect();
+    assert_eq!(argv.len(), 6);
+    assert_eq!(
+        [argv[0], argv[1], argv[3], argv[4], argv[5]],
+        ["compose", "-f", "up", "-d", "service with spaces"],
+        "dispatch must prepend the format, expand the subcommand, and preserve trailing arguments"
     );
+    let dispatched_asset = Path::new(argv[2]);
+    assert!(dispatched_asset.starts_with(env.midenup_home.join("publications")));
+    assert_eq!(dispatched_asset.canonicalize().unwrap(), compose);
     drop(output);
 
     // ...and asking for help on it lists the verbs rather than trying to run one.

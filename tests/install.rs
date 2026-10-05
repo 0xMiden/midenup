@@ -651,15 +651,15 @@ fn integration_a_path_source_that_moves_during_the_build_is_refused() {
     );
 }
 
-/// A direct install over a patched installation must re-acquire the component rather than seed the
-/// patched build into the new publication.
+/// A direct install over a legacy patched canonical installation must re-acquire the component
+/// rather than seed the patched build into the new publication.
 #[test]
 fn integration_install_after_a_patch_does_not_keep_the_patched_build() {
     assert_unpatched_by("integration_install_after_patch", &["midenup", "install", "0.15.0"]);
 }
 
-/// An update drops the patches, so it must re-acquire a patched component even when the path-update
-/// policy would otherwise keep it.
+/// An update drops legacy canonical patches, so it must re-acquire a patched component even when
+/// the path-update policy would otherwise keep it.
 #[test]
 fn integration_update_after_a_patch_does_not_keep_the_patched_build() {
     assert_unpatched_by(
@@ -668,8 +668,8 @@ fn integration_update_after_a_patch_does_not_keep_the_patched_build() {
     );
 }
 
-/// Installs `vm` patched from a path through a project, runs `args` outside it, and asserts the
-/// upstream `vm` is what ends up installed and recorded.
+/// Seeds a legacy canonical installation with a path patch, then asserts `args` restores upstream.
+/// New project declarations require a name, but old shared patched installations remain readable.
 fn assert_unpatched_by(test_name: &str, args: &[&str]) {
     let _guard = common::harness::mutating_test_guard();
     let test_env = environment_setup(test_name);
@@ -684,30 +684,38 @@ fn assert_unpatched_by(test_name: &str, args: &[&str]) {
         .join("miden-vm");
     let upstream_vm = std::fs::read(fixture.dir.join("0.15.0").join("miden-vm")).unwrap();
 
-    let project = test_env.tmp_dir.path().join("patched-project");
-    std::fs::create_dir_all(&project).unwrap();
-    std::fs::write(
-        project.join("miden-toolchain.toml"),
-        format!(
-            "[toolchain]\nchannel = \"0.15.0\"\ncomponents = [\"vm\"]\n\n[patches.vm]\ncrate_name \
-             = \"fixture-vm\"\nversion = {{ kind = \"path\", path = \"{}\" }}\n",
-            sources.path_crate.display()
-        ),
-    )
-    .unwrap();
-    let project_config = midenup::config::Config::init(
-        project,
-        test_env.midenup_home.clone(),
-        test_env.cargo_home.clone(),
-        &fixture.manifest_uri,
-        true,
-    )
-    .unwrap();
-
-    Midenup::try_parse_from(["miden", "help", "vm"])
-        .unwrap()
-        .execute_with_state(&project_config, &mut state)
-        .expect("failed to activate the patched toolchain");
+    let manifest = midenup::manifest::Manifest::load_from_file(&fixture.manifest_path).unwrap();
+    let mut patched = manifest.get_channel_by_name(&channel).unwrap().clone();
+    let patched_vm =
+        patched.components.iter_mut().find(|component| component.name == "vm").unwrap();
+    patched_vm.version = version::Authority::Path {
+        path: sources.path_crate.clone(),
+        last_modification: None,
+    };
+    let midenup::manifest::ComponentKind::Executable { installation_method, .. } =
+        &mut patched_vm.kind
+    else {
+        panic!("fixture vm must be executable");
+    };
+    *installation_method = midenup::manifest::InstallationMethod::Cargo {
+        crate_name: "fixture-vm".into(),
+        rustup_channel: None,
+        features: Vec::new(),
+    };
+    patched_vm.artifacts = Default::default();
+    let options = midenup::options::InstallationOptions {
+        components: vec!["vm".into()],
+        patches: serde_json::from_value(serde_json::json!({
+            "vm": {
+                "crate_name": "fixture-vm",
+                "version": { "kind": "path", "path": sources.path_crate },
+            },
+        }))
+        .unwrap(),
+        ..Default::default()
+    };
+    midenup::commands::install(&config, &patched, &mut state, &options)
+        .expect("failed to seed the legacy patched toolchain");
     assert!(std::fs::read(&vm).unwrap() != upstream_vm, "the patch must be installed");
 
     Midenup::try_parse_from(args)

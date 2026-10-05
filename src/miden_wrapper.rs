@@ -5,7 +5,7 @@ use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Channel, UserChannel},
+    channel::Channel,
     exec::{self, Executable, Resolver},
     manifest::{Component, ComponentKind, ExecutableComponent},
     state::LocalState,
@@ -107,7 +107,6 @@ enum MidenArgument<'a> {
 /// Struct containing the command to execute and the channel to execute it against.
 struct ExecutionEnvironment<'a> {
     argument: MidenArgument<'a>,
-    active_channel: &'a Channel,
 }
 
 #[derive(Debug)]
@@ -173,17 +172,14 @@ impl<'a> ToolchainEnvironment<'a> {
         // Try the active view first, then fall back to everything installed under the channel.
         if let Some(active_channel) = self.active_channel.as_ref() {
             match resolve_argument(active_channel, argument, matches) {
-                Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
+                Ok(arg) => return Ok(ExecutionEnvironment { argument: arg }),
                 Err(EnvironmentError::InvalidCommand { .. }) => {},
                 Err(e) => return Err(e),
             }
         }
 
         let miden_argument = resolve_argument(self.installed_channel, argument, matches)?;
-        Ok(ExecutionEnvironment {
-            argument: miden_argument,
-            active_channel: self.installed_channel,
-        })
+        Ok(ExecutionEnvironment { argument: miden_argument })
     }
 
     fn get_executables_display(&self) -> String {
@@ -369,15 +365,22 @@ pub fn miden_wrapper(
     // `toolchains/<network>` records the last answer upstream gave about which channel that
     // network names, so dispatch never needs the network to find its own toolchain (spec section
     // 13.1).
-    let installed_channel = {
-        let active = config
-            .local_channel(&toolchain.channel)
-            .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
-        state
-            .get(&active)
-            .map(|installation| installation.as_channel())
-            .with_context(|| format!("channel '{active}' is not installed"))?
+    let selector = toolchain.selector();
+    let identity = toolchain.installation_id(config).context("active toolchain is unavailable")?;
+    let installation = state
+        .get_by_id(&identity)
+        .with_context(|| format!("toolchain '{identity}' is not installed"))?;
+    let publication = match &installation.publication {
+        crate::state::PublicationRef::Managed { id, .. } => {
+            crate::paths::publication_dir(&config.midenup_home, &installation.channel, id)
+        },
+        crate::state::PublicationRef::NeedsReinstall => {
+            bail!("toolchain '{identity}' needs reinstallation")
+        },
     };
+    let installed_channel = installation.as_channel();
+    let source = installation.custom.as_ref().map(|custom| &custom.channel).unwrap_or(&selector);
+    let var = crate::paths::runtime_var_dir(&config.midenup_home, &selector, source);
     let toolchain_environment = ToolchainEnvironment::new(&installed_channel, partial_channel);
 
     // Whether the user requested help for a specific alias or component (e.g. `miden help
@@ -397,7 +400,7 @@ pub fn miden_wrapper(
     };
 
     // We obtain the target executable and prefixes that are associated with the passed subcommand.
-    let (target_exe, args, active_channel) = match parsed_subcommand {
+    let (target_exe, args) = match parsed_subcommand {
         MidenSubcommand::Version
         | MidenSubcommand::Help(HelpMessage::Default)
         | MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
@@ -413,8 +416,7 @@ pub fn miden_wrapper(
         } => {
             match toolchain_environment.resolve(resolve, subcommand_matches) {
                 Ok(environment) => {
-                    let active_channel = environment.active_channel;
-                    let resolver = resolver_for(config, active_channel, &toolchain.channel);
+                    let resolver = Resolver::with_var(publication.clone(), var.clone());
 
                     // Since we're using "allow_external_subcommands" all the remaining arguments
                     // are stored in the empty string "".
@@ -457,7 +459,7 @@ pub fn miden_wrapper(
 
                     let mut argv = VecDeque::from(argv);
                     let arg0 = argv.pop_front().expect("composition never yields an empty argv");
-                    (arg0, Vec::from(argv), active_channel)
+                    (arg0, Vec::from(argv))
                 },
                 // `miden help <command>` on a component whose verbs live in `subcommands` has
                 // exactly one useful answer, and it is the list. Reporting "requires a subcommand"
@@ -488,10 +490,12 @@ pub fn miden_wrapper(
         },
     };
 
-    let status = config.execute_command(active_channel, &target_exe, &args).with_context(|| {
-        let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-        format!("failed to run '{user_input}'")
-    })?;
+    let status = config
+        .execute_command_in(&publication, &selector, &target_exe, &args)
+        .with_context(|| {
+            let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+            format!("failed to run '{user_input}'")
+        })?;
 
     Ok(exit_code_from_status(status))
 }
@@ -553,9 +557,17 @@ pub fn display_version(config: &Config) -> String {
         .map_or("unknown".to_string(), |(toolchain, _)| {
             // `midenup --version` is informational and must not reach for the network, so an
             // uninstalled channel is reported as such rather than resolved upstream.
-            config
-                .local_channel(&toolchain.channel)
-                .map(|channel| channel.to_string())
+            toolchain
+                .installation_id(config)
+                .and_then(|id| {
+                    config.local_state().ok()?.get_by_id(&id).map(|i| {
+                        if i.custom.is_some() {
+                            format!("{} ({})", i.id(), i.channel)
+                        } else {
+                            i.channel.to_string()
+                        }
+                    })
+                })
                 .unwrap_or_else(|| "not installed".to_string())
         });
 
@@ -641,22 +653,6 @@ fn default_help() -> String {
 
 {asterisk}: These commands will install the currently present toolchain if not installed.
 ",
-    )
-}
-
-/// Where this invocation's `%`-expressions resolve to.
-///
-/// Built once, from the active publication and this selector's `var/`, so that every expression in
-/// every alias of one invocation resolves against the same toolchain.
-///
-/// The two arguments are deliberately not the same thing: files come from the *channel* the
-/// selector resolves to, while `%var` is keyed by the `selector` itself, so that two networks on
-/// one channel keep separate state.
-fn resolver_for(config: &Config, channel: &Channel, selector: &UserChannel) -> Resolver {
-    Resolver::new(
-        crate::paths::toolchain_link(&config.midenup_home, &channel.name),
-        &config.midenup_home,
-        selector,
     )
 }
 

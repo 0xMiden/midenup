@@ -1,7 +1,7 @@
 //! Building a staged installation tree and checking it before it is published.
 
 use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -91,7 +91,8 @@ pub fn prepare(into: &Path) -> Result<(), StageError> {
 /// inherited content from installed content. The receipt is the ownership record, so it is the
 /// only thing consulted here.
 pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(), StageError> {
-    let wanted: HashSet<&Path> = plan.steps.iter().map(|step| step.dest()).collect();
+    let wanted: BTreeMap<&Path, &str> =
+        plan.steps.iter().map(|step| (step.dest(), step.owner())).collect();
 
     for output in &from.receipt.outputs {
         if from.stale.iter().any(|name| name == &output.owner) {
@@ -99,9 +100,9 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
         }
 
         let dest = into.join(&output.path);
-        if !wanted.contains(dest.as_path()) {
-            // Not part of the new installation. Omitting it here is how components removed
-            // upstream stop being installed.
+        if wanted.get(dest.as_path()).copied() != Some(output.owner.as_str()) {
+            // A destination may be reused by a different component. Its previous contents
+            // belong to the old owner, so both the destination and owner must still match.
             continue;
         }
 
@@ -684,6 +685,28 @@ mod tests {
             !staging.join("lib").join("stray.masp").exists(),
             "an unowned file must not be carried forward"
         );
+    }
+
+    #[test]
+    fn reusing_a_destination_for_a_different_component_reacquires_its_contents() {
+        let temp = tempdir::TempDir::new("stage-seed-owner").unwrap();
+        let (previous, mut receipt) = previous_publication(temp.path());
+        receipt.outputs[0].owner = "retired-vm".into();
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &[],
+            },
+        )
+        .unwrap();
+        execute(&plan, &staging, false, true).unwrap();
+        assert_eq!(std::fs::read(staging.join("bin/miden-vm")).unwrap(), b"binary");
+        assert_eq!(std::fs::read(staging.join("lib/core.masp")).unwrap(), b"old-package");
     }
 
     /// A file the previous publication owned but the new plan does not want is simply not seeded,

@@ -145,6 +145,9 @@ pub struct Flags {
 }
 
 /// All the available Midenup Commands
+// Parsed once per process; boxing the installation settings adds indirection without a useful
+// saving.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Bootstrap the `midenup` environment.
@@ -296,9 +299,13 @@ impl Commands {
             Self::Gc { flags: _ } => gc(config, state),
             Self::List { flags: _ } => list(config, state),
             Self::Install { channel, options, flags: _ } => {
-                let manifest = config.upstream_manifest()?;
                 let requested = match channel {
+                    Some(selector @ channel::UserChannel::Custom(_)) => {
+                        Toolchain::install_selected(config, state, selector, options)?;
+                        selector.clone()
+                    },
                     Some(requested_channel) => {
+                        let manifest = config.upstream_manifest()?;
                         let Some(channel) = manifest.get_channel(requested_channel) else {
                             // Report the names declared by the manifest when a name is unknown.
                             match requested_channel {
@@ -306,6 +313,7 @@ impl Commands {
                                     "unknown channel '{name}'; known networks are {}",
                                     manifest.network_names().collect::<Vec<_>>().join(", ")
                                 ),
+                                channel::UserChannel::Custom(_) => unreachable!(),
                                 channel::UserChannel::Version(version) => {
                                     bail!("there is no toolchain {version} in the channel manifest")
                                 },
@@ -321,7 +329,8 @@ impl Commands {
                         let options = options::InstallationOptions {
                             network: match requested_channel {
                                 channel::UserChannel::Named(name) => Some(name.to_string()),
-                                channel::UserChannel::Version(_) => None,
+                                channel::UserChannel::Version(_)
+                                | channel::UserChannel::Custom(_) => None,
                             },
                             ..options.clone()
                         };
@@ -333,7 +342,7 @@ impl Commands {
                         crate::info!("installing the default/active toolchain");
                         let toolchain = Toolchain::install_current(config, state, options)?;
 
-                        toolchain.channel
+                        toolchain.selector()
                     },
                 };
 

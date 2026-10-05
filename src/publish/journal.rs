@@ -28,6 +28,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::{
+    identity::{CustomToolchain, InstallationId},
     paths,
     publish::PublishError,
     state::{Installation, LocalState, PublicationId, PublicationRef},
@@ -70,6 +71,11 @@ pub struct JournalEntry {
     pub id: String,
     pub kind: OperationKind,
     pub channel: semver::Version,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomToolchain>,
+    /// Source channel of the old publication when a named source advances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_channel: Option<semver::Version>,
     /// The publication being replaced, to be removed once the new state record is committed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub old_publication: Option<PublicationId>,
@@ -93,6 +99,8 @@ impl JournalEntry {
             id: utils::opaque_id(),
             kind: OperationKind::Install,
             channel,
+            custom: target_installation.custom.clone(),
+            previous_channel: None,
             old_publication,
             new_publication: Some(new_publication),
             target_installation: Some(target_installation),
@@ -105,10 +113,40 @@ impl JournalEntry {
             id: utils::opaque_id(),
             kind: OperationKind::Uninstall,
             channel,
+            custom: None,
+            previous_channel: None,
             old_publication: publication,
             new_publication: None,
             target_installation: None,
         }
+    }
+
+    pub fn installation_id(&self) -> InstallationId {
+        match &self.custom {
+            Some(custom) => InstallationId::Custom(custom.name.clone()),
+            None => InstallationId::Version(self.channel.clone()),
+        }
+    }
+
+    /// Preserve the old publication's location when an identity changes upstream versions.
+    pub fn with_previous(mut self, previous: &Installation) -> Self {
+        self.previous_channel =
+            (previous.channel != self.channel).then(|| previous.channel.clone());
+        self
+    }
+
+    pub fn old_channel(&self) -> &semver::Version {
+        self.previous_channel.as_ref().unwrap_or(&self.channel)
+    }
+
+    pub fn uninstall_installation(installation: &Installation) -> Self {
+        let publication = match &installation.publication {
+            PublicationRef::Managed { id, .. } => Some(id.clone()),
+            PublicationRef::NeedsReinstall => None,
+        };
+        let mut entry = Self::uninstall(installation.channel.clone(), publication);
+        entry.custom = installation.custom.clone();
+        entry
     }
 }
 
@@ -134,7 +172,7 @@ pub fn prepare(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
     {
         return Err(PublishError::OperationInProgress {
             operation: existing.kind,
-            channel: existing.channel,
+            installation: existing.installation_id(),
         });
     }
 
@@ -152,14 +190,16 @@ pub fn prepare(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
 /// The swap is a `rename` of a temporary symlink onto the channel link, which is atomic: a reader
 /// sees either the old publication or the new one, never a partially built path.
 pub fn commit_symlink(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
-    let link = paths::toolchain_link(home, &entry.channel);
+    let link = paths::installation_link(home, &entry.installation_id());
     let target = match (&entry.kind, &entry.new_publication) {
         (OperationKind::Uninstall, _) | (_, None) => PathBuf::from(TOMBSTONE),
-        (_, Some(id)) => {
-            PathBuf::from("..").join("publications").join(format!("{}-{id}", entry.channel))
-        },
+        (_, Some(id)) => PathBuf::from(if entry.custom.is_some() { "../.." } else { ".." })
+            .join("publications")
+            .join(format!("{}-{id}", entry.channel)),
     };
 
+    std::fs::create_dir_all(link.parent().expect("installation links have a parent"))
+        .map_err(|source| PublishError::Commit { path: link.clone(), source })?;
     crate::trace!("committing {} to {}", link.display(), target.display());
     utils::fs::replace_symlink(&link, &target).map_err(|err| PublishError::Commit {
         path: link,
@@ -183,7 +223,7 @@ pub fn record(
                 state.upsert(installation);
             }
         },
-        OperationKind::Uninstall => state.remove(&entry.channel),
+        OperationKind::Uninstall => state.remove_by_id(&entry.installation_id()),
     }
 
     state
@@ -211,7 +251,7 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
     if let Some(old) = &entry.old_publication
         && matches!(entry.kind, OperationKind::Uninstall)
     {
-        let publication = paths::publication_dir(home, &entry.channel, old);
+        let publication = paths::publication_dir(home, entry.old_channel(), old);
         crate::trace!("removing {}", publication.display());
         let _ = std::fs::remove_dir_all(publication);
     }
@@ -222,18 +262,20 @@ pub fn clean(home: &Path, entry: &JournalEntry) -> Result<(), PublishError> {
         // last looked, in which case upstream would not name the link that is actually here.
         // [`crate::networks::links`] excludes `default`, which is the user's override and not a
         // derived link; the caller repairs it if it dangles.
-        for (network, linked) in crate::networks::links(home) {
-            if linked == entry.channel {
-                let link = paths::network_link(home, &network);
-                crate::trace!("removing {}", link.display());
-                let _ = std::fs::remove_file(&link);
+        if entry.custom.is_none() {
+            for (network, linked) in crate::networks::links(home) {
+                if linked == entry.channel {
+                    let link = paths::network_link(home, &network);
+                    crate::trace!("removing {}", link.display());
+                    let _ = std::fs::remove_file(&link);
+                }
             }
         }
 
         // Keep the commit evidence until network cleanup finishes. Once the tombstone is gone,
         // recovery discards the journal rather than retrying cleanup; no network link may remain
         // to be silently reactivated by a later install of this version.
-        let link = paths::toolchain_link(home, &entry.channel);
+        let link = paths::installation_link(home, &entry.installation_id());
         if is_tombstone(&link) {
             let _ = std::fs::remove_file(&link);
         }
@@ -272,7 +314,7 @@ pub fn recover(home: &Path, state: &mut LocalState) -> Result<Option<OperationKi
         return check_divergence(home, state).map(|_| None);
     };
 
-    let link = paths::toolchain_link(home, &entry.channel);
+    let link = paths::installation_link(home, &entry.installation_id());
     let committed = match entry.kind {
         // The tombstone *is* the commit for an uninstall.
         OperationKind::Uninstall => is_tombstone(&link),
@@ -286,7 +328,7 @@ pub fn recover(home: &Path, state: &mut LocalState) -> Result<Option<OperationKi
         crate::trace!(
             "the interrupted {} of {} was committed; completing it",
             entry.kind,
-            entry.channel
+            entry.installation_id()
         );
         finish(home, &entry, state)?;
         return Ok(Some(entry.kind));
@@ -297,7 +339,7 @@ pub fn recover(home: &Path, state: &mut LocalState) -> Result<Option<OperationKi
     crate::trace!(
         "the interrupted {} of {} never committed; discarding it",
         entry.kind,
-        entry.channel
+        entry.installation_id()
     );
     if let Some(new) = &entry.new_publication {
         let publication = paths::publication_dir(home, &entry.channel, new);
@@ -359,9 +401,9 @@ fn check_divergence(home: &Path, state: &LocalState) -> Result<(), PublishError>
         let dir = paths::publication_dir(home, &installation.channel, id);
         if !dir.is_dir() {
             return Err(PublishError::DivergentState {
-                channel: installation.channel.clone(),
+                installation: installation.id(),
                 detail: format!("its publication '{}' is missing", dir.display()),
-                remediation: format!("midenup install {}", installation.channel),
+                remediation: format!("midenup install {}", installation.id()),
             });
         }
     }
@@ -418,6 +460,7 @@ mod tests {
     fn installation(channel: &semver::Version, id: &PublicationId) -> Installation {
         Installation {
             channel: channel.clone(),
+            custom: None,
             intent: Intent::new(&[Profile::Minimal], &[]),
             components: vec![],
             publication: PublicationRef::Managed {
@@ -438,6 +481,87 @@ mod tests {
     /// Stages a publication for `channel`, as steps 2 and 3 would.
     fn stage_publication(home: &Path, channel: &semver::Version, id: &PublicationId) {
         std::fs::create_dir_all(paths::publication_dir(home, channel, id)).unwrap();
+    }
+
+    #[test]
+    fn named_recovery_and_uninstall_leave_canonical_and_other_names_intact() {
+        let (env, canonical_publication) = Env::with_installed("0.15.0");
+        let channel = v("0.15.0");
+        utils::fs::symlink(&paths::network_link(&env.home, "mainnet"), Path::new("0.15.0"))
+            .unwrap();
+        let mut state = env.state();
+        for name in ["first", "second"] {
+            let publication = PublicationId::generate();
+            let mut named = installation(&channel, &publication);
+            named.custom = Some(CustomToolchain {
+                name: name.parse().unwrap(),
+                channel: "mainnet".parse().unwrap(),
+            });
+            let entry =
+                JournalEntry::install(channel.clone(), None, publication.clone(), named.clone());
+            prepare(&env.home, &entry).unwrap();
+            stage_publication(&env.home, &channel, &publication);
+            commit_symlink(&env.home, &entry).unwrap();
+            // Crash after commit: recovery must record only this named identity.
+            recover(&env.home, &mut state).unwrap();
+            assert_eq!(
+                std::fs::canonicalize(paths::installation_link(&env.home, &named.id())).unwrap(),
+                std::fs::canonicalize(paths::publication_dir(&env.home, &channel, &publication))
+                    .unwrap()
+            );
+        }
+        assert_eq!(state.installations.len(), 3);
+        let first = state
+            .get_by_id(&InstallationId::Custom("first".parse().unwrap()))
+            .unwrap()
+            .clone();
+        let entry = JournalEntry::uninstall_installation(&first);
+        prepare(&env.home, &entry).unwrap();
+        commit_symlink(&env.home, &entry).unwrap();
+        recover(&env.home, &mut state).unwrap();
+        assert_eq!(state.installations.len(), 2);
+        assert!(state.get_by_id(&first.id()).is_none());
+        assert!(state.get_by_id(&InstallationId::Custom("second".parse().unwrap())).is_some());
+        assert!(paths::network_link(&env.home, "mainnet").exists());
+        assert!(paths::toolchain_link(&env.home, &channel).exists());
+        assert!(paths::publication_dir(&env.home, &channel, &canonical_publication).exists());
+    }
+
+    #[test]
+    fn interrupted_named_channel_advance_preserves_both_publications_until_clean() {
+        let (env, _) = Env::with_installed("0.15.0");
+        let mut state = env.state();
+        let old_publication = PublicationId::generate();
+        let mut previous = installation(&v("0.15.0"), &old_publication);
+        previous.custom = Some(CustomToolchain {
+            name: "dev".parse().unwrap(),
+            channel: "mainnet".parse().unwrap(),
+        });
+        stage_publication(&env.home, &previous.channel, &old_publication);
+        state.upsert(previous.clone());
+        let new_publication = PublicationId::generate();
+        let mut next = previous.clone();
+        next.channel = v("0.16.0");
+        next.publication = installation(&next.channel, &new_publication).publication;
+        let entry = JournalEntry::install(
+            next.channel.clone(),
+            Some(old_publication.clone()),
+            new_publication.clone(),
+            next.clone(),
+        )
+        .with_previous(&previous);
+        prepare(&env.home, &entry).unwrap();
+        stage_publication(&env.home, &next.channel, &new_publication);
+        commit_symlink(&env.home, &entry).unwrap();
+        record(&env.home, &entry, &mut state).unwrap();
+        assert!(crate::publish::unreferenced(&env.home, &state).unwrap().is_empty());
+        recover(&env.home, &mut state).unwrap();
+        assert_eq!(state.get_by_id(&next.id()).unwrap().channel, v("0.16.0"));
+        assert!(state.get(&v("0.15.0")).is_some());
+        assert_eq!(
+            crate::publish::unreferenced(&env.home, &state).unwrap(),
+            vec![paths::publication_dir(&env.home, &previous.channel, &old_publication)]
+        );
     }
 
     #[test]

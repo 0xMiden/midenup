@@ -25,6 +25,9 @@ pub const DEFAULT_USER_DATA_DIR: &str = "XDG_DATA_HOME";
 /// Optional installation settings.
 #[derive(Default, Debug, Parser, Clone)]
 pub struct InstallationOptions {
+    /// The identity and source of a named installation.
+    #[arg(skip)]
+    pub custom: Option<crate::identity::CustomToolchain>,
     /// The profile to install (default: minimal; the project's profile if CHANNEL is omitted)
     #[arg(long, short)]
     pub profile: Option<Profile>,
@@ -92,6 +95,7 @@ impl From<InstallationOptions> for UpdateOptions {
 impl From<UpdateOptions> for InstallationOptions {
     fn from(_value: UpdateOptions) -> Self {
         InstallationOptions {
+            custom: None,
             profile: None,
             components: Vec::new(),
             stale: Vec::new(),

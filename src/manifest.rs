@@ -286,6 +286,7 @@ impl Manifest {
     /// Attempts to fetch the [Channel] corresponding to the given [UserChannel]
     pub fn get_channel(&self, channel: &UserChannel) -> Option<&Channel> {
         match channel {
+            UserChannel::Custom(_) => None,
             UserChannel::Version(version) => self.get_channel_by_name(version),
             UserChannel::Named(name) => self.resolve_network(name),
         }
@@ -293,6 +294,7 @@ impl Manifest {
 
     pub fn get_channel_mut(&mut self, channel: &UserChannel) -> Option<&mut Channel> {
         match channel {
+            UserChannel::Custom(_) => None,
             UserChannel::Version(version) => self.get_channel_by_name_mut(version),
             UserChannel::Named(name) => {
                 let version = self.networks.get(name.as_ref())?.clone();
