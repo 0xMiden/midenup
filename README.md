@@ -353,7 +353,7 @@ component from the newly selected toolchain.
 
 ## Development
 
-Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `channel-manifest.json`, and is published to Github Pages here: https://0xmiden.github.io/midenup/channel-manifest.json .
+Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `manifest/v3/manifest.json`, and is published to Github Pages here: https://0xmiden.github.io/midenup/v3/manifest.json .
 
 Locally, you can override the channel manifest URI, for testing or development purposes, by setting the `MIDENUP_MANIFEST_URI` environment variable. The URI must begin with either `file://` or `https://` at this time, but we could in theory support other URIs in the future if found useful.
 

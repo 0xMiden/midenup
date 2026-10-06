@@ -297,6 +297,7 @@ fn integration_networks_dispatch_gives_each_network_its_own_var() {
 
     let manifest = serde_json::json!({
         "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
         "date": 1735689600,
         "networks": {"mainnet": "0.15.0", "testnet": "0.15.0"},
         "channels": [{

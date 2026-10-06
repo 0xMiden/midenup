@@ -11,6 +11,12 @@ pub use self::v3::*;
 use self::version::Compatibility;
 use crate::channel::UserChannel;
 
+const CURRENT_CLIENT_VERSION: &str = env!(
+    "CARGO_PKG_VERSION",
+    "CARGO_PKG_VERSION environment variable not set. This should be set by cargo by default; \
+     however, if not, it can be manually set using the `version` field in the Cargo.toml file"
+);
+
 pub type Alias = String;
 
 #[derive(Error, Debug)]
@@ -31,6 +37,13 @@ pub enum ManifestError {
     Unsupported(String),
     #[error("unsupported/unknown channel manifest version `{0}`, expected {MANIFEST_VERSION}")]
     UnsupportedVersion(semver::Version),
+    #[error(
+        "channel manifest requires a minimum client version of `{0}`, yours is \
+         `{CURRENT_CLIENT_VERSION}`"
+    )]
+    UnsupportedClientVersion(semver::Version),
+    #[error("failed to parse embedded client version: {0}")]
+    InvalidClientVersion(semver::Error),
     #[error("channel manifest v{0} requires a newer version of midenup")]
     OutdatedMidenup(semver::Version),
     #[error(
@@ -66,9 +79,8 @@ pub enum ManifestError {
 pub struct VersionedManifest;
 
 impl VersionedManifest {
-    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/channel-manifest.json";
-    pub const PUBLISHED_MANIFEST_URI: &str =
-        "https://0xmiden.github.io/midenup/channel-manifest.json";
+    pub const LOCAL_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/v3/manifest.json";
+    pub const PUBLISHED_MANIFEST_URI: &str = "https://0xmiden.github.io/midenup/v3/manifest.json";
 
     /// Parses a channel manifest from `content`, and returns it in canonical form.
     pub fn parse_str(content: &str) -> Result<Manifest, ManifestError> {
@@ -336,8 +348,64 @@ mod tests {
     /// A newer *minor* is additive by construction, so it must remain readable.
     #[test]
     fn a_newer_minor_version_is_accepted() {
-        VersionedManifest::parse_str(r#"{"manifest_version":"3.9.3","date":1,"channels":[]}"#)
-            .expect("a newer minor must be readable");
+        VersionedManifest::parse_str(
+            r#"{"manifest_version":"3.9.3","min_client_version":"1.0.0","date":1,"channels":[]}"#,
+        )
+        .expect("a newer minor must be readable");
+    }
+
+    #[test]
+    fn a_minimum_client_version_is_required() {
+        for minimum in [None, Some(serde_json::json!(1)), Some(serde_json::json!("invalid"))] {
+            let mut src = serde_json::json!({
+                "manifest_version": "3.0.0",
+                "date": 1,
+                "channels": [],
+            });
+            if let Some(minimum) = minimum {
+                src["min_client_version"] = minimum;
+            }
+            let err = VersionedManifest::parse_str(&src.to_string())
+                .expect_err("a missing or malformed minimum must be rejected");
+            assert!(matches!(err, super::ManifestError::Invalid(_)), "{err}");
+        }
+    }
+
+    #[test]
+    fn compatible_minimum_client_versions_are_accepted() {
+        let current = super::CURRENT_CLIENT_VERSION;
+        for minimum in ["1.0.0".to_string(), current.to_string(), format!("{current}+build.1")] {
+            let src = serde_json::json!({
+                "manifest_version": "3.0.0",
+                "min_client_version": minimum,
+                "date": 1,
+                "channels": [],
+            });
+            VersionedManifest::parse_str(&src.to_string())
+                .expect("an older or equal minimum, including build metadata, must be readable");
+        }
+    }
+
+    #[test]
+    fn a_newer_minimum_client_version_requires_a_newer_midenup() {
+        let mut minimum: semver::Version = super::CURRENT_CLIENT_VERSION.parse().unwrap();
+        minimum.major += 1;
+        minimum.minor = 0;
+        minimum.patch = 0;
+        minimum.pre = semver::Prerelease::EMPTY;
+        minimum.build = semver::BuildMetadata::EMPTY;
+        let src = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "min_client_version": minimum,
+            "date": 1,
+            "channels": [],
+        });
+        let err = VersionedManifest::parse_str(&src.to_string())
+            .expect_err("a newer minimum must be rejected");
+        assert!(
+            matches!(&err, super::ManifestError::UnsupportedClientVersion(v) if v == &minimum),
+            "expected UnsupportedClientVersion, got: {err}"
+        );
     }
 
     /// v2 is not readable, and that is the point: it has no networks map, so a v2 document and a v3
@@ -368,6 +436,7 @@ mod tests {
     fn two_networks_may_name_one_channel() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": { "mainnet": "0.15.0", "testnet": "0.15.0", "devnet": "0.16.0" },
             "channels": [
@@ -399,6 +468,7 @@ mod tests {
     fn a_dangling_network_resolves_to_nothing() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": { "mainnet": "9.9.9" },
             "channels": [{ "name": "0.15.0", "components": [] }]
@@ -453,7 +523,7 @@ mod tests {
     /// Validates that the current channel manifest is parseable.
     #[test]
     fn validate_current_channel_manifest() {
-        let manifest = VersionedManifest::load_from("file://manifest/channel-manifest.json")
+        let manifest = VersionedManifest::load_from("file://manifest/v3/manifest.json")
             .expect("Couldn't load manifest");
 
         let _stable = manifest

@@ -688,6 +688,7 @@ mod tests {
     fn an_empty_network_name_is_rejected() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"": "0.15.0", "mainnet": "0.15.0"},
             "channels": [{"name": "0.15.0", "components": []}]
@@ -706,6 +707,7 @@ mod tests {
         for name in ["../../../.zshrc", "..", "sub/net", "custom", "default", "custom:dev"] {
             let src = serde_json::json!({
                 "manifest_version": "3.0.0",
+                "min_client_version": "1.0.0",
                 "date": 1735689600,
                 "networks": {name: "0.15.0", "mainnet": "0.15.0"},
                 "channels": [{"name": "0.15.0", "components": []}]
@@ -1244,6 +1246,7 @@ mod tests {
     fn parsing_does_not_validate() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.13.3", "components": [{
                 "name": "midenc",

@@ -6,6 +6,7 @@ use serde::Deserialize;
 
 pub use self::{channel::*, component::*};
 use super::ManifestError;
+use crate::manifest::CURRENT_CLIENT_VERSION;
 
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(1, 0, 1);
 
@@ -64,6 +65,9 @@ impl TryFrom<Manifest> for crate::manifest::v3::Manifest {
             // The output of this conversion is a v3 manifest, so it declares the v3 version: what
             // is stamped here is the schema of the document produced, not the one it came from.
             manifest_version: v3::MANIFEST_VERSION,
+            min_client_version: CURRENT_CLIENT_VERSION
+                .parse()
+                .map_err(ManifestError::InvalidClientVersion)?,
             date: value.date,
             networks: Default::default(),
             channels,

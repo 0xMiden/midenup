@@ -17,7 +17,7 @@ Most users will want the toolchain that is deployed to a particular network, and
 midenup install mainnet
 ```
 
-This command will install the toolchain mainnet currently runs, using the [official midenup channel](https://0xmiden.github.io/midenup/channel-manifest.json). Which toolchain that is comes from the manifest, so when a network is promoted to a newer toolchain, `midenup update mainnet` follows it.
+This command will install the toolchain mainnet currently runs, using the [official midenup channel](https://0xmiden.github.io/midenup/v3/manifest.json). Which toolchain that is comes from the manifest, so when a network is promoted to a newer toolchain, `midenup update mainnet` follows it.
 
 Omit the channel to install the active toolchain selected by `MIDENUP_TOOLCHAIN`, the project's
 `miden-toolchain.toml`, the system default, or finally `mainnet`. When a project file selects the
@@ -81,7 +81,7 @@ Available components:
 
 This displays the following information:
 
-- A list of available aliases: These are a shortform versions of commonly used miden commands. The following [table](https://0xmiden.github.io/midenup/channel-manifest.json) showcases said mappings.
+- A list of available aliases: These are a shortform versions of commonly used miden commands. The following [table](https://0xmiden.github.io/midenup/v3/manifest.json) showcases said mappings.
 - A list of available components: Each of these represents a different miden executable. If the component requires initialization, like it is the case with the client, the corresponding initialization command will be displayed.
 
 ## Activating a toolchain

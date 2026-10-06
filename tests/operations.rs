@@ -161,6 +161,7 @@ impl Fixture {
     fn manifest_migrated(&self, file: &str, components: &[Spec<'_>]) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.16.0"},
             "channels": [{
@@ -183,6 +184,7 @@ impl Fixture {
         let components: Vec<_> = components.iter().map(|spec| self.component(*spec)).collect();
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.15.0"},
             "channels": [
@@ -199,6 +201,7 @@ impl Fixture {
     fn write(&self, file: &str, components: Vec<serde_json::Value>) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.15.0"},
             "channels": [{

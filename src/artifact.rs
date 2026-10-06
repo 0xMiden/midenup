@@ -814,6 +814,7 @@ mod digest_tests {
     fn digest_round_trips_through_a_manifest() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "core",
@@ -840,6 +841,7 @@ mod digest_tests {
     fn a_malformed_digest_fails_the_parse() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "core",
