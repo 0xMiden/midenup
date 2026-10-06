@@ -18,7 +18,7 @@ use crate::{
 // Source: https://doc.rust-lang.org/reference/keywords.html#r-lex.keywords.reserved
 pub fn r#override(
     config: &Config,
-    _state: &LocalState,
+    state: &LocalState,
     channel: &UserChannel,
 ) -> anyhow::Result<()> {
     commands::setup_midenup(config)?;
@@ -29,6 +29,13 @@ pub fn r#override(
 
     let toolchains_dir = config.midenup_home.join("toolchains");
     let channel_dir = match channel {
+        UserChannel::Custom(name) => {
+            let id = crate::identity::InstallationId::Custom(name.clone());
+            if state.get_by_id(&id).is_none() {
+                bail!("{channel} is not installed; install it from its declaring project");
+            }
+            crate::paths::installation_link(&config.midenup_home, &id)
+        },
         // A network name is indirected through its own symlink rather than resolved to a toolchain
         // directory, so that `default` keeps following the network as it moves.
         UserChannel::Named(name) => {

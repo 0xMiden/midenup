@@ -13,6 +13,7 @@ use crate::{
     channel::{Channel, UserChannel},
     commands,
     config::Config,
+    identity::{CustomToolchain, InstallationId, ToolchainName},
     manifest::{ComponentKind, InstallationMethod, PackageInstallationMethod},
     options::{InstallationOptions, IntentUpdate},
     profile::Profile,
@@ -59,7 +60,10 @@ pub struct Patch {
 /// The actual contents of the toolchain.
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct Toolchain {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<ToolchainName>,
     pub channel: UserChannel,
+    #[serde(default)]
     pub components: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<Profile>,
@@ -132,7 +136,10 @@ pub(crate) fn changed_patches(
 }
 
 /// Returns `channel` with each patched component switched to a cargo build of its patch.
-fn apply_patches(channel: &Channel, patches: &BTreeMap<String, Patch>) -> anyhow::Result<Channel> {
+pub(crate) fn apply_patches(
+    channel: &Channel,
+    patches: &BTreeMap<String, Patch>,
+) -> anyhow::Result<Channel> {
     let mut patched = channel.clone();
     for (name, patch) in patches {
         let Some(component) = patched.components.iter_mut().find(|c| c.name == name.as_str())
@@ -188,14 +195,95 @@ fn apply_patches(channel: &Channel, patches: &BTreeMap<String, Patch>) -> anyhow
     Ok(patched)
 }
 
+/// Both activation and explicit install enforce the same runtime-data boundary.
+fn ensure_network_identity(
+    name: &ToolchainName,
+    installed: &UserChannel,
+    requested: &UserChannel,
+) -> anyhow::Result<()> {
+    let network = |channel: &UserChannel| match channel {
+        UserChannel::Named(name) => Some(name.clone()),
+        _ => None,
+    };
+    if network(installed) != network(requested) {
+        bail!(
+            "cannot change the network identity of custom toolchain '{name}'; choose a new name \
+             to keep runtime data separate"
+        );
+    }
+    Ok(())
+}
+
 impl Toolchain {
     pub fn new(channel: UserChannel, profile: Option<Profile>, components: Vec<String>) -> Self {
         Toolchain {
+            name: None,
             channel,
             components,
             profile,
             patches: BTreeMap::new(),
         }
+    }
+
+    /// The selector names a local installation; the channel describes its source.
+    pub fn selector(&self) -> UserChannel {
+        self.name
+            .clone()
+            .map(UserChannel::Custom)
+            .unwrap_or_else(|| self.channel.clone())
+    }
+
+    pub fn installation_id(&self, config: &Config) -> Option<InstallationId> {
+        config.local_installation_id(&self.selector())
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        if matches!(self.channel, UserChannel::Custom(_)) {
+            if self.name.is_some()
+                || !self.patches.is_empty()
+                || self.profile.is_some()
+                || !self.components.is_empty()
+            {
+                bail!(
+                    "a custom: selector selects an existing installation; use an upstream channel \
+                     and 'name' to declare a variant"
+                );
+            }
+        } else if !self.patches.is_empty() && self.name.is_none() {
+            bail!(
+                "toolchain patches require [toolchain] name; add a unique name to isolate this \
+                 project's installation"
+            );
+        }
+        Ok(())
+    }
+
+    /// Explicit selection of a named installation retains its stored recipe.
+    pub(crate) fn install_selected(
+        config: &Config,
+        state: &mut LocalState,
+        selector: &UserChannel,
+        options: &InstallationOptions,
+    ) -> anyhow::Result<()> {
+        let id = config.local_installation_id(selector).context("toolchain is not installed")?;
+        let installed = state.get_by_id(&id).cloned().with_context(|| {
+            format!("{selector} is not installed; install it from its declaring project")
+        })?;
+        let custom = installed.custom.as_ref().context("expected a custom toolchain")?;
+        let definition = Toolchain {
+            name: Some(custom.name.clone()),
+            channel: custom.channel.clone(),
+            profile: options.profile,
+            components: options.components.clone(),
+            patches: installed.patches.clone(),
+        };
+        let intent = if options.profile.is_some() || !options.components.is_empty() {
+            IntentUpdate::Replace(definition.intent())
+        } else {
+            IntentUpdate::Preserve
+        };
+        definition.install(config, state, &ToolchainJustification::Requested, intent)?;
+        Ok(())
     }
 
     /// Returns the current active Toolchain according to the following precedence:
@@ -220,6 +308,7 @@ impl Toolchain {
                 .parse::<UserChannel>()
                 .with_context(|| format!("invalid channel name '{channel_name}'"))?;
             let toolchain = Toolchain {
+                name: None,
                 channel,
                 components: vec![],
                 profile: None,
@@ -242,7 +331,8 @@ impl Toolchain {
             let project_dir = local_toolchain.parent().expect("a file has a parent directory");
             for patch in current_toolchain.patches.values_mut() {
                 if let Authority::Path { path, .. } = &mut patch.version {
-                    *path = project_dir.join(&*path);
+                    let absolute = project_dir.join(&*path);
+                    *path = absolute.canonicalize().unwrap_or(absolute);
                 }
             }
 
@@ -258,9 +348,18 @@ impl Toolchain {
 
             // NOTE: This has to be a UserChannel because the default channel could be a channel
             // like "stable"
-            let user_channel = UserChannel::from_str(channel_name)?;
+            let user_channel = if channel_path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|parent| parent == "custom")
+            {
+                UserChannel::Custom(channel_name.parse()?)
+            } else {
+                UserChannel::from_str(channel_name)?
+            };
 
             let toolchain = Toolchain {
+                name: None,
                 channel: user_channel,
                 components: vec![],
                 profile: None,
@@ -320,12 +419,52 @@ impl Toolchain {
     }
 
     /// Resolves and validates the active view entirely from the installed snapshot.
-    fn installed_view(
+    pub(crate) fn installed_view(
         &self,
         config: &Config,
         state: &LocalState,
     ) -> anyhow::Result<Option<Channel>> {
-        let view = active_view(config, state, &self.channel, &self.intent(), &self.patches);
+        self.validate()?;
+        if let UserChannel::Custom(name) = &self.channel {
+            let installation =
+                state.get_by_id(&InstallationId::Custom(name.clone())).with_context(|| {
+                    format!(
+                        "custom toolchain '{name}' is not installed; install it from its \
+                         declaring project"
+                    )
+                })?;
+            return Ok(installation.is_managed().then(|| installation.as_channel()));
+        }
+        let view = if let Some(name) = &self.name {
+            match state.get_by_id(&InstallationId::Custom(name.clone())) {
+                Some(installed) => {
+                    let custom =
+                        installed.custom.as_ref().expect("custom identity has a definition");
+                    ensure_network_identity(name, &custom.channel, &self.channel)?;
+                    if custom.channel != self.channel || installed.patches != self.patches {
+                        bail!(
+                            "custom toolchain '{name}' has a different channel or patches; choose \
+                             another name, or run `midenup install` in this project to replace \
+                             its definition"
+                        );
+                    }
+                    if installed.is_managed() {
+                        let channel = installed.as_channel();
+                        crate::resolve::resolve(&channel, &self.intent()).ok().map(|resolved| {
+                            Channel::new(
+                                channel.name.clone(),
+                                resolved.into_iter().cloned().collect(),
+                            )
+                        })
+                    } else {
+                        None
+                    }
+                },
+                None => None,
+            }
+        } else {
+            active_view(config, state, &self.channel, &self.intent(), &self.patches)
+        };
         if let Some(view) = &view {
             ensure_patches_requested(
                 &self.patches,
@@ -359,6 +498,11 @@ impl Toolchain {
         options: &InstallationOptions,
     ) -> anyhow::Result<Self> {
         let (mut toolchain, justification) = Self::current(config, None)?;
+        toolchain.validate()?;
+        if matches!(toolchain.channel, UserChannel::Custom(_)) {
+            Self::install_selected(config, state, &toolchain.channel, options)?;
+            return Ok(toolchain);
+        }
         toolchain.profile = options.profile.or(toolchain.profile);
         toolchain.components.extend(options.components.iter().cloned());
         toolchain.install(
@@ -379,8 +523,27 @@ impl Toolchain {
         justification: &ToolchainJustification,
         intent_update: IntentUpdate,
     ) -> anyhow::Result<Channel> {
+        self.validate()?;
         let desired_channel = &self.channel;
-        let intent = self.intent();
+        let custom = self
+            .name
+            .clone()
+            .map(|name| CustomToolchain { name, channel: self.channel.clone() });
+        if let Some(custom) = &custom
+            && let Some(installed) = state.get_by_id(&InstallationId::Custom(custom.name.clone()))
+        {
+            let old = &installed.custom.as_ref().expect("named installation").channel;
+            ensure_network_identity(&custom.name, old, &self.channel)?;
+        }
+        let intent = if matches!(intent_update, IntentUpdate::Preserve) {
+            custom
+                .as_ref()
+                .and_then(|custom| state.get_by_id(&InstallationId::Custom(custom.name.clone())))
+                .map(|installed| installed.intent.clone())
+                .unwrap_or_else(|| self.intent())
+        } else {
+            self.intent()
+        };
         // Install against the full upstream channel, with the active project's patches applied.
         let manifest = config.upstream_manifest()?;
         let Some(upstream) = manifest.get_channel(desired_channel) else {
@@ -401,7 +564,9 @@ impl Toolchain {
             );
         };
 
-        let channel = &apply_patches(upstream, &self.patches)?;
+        let mut patched = apply_patches(upstream, &self.patches)?;
+        patched.sync(config);
+        let channel = &patched;
 
         let resolved =
             crate::resolve::resolve(channel, &intent).with_context(|| match &justification {
@@ -425,9 +590,21 @@ impl Toolchain {
         let target = match desired_channel {
             UserChannel::Version(_) => channel.name.to_string(),
             UserChannel::Named(network) => format!("{network} ({})", channel.name),
+            UserChannel::Custom(_) => {
+                unreachable!("custom selections install their recorded definition")
+            },
         };
 
-        match state.get(&channel.name).filter(|installation| installation.is_managed()) {
+        let id = custom
+            .as_ref()
+            .map(|c| InstallationId::Custom(c.name.clone()))
+            .unwrap_or_else(|| InstallationId::Version(channel.name.clone()));
+        let target = if self.name.is_some() {
+            format!("{id} from {target}")
+        } else {
+            target
+        };
+        match state.get_by_id(&id).filter(|installation| installation.is_managed()) {
             Some(installed) if installed.patches != self.patches => {
                 crate::info!("reinstalling the current toolchain {target} to apply its patches");
             },
@@ -452,12 +629,13 @@ impl Toolchain {
         }
 
         let options = InstallationOptions {
+            custom: custom.clone(),
             intent_update: Some(intent_update),
             // The project named this network, so it is installed here: without the link, the next
             // dispatch would not find it and install again.
             network: match desired_channel {
-                UserChannel::Named(name) => Some(name.to_string()),
-                UserChannel::Version(_) => None,
+                UserChannel::Named(name) if custom.is_none() => Some(name.to_string()),
+                _ => None,
             },
             patches: self.patches.clone(),
             ..Default::default()

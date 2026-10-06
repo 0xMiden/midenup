@@ -49,6 +49,25 @@ pub fn canonical_network(name: &str) -> &str {
         .unwrap_or(name)
 }
 
+/// Names stored as network links must stay disjoint from local installation namespaces.
+/// Shared by input parsing, manifest authoring, and installation before any filesystem mutation.
+pub fn validate_network_name(name: &str) -> anyhow::Result<()> {
+    crate::plan::validate_artifact_id(name)?;
+    if name.eq_ignore_ascii_case("custom")
+        || name.eq_ignore_ascii_case("default")
+        || name.starts_with("custom:")
+    {
+        anyhow::bail!("'{name}' is reserved for local toolchain selection");
+    }
+    if semver::Version::parse(name).is_ok() {
+        anyhow::bail!("a network cannot be named like a channel version");
+    }
+    if canonical_network(name) != name {
+        anyhow::bail!("'{name}' is an alias for '{}'", canonical_network(name));
+    }
+    Ok(())
+}
+
 /// User-facing channel reference: either a specific toolchain, or a name that moves.
 ///
 /// A name is resolved against the manifest's `networks` map, so which names exist is data rather
@@ -58,8 +77,10 @@ pub fn canonical_network(name: &str) -> &str {
 /// A selector is also the key `var/` is stored under, so its `Display` form is joined onto a path.
 /// A `Version` is safe by semver's own grammar, which admits no path separator; a `Named` is safe
 /// because [`FromStr`](core::str::FromStr) rejects any name that is not a single path segment.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserChannel {
+    /// An installed variant in the explicit local namespace.
+    Custom(crate::identity::ToolchainName),
     Version(semver::Version),
     Named(Cow<'static, str>),
 }
@@ -75,6 +96,7 @@ impl fmt::Display for UserChannel {
         match self {
             Self::Version(version) => write!(f, "{version}"),
             Self::Named(name) => f.write_str(name),
+            Self::Custom(name) => write!(f, "custom:{name}"),
         }
     }
 }
@@ -107,6 +129,9 @@ impl core::str::FromStr for UserChannel {
     type Err = anyhow::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Some(name) = s.strip_prefix("custom:") {
+            return Ok(Self::Custom(name.parse()?));
+        }
         if s.is_empty() {
             anyhow::bail!("a channel must be named: either a version like '0.15.0', or a network");
         }
@@ -119,8 +144,7 @@ impl core::str::FromStr for UserChannel {
         // gate the manifest's network names pass through applies here -- there is then no way to
         // hold a `Named` selector that is not a safe segment.
         let name = canonical_network(s);
-        crate::plan::validate_artifact_id(name)
-            .with_context(|| format!("'{name}' cannot name a channel"))?;
+        validate_network_name(name).with_context(|| format!("'{name}' cannot name a channel"))?;
 
         Ok(Self::Named(Cow::Owned(name.to_string())))
     }
@@ -183,6 +207,15 @@ mod tests {
     #[test]
     fn a_toolchain_file_cannot_name_a_traversal() {
         assert!(serde_json::from_str::<UserChannel>(r#""../../evil""#).is_err());
+    }
+
+    #[test]
+    fn local_namespaces_cannot_be_selected_as_networks() {
+        for name in ["custom", "Custom", "default", "DEFAULT"] {
+            assert!(name.parse::<UserChannel>().is_err(), "accepted {name}");
+        }
+        assert!(matches!("custom:dev".parse::<UserChannel>().unwrap(), UserChannel::Custom(_)));
+        assert_eq!("custom:dev".parse::<UserChannel>().unwrap().to_string(), "custom:dev");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     ffi::{OsStr, OsString},
-    path::PathBuf,
+    path::{Path, PathBuf},
     rc::Rc,
 };
 
@@ -207,12 +207,12 @@ impl Config {
         // Directory which point to the directory where symlinks are stored
         let opt_dir = self.midenup_home.join("opt");
 
-        let Some(active_channel) = self.local_channel(&toolchain.channel) else {
+        let Some(active_id) = toolchain.installation_id(self) else {
             // Nothing installed for it, so there is nothing to point at. Not an error: `midenup
             // install` runs this on the way to installing exactly that.
             return Ok(());
         };
-        let toolchain_dir = crate::paths::toolchain_link(&self.midenup_home, &active_channel);
+        let toolchain_dir = crate::paths::installation_link(&self.midenup_home, &active_id);
 
         // If the currently active channel doesn't exist, then there's nothing to update regarding
         // the opt/ symlink.
@@ -226,11 +226,7 @@ impl Config {
         }
 
         let update = if let Ok(pointing) = std::fs::read_link(&opt_dir) {
-            // If it does exist, update it if it's pointing to a non-active toolchain.
-            pointing
-                .file_name()
-                .and_then(|toolchain_name| toolchain_name.to_str())
-                .is_some_and(|toolchain_name| toolchain_name != active_channel.to_string())
+            pointing != toolchain_dir.join("opt")
         } else {
             // If the symlink doesn't exist, update it by creating it.
             true
@@ -261,6 +257,7 @@ impl Config {
         use crate::channel::UserChannel;
 
         match channel {
+            UserChannel::Custom(_) => None,
             UserChannel::Version(version) => Some(version.clone()),
             // The `toolchains/<network>` symlink records the last answer upstream gave that this
             // machine acted on. There is deliberately no fallback: "the highest installed version"
@@ -279,6 +276,19 @@ impl Config {
         }
     }
 
+    /// Resolves local identity without consulting upstream. Custom names never resolve through
+    /// a network link or collapse to the version they were built from.
+    pub fn local_installation_id(
+        &self,
+        selector: &crate::channel::UserChannel,
+    ) -> Option<crate::identity::InstallationId> {
+        use crate::{channel::UserChannel, identity::InstallationId};
+        match selector {
+            UserChannel::Custom(name) => Some(InstallationId::Custom(name.clone())),
+            _ => self.local_channel(selector).map(InstallationId::Version),
+        }
+    }
+
     pub fn toolchain_dir(&self, channel: &Channel) -> PathBuf {
         crate::paths::toolchain_link(&self.midenup_home, &channel.name)
     }
@@ -290,8 +300,19 @@ impl Config {
         target_exe: &OsStr,
         args: &[OsString],
     ) -> Result<std::process::ExitStatus, std::io::Error> {
-        let toolchain_name = active_toolchain.name.to_string();
-        let sysroot = self.midenup_home.join("toolchains").join(&toolchain_name);
+        let selector = crate::channel::UserChannel::Version(active_toolchain.name.clone());
+        self.execute_command_in(&self.toolchain_dir(active_toolchain), &selector, target_exe, args)
+    }
+
+    /// Dispatch against one immutable publication, including subprocess PATH and sysroot.
+    pub fn execute_command_in(
+        &self,
+        sysroot: &Path,
+        selector: &crate::channel::UserChannel,
+        target_exe: &OsStr,
+        args: &[OsString],
+    ) -> Result<std::process::ExitStatus, std::io::Error> {
+        let toolchain_name = selector.to_string();
         let toolchain_opt = sysroot.join("opt");
 
         // Get the current PATH, and override CARGO_HOME if it differs from the inherited CARGO_HOME
@@ -329,7 +350,7 @@ impl Config {
         command
             .env("MIDENUP_HOME", &self.midenup_home)
             .env("MIDENUP_TOOLCHAIN", &toolchain_name)
-            .env("MIDEN_SYSROOT", &sysroot)
+            .env("MIDEN_SYSROOT", sysroot)
             .env("CARGO_HOME", cargo_home)
             .env("PATH", path)
             .args(args);

@@ -314,11 +314,11 @@ pub enum Artifact {
         ///
         /// The basic URI format should use one of two schemes: `file://` or `http(s)://`, e.g.:
         ///
-        /// ```
+        /// ```text
         /// file://path/to/artifacts/%basename-%target.%extension
         /// ```
         ///
-        /// ```
+        /// ```text
         /// https://github.com/org/repo/releases/%version/download/%basename-%target.%extension
         /// ```
         ///
