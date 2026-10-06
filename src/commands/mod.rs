@@ -66,14 +66,46 @@ enum Behavior {
         )]
         manifest_uri: String,
         /// Displays `midenup`'s version information.
-        #[arg(short = 'V', global(true), long, action, default_value_t = false)]
-        version: bool,
+        ///
+        /// Three styles are supported:
+        ///
+        /// * `detailed` (default) - print all available version info
+        /// * `revision` - print the Git revision `midenup` was built from
+        /// * `plain` - print just `midenup`'s release version number
+        #[clap(verbatim_doc_comment)]
+        #[arg(
+            short = 'V',
+            global(true),
+            long,
+            num_args(0..=1),
+            require_equals(true),
+            value_enum,
+            value_name = "STYLE",
+            default_missing_value = "detailed",
+            default_value_t = VersionStyle::None
+        )]
+        version: VersionStyle,
         #[command(subcommand)]
         command: Option<Commands>,
     },
     /// Invoke components of the current Miden toolchain
     #[command(external_subcommand)]
     Miden(Vec<OsString>),
+}
+
+/// The type of version information to display
+#[derive(Debug, Copy, Clone, clap::ValueEnum)]
+pub enum VersionStyle {
+    /// Disable the --version request
+    None,
+    /// Show a detailed, human-readable report of all available version information
+    Detailed,
+    /// Emit the detailed report of all available version information as JSON.
+    Json,
+    /// Print the release version of `midenup`
+    Plain,
+    /// Print just the Git revision that `midenup` was built from
+    Revision,
 }
 
 /// Configuration options for `midenup`
@@ -534,22 +566,34 @@ impl Midenup {
                 return Ok(code);
             },
             Behavior::Midenup { version, command: subcommand, .. } => {
-                if *version {
-                    println!("{}", miden_wrapper::display_version(config));
-                } else if let Some(subcommand) = subcommand {
-                    let _lock = if subcommand.is_mutating() {
-                        let lock = crate::lock::acquire(&config.midenup_home)?;
-                        // Whoever held the lock may have changed what is installed, so nothing may
-                        // be planned against the state read before waiting for it.
-                        *state = config.local_state()?;
-                        Some(lock)
-                    } else {
-                        None
-                    };
+                match *version {
+                    style @ (VersionStyle::Detailed
+                    | VersionStyle::Json
+                    | VersionStyle::Plain
+                    | VersionStyle::Revision) => {
+                        println!("{}", miden_wrapper::display_version(config, style));
+                    },
+                    VersionStyle::None => {
+                        if let Some(subcommand) = subcommand {
+                            let _lock = if subcommand.is_mutating() {
+                                let lock = crate::lock::acquire(&config.midenup_home)?;
+                                // Whoever held the lock may have changed what is installed, so
+                                // nothing may be planned against
+                                // the state read before waiting for it.
+                                *state = config.local_state()?;
+                                Some(lock)
+                            } else {
+                                None
+                            };
 
-                    subcommand.execute(config, state)?;
-                } else {
-                    bail!("no subcommand provided. Run `midenup --help` for usage information.")
+                            subcommand.execute(config, state)?;
+                        } else {
+                            bail!(
+                                "no subcommand provided. Run `midenup --help` for usage \
+                                 information."
+                            )
+                        }
+                    },
                 }
             },
         }
