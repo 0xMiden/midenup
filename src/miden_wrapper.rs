@@ -347,7 +347,7 @@ pub fn miden_wrapper(
             return Ok(ExitCode::SUCCESS);
         },
         MidenSubcommand::Version => {
-            println!("{}", display_version(config));
+            println!("{}", display_version(config, crate::commands::VersionStyle::Detailed));
             return Ok(ExitCode::SUCCESS);
         },
         _ => (),
@@ -521,18 +521,27 @@ fn exit_code_from_i32(code: i32) -> ExitCode {
     ExitCode::from(code.try_into().unwrap_or(1))
 }
 
-pub fn display_version(config: &Config) -> String {
+pub fn display_version(config: &Config, style: crate::commands::VersionStyle) -> String {
+    use crate::commands::VersionStyle;
+
     // NOTE: These files are generated in the project's build.rs.
-
-    let compiled_cargo_version = include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
-
-    let git_revision = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in"));
-
-    let midenup_version = env!(
+    const COMPILED_CARGO_VERSION: &str =
+        include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
+    const GIT_REVISION: &str = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in"));
+    const MIDENUP_VERSION: &str = env!(
         "CARGO_PKG_VERSION",
         "CARGO_PKG_VERSION environment variable not set. This should be set by cargo by default; \
          however, if not, it can be manually set using the `version` field in the Cargo.toml file"
     );
+
+    let json = match style {
+        VersionStyle::None => unreachable!(),
+        VersionStyle::Detailed => false,
+        VersionStyle::Json => true,
+        VersionStyle::Plain => return MIDENUP_VERSION.to_string(),
+        VersionStyle::Revision => return GIT_REVISION.to_string(),
+    };
+
     let cargo_version = {
         std::process::Command::new("cargo")
             .arg("--version")
@@ -573,33 +582,53 @@ pub fn display_version(config: &Config) -> String {
 
     let github_issue = {
         let short_body = format!(
-            "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: \
-             {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
+            "<!--- (leave this at the bottom) --> midenup:{MIDENUP_VERSION}, toolchain: \
+             {toolchain_version}, cargo:{cargo_version}, rev:{GIT_REVISION}"
         );
         format!(
             "https://github.com/0xMiden/midenup/issues/new?title=bug:<YOUR_ISSUE>&body={short_body}"
         )
     };
 
-    format!(
-        "
+    if json {
+        let value = if toolchain_version == "not installed" {
+            serde_json::json!({
+                "version": MIDENUP_VERSION,
+                "revision": GIT_REVISION,
+                "producer": COMPILED_CARGO_VERSION,
+                "cargo": cargo_version,
+            })
+        } else {
+            serde_json::json!({
+                "version": MIDENUP_VERSION,
+                "revision": GIT_REVISION,
+                "producer": COMPILED_CARGO_VERSION,
+                "active_toolchain": toolchain_version,
+                "cargo": cargo_version,
+            })
+        };
+        serde_json::to_string_pretty(&value).expect("failed to write version info as JSON")
+    } else {
+        format!(
+            "
 The Miden toolchain porcelain:
 
 Environment:
 - cargo version: {cargo_version}.
 
 Midenup:
-- midenup + miden version: {midenup_version}.
+- midenup + miden version: {MIDENUP_VERSION}.
 - active toolchain version: {toolchain_version}.
-- midenup revision: {git_revision}.
-- midenup was compiled with {compiled_cargo_version}.
+- midenup revision: {GIT_REVISION}.
+- midenup was compiled with {COMPILED_CARGO_VERSION}.
 
 
 Found a bug? Create an issue by copying this into your browser:
 
 {github_issue}
 "
-    )
+        )
+    }
 }
 
 fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
