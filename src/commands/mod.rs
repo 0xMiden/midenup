@@ -314,7 +314,7 @@ impl Commands {
             | Self::Show(ShowCommand::Current { flags } | ShowCommand::List { flags }) => {
                 Some(flags)
             },
-            Self::Show(ShowCommand::Home) => None,
+            Self::Show(ShowCommand::Home | ShowCommand::Sysroot) => None,
         }
     }
 
