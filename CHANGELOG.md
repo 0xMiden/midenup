@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.2.1]
+
+### Added
+
+- `midenup show sysroot` prints the active toolchain's installation path for use as
+  `MIDEN_SYSROOT`. If the active toolchain is not installed, it reports an error on stderr and
+  exits with status 2.
+- `midenup --version` now accepts `=plain` for just the release version, `=revision` for the Git
+  revision, or `=json` for machine-readable version and environment information. Bare
+  `--version` and `--version=detailed` retain the detailed report.
+
+### Migration and breaking changes
+
+- Rust API users calling `miden_wrapper::display_version` must pass a
+  `commands::VersionStyle` argument after `config`; use `VersionStyle::Detailed` to retain the
+  previous output. Add `ShowCommand::Sysroot` to exhaustive matches on `ShowCommand`.
+
 ## [1.2.0]
 
 ### Added
@@ -234,6 +251,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   construction and matches to use `Current { flags }` and `List { flags }`. Reporting is now
   configured through `report::set`.
 
+[1.2.1]: https://github.com/0xMiden/midenup/releases/tag/v1.2.1
 [1.2.0]: https://github.com/0xMiden/midenup/releases/tag/v1.2.0
 [1.1.0]: https://github.com/0xMiden/midenup/releases/tag/v1.1.0
 [1.0.1]: https://github.com/0xMiden/midenup/releases/tag/v1.0.1

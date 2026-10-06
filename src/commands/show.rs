@@ -31,6 +31,8 @@ pub enum ShowCommand {
     },
     /// Display the computed value of MIDENUP_HOME
     Home,
+    /// Display the computed value of MIDEN_SYSROOT for the current toolchain
+    Sysroot,
     /// List installed toolchains
     List {
         #[clap(flatten)]
@@ -73,6 +75,24 @@ impl ShowCommand {
                 println!("{}", config.midenup_home.display());
 
                 Ok(())
+            },
+            Self::Sysroot => {
+                let (toolchain, _) = Toolchain::current(config, None)?;
+
+                if let Some(id) = toolchain.installation_id(config)
+                    && state.get_by_id(&id).is_some()
+                {
+                    let path = crate::paths::installation_link(&config.midenup_home, &id);
+                    println!("{}", path.display());
+
+                    Ok(())
+                } else if let Some(name) = toolchain.name {
+                    eprintln!("active toolchain '{name}' is not installed");
+                    std::process::exit(2);
+                } else {
+                    eprintln!("active toolchain '{}' is not installed", toolchain.channel);
+                    std::process::exit(2);
+                }
             },
             Self::List { .. } => {
                 // Installed toolchains are recorded locally, so this works with no network at all.
