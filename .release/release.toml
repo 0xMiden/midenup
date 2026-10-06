@@ -8,6 +8,6 @@ schema-version = 1
 units = ["main"]
 
 [main]
-version = "1.2.0"
-tag = "v1.2.0"
+version = "1.2.1"
+tag = "v1.2.1"
 prerelease = false
