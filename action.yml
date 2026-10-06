@@ -6,15 +6,15 @@ branding:
 
 inputs:
   toolchain:
-    description: 'Network or version to install, e.g. `mainnet`, `testnet`, `devnet` or `0.15.0`'
+    description: 'Network or version to install, e.g. `mainnet` or `0.15.0`. If unspecified, it defaults to the active toolchain.'
     required: false
-    default: 'mainnet'
+    default: ''
   profile:
-    description: 'Toolchain profile to install: `minimal` or `complete`'
+    description: 'Toolchain profile to install: `empty`, `minimal` or `complete`. Ignored if a toolchain was not specified and a `miden-toolchain.toml` is present.'
     required: false
     default: 'minimal'
   components:
-    description: 'Comma-separated components to install in addition to the profile, e.g. `client,vm`'
+    description: 'Comma-separated components to install in addition to the profile, e.g. `client,vm`. Ignored if a toolchain was not specified and a `miden-toolchain.toml` is present.'
     required: false
     default: ''
   midenup-version:
@@ -46,11 +46,19 @@ runs:
         PROFILE: ${{ inputs.profile }}
         COMPONENTS: ${{ inputs.components }}
       run: |
+        # The miden-toolchain.toml file takes precedence when no toolchain is specified
+        if [ -z "$TOOLCHAIN" ] && [ -f miden-toolchain.toml ]; then
+          midenup install
+          exit 0
+        fi
+
+        # Otherwise, use the specified toolchain or default to mainnet
+        toolchain="${TOOLCHAIN:-mainnet}"
         args=(--profile "$PROFILE")
         IFS=',' read -ra components <<< "$COMPONENTS"
         for component in "${components[@]}"; do
           component="${component// /}"
           if [ -n "$component" ]; then args+=(--component "$component"); fi
         done
-        midenup install "$TOOLCHAIN" "${args[@]}"
-        midenup override "$TOOLCHAIN"
+        midenup install "$toolchain" "${args[@]}"
+        midenup override "$toolchain"

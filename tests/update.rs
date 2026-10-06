@@ -132,8 +132,8 @@ fn integration_update_test() {
     assert_eq!(mainnet_points_at(), "0.16.0");
 }
 
-/// Local diagnostics must not depend on the network: with an unreachable manifest and no cache,
-/// an update with nothing installed still says so, and a missing pinned version is still named.
+/// An implicit update needs upstream to install a missing active toolchain; an explicit update of
+/// an uninstalled version must still report that local error before attempting a fetch.
 #[test]
 fn integration_update_checks_local_state_before_syncing() {
     let _guard = common::harness::mutating_test_guard();
@@ -141,10 +141,12 @@ fn integration_update_checks_local_state_before_syncing() {
     let unreachable = format!("file://{}/no-such-manifest.json", test_env.tmp_dir.path().display());
     let (mut state, config) = test_setup(&test_env, &unreachable);
 
-    Midenup::try_parse_from(["midenup", "update"])
+    let err = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
-        .expect("an update with nothing installed must not need the manifest");
+        .expect_err("installing the missing active toolchain requires upstream");
+    assert!(format!("{err:#}").contains("unable to fetch"));
+    assert!(state.installations.is_empty());
 
     let err = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()
@@ -179,39 +181,15 @@ fn assert_equivalent_patch_cleared(test_name: &str, add_alias: bool) {
         .with_channel("0.15.0")
         .with_cargo_component("prover")
         .build();
-    let project = env.tmp_dir.path().join("project");
-    std::fs::create_dir_all(&project).unwrap();
-    std::fs::write(
-        project.join("miden-toolchain.toml"),
-        format!(
-            r#"[toolchain]
-channel = "0.15.0"
-components = ["prover"]
-
-[patches.prover]
-version = {{ kind = "path", path = "{}" }}
-"#,
-            fixture.dir.join("prover-source").display()
-        ),
-    )
-    .unwrap();
-    let project_config = midenup::config::Config::init(
-        project,
-        env.midenup_home.clone(),
-        env.cargo_home.clone(),
-        &fixture.manifest_uri,
-        true,
-    )
-    .unwrap();
-    let (mut state, _) = test_setup(&env, &fixture.manifest_uri);
-    Midenup::try_parse_from(["miden", "help", "prover"])
-        .unwrap()
-        .execute_with_state(&project_config, &mut state)
-        .expect("failed to activate the patched toolchain");
+    let (mut state, config) = test_setup(&env, &fixture.manifest_uri);
+    install_legacy_prover_patch(&config, &mut state, &fixture);
 
     let channel = semver::Version::new(0, 15, 0);
     let before = state.get(&channel).unwrap().clone();
-    assert!(before.patches.contains_key("prover"), "the project must record its patch");
+    assert!(
+        before.patches.contains_key("prover"),
+        "the legacy installation must record its patch"
+    );
 
     if add_alias {
         let mut manifest: serde_json::Value =
@@ -277,34 +255,7 @@ fn integration_network_update_clears_a_patch_and_reacquires_other_changed_compon
         .execute_with_state(&config, &mut state)
         .expect("failed to install the network's original channel");
 
-    let project = env.tmp_dir.path().join("project");
-    std::fs::create_dir_all(&project).unwrap();
-    std::fs::write(
-        project.join("miden-toolchain.toml"),
-        format!(
-            r#"[toolchain]
-channel = "0.15.0"
-components = ["prover"]
-
-[patches.prover]
-version = {{ kind = "path", path = "{}" }}
-"#,
-            fixture.dir.join("prover-source").display()
-        ),
-    )
-    .unwrap();
-    let project_config = midenup::config::Config::init(
-        project,
-        env.midenup_home.clone(),
-        env.cargo_home.clone(),
-        &fixture.manifest_uri,
-        true,
-    )
-    .unwrap();
-    Midenup::try_parse_from(["miden", "help", "prover"])
-        .unwrap()
-        .execute_with_state(&project_config, &mut state)
-        .expect("failed to activate the patched target");
+    install_legacy_prover_patch(&config, &mut state, &fixture);
 
     let mut manifest: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&fixture.manifest_path).unwrap()).unwrap();
@@ -341,6 +292,29 @@ version = {{ kind = "path", path = "{}" }}
         std::fs::read_link(env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
         std::path::PathBuf::from("0.15.0")
     );
+}
+
+/// Recreates the canonical patch records written before patches required a named installation.
+/// This patch has the same source as upstream, so cleanup can preserve the existing publication.
+fn install_legacy_prover_patch(
+    config: &midenup::config::Config,
+    state: &mut midenup::state::LocalState,
+    fixture: &common::harness::OfflineFixture,
+) {
+    let manifest = midenup::manifest::Manifest::load_from_file(&fixture.manifest_path).unwrap();
+    let channel = manifest.get_channel_by_name(&semver::Version::new(0, 15, 0)).unwrap();
+    let options = midenup::options::InstallationOptions {
+        components: vec!["prover".into()],
+        patches: serde_json::from_value(serde_json::json!({
+            "prover": {
+                "version": { "kind": "path", "path": fixture.dir.join("prover-source") },
+            },
+        }))
+        .unwrap(),
+        ..Default::default()
+    };
+    midenup::commands::install(config, channel, state, &options)
+        .expect("failed to seed the legacy patched toolchain");
 }
 
 /// Interactive update UI is diagnostic interaction, not a command result, and survives quiet.

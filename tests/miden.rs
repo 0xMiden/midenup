@@ -265,7 +265,7 @@ fn integration_activation_unions_intent_across_projects() {
 
     // Project A wants the `assets` component on top of the minimal profile.
     let mut options = midenup::options::InstallationOptions {
-        profile: midenup::profile::Profile::Minimal,
+        profile: Some(midenup::profile::Profile::Minimal),
         components: vec!["assets".to_string()],
         ..Default::default()
     };

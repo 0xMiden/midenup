@@ -24,7 +24,7 @@ pub use self::{
     uninstall::uninstall,
     update::update,
 };
-use crate::{channel, config, manifest, options, report};
+use crate::{channel, config, manifest, options, report, toolchain::Toolchain};
 
 pub const MIDENUP_MANIFEST_URI_ENV: &str = "MIDENUP_MANIFEST_URI";
 
@@ -145,6 +145,9 @@ pub struct Flags {
 }
 
 /// All the available Midenup Commands
+// Parsed once per process; boxing the installation settings adds indirection without a useful
+// saving.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Bootstrap the `midenup` environment.
@@ -158,18 +161,22 @@ enum Commands {
     /// Install a Miden toolchain
     Install {
         /// The channel or version to install, e.g. `stable` or `0.15.0`
-        #[arg(required(true), value_name = "CHANNEL", value_parser)]
-        channel: channel::UserChannel,
+        ///
+        /// If not specified, install the active toolchain with its project settings. An explicit
+        /// --profile overrides the project's profile, and --component adds to its components.
+        #[arg(value_name = "CHANNEL", value_parser)]
+        channel: Option<channel::UserChannel>,
         /// General configuration flags
         #[clap(flatten)]
         flags: Flags,
         #[clap(flatten)]
         options: options::InstallationOptions,
     },
-    /// Reclaim disk space from toolchain installations nothing refers to any more.
+    /// Reclaim unreferenced toolchain publications and Cargo build caches.
     ///
     /// Every change to an installed channel publishes a new copy and leaves the previous one in
-    /// place, because another process may still be running out of it. This removes those.
+    /// place, because another process may still be running out of it. This removes those and
+    /// build caches no installed toolchain or pending operation uses.
     Gc {
         /// General configuration flags
         #[clap(flatten)]
@@ -223,7 +230,8 @@ enum Commands {
     /// Update your installed Miden toolchains.
     Update {
         /// `midenup update`'s behavior differs depending on the specified [CHANNEL]
-        /// - If left blank, then midenup will check for updates in all the downloaded toolchains.
+        /// - If left blank, check all installed toolchains for updates, then install any missing
+        ///   components of the active toolchain (installing the toolchain itself if needed).
         /// - If [CHANNEL] is a version, updates that toolchain against the channel upstream now
         ///   publishes under that name.
         /// - If [CHANNEL] is a network (mainnet, testnet, devnet), follows the network to whatever
@@ -292,44 +300,57 @@ impl Commands {
             Self::Gc { flags: _ } => gc(config, state),
             Self::List { flags: _ } => list(config, state),
             Self::Install { channel, options, flags: _ } => {
-                let manifest = config.upstream_manifest()?;
-                let requested = channel;
-                let Some(channel) = manifest.get_channel(channel) else {
-                    // Which names exist is manifest data now, so a typo has to be answerable with
-                    // what was actually declared rather than "doesn't exist or is unavailable".
-                    match channel {
-                        channel::UserChannel::Named(name) => bail!(
-                            "unknown channel '{name}'; known networks are {}",
-                            manifest.network_names().collect::<Vec<_>>().join(", ")
-                        ),
-                        channel::UserChannel::Version(version) => {
-                            bail!("there is no toolchain {version} in the channel manifest")
-                        },
-                    }
-                };
-
-                // A network resolves to a version, and both halves are worth stating; a version
-                // requested directly is only worth stating once.
-                let target = if requested.to_string() == channel.name.to_string() {
-                    channel.name.to_string()
-                } else {
-                    format!("{requested} ({})", channel.name)
-                };
-                crate::info!("installing {target}");
-
-                let options = options::InstallationOptions {
-                    network: match requested {
-                        channel::UserChannel::Named(name) => Some(name.to_string()),
-                        channel::UserChannel::Version(_) => None,
+                let requested = match channel {
+                    Some(selector @ channel::UserChannel::Custom(_)) => {
+                        Toolchain::install_selected(config, state, selector, options)?;
+                        selector.clone()
                     },
-                    ..options.clone()
+                    Some(requested_channel) => {
+                        let manifest = config.upstream_manifest()?;
+                        let Some(channel) = manifest.get_channel(requested_channel) else {
+                            // Report the names declared by the manifest when a name is unknown.
+                            match requested_channel {
+                                channel::UserChannel::Named(name) => bail!(
+                                    "unknown channel '{name}'; known networks are {}",
+                                    manifest.network_names().collect::<Vec<_>>().join(", ")
+                                ),
+                                channel::UserChannel::Custom(_) => unreachable!(),
+                                channel::UserChannel::Version(version) => {
+                                    bail!("there is no toolchain {version} in the channel manifest")
+                                },
+                            }
+                        };
+                        // Show the network and its version, or just a directly requested version.
+                        let target = if requested_channel.to_string() == channel.name.to_string() {
+                            channel.name.to_string()
+                        } else {
+                            format!("{requested_channel} ({})", channel.name)
+                        };
+                        crate::info!("installing {target}");
+                        let options = options::InstallationOptions {
+                            network: match requested_channel {
+                                channel::UserChannel::Named(name) => Some(name.to_string()),
+                                channel::UserChannel::Version(_)
+                                | channel::UserChannel::Custom(_) => None,
+                            },
+                            ..options.clone()
+                        };
+                        install(config, channel, state, &options)?;
+
+                        requested_channel.clone()
+                    },
+                    None => {
+                        crate::info!("installing the default/active toolchain");
+                        let toolchain = Toolchain::install_current(config, state, options)?;
+
+                        toolchain.selector()
+                    },
                 };
-                install(config, channel, state, &options)?;
 
                 // The first installed toolchain becomes the default
                 let default = crate::paths::toolchains_dir(&config.midenup_home).join("default");
                 if std::fs::symlink_metadata(&default).is_err() {
-                    r#override(config, state, requested)?;
+                    r#override(config, state, &requested)?;
                 }
                 Ok(())
             },
@@ -373,15 +394,13 @@ impl Midenup {
                     .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
                     // If for whatever reason, we can't access the data dir, we fall
                     // back to .local/share
-                    .or_else(|| {
-                        dirs::home_dir()
-                            .map(|home| home.join(".local").join("share"))
-                    })
-                    .ok_or_else(||
-                                anyhow!("Failed to set midenup directory.\
-                                        Consider setting a value for XDG_DATA_HOME in your shell's profile"
-                                )
-                    )?;
+                    .or_else(|| dirs::home_dir().map(|home| home.join(".local").join("share")))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Failed to set midenup directory.Consider setting a value for \
+                             XDG_DATA_HOME in your shell's profile"
+                        )
+                    })?;
 
                 let cargo_home = std::env::var_os("CARGO_HOME")
                     .map(PathBuf::from)
@@ -425,15 +444,13 @@ impl Midenup {
                     .or_else(|| dirs::data_dir().map(|dir| dir.join("midenup")))
                     // If for whatever reason, we can't access the data dir, we fall
                     // back to .local/share
-                    .or_else(|| {
-                        dirs::home_dir()
-                            .map(|home| home.join(".local").join("share"))
-                    })
-                    .ok_or_else(||
-                                anyhow!("Failed to set midenup directory.\
-                                        Consider setting a value for XDG_DATA_HOME in your shell's profile"
-                                )
-                    )?;
+                    .or_else(|| dirs::home_dir().map(|home| home.join(".local").join("share")))
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Failed to set midenup directory.Consider setting a value for \
+                             XDG_DATA_HOME in your shell's profile"
+                        )
+                    })?;
                 let cargo_home = cargo_home
                     .clone()
                     .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))

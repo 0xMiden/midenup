@@ -13,6 +13,7 @@ use crate::{
     channel::{Channel, UserChannel},
     commands,
     config::Config,
+    identity::{CustomToolchain, InstallationId, ToolchainName},
     manifest::{ComponentKind, InstallationMethod, PackageInstallationMethod},
     options::{InstallationOptions, IntentUpdate},
     profile::Profile,
@@ -59,7 +60,10 @@ pub struct Patch {
 /// The actual contents of the toolchain.
 #[derive(Serialize, Deserialize, Default, Debug)]
 pub struct Toolchain {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<ToolchainName>,
     pub channel: UserChannel,
+    #[serde(default)]
     pub components: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub profile: Option<Profile>,
@@ -132,7 +136,10 @@ pub(crate) fn changed_patches(
 }
 
 /// Returns `channel` with each patched component switched to a cargo build of its patch.
-fn apply_patches(channel: &Channel, patches: &BTreeMap<String, Patch>) -> anyhow::Result<Channel> {
+pub(crate) fn apply_patches(
+    channel: &Channel,
+    patches: &BTreeMap<String, Patch>,
+) -> anyhow::Result<Channel> {
     let mut patched = channel.clone();
     for (name, patch) in patches {
         let Some(component) = patched.components.iter_mut().find(|c| c.name == name.as_str())
@@ -188,14 +195,95 @@ fn apply_patches(channel: &Channel, patches: &BTreeMap<String, Patch>) -> anyhow
     Ok(patched)
 }
 
+/// Both activation and explicit install enforce the same runtime-data boundary.
+fn ensure_network_identity(
+    name: &ToolchainName,
+    installed: &UserChannel,
+    requested: &UserChannel,
+) -> anyhow::Result<()> {
+    let network = |channel: &UserChannel| match channel {
+        UserChannel::Named(name) => Some(name.clone()),
+        _ => None,
+    };
+    if network(installed) != network(requested) {
+        bail!(
+            "cannot change the network identity of custom toolchain '{name}'; choose a new name \
+             to keep runtime data separate"
+        );
+    }
+    Ok(())
+}
+
 impl Toolchain {
     pub fn new(channel: UserChannel, profile: Option<Profile>, components: Vec<String>) -> Self {
         Toolchain {
+            name: None,
             channel,
             components,
             profile,
             patches: BTreeMap::new(),
         }
+    }
+
+    /// The selector names a local installation; the channel describes its source.
+    pub fn selector(&self) -> UserChannel {
+        self.name
+            .clone()
+            .map(UserChannel::Custom)
+            .unwrap_or_else(|| self.channel.clone())
+    }
+
+    pub fn installation_id(&self, config: &Config) -> Option<InstallationId> {
+        config.local_installation_id(&self.selector())
+    }
+
+    fn validate(&self) -> anyhow::Result<()> {
+        if matches!(self.channel, UserChannel::Custom(_)) {
+            if self.name.is_some()
+                || !self.patches.is_empty()
+                || self.profile.is_some()
+                || !self.components.is_empty()
+            {
+                bail!(
+                    "a custom: selector selects an existing installation; use an upstream channel \
+                     and 'name' to declare a variant"
+                );
+            }
+        } else if !self.patches.is_empty() && self.name.is_none() {
+            bail!(
+                "toolchain patches require [toolchain] name; add a unique name to isolate this \
+                 project's installation"
+            );
+        }
+        Ok(())
+    }
+
+    /// Explicit selection of a named installation retains its stored recipe.
+    pub(crate) fn install_selected(
+        config: &Config,
+        state: &mut LocalState,
+        selector: &UserChannel,
+        options: &InstallationOptions,
+    ) -> anyhow::Result<()> {
+        let id = config.local_installation_id(selector).context("toolchain is not installed")?;
+        let installed = state.get_by_id(&id).cloned().with_context(|| {
+            format!("{selector} is not installed; install it from its declaring project")
+        })?;
+        let custom = installed.custom.as_ref().context("expected a custom toolchain")?;
+        let definition = Toolchain {
+            name: Some(custom.name.clone()),
+            channel: custom.channel.clone(),
+            profile: options.profile,
+            components: options.components.clone(),
+            patches: installed.patches.clone(),
+        };
+        let intent = if options.profile.is_some() || !options.components.is_empty() {
+            IntentUpdate::Replace(definition.intent())
+        } else {
+            IntentUpdate::Preserve
+        };
+        definition.install(config, state, &ToolchainJustification::Requested, intent)?;
+        Ok(())
     }
 
     /// Returns the current active Toolchain according to the following precedence:
@@ -220,6 +308,7 @@ impl Toolchain {
                 .parse::<UserChannel>()
                 .with_context(|| format!("invalid channel name '{channel_name}'"))?;
             let toolchain = Toolchain {
+                name: None,
                 channel,
                 components: vec![],
                 profile: None,
@@ -242,7 +331,8 @@ impl Toolchain {
             let project_dir = local_toolchain.parent().expect("a file has a parent directory");
             for patch in current_toolchain.patches.values_mut() {
                 if let Authority::Path { path, .. } = &mut patch.version {
-                    *path = project_dir.join(&*path);
+                    let absolute = project_dir.join(&*path);
+                    *path = absolute.canonicalize().unwrap_or(absolute);
                 }
             }
 
@@ -258,9 +348,18 @@ impl Toolchain {
 
             // NOTE: This has to be a UserChannel because the default channel could be a channel
             // like "stable"
-            let user_channel = UserChannel::from_str(channel_name)?;
+            let user_channel = if channel_path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|parent| parent == "custom")
+            {
+                UserChannel::Custom(channel_name.parse()?)
+            } else {
+                UserChannel::from_str(channel_name)?
+            };
 
             let toolchain = Toolchain {
+                name: None,
                 channel: user_channel,
                 components: vec![],
                 profile: None,
@@ -285,19 +384,9 @@ impl Toolchain {
         toolchain_override: Option<&str>,
     ) -> anyhow::Result<(Self, ToolchainJustification, Option<Channel>)> {
         let (current_toolchain, justification) = Toolchain::current(config, toolchain_override)?;
-        let desired_channel = &current_toolchain.channel;
-
-        // Resolve the project's declared toolchain into an exact component set. An omitted
-        // profile means `minimal` (Profile::default), and listed components are explicit roots on
-        // top of it.
-        let intent = Intent {
-            profiles: [current_toolchain.profile.unwrap_or_default()].into_iter().collect(),
-            roots: current_toolchain.components.iter().cloned().collect(),
-        };
-
         // Only a `miden-toolchain.toml` narrows the view: section 8.5 defines the active view as
         // *this project's* request -- profile plus components from its toolchain file. The other
-        // three justifications carry no request at all; `profile` and `components` above are
+        // three justifications carry no request at all; `profile` and `components` are
         // synthesized empty, so resolving them narrows dispatch to the `minimal` profile and hides
         // whatever else this machine installed deliberately -- a component added with
         // `midenup install <channel> --component <name>` belongs to no profile, and would
@@ -308,22 +397,154 @@ impl Toolchain {
         let project_view =
             matches!(justification, ToolchainJustification::MidenToolchainFile { .. });
 
-        // Everything the project asked for is installed: nothing to fetch, nothing to install.
-        //
-        // The active view is resolved against the *installed* snapshot rather than upstream, which
-        // is what section 8.5 says it is -- this project's request, against what this machine has.
-        if let Some(view) =
-            active_view(config, state, desired_channel, &intent, &current_toolchain.patches)
-        {
+        let view = match current_toolchain.installed_view(config, state)? {
+            Some(view) => view,
+            None => {
+                // Dispatch becomes a writer only when installation is needed. Re-read state
+                // after waiting: another process may have installed the toolchain in the meantime.
+                let _lock = crate::lock::acquire(&config.midenup_home)?;
+                *state = config.local_state()?;
+                current_toolchain.ensure_installed(config, state, &justification)?
+            },
+        };
+
+        Ok((current_toolchain, justification, project_view.then_some(view)))
+    }
+
+    fn intent(&self) -> Intent {
+        Intent {
+            profiles: [self.profile.unwrap_or_default()].into_iter().collect(),
+            roots: self.components.iter().cloned().collect(),
+        }
+    }
+
+    /// Resolves and validates the active view entirely from the installed snapshot.
+    pub(crate) fn installed_view(
+        &self,
+        config: &Config,
+        state: &LocalState,
+    ) -> anyhow::Result<Option<Channel>> {
+        self.validate()?;
+        if let UserChannel::Custom(name) = &self.channel {
+            let installation =
+                state.get_by_id(&InstallationId::Custom(name.clone())).with_context(|| {
+                    format!(
+                        "custom toolchain '{name}' is not installed; install it from its \
+                         declaring project"
+                    )
+                })?;
+            return Ok(installation.is_managed().then(|| installation.as_channel()));
+        }
+        let view = if let Some(name) = &self.name {
+            match state.get_by_id(&InstallationId::Custom(name.clone())) {
+                Some(installed) => {
+                    let custom =
+                        installed.custom.as_ref().expect("custom identity has a definition");
+                    ensure_network_identity(name, &custom.channel, &self.channel)?;
+                    if custom.channel != self.channel || installed.patches != self.patches {
+                        bail!(
+                            "custom toolchain '{name}' has a different channel or patches; choose \
+                             another name, or run `midenup install` in this project to replace \
+                             its definition"
+                        );
+                    }
+                    if installed.is_managed() {
+                        let channel = installed.as_channel();
+                        crate::resolve::resolve(&channel, &self.intent()).ok().map(|resolved| {
+                            Channel::new(
+                                channel.name.clone(),
+                                resolved.into_iter().cloned().collect(),
+                            )
+                        })
+                    } else {
+                        None
+                    }
+                },
+                None => None,
+            }
+        } else {
+            active_view(config, state, &self.channel, &self.intent(), &self.patches)
+        };
+        if let Some(view) = &view {
             ensure_patches_requested(
-                &current_toolchain.patches,
+                &self.patches,
                 view.components.iter().map(|component| component.name.as_ref()),
             )?;
-            crate::info!("current toolchain is {desired_channel} and is installed");
-            return Ok((current_toolchain, justification, project_view.then_some(view)));
+            crate::info!("current toolchain is {} and is installed", self.channel);
         }
+        Ok(view)
+    }
 
-        // Something is missing or was built with other patches, so upstream is needed after all.
+    /// Ensures this toolchain is usable. The caller must hold the home lock and have reloaded state
+    /// after acquiring it. Activation adds to the shared installation, never shrinking it.
+    pub(crate) fn ensure_installed(
+        &self,
+        config: &Config,
+        state: &mut LocalState,
+        justification: &ToolchainJustification,
+    ) -> anyhow::Result<Channel> {
+        if let Some(view) = self.installed_view(config, state)? {
+            return Ok(view);
+        }
+        self.install(config, state, justification, IntentUpdate::Union(self.intent()))
+    }
+
+    /// Installs the active toolchain using project settings with explicit CLI selections applied.
+    /// Like an explicit-channel install, this replaces the recorded intent, even if every requested
+    /// component is already installed. The caller must hold the home lock.
+    pub(crate) fn install_current(
+        config: &Config,
+        state: &mut LocalState,
+        options: &InstallationOptions,
+    ) -> anyhow::Result<Self> {
+        let (mut toolchain, justification) = Self::current(config, None)?;
+        toolchain.validate()?;
+        if matches!(toolchain.channel, UserChannel::Custom(_)) {
+            Self::install_selected(config, state, &toolchain.channel, options)?;
+            return Ok(toolchain);
+        }
+        toolchain.profile = options.profile.or(toolchain.profile);
+        toolchain.components.extend(options.components.iter().cloned());
+        toolchain.install(
+            config,
+            state,
+            &justification,
+            IntentUpdate::Replace(toolchain.intent()),
+        )?;
+        Ok(toolchain)
+    }
+
+    /// Shared installation path for an active toolchain. Lock ownership and whether intent is
+    /// replaced or accumulated are decided by the caller, outside the publication machinery.
+    fn install(
+        &self,
+        config: &Config,
+        state: &mut LocalState,
+        justification: &ToolchainJustification,
+        intent_update: IntentUpdate,
+    ) -> anyhow::Result<Channel> {
+        self.validate()?;
+        let desired_channel = &self.channel;
+        let custom = self
+            .name
+            .clone()
+            .map(|name| CustomToolchain { name, channel: self.channel.clone() });
+        if let Some(custom) = &custom
+            && let Some(installed) = state.get_by_id(&InstallationId::Custom(custom.name.clone()))
+        {
+            let old = &installed.custom.as_ref().expect("named installation").channel;
+            ensure_network_identity(&custom.name, old, &self.channel)?;
+        }
+        let intent = if matches!(intent_update, IntentUpdate::Preserve) {
+            custom
+                .as_ref()
+                .and_then(|custom| state.get_by_id(&InstallationId::Custom(custom.name.clone())))
+                .map(|installed| installed.intent.clone())
+                .unwrap_or_else(|| self.intent())
+        } else {
+            self.intent()
+        };
+        // Install against the full upstream channel, with the active project's patches applied.
         let manifest = config.upstream_manifest()?;
         let Some(upstream) = manifest.get_channel(desired_channel) else {
             bail!(
@@ -343,7 +564,9 @@ impl Toolchain {
             );
         };
 
-        let channel = &apply_patches(upstream, &current_toolchain.patches)?;
+        let mut patched = apply_patches(upstream, &self.patches)?;
+        patched.sync(config);
+        let channel = &patched;
 
         let resolved =
             crate::resolve::resolve(channel, &intent).with_context(|| match &justification {
@@ -353,25 +576,40 @@ impl Toolchain {
                 _ => format!("unable to resolve the {} toolchain", channel.name),
             })?;
         ensure_patches_requested(
-            &current_toolchain.patches,
+            &self.patches,
             resolved.iter().map(|component| component.name.as_ref()),
         )?;
 
-        let upstream_view = Some(Channel::new(
+        let upstream_view = Channel::new(
             channel.name.clone(),
             resolved.iter().map(|component| (*component).clone()).collect(),
-        ));
+        );
 
         // Name both the network and the version it resolves to, so the user knows what is about
         // to be installed before anything is fetched.
         let target = match desired_channel {
             UserChannel::Version(_) => channel.name.to_string(),
             UserChannel::Named(network) => format!("{network} ({})", channel.name),
+            UserChannel::Custom(_) => {
+                unreachable!("custom selections install their recorded definition")
+            },
         };
 
-        match state.get(&channel.name).filter(|installation| installation.is_managed()) {
-            Some(installed) if installed.patches != current_toolchain.patches => {
+        let id = custom
+            .as_ref()
+            .map(|c| InstallationId::Custom(c.name.clone()))
+            .unwrap_or_else(|| InstallationId::Version(channel.name.clone()));
+        let target = if self.name.is_some() {
+            format!("{id} from {target}")
+        } else {
+            target
+        };
+        match state.get_by_id(&id).filter(|installation| installation.is_managed()) {
+            Some(installed) if installed.patches != self.patches => {
                 crate::info!("reinstalling the current toolchain {target} to apply its patches");
+            },
+            Some(_) if matches!(intent_update, IntentUpdate::Replace(_)) => {
+                crate::info!("installing the current toolchain {target}");
             },
             Some(installed) => {
                 let installed_components: HashSet<&str> =
@@ -390,44 +628,23 @@ impl Toolchain {
             },
         }
 
-        // Dispatch has decided it must install, which makes it a writer. It takes the lock here,
-        // for the install only, and releases it before exec'ing the component: two `miden`
-        // invocations in two project directories are otherwise two concurrent writers against one
-        // MIDENUP_HOME, with no user involved in making that happen.
-        let _lock = crate::lock::acquire(&config.midenup_home)?;
-
-        // Another invocation may have installed it while we waited. Re-read rather than plan
-        // against what was true before the wait.
-        *state = config.local_state()?;
-        if let Some(view) =
-            active_view(config, state, desired_channel, &intent, &current_toolchain.patches)
-        {
-            ensure_patches_requested(
-                &current_toolchain.patches,
-                view.components.iter().map(|component| component.name.as_ref()),
-            )?;
-            return Ok((current_toolchain, justification, project_view.then_some(view)));
-        }
-
-        // Activation goes through exactly the same code path as everything else: the full upstream
-        // channel, and an intent that *adds* this project's request to whatever other projects have
-        // already asked for. Activating one project must never take components away from another.
         let options = InstallationOptions {
-            intent_update: Some(IntentUpdate::Union(intent.clone())),
+            custom: custom.clone(),
+            intent_update: Some(intent_update),
             // The project named this network, so it is installed here: without the link, the next
             // dispatch would not find it and install again.
             network: match desired_channel {
-                UserChannel::Named(name) => Some(name.to_string()),
-                UserChannel::Version(_) => None,
+                UserChannel::Named(name) if custom.is_none() => Some(name.to_string()),
+                _ => None,
             },
-            patches: current_toolchain.patches.clone(),
+            patches: self.patches.clone(),
             ..Default::default()
         };
 
         commands::install(config, channel, state, &options)?;
 
         // Now installed
-        Ok((current_toolchain, justification, upstream_view.filter(|_| project_view)))
+        Ok(upstream_view)
     }
 
     /// Returns the `miden-toolchain.toml` file, if it exists.

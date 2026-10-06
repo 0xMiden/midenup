@@ -18,7 +18,7 @@ use std::{
 
 use crate::{
     utils,
-    version::{Authority, GitTarget},
+    version::{Authority, GitTarget, SourcePin},
 };
 
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +63,14 @@ pub enum ResolvedAuthority {
 }
 
 impl ResolvedAuthority {
+    pub(crate) fn source_pin(&self) -> SourcePin<'_> {
+        match self {
+            Self::Path { mtime, .. } => SourcePin::Path(*mtime),
+            Self::Git { revision, .. } => SourcePin::Git(Some(revision)),
+            Self::Registry { .. } => SourcePin::Immutable,
+        }
+    }
+
     /// A stable identity string for the plan key.
     pub fn identity(&self) -> String {
         match self {

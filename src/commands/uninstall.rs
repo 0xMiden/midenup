@@ -1,11 +1,7 @@
 use anyhow::{Context, bail};
 
 use crate::{
-    channel::UserChannel,
-    config::Config,
-    paths,
-    publish::JournalEntry,
-    state::{LocalState, PublicationRef},
+    channel::UserChannel, config::Config, paths, publish::JournalEntry, state::LocalState,
 };
 
 /// Removes an installed channel, or only a network's link to it when other networks on this
@@ -37,7 +33,7 @@ pub fn uninstall(
 ) -> anyhow::Result<()> {
     // Resolved against local state, never upstream: a channel that has been withdrawn upstream is
     // precisely one a user needs to be able to remove (spec section 12.3).
-    let installed = config.local_channel(requested).and_then(|version| state.get(&version));
+    let installed = config.local_installation_id(requested).and_then(|id| state.get_by_id(&id));
 
     let Some(installation) = installed else {
         bail!("channel {requested} is not installed, nothing to uninstall");
@@ -62,14 +58,7 @@ pub fn uninstall(
         crate::trace!("removing {}", link.display());
         std::fs::remove_file(link)?;
     } else {
-        let publication = match &installation.publication {
-            PublicationRef::Managed { id, .. } => Some(id.clone()),
-            // Carried over from v1: nothing describes what it owns, so there is no publication to
-            // reclaim. The state record still goes.
-            PublicationRef::NeedsReinstall => None,
-        };
-
-        let entry = JournalEntry::uninstall(channel.clone(), publication);
+        let entry = JournalEntry::uninstall_installation(installation);
         crate::publish::journal::prepare(home, &entry)?;
 
         // The commit point: after this the channel is uninstalled, and an interrupted run is
@@ -118,7 +107,7 @@ pub fn uninstall(
              networks that name it"
         );
     } else {
-        crate::info!("uninstalled channel '{channel}'");
+        crate::info!("uninstalled toolchain '{requested}'");
     }
 
     Ok(())

@@ -222,7 +222,7 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
 /// least testnet, and testnet at least mainnet, but a mainnet hotfix legitimately inverts it, and a
 /// validator that has to be overridden during an incident is worse than no validator.
 fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
-    use crate::channel::{DEFAULT_NETWORK, canonical_network};
+    use crate::channel::{DEFAULT_NETWORK, validate_network_name};
 
     if !manifest.networks.contains_key(DEFAULT_NETWORK) {
         errors.push(ValidationError::MissingDefaultNetwork(DEFAULT_NETWORK));
@@ -234,26 +234,8 @@ fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
         let invalid =
             |reason: String| ValidationError::InvalidNetworkName { name: name.clone(), reason };
 
-        if name.is_empty() {
-            errors.push(invalid("a network must have a name".to_string()));
-        } else if let Err(err) = validate_artifact_id(name) {
-            // A network name is joined straight onto `toolchains/` and written with
-            // `replace_symlink`, which renames over whatever is at that path. `../../../.zshrc`
-            // would make an ordinary `midenup install` replace a file outside `$MIDENUP_HOME`.
-            // Same rule as every other name that becomes a path segment, deliberately.
+        if let Err(err) = validate_network_name(name) {
             errors.push(invalid(err.to_string()));
-        } else if semver::Version::parse(name).is_ok() {
-            errors.push(invalid(
-                "a network may not be named like a channel, which would make 'midenup install \
-                 <name>' ambiguous"
-                    .to_string(),
-            ));
-        } else if canonical_network(name) != name {
-            errors.push(invalid(format!(
-                "'{name}' is rewritten to '{}' before any lookup, so a network declared under it \
-                 could never be reached",
-                canonical_network(name)
-            )));
         }
 
         if !known.contains(version) {
@@ -721,7 +703,7 @@ mod tests {
     /// a manifest make an ordinary `midenup install` replace a file anywhere on the machine.
     #[test]
     fn a_network_name_that_is_not_a_single_path_segment_is_rejected() {
-        for name in ["../../../.zshrc", "..", "sub/net"] {
+        for name in ["../../../.zshrc", "..", "sub/net", "custom", "default", "custom:dev"] {
             let src = serde_json::json!({
                 "manifest_version": "3.0.0",
                 "date": 1735689600,
