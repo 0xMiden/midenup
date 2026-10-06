@@ -136,40 +136,59 @@ impl Config {
         crate::info!("syncing channel updates from upstream");
         let cache = crate::paths::manifest_cache(&self.midenup_home);
 
-        let fetch_error = match VersionedManifest::read_from(&self.manifest_uri) {
+        let cached = VersionedManifest::load_from_file(&cache).with_context(|| {
+            format!("unable to fetch the toolchain manifest from '{}'", self.manifest_uri)
+        });
+
+        match VersionedManifest::read_from(&self.manifest_uri) {
             Ok(contents) => match VersionedManifest::parse_str(&contents) {
                 Ok(manifest) => {
                     // Best effort: a manifest we could not cache is still a manifest we can use.
                     let _ = std::fs::create_dir_all(&self.midenup_home);
                     crate::trace!("caching the manifest at {}", cache.display());
                     let _ = std::fs::write(&cache, &contents);
-                    return Ok(manifest);
+                    Ok(manifest)
                 },
-                Err(err) => err,
+                Err(err) => match cached {
+                    Ok(manifest) => {
+                        crate::warn!("{err}");
+                        crate::warn!(
+                            "could not load manifest from '{}'; using the cached manifest from \
+                             '{}', which may be out of date",
+                            self.manifest_uri,
+                            cache.display(),
+                        );
+                        Ok(manifest)
+                    },
+                    // Report the *upstream* failure: it is the one the user can act on. The absent
+                    // cache is a consequence of never having fetched successfully, not an
+                    // independent problem.
+                    Err(_) => Err(anyhow::Error::new(err).context(format!(
+                        "unable to read the toolchain manifest from '{}', and no cached copy is \
+                         available",
+                        self.manifest_uri
+                    ))),
+                },
             },
-            Err(err) => err,
-        };
-
-        let cached = VersionedManifest::load_from_file(&cache).with_context(|| {
-            format!("unable to fetch the toolchain manifest from '{}'", self.manifest_uri)
-        });
-
-        match cached {
-            Ok(manifest) => {
-                crate::warn!(
-                    "could not reach '{}' ({fetch_error}); using the cached manifest from '{}', \
-                     which may be out of date",
-                    self.manifest_uri,
-                    cache.display(),
-                );
-                Ok(manifest)
+            Err(err) => match cached {
+                Ok(manifest) => {
+                    crate::warn!(
+                        "could not reach '{}' ({err}); using the cached manifest from '{}', which \
+                         may be out of date",
+                        self.manifest_uri,
+                        cache.display(),
+                    );
+                    Ok(manifest)
+                },
+                // Report the *fetch* failure: it is the one the user can act on. The absent cache
+                // is a consequence of never having fetched successfully, not an independent
+                // problem.
+                Err(_) => Err(anyhow::Error::new(err).context(format!(
+                    "unable to fetch the toolchain manifest from '{}', and no cached copy is \
+                     available",
+                    self.manifest_uri
+                ))),
             },
-            // Report the *fetch* failure: it is the one the user can act on. The absent cache is a
-            // consequence of never having fetched successfully, not an independent problem.
-            Err(_) => Err(anyhow::Error::new(fetch_error).context(format!(
-                "unable to fetch the toolchain manifest from '{}', and no cached copy is available",
-                self.manifest_uri
-            ))),
         }
     }
 

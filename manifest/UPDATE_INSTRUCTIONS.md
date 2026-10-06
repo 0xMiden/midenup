@@ -28,7 +28,7 @@ The following steps will use this tool to perform modifications to the channel m
 When a new release[^1] is made, a new channel entry needs to be added to the manifest's `channels` array. The channel name should match the protocol version it is linked to, without the patch version set to `0` (e.g. `0.15.0`). The simplest way to do this is to clone the toolchain a network already runs and give it the new version:
 
 ```
-bin/update-manifest --manifest-path manifest/channel-manifest.json \
+bin/update-manifest --manifest-path manifest/v3/manifest.json \
     clone-toolchain --from mainnet --to 0.15.0
 ```
 
@@ -45,7 +45,7 @@ Next, you will need to update each component in the cloned toolchain, as appropr
 In typical cases, this is just a matter of bumping the version of each affected component - for more complex changes, see the output of `bin/update-manifest help update-component`, or modify the manifest by hand. Bumping the component version is as simple as:
 
 ```
-bin/update-manifest --manifest-path manifest/channel-manifest.json \
+bin/update-manifest --manifest-path manifest/v3/manifest.json \
     update-component $COMPONENT \
     --channel $CHANNEL \
     --authority=$COMPONENT_VERSION
@@ -65,7 +65,7 @@ A toolchain in the manifest is installable by version, but nobody tracking a net
 that network names it:
 
 ```
-bin/update-manifest --manifest-path manifest/channel-manifest.json \
+bin/update-manifest --manifest-path manifest/v3/manifest.json \
     promote testnet 0.15.0
 ```
 
@@ -93,7 +93,7 @@ When a toolchain that has been running on testnet is deployed to mainnet, promot
 well. Several networks naming one toolchain is the normal state, and is expected:
 
 ```
-bin/update-manifest --manifest-path manifest/channel-manifest.json \
+bin/update-manifest --manifest-path manifest/v3/manifest.json \
     promote mainnet 0.15.0
 ```
 
@@ -125,7 +125,7 @@ What users fetch is the copy of `manifest/` deployed to GitHub Pages, and
 `manifest/**`. So the release lands the way every other change does:
 
 ```
-git add manifest/channel-manifest.json
+git add manifest/v3/manifest.json
 git commit
 ```
 
