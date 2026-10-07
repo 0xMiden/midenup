@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1791312773,
+  "date": 1791372518,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.16.0",
@@ -1175,7 +1175,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.6.0"
+            "version": "0.7.0"
           }
         },
         {
