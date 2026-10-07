@@ -48,7 +48,7 @@ In typical cases, this is just a matter of bumping the version of each affected 
 bin/update-manifest --manifest-path manifest/channel-manifest.json \
     update-component $COMPONENT \
     --channel $CHANNEL \
-    --authority=$COMPONENT_VERSION
+    --authority="{\"kind\":\"registry\",\"version\":\"$COMPONENT_VERSION\"}"
 ```
 
 `--channel` accepts a network name as well as a version, but prefer naming the version explicitly:
