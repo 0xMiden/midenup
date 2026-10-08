@@ -132,7 +132,7 @@ fn partial_kind_update_changes_the_requested_field() {
             "--authority",
             r#"{"kind":"registry","version":"0.15.0"}"#,
             "--kind",
-            r#"{"installation_method":{"kind":"prebuilt"}}"#,
+            r#"{"installation_method":{"kind":"prebuilt-with-cargo-fallback","crate_name":"some-crate"}}"#,
         ],
     )
     .expect("update-component should succeed");
@@ -140,7 +140,7 @@ fn partial_kind_update_changes_the_requested_field() {
     let vm = read_manifest(&path);
     let vm = component(&vm, "vm");
     assert_eq!(
-        vm["installation_method"]["kind"], "prebuilt",
+        vm["installation_method"]["kind"], "prebuilt-with-cargo-fallback",
         "the requested field must actually change"
     );
     assert_eq!(

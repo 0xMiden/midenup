@@ -25,17 +25,23 @@
 //! part of a manifest must not take down the rest of it. A broken channel becomes uninstallable;
 //! it does not make the tool unusable.
 
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::Path,
+};
 
 use super::{Channel, Component, ComponentKind, Extra, Manifest, UnknownFields};
 use crate::{
     artifact::Artifact,
     plan::{
-        destination::DestinationClaims, destination_for, validate_artifact_id,
-        validate_artifact_id_for,
+        PlanError, component_key, destination::DestinationClaims, destination_for,
+        validate_artifact_id, validate_artifact_id_for,
     },
     version::{Authority, GitTarget},
 };
+
+/// The targets midenup is released for, as in the build matrix of `release.yml`.
+const RELEASE_TARGETS: [&str; 2] = ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"];
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum ValidationError {
@@ -198,6 +204,15 @@ pub enum ValidationError {
         channel: semver::Version,
         component: String,
         authority: String,
+    },
+    #[error(
+        "channel {channel}: component '{component}' cannot be installed on {target}, a target \
+         midenup is released for; add an artifact for it or use `prebuilt-with-cargo-fallback`"
+    )]
+    TargetNotCovered {
+        channel: semver::Version,
+        component: String,
+        target: &'static str,
     },
     #[error(
         "channels {first} and {second} both declare `migrates_from` {from}; an installation of \
@@ -539,6 +554,18 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
                 component: component.name.to_string(),
                 authority,
             });
+        } else if component.is_supported() {
+            for target in RELEASE_TARGETS {
+                if let Err(PlanError::TargetUnsupported { .. }) =
+                    component_key(component, target, Path::new("/"))
+                {
+                    errors.push(ValidationError::TargetNotCovered {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        target,
+                    });
+                }
+            }
         }
     }
 
@@ -1106,6 +1133,61 @@ mod tests {
             })
             .collect();
         assert_eq!(flagged, ["vm", "debugger"]);
+    }
+
+    fn linux_only(mut component: Component) -> Component {
+        component.artifacts.insert(
+            "miden-vm".to_string(),
+            Artifact::TargetSpecific {
+                uri: "https://example.invalid/%target".to_string(),
+                substitutions: None,
+                targets: [("x86_64-unknown-linux-gnu".to_string(), Default::default())]
+                    .into_iter()
+                    .collect(),
+                digest: None,
+                archive: None,
+                extra: Default::default(),
+            },
+        );
+        component
+    }
+
+    fn uncovered_targets(m: &Manifest) -> Vec<&'static str> {
+        errors_of(m)
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::TargetNotCovered { target, .. } => Some(target),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_prebuilt_component_missing_a_release_target_is_rejected() {
+        let m = with_mainnet(manifest(vec![linux_only(executable("vm", "miden-vm"))]));
+        assert_eq!(uncovered_targets(&m), ["aarch64-apple-darwin"]);
+    }
+
+    #[test]
+    fn a_cargo_fallback_covers_a_missing_release_target() {
+        let mut vm = linux_only(executable("vm", "miden-vm"));
+        let ComponentKind::Executable { installation_method, .. } = &mut vm.kind else {
+            unreachable!()
+        };
+        *installation_method = InstallationMethod::PrebuiltWithCargoFallback {
+            crate_name: "miden-vm".to_string(),
+            rustup_channel: None,
+            features: vec![],
+        };
+        let m = with_mainnet(manifest(vec![vm]));
+        assert!(uncovered_targets(&m).is_empty());
+    }
+
+    #[test]
+    fn a_target_agnostic_artifact_covers_every_release_target() {
+        let m =
+            with_mainnet(manifest(vec![with_artifact(executable("vm", "miden-vm"), "miden-vm")]));
+        assert!(uncovered_targets(&m).is_empty());
     }
 
     #[test]

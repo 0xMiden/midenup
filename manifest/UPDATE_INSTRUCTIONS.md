@@ -117,7 +117,9 @@ and `mainnet` must be declared, since it is the toolchain `midenup` uses when no
 one. No two toolchains may declare `migrates_from` the same one, since `midenup update` must find
 exactly one successor, and a toolchain may only migrate from an older one. A component must not be
 fetched from a local path or a git branch, whose contents change without the manifest changing, and
-the timestamp must not be in the future. A field the schema does not define is refused: `midenup` preserves such
+the timestamp must not be in the future. Every component must install on each target midenup is
+released for (`aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`): a prebuilt component missing
+an artifact for one must be `prebuilt-with-cargo-fallback`. A field the schema does not define is refused: `midenup` preserves such
 fields when reading, so a misspelled one would be published and silently never read. The exception
 is a field whose value is empty (`[]`, `{}` or `null`), which is indistinguishable from a known
 field the schema omits when empty; such a typo is harmless, since an empty field reads the same as
