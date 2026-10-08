@@ -385,7 +385,7 @@ args = [
     "update-manifest",
     "--",
     "--manifest-path",
-    "manifest/channel-manifest.json",
+    "manifest/v3/manifest.json",
     "check",
     "${@}",
 ]

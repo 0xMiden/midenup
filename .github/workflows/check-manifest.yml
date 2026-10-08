@@ -50,7 +50,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MIDENUP_HOME: ${{ runner.temp }}/midenup-home
-          MIDENUP_MANIFEST_URI: file://${{ github.workspace }}/manifest/channel-manifest.json
+          MIDENUP_MANIFEST_URI: file://${{ github.workspace }}/manifest/v3/manifest.json
         run: |
           set -euo pipefail
           tag=$(gh release view --json tagName --jq .tagName)
@@ -63,7 +63,7 @@ jobs:
       - name: Check the manifest against the one it replaces
         env:
           # On a push, the manifest at the previous tip of the branch
-          AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/channel-manifest.json', github.repository, github.event.before) }}
+          AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
           ALLOW_DOWNGRADE: ${{ (inputs.allow-downgrade || github.event_name == 'push') && '--allow-downgrade' || '' }}
         run: |
           set -euo pipefail

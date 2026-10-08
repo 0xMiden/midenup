@@ -128,7 +128,7 @@ To also judge the change as a replacement for the manifest it supersedes, compar
 `--against` takes any manifest URI; the one on the branch you are targeting is the usual choice:
 
 ```
-git show origin/next:manifest/channel-manifest.json > /tmp/previous-manifest.json
+git show origin/next:manifest/v3/manifest.json > /tmp/previous-manifest.json
 cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 

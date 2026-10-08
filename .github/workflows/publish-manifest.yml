@@ -25,7 +25,7 @@ jobs:
       # The manifest users are fetching right now, which is what this push replaces: a push
       # whose deployment failed never reached them. A downgrade was acknowledged by label on
       # the pull request, so it is allowed here.
-      against: https://0xmiden.github.io/midenup/channel-manifest.json
+      against: https://0xmiden.github.io/midenup/v3/manifest.json
       allow-downgrade: true
 
   prerelease-test:

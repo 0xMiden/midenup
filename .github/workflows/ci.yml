@@ -81,7 +81,7 @@ jobs:
     with:
       # The base as it was when the pull request was last updated: the merge commit being
       # checked was built on it, so the comparison does not shift when the base branch moves.
-      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/channel-manifest.json
+      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/v3/manifest.json
       # A deliberate downgrade is acknowledged with a label on the pull request.
       allow-downgrade: ${{ contains(github.event.pull_request.labels.*.name, 'manifest:allow-downgrade') }}
 
