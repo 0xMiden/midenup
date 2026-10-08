@@ -2,7 +2,7 @@ use std::{ffi::OsString, fmt, path::PathBuf, str::FromStr};
 
 use serde::{Deserialize, Serialize};
 
-use crate::manifest::Component;
+use crate::{manifest::Component, version::Authority};
 
 /// Represents an executable action that can be invoked by the `miden` CLI
 #[derive(Serialize, Deserialize, Default, Debug, Clone, PartialEq, Eq, Hash)]
@@ -22,15 +22,7 @@ impl From<Executable> for Vec<String> {
         let mut out = Vec::with_capacity(value.args.len());
 
         for expr in value.args {
-            match expr {
-                Expr::Executable => out.push("%installed-executable".to_string()),
-                Expr::LibPath(None) => out.push("%lib".to_string()),
-                Expr::LibPath(Some(name)) => out.push(format!("%lib({name})")),
-                Expr::VarPath(None) => out.push("%var".to_string()),
-                Expr::VarPath(Some(name)) => out.push(format!("%var({name})")),
-                Expr::EtcPath(name) => out.push(format!("%etc({name})")),
-                Expr::Verbatim(expr) => out.push(expr),
-            }
+            out.push(expr.to_string());
         }
 
         out
@@ -109,21 +101,99 @@ pub enum Expr {
     VarPath(Option<String>),
     /// Resolve the command to a file in the toolchain etc directory (`<toolchain>/etc/<file>`).
     EtcPath(String),
+    /// A template string, permitting a single argument to be built out of one or more expression
+    /// fragments, e.g. `"VER=%version,BIN=%installed-executable"`.
+    ///
+    /// Expression keywords contain Unicode letters and digits or underscores. An unknown keyword,
+    /// such as `VER=%versioned`, is an error rather than a partial `%version` expansion.
+    /// However, `VER=%version,` would be recognized as containing `%version`, as it is unambiguous.
+    ///
+    /// If you require an expression fragment in a place where it would otherwise be ambiguous, you
+    /// may use the syntax `%{..}` to disambiguate, e.g. `VER=%{version}ed`.
+    ///
+    /// Lastly, if you have a string that may contain what appears to be a valid expression fragment
+    /// that you _don't_ want expanded, you should use `%%` to escape the fragment keyword, e.g.
+    /// `%%version` would emit the string `%version`.
+    Template(Box<[Expr]>),
+    /// Resolves to the registry version of the current component.
+    ///
+    /// If the current component is not versioned via registry, use of this expression is invalid.
+    Version,
     /// An argument that is passed verbatim, as is.
     Verbatim(String),
 }
 
+impl Expr {
+    fn display(&self, braced: bool) -> DisplayExpr<'_> {
+        DisplayExpr { expr: self, braced }
+    }
+}
+
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Expr::Executable => f.write_str("%installed-executable"),
-            Expr::LibPath(None) => f.write_str("%lib"),
-            Expr::LibPath(Some(name)) => write!(f, "%lib({name})"),
-            Expr::VarPath(None) => f.write_str("%var"),
-            Expr::VarPath(Some(name)) => write!(f, "%var({name})"),
-            Expr::EtcPath(name) => write!(f, "%etc({name})"),
-            Expr::Verbatim(arg) => f.write_str(arg),
+        write!(f, "{}", self.display(false))
+    }
+}
+
+struct DisplayExpr<'a> {
+    expr: &'a Expr,
+    braced: bool,
+}
+
+impl fmt::Display for DisplayExpr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use core::fmt::Write;
+
+        fn write_escaped(f: &mut fmt::Formatter<'_>, text: &str, path: bool) -> fmt::Result {
+            use core::fmt::Write;
+
+            for c in text.chars() {
+                if c == '%' || (path && c == ')') {
+                    f.write_char('%')?;
+                }
+                f.write_char(c)?;
+            }
+            Ok(())
         }
+
+        fn write_path(f: &mut fmt::Formatter<'_>, keyword: &str, path: &str) -> fmt::Result {
+            write!(f, "{keyword}(")?;
+            write_escaped(f, path, true)?;
+            f.write_str(")")
+        }
+
+        match self.expr {
+            Expr::Verbatim(arg) => {
+                return write_escaped(f, arg, false);
+            },
+            Expr::Template(fragments) => {
+                for fragment in fragments {
+                    // Braces keep substitutions separate from neighboring literal text, including
+                    // identifier suffixes and parentheses that are not expression arguments.
+                    write!(f, "{}", fragment.display(true))?;
+                }
+                return Ok(());
+            },
+            _ => {},
+        }
+
+        if self.braced {
+            f.write_str("%{")?;
+        } else {
+            f.write_char('%')?;
+        }
+        match self.expr {
+            Expr::Executable => f.write_str("installed-executable"),
+            Expr::LibPath(None) => f.write_str("lib"),
+            Expr::LibPath(Some(name)) => write_path(f, "lib", name),
+            Expr::VarPath(None) => f.write_str("var"),
+            Expr::VarPath(Some(name)) => write_path(f, "var", name),
+            Expr::EtcPath(name) => write_path(f, "etc", name),
+            Expr::Version => f.write_str("version"),
+            Expr::Template(_) | Expr::Verbatim(_) => unreachable!(),
+        }?;
+
+        if self.braced { f.write_char('}') } else { Ok(()) }
     }
 }
 
@@ -131,36 +201,157 @@ impl FromStr for Expr {
     type Err = InvalidExecutable;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        #[inline]
-        fn parse_parenthesized(input: &str) -> Option<&str> {
-            input.strip_prefix('(')?.strip_suffix(')')
+        fn parse_delimited(
+            chars: &mut core::iter::Peekable<core::str::CharIndices>,
+            open: char,
+            close: char,
+        ) -> Result<Option<String>, usize> {
+            let Some((start, _)) = chars.next_if(|(_, c)| *c == open) else {
+                return Ok(None);
+            };
+
+            let mut buf = String::with_capacity(64);
+
+            while let Some((_, c)) = chars.next() {
+                if c == close {
+                    return Ok(Some(buf));
+                }
+                if c == '%'
+                    && let Some((_, escaped)) = chars.next_if(|(_, c)| *c == '%' || *c == close)
+                {
+                    buf.push(escaped);
+                    continue;
+                }
+                buf.push(c);
+            }
+
+            Err(start)
         }
 
-        if value == "%installed-executable" {
-            Ok(Expr::Executable)
-        } else if let Some(rest) = value.strip_prefix("%lib") {
-            if rest.is_empty() {
-                return Ok(Expr::LibPath(None));
+        fn parse_word(chars: &mut core::iter::Peekable<core::str::CharIndices>) -> Option<String> {
+            let mut buf = String::with_capacity(64);
+
+            while let Some((_, c)) = chars.peek() {
+                match *c {
+                    c if c.is_alphanumeric() || c == '_' => {
+                        chars.next();
+                        buf.push(c);
+                    },
+                    '-' if matches!(buf.as_str(), "installed") => {
+                        chars.next();
+                        buf.push('-');
+                    },
+                    _other => break,
+                }
             }
-            let name = parse_parenthesized(rest)
-                .ok_or_else(|| InvalidExecutable::InvalidLibExpr(rest.to_string()))?;
-            Ok(Expr::LibPath(Some(name.to_string())))
-        } else if let Some(rest) = value.strip_prefix("%var") {
-            if rest.is_empty() {
-                return Ok(Expr::VarPath(None));
+
+            if buf.is_empty() { None } else { Some(buf) }
+        }
+
+        fn parse_fragment(
+            input: &str,
+            chars: &mut core::iter::Peekable<core::str::CharIndices>,
+        ) -> Result<Option<Expr>, InvalidExecutable> {
+            let braced = chars.next_if(|(_, c)| *c == '{').map(|(i, _)| i);
+
+            let Some(word) = parse_word(chars) else {
+                return Ok(None);
+            };
+
+            let expr = match word.as_str() {
+                "installed-executable" => Expr::Executable,
+                "version" => Expr::Version,
+                "lib" => match parse_delimited(chars, '(', ')') {
+                    Ok(arg) => Expr::LibPath(arg),
+                    Err(start) => {
+                        return Err(InvalidExecutable::UnclosedParen {
+                            input: input.to_string(),
+                            start,
+                        });
+                    },
+                },
+                "var" => match parse_delimited(chars, '(', ')') {
+                    Ok(arg) => Expr::VarPath(arg),
+                    Err(start) => {
+                        return Err(InvalidExecutable::UnclosedParen {
+                            input: input.to_string(),
+                            start,
+                        });
+                    },
+                },
+                "etc" => match parse_delimited(chars, '(', ')') {
+                    Ok(Some(arg)) => Expr::EtcPath(arg),
+                    Ok(None) => return Err(InvalidExecutable::MissingEtcPath),
+                    Err(start) => {
+                        return Err(InvalidExecutable::UnclosedParen {
+                            input: input.to_string(),
+                            start,
+                        });
+                    },
+                },
+                other => {
+                    return Err(InvalidExecutable::UnknownFragmentKind {
+                        input: input.to_string(),
+                        fragment: other.to_string(),
+                    });
+                },
+            };
+
+            if let Some(brace_start) = braced {
+                // We expect a trailing '}' if we've reached this point
+                if chars.next_if(|(_, c)| *c == '}').is_none() {
+                    return Err(InvalidExecutable::UnclosedBrace {
+                        input: input.to_string(),
+                        start: brace_start,
+                    });
+                }
             }
-            let name = parse_parenthesized(rest)
-                .ok_or_else(|| InvalidExecutable::InvalidVarExpr(rest.to_string()))?;
-            Ok(Expr::VarPath(Some(name.to_string())))
-        } else if let Some(rest) = value.strip_prefix("%etc") {
-            if rest.is_empty() {
-                return Err(InvalidExecutable::MissingEtcPath);
+            Ok(Some(expr))
+        }
+
+        let mut fragments = Vec::new();
+        let mut chars = value.char_indices().peekable();
+        let mut buf = String::new();
+
+        while let Some((i, c)) = chars.next() {
+            match c {
+                '%' => {
+                    if chars.next_if(|(_, c)| *c == '%').is_some() {
+                        // The fragment was escaped, so expand as verbatim
+                        buf.push('%');
+                        continue;
+                    }
+
+                    match parse_fragment(value, &mut chars)? {
+                        Some(fragment) => {
+                            if !buf.is_empty() {
+                                fragments.push(Expr::Verbatim(core::mem::take(&mut buf)));
+                            }
+                            fragments.push(fragment);
+                        },
+                        None => {
+                            return Err(InvalidExecutable::ExpectedExprFragment {
+                                input: value.to_string(),
+                                start: i,
+                            });
+                        },
+                    }
+                },
+                c => {
+                    buf.push(c);
+                },
             }
-            let name = parse_parenthesized(rest)
-                .ok_or_else(|| InvalidExecutable::InvalidEtcExpr(rest.to_string()))?;
-            Ok(Expr::EtcPath(name.to_string()))
-        } else {
-            Ok(Expr::Verbatim(value.to_string()))
+        }
+
+        match fragments.len() {
+            0 => Ok(Expr::Verbatim(buf)),
+            1 if buf.is_empty() => Ok(fragments.pop().unwrap()),
+            _ => {
+                if !buf.is_empty() {
+                    fragments.push(Expr::Verbatim(buf));
+                }
+                Ok(Expr::Template(fragments.into_boxed_slice()))
+            },
         }
     }
 }
@@ -169,6 +360,16 @@ impl FromStr for Expr {
 pub enum InvalidExecutable {
     #[error("invalid executable: empty executable expression")]
     Empty,
+    #[error("invalid executable: unclosed parentheses opened at column {start} in expr '{input}'")]
+    UnclosedParen { input: String, start: usize },
+    #[error("invalid executable: unclosed brace opened at column {start} in expr '{input}'")]
+    UnclosedBrace { input: String, start: usize },
+    #[error("invalid executable: unrecognized fragment kind '{fragment}' in expr '{input}'")]
+    UnknownFragmentKind { input: String, fragment: String },
+    #[error(
+        "invalid executable: expected expression fragment at column {start} in template '{input}'"
+    )]
+    ExpectedExprFragment { input: String, start: usize },
     #[error("invalid executable: expected expression to start with an executable")]
     NotExecutable,
     #[error("invalid executable: component '{0}' is not executable, but was referenced as one")]
@@ -206,6 +407,11 @@ pub enum InvalidExecutable {
     Var { path: PathBuf, reason: String },
     #[error("invalid executable: unknown package component '{0}'")]
     UnknownPackage(String),
+    #[error(
+        "component '{component}' refers to `%version` in '{expression}', but it has no registry \
+         version"
+    )]
+    VersionUnavailable { component: String, expression: String },
 }
 
 /// Where `%`-expressions resolve to, for one invocation.
@@ -215,11 +421,15 @@ pub enum InvalidExecutable {
 /// `%etc` against another would be a very quiet kind of wrong.
 #[derive(Debug, Clone)]
 pub struct Resolver {
-    /// The active publication, reached through `toolchains/<channel>`.
+    /// The immutable publication selected for this invocation.
     sysroot: PathBuf,
     /// `$MIDENUP_HOME/var/<selector>`: mutable state, deliberately *outside* the publication, so
     /// it survives every republication of the toolchain (spec section 3.2).
     var: PathBuf,
+    /// Used when validating manifests independently of an installation, this flag indicates that
+    /// the resolver should skip any checks that would require a live installation (e.g. file
+    /// existence)
+    no_sysroot: bool,
 }
 
 impl Resolver {
@@ -231,14 +441,45 @@ impl Resolver {
         home: &std::path::Path,
         selector: &crate::channel::UserChannel,
     ) -> Self {
+        Self::with_var(sysroot, crate::paths::var_dir(home, selector))
+    }
+
+    /// Keep runtime data identity independent of the immutable publication used for this run.
+    pub fn with_var(sysroot: impl Into<PathBuf>, var: PathBuf) -> Self {
         Self {
             sysroot: sysroot.into(),
-            var: crate::paths::var_dir(home, selector),
+            var,
+            no_sysroot: false,
+        }
+    }
+
+    /// Creates a resolver with dummy sysroot/home paths, in order to verify a manifest without
+    /// requiring a live midenup installation.
+    pub fn no_sysroot(selector: &crate::channel::UserChannel) -> Self {
+        let home = std::env::temp_dir().join("midenup-no-sysroot");
+        let sysroot = home.join("toolchains").join(selector.to_string());
+        Self {
+            sysroot,
+            var: crate::paths::var_dir(&home, selector),
+            no_sysroot: true,
         }
     }
 
     /// Resolves one expression on behalf of `component`.
     pub fn resolve(
+        &self,
+        expr: &Expr,
+        component: &Component,
+    ) -> Result<OsString, InvalidExecutable> {
+        self.resolve_inner(expr, component).map_err(|err| match err {
+            InvalidExecutable::VersionUnavailable { component, .. } => {
+                InvalidExecutable::VersionUnavailable { component, expression: expr.to_string() }
+            },
+            err => err,
+        })
+    }
+
+    fn resolve_inner(
         &self,
         expr: &Expr,
         component: &Component,
@@ -271,14 +512,34 @@ impl Resolver {
             // database directory, which does not exist until the client makes it, so requiring it
             // to exist would fail on every fresh installation.
             Expr::VarPath(file) => {
-                std::fs::create_dir_all(&self.var).map_err(|source| InvalidExecutable::Var {
-                    path: self.var.clone(),
-                    reason: source.to_string(),
-                })?;
+                if !self.no_sysroot {
+                    std::fs::create_dir_all(&self.var).map_err(|source| {
+                        InvalidExecutable::Var {
+                            path: self.var.clone(),
+                            reason: source.to_string(),
+                        }
+                    })?;
+                }
                 Ok(match file {
                     Some(file) => self.var.join(file).into_os_string(),
                     None => self.var.clone().into_os_string(),
                 })
+            },
+            Expr::Template(fragments) => {
+                let mut buf = OsString::new();
+                for fragment in fragments {
+                    buf.push(self.resolve_inner(fragment, component)?);
+                }
+                Ok(buf)
+            },
+            Expr::Version => {
+                let Authority::Registry { version } = &component.version else {
+                    return Err(InvalidExecutable::VersionUnavailable {
+                        component: component.name.to_string(),
+                        expression: expr.to_string(),
+                    });
+                };
+                Ok(version.to_string().into())
             },
             Expr::Verbatim(arg) => Ok(arg.clone().into()),
         }
@@ -288,15 +549,15 @@ impl Resolver {
     /// for it.
     ///
     /// `%lib` and `%etc` name *installed* files. One that is missing means the toolchain is not
-    /// what its receipt says it is, which is worth saying plainly -- passing the path through and
-    /// letting the component fail on it names the wrong culprit.
+    /// what its receipt says it is, and thus passing the path through and letting the component
+    /// fail on it names the wrong culprit.
     fn existing(
         &self,
         path: PathBuf,
         component: &Component,
         expr: &Expr,
     ) -> Result<OsString, InvalidExecutable> {
-        if path.try_exists().is_ok_and(|exists| exists) {
+        if self.no_sysroot || path.try_exists().is_ok_and(|exists| exists) {
             Ok(path.into_os_string())
         } else {
             Err(InvalidExecutable::MissingPath {
@@ -508,6 +769,40 @@ mod tests {
         );
     }
 
+    /// `%version` inside a verbatim word resolves to the registry version of the component, so a
+    /// manifest can name a release-specific value such as an image tag without hard-coding it.
+    #[test]
+    fn version_substitution_inside_a_verbatim_word_uses_the_component_registry_version() {
+        let env = Env::new();
+        let node = node();
+
+        let argv = executable(&["env", "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v%version"])
+            .to_argv(&node, &env.resolver())
+            .expect("should resolve");
+
+        assert_eq!(argv, args(&["env", "MIDEN_NODE_IMAGE=ghcr.io/0xmiden/miden-node:v0.1.0"]));
+    }
+
+    /// A component without a registry version has nothing for `%version` to resolve to, and the
+    /// error names the component and the offending word rather than passing `%version` through.
+    #[test]
+    fn version_substitution_without_a_registry_version_is_an_error() {
+        let env = Env::new();
+        let mut node = node();
+        node.version = crate::version::Authority::Path {
+            path: PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let err = executable(&["env", "TAG=v%version"])
+            .to_argv(&node, &env.resolver())
+            .expect_err("should fail");
+
+        let message = err.to_string();
+        assert!(message.contains("node"), "names the component: {message}");
+        assert!(message.contains("TAG=v%{version}"), "names the canonical word: {message}");
+    }
+
     #[test]
     fn a_component_without_subcommands_appends_all_user_args() {
         let env = Env::new();
@@ -693,5 +988,25 @@ mod tests {
             executable(&["%lib"]).to_argv(&vm(), &env.resolver()),
             Err(InvalidExecutable::NotExecutable)
         ));
+    }
+
+    #[test]
+    fn legacy_verbatim_arguments_keep_literal_percent_syntax() {
+        use crate::manifest::v1::CliCommand;
+
+        let env = Env::new();
+        let words = ["printf", "%s", "%lib", "100%%", "%version"];
+        // Legacy substitutions are separate enum variants; these are all literal words.
+        let command = Executable::try_from(
+            words
+                .into_iter()
+                .map(|word| CliCommand::Verbatim(word.to_string()))
+                .collect::<Vec<_>>(),
+        )
+        .expect("legacy verbatim arguments must remain valid");
+        assert_eq!(command.to_argv(&node(), &env.resolver()).unwrap(), args(&words));
+        let json = serde_json::to_string(&command).unwrap();
+        let reparsed: Executable = serde_json::from_str(&json).unwrap();
+        assert_eq!(reparsed.to_argv(&node(), &env.resolver()).unwrap(), args(&words));
     }
 }

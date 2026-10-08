@@ -13,6 +13,7 @@ use crate::{
     commands,
     config::Config,
     fault,
+    identity::InstallationId,
     options::{InstallationOptions, IntentUpdate},
     paths,
     resolve::Intent,
@@ -34,9 +35,19 @@ pub fn install(
     state: &mut LocalState,
     options: &InstallationOptions,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        options.custom.is_none() || options.network.is_none(),
+        "a custom installation cannot also publish a global network link"
+    );
+    // Network links share their parent with the custom namespace. Validate before publishing:
+    // manifest loading is permissive, and an invalid selector must not leave a partial install.
+    if let Some(network) = &options.network {
+        crate::channel::validate_network_name(network)?;
+    }
     commands::setup_midenup(config)?;
 
     let home = &config.midenup_home;
+    let installation_id = options.installation_id(&channel.name);
 
     // Every install produces a *new* publication, named opaquely. Nothing may infer identity from
     // the name: a name derived from the plan key would invite treating equal keys as equal bytes,
@@ -45,24 +56,64 @@ pub fn install(
     let publication = paths::publication_dir(home, &channel.name, &publication_id);
 
     // The single decision this whole function turns on.
-    let intent = carry_migrated_intent(state, channel, effective_intent(state, channel, options));
+    let intent = carry_migrated_intent(
+        state,
+        channel,
+        &installation_id,
+        effective_intent(state, channel, options),
+    );
     let plan = crate::plan::build_plan(channel, &intent, config.target(), &publication)?;
 
     // What the publication being replaced owns, if this build published it. Only a receipt can
     // say; a directory listing cannot distinguish installed content from anything else that
     // happens to be there.
-    let previous = previous_publication(config, state, &channel.name);
-    let stale = options.stale.clone();
+    let previous = previous_publication(config, state, &installation_id);
+    // A component whose patch changed must be rebuilt, not seeded from the previous publication.
+    let mut stale = options.stale.clone();
+    if let Some(installed) = state.get_by_id(&installation_id) {
+        stale.extend(crate::toolchain::changed_patches(&installed.patches, &options.patches));
+        stale.extend(installed.components.iter().filter_map(|old| {
+            if options.held_back.iter().any(|held| held.name == old.name) {
+                return None;
+            }
+            let new = channel.get_component(&old.name)?;
+            let changed_source = plan
+                .steps
+                .iter()
+                .filter(|step| step.owner() == old.name.as_ref())
+                .filter_map(|step| step.authority())
+                .any(|authority| old.version.source_pin().changed_to(authority.source_pin()));
+            (changed_source
+                || matches!(
+                    commands::update::classify(
+                        old,
+                        new,
+                        config.target(),
+                        &config.working_directory
+                    ),
+                    commands::update::ChangeClass::InstallationImpacting
+                ))
+            .then(|| old.name.to_string())
+        }));
+    }
 
     // 1. PREPARE. The record this operation intends to commit is written down *before* any of it
     // happens, so that a crash anywhere after this point can be completed or discarded rather than
     // reconstructed by inspection.
     let mut entry = crate::publish::JournalEntry::install(
         channel.name.clone(),
-        previous_publication_id(state, &channel.name),
+        previous_publication_id(state, &installation_id),
         publication_id.clone(),
         target_installation(config, channel, &intent, options, &publication_id, &plan)?,
     );
+    if let Some(previous) = state.get_by_id(&installation_id) {
+        entry = entry.with_previous(previous);
+    }
+    if options.custom.is_some() {
+        // Older binaries ignore custom journal fields. Upgrade the state header first so they
+        // cannot recover a named operation as though it belonged to the canonical channel.
+        state.save(&paths::state_path(home))?;
+    }
     crate::publish::journal::prepare(home, &entry)?;
     fault::fail_at(fault::FaultPoint::PostPrepare)?;
 
@@ -83,6 +134,7 @@ pub fn install(
     let realized = crate::install::execute(
         &plan,
         &publication,
+        &paths::cargo_build_cache(home),
         crate::report::subprocess_output_visible(),
         config.debug,
     )?;
@@ -122,7 +174,22 @@ pub fn install(
     // equal to what the *next* run will observe before building. Recording the pre-build time
     // instead makes every subsequent update believe the source changed.
     if let Some(installation) = entry.target_installation.as_mut() {
-        refresh_path_modification_times(config, &mut installation.components);
+        for component in &mut installation.components {
+            let rebuilt = plan.steps.iter().any(|step| {
+                step.owner() == component.name.as_ref() && realized.contains_key(step.dest())
+            });
+            if rebuilt {
+                refresh_path_modification_times(config, std::slice::from_mut(component));
+            } else if plan.steps.iter().any(|step| step.owner() == component.name.as_ref())
+                && let Some(previous) = state.get_by_id(&installation_id).and_then(|previous| {
+                    previous.components.iter().find(|old| old.name == component.name)
+                })
+            {
+                // With physical outputs but no executed steps, every output was seeded. Keep
+                // their build's source pin; virtual components have no files to carry forward.
+                component.version = previous.version.clone();
+            }
+        }
     }
     crate::publish::journal::prepare(home, &entry)?;
     fault::fail_at(fault::FaultPoint::PostVerify)?;
@@ -141,14 +208,9 @@ pub fn install(
     // 6. DERIVE. Only the network the user named gets a link. Other networks that happen to name
     // the same channel upstream were not asked for, so `toolchains/<network>` records exactly the
     // networks this machine installed, and only those are reported on and updated later.
-    if let Some(network) = &options.network {
-        // A network name becomes a path segment under `toolchains/`, and `replace_symlink` renames
-        // over whatever is at that path. Loading a manifest is deliberately permissive, so the
-        // authoring gate in `manifest::validate` cannot be the only thing standing between a
-        // manifest and a symlink written outside `$MIDENUP_HOME`.
-        crate::plan::validate_artifact_id(network)
-            .with_context(|| format!("'{network}' is not a valid network name"))?;
-
+    if let Some(network) = &options.network
+        && options.custom.is_none()
+    {
         let relative_channel_target = PathBuf::from(format!("{}", channel.name));
         let link = paths::network_link(home, network);
         crate::trace!("linking {} -> {}", link.display(), relative_channel_target.display());
@@ -161,7 +223,10 @@ pub fn install(
     // 7. CLEAN.
     crate::publish::journal::clean(home, &entry)?;
 
-    crate::info!("installed channel '{}'", channel.name);
+    match &installation_id {
+        InstallationId::Version(version) => crate::info!("installed channel '{version}'"),
+        InstallationId::Custom(_) => crate::info!("installed toolchain '{installation_id}'"),
+    }
 
     Ok(())
 }
@@ -180,10 +245,12 @@ pub(crate) fn effective_intent(
 ) -> Intent {
     // What the caller asked for on this invocation.
     let requested = Intent {
-        profiles: [options.profile].into_iter().collect(),
+        profiles: [options.profile.unwrap_or_default()].into_iter().collect(),
         roots: options.components.iter().cloned().collect(),
     };
-    let previous = state.get(&channel.name).map(|installation| installation.intent.clone());
+    let previous = state
+        .get_by_id(&options.installation_id(&channel.name))
+        .map(|installation| installation.intent.clone());
 
     match options.intent_update.clone() {
         // A direct `midenup install`: record exactly what the command line asked for.
@@ -218,10 +285,15 @@ pub(crate) fn effective_intent(
 ///
 /// Both are one-time by construction rather than by a flag: the install they are part of replaces
 /// the migrated record with a managed one.
-fn carry_migrated_intent(state: &LocalState, channel: &Channel, intent: Intent) -> Intent {
+fn carry_migrated_intent(
+    state: &LocalState,
+    channel: &Channel,
+    id: &InstallationId,
+    intent: Intent,
+) -> Intent {
     use colored::Colorize;
 
-    let Some(migrated) = state.get(&channel.name).filter(|installation| !installation.is_managed())
+    let Some(migrated) = state.get_by_id(id).filter(|installation| !installation.is_managed())
     else {
         return intent;
     };
@@ -320,6 +392,7 @@ fn target_installation(
 
     Ok(Installation {
         channel: channel.name.clone(),
+        custom: options.custom.clone(),
         intent: intent.clone(),
         components: installed_components,
         publication: PublicationRef::Managed {
@@ -332,6 +405,7 @@ fn target_installation(
             semver::Version::parse(env!("CARGO_PKG_VERSION"))
                 .expect("CARGO_PKG_VERSION is always valid semver"),
         ),
+        patches: options.patches.clone(),
     })
 }
 
@@ -365,8 +439,8 @@ fn refresh_path_modification_times(config: &Config, components: &mut [crate::man
 }
 
 /// The publication currently recorded for `channel`, if this build published it.
-fn previous_publication_id(state: &LocalState, channel: &semver::Version) -> Option<PublicationId> {
-    match &state.get(channel)?.publication {
+fn previous_publication_id(state: &LocalState, id: &InstallationId) -> Option<PublicationId> {
+    match &state.get_by_id(id)?.publication {
         PublicationRef::Managed { id, .. } => Some(id.clone()),
         PublicationRef::NeedsReinstall => None,
     }
@@ -381,13 +455,13 @@ fn previous_publication_id(state: &LocalState, channel: &semver::Version) -> Opt
 fn previous_publication(
     config: &Config,
     state: &LocalState,
-    channel: &semver::Version,
+    id: &InstallationId,
 ) -> Option<(PathBuf, crate::state::Receipt)> {
-    let installation = state.get(channel)?;
+    let installation = state.get_by_id(id)?;
     let PublicationRef::Managed { id, .. } = &installation.publication else {
         return None;
     };
-    let dir = paths::publication_dir(&config.midenup_home, channel, id);
+    let dir = paths::publication_dir(&config.midenup_home, &installation.channel, id);
     let receipt = crate::publish::read_receipt(&dir).ok()?;
     Some((dir, receipt))
 }
@@ -488,4 +562,79 @@ pub fn get_installed_cargo_binaries(
     }
 
     Ok(installed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::identity::CustomToolchain;
+
+    fn config(root: &std::path::Path) -> Config {
+        Config::init(root.to_path_buf(), root.join("home"), root.join("cargo"), "", true).unwrap()
+    }
+
+    fn virtual_channel(version: &str) -> Channel {
+        let component = serde_json::from_value(serde_json::json!({
+            "name": "node", "kind": "command",
+            "version": {"kind": "registry", "version": version},
+            "profiles": ["minimal"], "format": ["echo", "hello"]
+        }))
+        .unwrap();
+        Channel::new(semver::Version::new(0, 15, 0), vec![component])
+    }
+
+    fn named_options() -> InstallationOptions {
+        InstallationOptions {
+            custom: Some(CustomToolchain {
+                name: "dev".parse().unwrap(),
+                channel: "0.15.0".parse().unwrap(),
+            }),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_virtual_component_records_its_new_authority_after_reinstall() {
+        let temp = tempdir::TempDir::new("virtual-reinstall").unwrap();
+        let config = config(temp.path());
+        let mut state = LocalState::default();
+        let options = named_options();
+        install(&config, &virtual_channel("0.1.0"), &mut state, &options).unwrap();
+        install(&config, &virtual_channel("0.2.0"), &mut state, &options).unwrap();
+        let persisted = LocalState::load(&paths::state_path(&config.midenup_home)).unwrap();
+        let component = &persisted.installations[0].components[0];
+        assert_eq!(
+            component.version,
+            Authority::Registry { version: semver::Version::new(0, 2, 0) }
+        );
+    }
+
+    #[test]
+    fn invalid_network_options_fail_before_creating_installation_files() {
+        let channel = virtual_channel("0.1.0");
+        for (network, custom) in [
+            ("custom", false),
+            ("Custom", false),
+            ("default", false),
+            ("../escape", false),
+            ("mainnet", true),
+        ] {
+            let temp = tempdir::TempDir::new("invalid-install-network").unwrap();
+            let config = config(temp.path());
+            let mut state = LocalState::default();
+            let mut options = if custom {
+                named_options()
+            } else {
+                InstallationOptions::default()
+            };
+            options.network = Some(network.into());
+            assert!(
+                install(&config, &channel, &mut state, &options).is_err(),
+                "accepted {network}"
+            );
+            assert!(!config.midenup_home.exists(), "created installation files for {network}");
+            assert!(!config.cargo_home.exists(), "created dispatch links for {network}");
+            assert!(state.installations.is_empty());
+        }
+    }
 }

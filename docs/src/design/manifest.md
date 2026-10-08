@@ -18,7 +18,7 @@ They share no top-level key — the first declares `manifest_version`, the secon
 
 The upstream manifest is the source of truth for *everything about a component*: where to fetch it, what it installs, what it is called. Local state records only what this machine chose and what it got. Nothing is duplicated between them, because two copies of one fact drift.
 
-Most users will use the manifest published and maintained by the Miden team [here](https://0xmiden.github.io/midenup/channel-manifest.json). `midenup` also supports custom manifests via `MIDENUP_MANIFEST_URI`; see [Custom manifests](#custom-manifests).
+Most users will use the manifest published and maintained by the Miden team [here](https://0xmiden.github.io/midenup/v3/manifest.json). `midenup` also supports custom manifests via `MIDENUP_MANIFEST_URI`; see [Custom manifests](#custom-manifests).
 
 ## Versioning and forward compatibility
 

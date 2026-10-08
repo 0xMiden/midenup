@@ -1,11 +1,11 @@
 use std::{borrow::Cow, collections::VecDeque, ffi::OsString, process::ExitCode, string::ToString};
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 use colored::Colorize;
 
 pub use crate::config::Config;
 use crate::{
-    channel::{Channel, UserChannel},
+    channel::Channel,
     exec::{self, Executable, Resolver},
     manifest::{Component, ComponentKind, ExecutableComponent},
     state::LocalState,
@@ -107,7 +107,6 @@ enum MidenArgument<'a> {
 /// Struct containing the command to execute and the channel to execute it against.
 struct ExecutionEnvironment<'a> {
     argument: MidenArgument<'a>,
-    active_channel: &'a Channel,
 }
 
 #[derive(Debug)]
@@ -173,17 +172,14 @@ impl<'a> ToolchainEnvironment<'a> {
         // Try the active view first, then fall back to everything installed under the channel.
         if let Some(active_channel) = self.active_channel.as_ref() {
             match resolve_argument(active_channel, argument, matches) {
-                Ok(arg) => return Ok(ExecutionEnvironment { argument: arg, active_channel }),
+                Ok(arg) => return Ok(ExecutionEnvironment { argument: arg }),
                 Err(EnvironmentError::InvalidCommand { .. }) => {},
                 Err(e) => return Err(e),
             }
         }
 
         let miden_argument = resolve_argument(self.installed_channel, argument, matches)?;
-        Ok(ExecutionEnvironment {
-            argument: miden_argument,
-            active_channel: self.installed_channel,
-        })
+        Ok(ExecutionEnvironment { argument: miden_argument })
     }
 
     fn get_executables_display(&self) -> String {
@@ -269,7 +265,12 @@ fn build_miden_command() -> clap::Command {
         // This is what allows `miden` to be dynamic.
         .allow_external_subcommands(true)
         // This adds support for the -h and --help flags.
-        .arg(clap::Arg::new(CLAP_HELP_FLAG).short('h').long("help").action(clap::ArgAction::SetTrue))
+        .arg(
+            clap::Arg::new(CLAP_HELP_FLAG)
+                .short('h')
+                .long("help")
+                .action(clap::ArgAction::SetTrue),
+        )
         // This adds support for `miden help <alias/component>`.
         .subcommand(
             clap::Command::new(CLAP_HELP_SUBCMD)
@@ -277,7 +278,11 @@ fn build_miden_command() -> clap::Command {
                 .arg(clap::Arg::new(CLAP_HELP_COMPONENT_ARG).num_args(0..=1)),
         )
         // This adds support for --version.
-        .arg(clap::Arg::new(CLAP_VERSION_FLAG).long("version").action(clap::ArgAction::SetTrue))
+        .arg(
+            clap::Arg::new(CLAP_VERSION_FLAG)
+                .long("version")
+                .action(clap::ArgAction::SetTrue),
+        )
 }
 
 /// Converts clap [ArgMatches] into a [MidenSubcommand].
@@ -342,7 +347,7 @@ pub fn miden_wrapper(
             return Ok(ExitCode::SUCCESS);
         },
         MidenSubcommand::Version => {
-            println!("{}", display_version(config));
+            println!("{}", display_version(config, crate::commands::VersionStyle::Detailed));
             return Ok(ExitCode::SUCCESS);
         },
         _ => (),
@@ -360,15 +365,22 @@ pub fn miden_wrapper(
     // `toolchains/<network>` records the last answer upstream gave about which channel that
     // network names, so dispatch never needs the network to find its own toolchain (spec section
     // 13.1).
-    let installed_channel = {
-        let active = config
-            .local_channel(&toolchain.channel)
-            .with_context(|| format!("channel '{}' is unavailable", toolchain.channel))?;
-        state
-            .get(&active)
-            .map(|installation| installation.as_channel())
-            .with_context(|| format!("channel '{active}' is not installed"))?
+    let selector = toolchain.selector();
+    let identity = toolchain.installation_id(config).context("active toolchain is unavailable")?;
+    let installation = state
+        .get_by_id(&identity)
+        .with_context(|| format!("toolchain '{identity}' is not installed"))?;
+    let publication = match &installation.publication {
+        crate::state::PublicationRef::Managed { id, .. } => {
+            crate::paths::publication_dir(&config.midenup_home, &installation.channel, id)
+        },
+        crate::state::PublicationRef::NeedsReinstall => {
+            bail!("toolchain '{identity}' needs reinstallation")
+        },
     };
+    let installed_channel = installation.as_channel();
+    let source = installation.custom.as_ref().map(|custom| &custom.channel).unwrap_or(&selector);
+    let var = crate::paths::runtime_var_dir(&config.midenup_home, &selector, source);
     let toolchain_environment = ToolchainEnvironment::new(&installed_channel, partial_channel);
 
     // Whether the user requested help for a specific alias or component (e.g. `miden help
@@ -388,7 +400,7 @@ pub fn miden_wrapper(
     };
 
     // We obtain the target executable and prefixes that are associated with the passed subcommand.
-    let (target_exe, args, active_channel) = match parsed_subcommand {
+    let (target_exe, args) = match parsed_subcommand {
         MidenSubcommand::Version
         | MidenSubcommand::Help(HelpMessage::Default)
         | MidenSubcommand::Help(HelpMessage::Toolchain) => unreachable!(),
@@ -404,8 +416,7 @@ pub fn miden_wrapper(
         } => {
             match toolchain_environment.resolve(resolve, subcommand_matches) {
                 Ok(environment) => {
-                    let active_channel = environment.active_channel;
-                    let resolver = resolver_for(config, active_channel, &toolchain.channel);
+                    let resolver = Resolver::with_var(publication.clone(), var.clone());
 
                     // Since we're using "allow_external_subcommands" all the remaining arguments
                     // are stored in the empty string "".
@@ -448,7 +459,7 @@ pub fn miden_wrapper(
 
                     let mut argv = VecDeque::from(argv);
                     let arg0 = argv.pop_front().expect("composition never yields an empty argv");
-                    (arg0, Vec::from(argv), active_channel)
+                    (arg0, Vec::from(argv))
                 },
                 // `miden help <command>` on a component whose verbs live in `subcommands` has
                 // exactly one useful answer, and it is the list. Reporting "requires a subcommand"
@@ -479,10 +490,12 @@ pub fn miden_wrapper(
         },
     };
 
-    let status = config.execute_command(active_channel, &target_exe, &args).with_context(|| {
-        let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
-        format!("failed to run '{user_input}'")
-    })?;
+    let status = config
+        .execute_command_in(&publication, &selector, &target_exe, &args)
+        .with_context(|| {
+            let user_input = argv.iter().map(|s| s.to_string_lossy()).collect::<Vec<_>>().join(" ");
+            format!("failed to run '{user_input}'")
+        })?;
 
     Ok(exit_code_from_status(status))
 }
@@ -508,18 +521,27 @@ fn exit_code_from_i32(code: i32) -> ExitCode {
     ExitCode::from(code.try_into().unwrap_or(1))
 }
 
-pub fn display_version(config: &Config) -> String {
+pub fn display_version(config: &Config, style: crate::commands::VersionStyle) -> String {
+    use crate::commands::VersionStyle;
+
     // NOTE: These files are generated in the project's build.rs.
-
-    let compiled_cargo_version = include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
-
-    let git_revision = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in"));
-
-    let midenup_version = env!(
+    const COMPILED_CARGO_VERSION: &str =
+        include_str!(concat!(env!("OUT_DIR"), "/cargo_version.in"));
+    const GIT_REVISION: &str = include_str!(concat!(env!("OUT_DIR"), "/git_revision.in"));
+    const MIDENUP_VERSION: &str = env!(
         "CARGO_PKG_VERSION",
         "CARGO_PKG_VERSION environment variable not set. This should be set by cargo by default; \
          however, if not, it can be manually set using the `version` field in the Cargo.toml file"
     );
+
+    let json = match style {
+        VersionStyle::None => unreachable!(),
+        VersionStyle::Detailed => false,
+        VersionStyle::Json => true,
+        VersionStyle::Plain => return MIDENUP_VERSION.to_string(),
+        VersionStyle::Revision => return GIT_REVISION.to_string(),
+    };
+
     let cargo_version = {
         std::process::Command::new("cargo")
             .arg("--version")
@@ -538,47 +560,75 @@ pub fn display_version(config: &Config) -> String {
     let cargo_version = cargo_version.trim();
 
     let toolchain_version = Toolchain::current(config, None)
-        .and_then(|(toolchain, _)| {
-            // `midenup --version` is informational and must not reach for the network.
-            config
-                .local_channel(&toolchain.channel)
-                .map(|channel| channel.to_string())
-                .ok_or(anyhow!("channel: {} doesn't exist or isn't available ", toolchain.channel))
-        })
         .inspect_err(|err| {
             crate::warn!("failed to obtain the current toolchain ({err}); leaving it as unknown")
         })
-        .unwrap_or("unknown".to_string());
+        .map_or("unknown".to_string(), |(toolchain, _)| {
+            // `midenup --version` is informational and must not reach for the network, so an
+            // uninstalled channel is reported as such rather than resolved upstream.
+            toolchain
+                .installation_id(config)
+                .and_then(|id| {
+                    config.local_state().ok()?.get_by_id(&id).map(|i| {
+                        if i.custom.is_some() {
+                            format!("{} ({})", i.id(), i.channel)
+                        } else {
+                            i.channel.to_string()
+                        }
+                    })
+                })
+                .unwrap_or_else(|| "not installed".to_string())
+        });
 
     let github_issue = {
         let short_body = format!(
-            "<!--- (leave this at the bottom) --> midenup:{midenup_version}, toolchain: \
-             {toolchain_version}, cargo:{cargo_version}, rev:{git_revision}"
+            "<!--- (leave this at the bottom) --> midenup:{MIDENUP_VERSION}, toolchain: \
+             {toolchain_version}, cargo:{cargo_version}, rev:{GIT_REVISION}"
         );
         format!(
             "https://github.com/0xMiden/midenup/issues/new?title=bug:<YOUR_ISSUE>&body={short_body}"
         )
     };
 
-    format!(
-        "
+    if json {
+        let value = if toolchain_version == "not installed" {
+            serde_json::json!({
+                "version": MIDENUP_VERSION,
+                "revision": GIT_REVISION,
+                "producer": COMPILED_CARGO_VERSION,
+                "cargo": cargo_version,
+            })
+        } else {
+            serde_json::json!({
+                "version": MIDENUP_VERSION,
+                "revision": GIT_REVISION,
+                "producer": COMPILED_CARGO_VERSION,
+                "active_toolchain": toolchain_version,
+                "cargo": cargo_version,
+            })
+        };
+        serde_json::to_string_pretty(&value).expect("failed to write version info as JSON")
+    } else {
+        format!(
+            "
 The Miden toolchain porcelain:
 
 Environment:
 - cargo version: {cargo_version}.
 
 Midenup:
-- midenup + miden version: {midenup_version}.
+- midenup + miden version: {MIDENUP_VERSION}.
 - active toolchain version: {toolchain_version}.
-- midenup revision: {git_revision}.
-- midenup was compiled with {compiled_cargo_version}.
+- midenup revision: {GIT_REVISION}.
+- midenup was compiled with {COMPILED_CARGO_VERSION}.
 
 
 Found a bug? Create an issue by copying this into your browser:
 
 {github_issue}
 "
-    )
+        )
+    }
 }
 
 fn toolchain_help(toolchain_environment: &ToolchainEnvironment) -> String {
@@ -632,22 +682,6 @@ fn default_help() -> String {
 
 {asterisk}: These commands will install the currently present toolchain if not installed.
 ",
-    )
-}
-
-/// Where this invocation's `%`-expressions resolve to.
-///
-/// Built once, from the active publication and this selector's `var/`, so that every expression in
-/// every alias of one invocation resolves against the same toolchain.
-///
-/// The two arguments are deliberately not the same thing: files come from the *channel* the
-/// selector resolves to, while `%var` is keyed by the `selector` itself, so that two networks on
-/// one channel keep separate state.
-fn resolver_for(config: &Config, channel: &Channel, selector: &UserChannel) -> Resolver {
-    Resolver::new(
-        crate::paths::toolchain_link(&config.midenup_home, &channel.name),
-        &config.midenup_home,
-        selector,
     )
 }
 

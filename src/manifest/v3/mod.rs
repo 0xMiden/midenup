@@ -7,7 +7,7 @@ use std::{collections::BTreeMap, path::Path};
 use serde::{Deserialize, Serialize};
 
 pub use self::{channel::*, component::*, unknown::*};
-use super::ManifestError;
+use super::{CURRENT_CLIENT_VERSION, ManifestError};
 
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 0, 0);
 
@@ -20,6 +20,10 @@ pub struct Manifest {
     /// in-memory value the current version regardless of what the file says, which turns every
     /// version check downstream into a tautology.
     pub(super) manifest_version: semver::Version,
+    /// The minimum client version supported by this manifest
+    ///
+    /// Deserialized normally and verified after parsing, never defaulted.
+    pub(super) min_client_version: semver::Version,
     /// The UTC timestamp at which this manifest was generated
     pub(super) date: i64,
     /// Which channel each release network currently runs.
@@ -74,6 +78,13 @@ impl Manifest {
             return Err(ManifestError::UnsupportedVersion(manifest.manifest_version));
         }
 
+        let current_client_version = CURRENT_CLIENT_VERSION
+            .parse::<semver::Version>()
+            .map_err(ManifestError::InvalidClientVersion)?;
+        if manifest.min_client_version.cmp_precedence(&current_client_version).is_gt() {
+            return Err(ManifestError::UnsupportedClientVersion(manifest.min_client_version));
+        }
+
         // Sort channels by version, in ascending order
         if !manifest.channels.is_sorted_by_key(|channel| &channel.name) {
             manifest.channels.sort_by_key(|channel| channel.name.clone());
@@ -95,6 +106,7 @@ impl Default for Manifest {
         let date = chrono::Utc::now().timestamp();
         Self {
             manifest_version: MANIFEST_VERSION,
+            min_client_version: CURRENT_CLIENT_VERSION.parse().expect("invalid client version"),
             date,
             networks: BTreeMap::new(),
             channels: vec![],

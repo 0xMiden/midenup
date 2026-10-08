@@ -14,10 +14,10 @@ use serde::{Deserialize, Serialize};
 pub use self::installation::{
     Installation, Output, PublicationId, PublicationRef, RealizedMethod, Receipt,
 };
-use crate::manifest::version;
+use crate::{identity::InstallationId, manifest::version};
 
 /// The schema version of the local state document.
-pub const STATE_VERSION: semver::Version = semver::Version::new(1, 0, 0);
+pub const STATE_VERSION: semver::Version = semver::Version::new(2, 0, 0);
 
 #[derive(Debug, thiserror::Error)]
 pub enum StateError {
@@ -105,7 +105,14 @@ impl LocalState {
             }
         })?;
 
-        match version::classify(&header.version, STATE_VERSION.major) {
+        match version::classify(
+            &header.version,
+            if header.version.major == 1 {
+                1
+            } else {
+                STATE_VERSION.major
+            },
+        ) {
             version::Compatibility::Supported => {},
             version::Compatibility::RequiresNewer { found } => {
                 return Err(StateError::RequiresNewer { path: path.to_path_buf(), found });
@@ -118,16 +125,41 @@ impl LocalState {
             },
         }
 
-        serde_json::from_str(contents).map_err(|err| StateError::Invalid {
-            path: path.to_path_buf(),
-            reason: err.to_string(),
-        })
+        let mut state: Self =
+            serde_json::from_str(contents).map_err(|err| StateError::Invalid {
+                path: path.to_path_buf(),
+                reason: err.to_string(),
+            })?;
+        let invalid = |reason| StateError::Invalid { path: path.to_path_buf(), reason };
+        let mut identities = std::collections::BTreeSet::new();
+        for installation in &state.installations {
+            if header.version.major == 1 && installation.custom.is_some() {
+                return Err(invalid("state version 1 cannot contain custom installations".into()));
+            }
+            if installation.custom.as_ref().is_some_and(|custom| {
+                matches!(custom.channel, crate::channel::UserChannel::Custom(_))
+            }) {
+                return Err(invalid(
+                    "a custom toolchain source must be an upstream version or network".into(),
+                ));
+            }
+            if !identities.insert(installation.id()) {
+                return Err(invalid(format!(
+                    "duplicate installation identity '{}'",
+                    installation.id()
+                )));
+            }
+        }
+        state.state_version = STATE_VERSION;
+        Ok(state)
     }
 
     /// Writes state to `path`, refusing to commit anything that cannot be read back.
     pub fn save(&self, path: &Path) -> Result<(), StateError> {
         crate::trace!("writing {}", path.display());
-        crate::utils::atomic::write_validated(path, self, |written| {
+        let mut current = self.clone();
+        current.state_version = STATE_VERSION;
+        crate::utils::atomic::write_validated(path, &current, |written| {
             LocalState::parse_str(written, path)
                 .map(|_| ())
                 .map_err(|err| format!("the result would not parse as local state: {err}"))
@@ -136,26 +168,41 @@ impl LocalState {
     }
 
     pub fn get(&self, channel: &semver::Version) -> Option<&Installation> {
-        self.installations.iter().find(|i| &i.channel == channel)
+        self.get_by_id(&InstallationId::Version(channel.clone()))
     }
 
     pub fn get_mut(&mut self, channel: &semver::Version) -> Option<&mut Installation> {
-        self.installations.iter_mut().find(|i| &i.channel == channel)
+        self.get_mut_by_id(&InstallationId::Version(channel.clone()))
     }
 
-    /// Inserts or replaces the record for a channel, keeping the list ordered by channel.
+    pub fn get_by_id(&self, id: &InstallationId) -> Option<&Installation> {
+        self.installations.iter().find(|installation| &installation.id() == id)
+    }
+
+    pub fn get_mut_by_id(&mut self, id: &InstallationId) -> Option<&mut Installation> {
+        self.installations.iter_mut().find(|installation| &installation.id() == id)
+    }
+
+    /// Inserts or replaces one identity, keeping the list ordered by identity.
     pub fn upsert(&mut self, installation: Installation) {
-        self.remove(&installation.channel);
+        self.remove_by_id(&installation.id());
         self.installations.push(installation);
-        self.installations.sort_by(|a, b| a.channel.cmp(&b.channel));
+        self.installations.sort_by_key(Installation::id);
     }
 
     pub fn remove(&mut self, channel: &semver::Version) {
-        self.installations.retain(|i| &i.channel != channel);
+        self.remove_by_id(&InstallationId::Version(channel.clone()));
+    }
+
+    pub fn remove_by_id(&mut self, id: &InstallationId) {
+        self.installations.retain(|installation| &installation.id() != id);
     }
 
     pub fn channels(&self) -> impl Iterator<Item = &semver::Version> {
-        self.installations.iter().map(|i| &i.channel)
+        self.installations
+            .iter()
+            .filter(|installation| installation.custom.is_none())
+            .map(|installation| &installation.channel)
     }
 }
 
@@ -169,6 +216,7 @@ mod tests {
             state_version: STATE_VERSION,
             installations: vec![Installation {
                 channel: semver::Version::new(0, 15, 0),
+                custom: None,
                 intent: Intent::new(&[Profile::Minimal], &["client"]),
                 components: vec![],
                 publication: PublicationRef::Managed {
@@ -182,8 +230,74 @@ mod tests {
                 },
                 installed_at: 1735689600,
                 midenup_version: None,
+                patches: Default::default(),
             }],
         }
+    }
+
+    #[test]
+    fn duplicate_installation_identities_are_rejected() {
+        let mut state = sample();
+        state.installations.push(state.installations[0].clone());
+        let json = serde_json::to_string(&state).unwrap();
+        assert!(LocalState::parse_str(&json, Path::new("state.json")).is_err());
+    }
+
+    #[test]
+    fn invalid_custom_names_and_sources_are_rejected() {
+        for (name, channel) in [("../escape", "mainnet"), ("dev", "custom:other")] {
+            let mut value = serde_json::to_value(sample()).unwrap();
+            value["installations"][0]["custom"] =
+                serde_json::json!({"name": name, "channel": channel});
+            assert!(LocalState::parse_str(&value.to_string(), Path::new("state.json")).is_err());
+        }
+    }
+
+    #[test]
+    fn named_installations_coexist_with_canonical_and_replace_only_their_identity() {
+        use crate::identity::CustomToolchain;
+        let mut state = sample();
+        let canonical = state.installations[0].clone();
+        for name in ["first", "second"] {
+            let mut named = canonical.clone();
+            named.custom = Some(CustomToolchain {
+                name: name.parse().unwrap(),
+                channel: "mainnet".parse().unwrap(),
+            });
+            state.upsert(named);
+        }
+        assert_eq!(state.installations.len(), 3);
+        assert_eq!(state.channels().count(), 1);
+        let first = InstallationId::Custom("first".parse().unwrap());
+        let mut updated = state.get_by_id(&first).unwrap().clone();
+        updated.channel = semver::Version::new(0, 16, 0);
+        state.upsert(updated);
+        assert_eq!(state.installations.len(), 3);
+        assert_eq!(state.get_by_id(&first).unwrap().channel, semver::Version::new(0, 16, 0));
+        state.remove(&canonical.channel);
+        assert_eq!(state.installations.len(), 2);
+        assert!(state.get(&canonical.channel).is_none());
+        state.remove_by_id(&first);
+        assert_eq!(state.installations.len(), 1);
+        let json = serde_json::to_string(&state).unwrap();
+        assert_eq!(LocalState::parse_str(&json, Path::new("state.json")).unwrap(), state);
+    }
+
+    #[test]
+    fn legacy_state_load_is_read_only_and_next_save_upgrades_version() {
+        let dir = tempdir::TempDir::new("legacy-state").unwrap();
+        let path = dir.path().join("state.json");
+        let mut legacy = serde_json::to_value(sample()).unwrap();
+        legacy["state_version"] = "1.0.0".into();
+        let original = legacy.to_string();
+        std::fs::write(&path, &original).unwrap();
+        let state = LocalState::load(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+        assert!(state.installations[0].custom.is_none());
+        state.save(&path).unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(written["state_version"], "2.0.0");
     }
 
     #[test]
@@ -228,7 +342,7 @@ mod tests {
     fn a_newer_major_state_version_requires_a_newer_midenup() {
         let dir = tempdir::TempDir::new("state-newer").unwrap();
         let path = dir.path().join("state.json");
-        std::fs::write(&path, r#"{"state_version":"2.0.0","installations":[]}"#).unwrap();
+        std::fs::write(&path, r#"{"state_version":"3.0.0","installations":[]}"#).unwrap();
         assert!(matches!(LocalState::load(&path), Err(StateError::RequiresNewer { .. })));
     }
 

@@ -87,7 +87,7 @@ fn repoint_default(home: &Path) -> anyhow::Result<bool> {
     let Ok(target) = std::fs::read_link(&default) else {
         return Ok(false);
     };
-    if target.file_name().and_then(|name| name.to_str()) != Some(LEGACY_LINK) {
+    if !targets_legacy_link(home, &target) {
         return Ok(false);
     }
 
@@ -98,6 +98,12 @@ fn repoint_default(home: &Path) -> anyhow::Result<bool> {
     };
     crate::utils::fs::replace_symlink(&default, &replacement)?;
     Ok(true)
+}
+
+/// Match the link itself, including a dangling link left by an interrupted migration.
+/// A basename match would also capture unrelated targets such as `custom/stable`.
+fn targets_legacy_link(home: &Path, target: &Path) -> bool {
+    target == Path::new(LEGACY_LINK) || target == paths::network_link(home, LEGACY_LINK)
 }
 
 /// Gives the default network the store that a pre-network home wrote under the channel key.
@@ -187,7 +193,7 @@ fn default_pins_a_version(home: &Path) -> bool {
     let Ok(target) = std::fs::read_link(&default) else {
         return false;
     };
-    target.file_name().and_then(|name| name.to_str()) != Some(LEGACY_LINK)
+    !targets_legacy_link(home, &target)
 }
 
 /// Removes a cached manifest this build cannot read.
@@ -325,6 +331,31 @@ mod tests {
 
         migrate_if_needed(&home).unwrap();
         assert_eq!(std::fs::read_link(&default).unwrap(), PathBuf::from("mainnet"));
+    }
+
+    #[test]
+    fn a_custom_stable_default_and_its_existing_store_are_left_alone() {
+        for relative in [false, true] {
+            let (_temp, home) = alpha_home();
+            let toolchains = paths::toolchains_dir(&home);
+            let default = toolchains.join("default");
+            let target = if relative {
+                PathBuf::from("custom/stable")
+            } else {
+                toolchains.join("custom/stable")
+            };
+            std::fs::create_dir_all(toolchains.join("custom/stable")).unwrap();
+            std::fs::remove_file(&default).unwrap();
+            std::os::unix::fs::symlink(&target, &default).unwrap();
+            seed_var(&home, "0.15.0");
+
+            migrate_if_needed(&home).unwrap();
+
+            assert_eq!(std::fs::read_link(&default).unwrap(), target);
+            assert_eq!(var_store(&home, "0.15.0").as_deref(), Some(&b"0.15.0"[..]));
+            assert!(!home.join("var/mainnet").exists());
+            assert_eq!(migrate_if_needed(&home).unwrap(), Outcome::NothingToDo);
+        }
     }
 
     /// `midenup override 0.15.0` pins a version directly; that is not the link being renamed.

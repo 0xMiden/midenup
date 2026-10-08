@@ -132,8 +132,8 @@ fn integration_update_test() {
     assert_eq!(mainnet_points_at(), "0.16.0");
 }
 
-/// Local diagnostics must not depend on the network: with an unreachable manifest and no cache,
-/// an update with nothing installed still says so, and a missing pinned version is still named.
+/// An implicit update needs upstream to install a missing active toolchain; an explicit update of
+/// an uninstalled version must still report that local error before attempting a fetch.
 #[test]
 fn integration_update_checks_local_state_before_syncing() {
     let _guard = common::harness::mutating_test_guard();
@@ -141,10 +141,12 @@ fn integration_update_checks_local_state_before_syncing() {
     let unreachable = format!("file://{}/no-such-manifest.json", test_env.tmp_dir.path().display());
     let (mut state, config) = test_setup(&test_env, &unreachable);
 
-    Midenup::try_parse_from(["midenup", "update"])
+    let err = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
-        .expect("an update with nothing installed must not need the manifest");
+        .expect_err("installing the missing active toolchain requires upstream");
+    assert!(format!("{err:#}").contains("unable to fetch"));
+    assert!(state.installations.is_empty());
 
     let err = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()
@@ -159,6 +161,160 @@ fn integration_update_checks_local_state_before_syncing() {
         !rendered.contains("unable to fetch"),
         "the network failure must not mask the local diagnostic: {rendered}"
     );
+}
+
+#[test]
+fn integration_update_clears_an_equivalent_patch_without_republishing() {
+    assert_equivalent_patch_cleared("update_equivalent_patch", false);
+}
+
+#[test]
+fn integration_metadata_update_clears_an_equivalent_patch_without_republishing() {
+    assert_equivalent_patch_cleared("metadata_update_equivalent_patch", true);
+}
+
+/// Removing a patch with the same build inputs as upstream only changes recorded metadata.
+fn assert_equivalent_patch_cleared(test_name: &str, add_alias: bool) {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup(test_name);
+    let fixture = common::harness::OfflineFixture::new(env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_cargo_component("prover")
+        .build();
+    let (mut state, config) = test_setup(&env, &fixture.manifest_uri);
+    install_legacy_prover_patch(&config, &mut state, &fixture);
+
+    let channel = semver::Version::new(0, 15, 0);
+    let before = state.get(&channel).unwrap().clone();
+    assert!(
+        before.patches.contains_key("prover"),
+        "the legacy installation must record its patch"
+    );
+
+    if add_alias {
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&fixture.manifest_path).unwrap())
+                .unwrap();
+        let prover = manifest["channels"][0]["components"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|component| component["name"] == "prover")
+            .unwrap();
+        prover["aliases"] = serde_json::json!({"prove": ["%installed-executable"]});
+        std::fs::write(&fixture.manifest_path, serde_json::to_vec_pretty(&manifest).unwrap())
+            .unwrap();
+    }
+
+    let (_, config) = test_setup(&env, &fixture.manifest_uri);
+    let listed = run_midenup(&env, &fixture.manifest_uri, &["list"]);
+    assert!(listed.status.success());
+    Midenup::try_parse_from(["midenup", "update", "--path-update=off", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to update the patched toolchain");
+
+    let reloaded =
+        midenup::state::LocalState::load(&midenup::paths::state_path(&env.midenup_home)).unwrap();
+    let after = reloaded.get(&channel).unwrap();
+    assert!(after.patches.is_empty(), "update must remove the equivalent patch from state");
+    assert_eq!(after.publication, before.publication, "equivalent inputs must not be rebuilt");
+    assert_eq!(
+        after.as_channel().get_component("prover").unwrap().version,
+        before.as_channel().get_component("prover").unwrap().version,
+        "the recorded source pin must survive a metadata update"
+    );
+    if add_alias {
+        assert!(after.as_channel().get_alias_names().contains("prove"));
+    }
+
+    Midenup::try_parse_from(["miden", "+0.15.0", "help", "prover"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("the unpatched toolchain must be usable outside the project");
+    assert_eq!(state.get(&channel).unwrap().publication, before.publication);
+    assert!(
+        String::from_utf8_lossy(&listed.stdout).contains("(update available)"),
+        "a recorded patch must be reported as an available update"
+    );
+}
+
+/// Repointing a network must reconcile the whole installed target before clearing its patches.
+#[test]
+fn integration_network_update_clears_a_patch_and_reacquires_other_changed_components() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("network_update_patched_target");
+    let fixture = common::harness::OfflineFixture::new(env.tmp_dir.path())
+        .with_channel("0.16.0")
+        .with_channel("0.15.0")
+        .with_cargo_component("prover")
+        .build();
+    let (mut state, config) = test_setup(&env, &fixture.manifest_uri);
+    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to install the network's original channel");
+
+    install_legacy_prover_patch(&config, &mut state, &fixture);
+
+    let mut manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&fixture.manifest_path).unwrap()).unwrap();
+    manifest["networks"]["mainnet"] = serde_json::json!("0.15.0");
+    let updated_vm = fixture.dir.join("0.15.0").join("miden-vm-updated");
+    let updated_bytes = b"#!/bin/sh\necho updated-vm\n";
+    std::fs::write(&updated_vm, updated_bytes).unwrap();
+    let vm = manifest["channels"][1]["components"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .find(|component| component["name"] == "vm")
+        .unwrap();
+    vm["artifacts"]["miden-vm"]["uri"] =
+        serde_json::json!(format!("file://{}", updated_vm.display()));
+    std::fs::write(&fixture.manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+
+    let (_, config) = test_setup(&env, &fixture.manifest_uri);
+    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("failed to update the network to its patched target");
+
+    let target = midenup::paths::toolchain_link(&env.midenup_home, &semver::Version::new(0, 15, 0));
+    assert_eq!(
+        std::fs::read(target.join("bin").join("miden-vm")).unwrap(),
+        updated_bytes,
+        "the unpatched component's changed bytes must be acquired too"
+    );
+    let reloaded =
+        midenup::state::LocalState::load(&midenup::paths::state_path(&env.midenup_home)).unwrap();
+    assert!(reloaded.get(&semver::Version::new(0, 15, 0)).unwrap().patches.is_empty());
+    assert_eq!(
+        std::fs::read_link(env.midenup_home.join("toolchains").join("mainnet")).unwrap(),
+        std::path::PathBuf::from("0.15.0")
+    );
+}
+
+/// Recreates the canonical patch records written before patches required a named installation.
+/// This patch has the same source as upstream, so cleanup can preserve the existing publication.
+fn install_legacy_prover_patch(
+    config: &midenup::config::Config,
+    state: &mut midenup::state::LocalState,
+    fixture: &common::harness::OfflineFixture,
+) {
+    let manifest = midenup::manifest::Manifest::load_from_file(&fixture.manifest_path).unwrap();
+    let channel = manifest.get_channel_by_name(&semver::Version::new(0, 15, 0)).unwrap();
+    let options = midenup::options::InstallationOptions {
+        components: vec!["prover".into()],
+        patches: serde_json::from_value(serde_json::json!({
+            "prover": {
+                "version": { "kind": "path", "path": fixture.dir.join("prover-source") },
+            },
+        }))
+        .unwrap(),
+        ..Default::default()
+    };
+    midenup::commands::install(config, channel, state, &options)
+        .expect("failed to seed the legacy patched toolchain");
 }
 
 /// Interactive update UI is diagnostic interaction, not a command result, and survives quiet.
@@ -212,10 +368,7 @@ fn integration_interactive_path_update_uses_stderr() {
     assert!(skipped.status.success(), "{}", String::from_utf8_lossy(&skipped.stderr));
     assert!(skipped.stdout.is_empty(), "prompt leaked to stdout: {:?}", skipped.stdout);
     let stderr = String::from_utf8_lossy(&skipped.stderr);
-    assert!(
-        stderr.contains("Would you like to update this component?"),
-        "missing prompt: {stderr}"
-    );
+    assert!(stderr.contains("Would you like to update prover?"), "missing prompt: {stderr}");
     assert!(stderr.contains("Skipping prover"), "missing acknowledgement: {stderr}");
 
     let cancelled = interact(&["update", "--path-update=interactive", "-q"], b"c\n");
@@ -223,7 +376,7 @@ fn integration_interactive_path_update_uses_stderr() {
     assert!(cancelled.stdout.is_empty(), "prompt leaked to stdout: {:?}", cancelled.stdout);
     let stderr = String::from_utf8_lossy(&cancelled.stderr);
     assert!(
-        stderr.contains("Would you like to update this component?"),
+        stderr.contains("Would you like to update prover?"),
         "quiet suppressed the prompt: {stderr}"
     );
     assert!(stderr.contains("Cancelling update"), "missing acknowledgement: {stderr}");

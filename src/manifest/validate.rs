@@ -34,6 +34,7 @@ use crate::{
         destination::DestinationClaims, destination_for, validate_artifact_id,
         validate_artifact_id_for,
     },
+    version::Authority,
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -192,6 +193,53 @@ pub enum ValidationError {
         channel: semver::Version,
         component: String,
         kind: String,
+    },
+    #[error("channel {channel}: invalid 'format' for component '{component}': {reason}")]
+    InvalidExecutableFormat {
+        channel: semver::Version,
+        component: String,
+        reason: String,
+    },
+    #[error("channel {channel}: invalid 'call_format' for component '{component}': {reason}")]
+    InvalidCallFormat {
+        channel: semver::Version,
+        component: String,
+        reason: String,
+    },
+    #[error("channel {channel}: invalid 'initialization' for component '{component}': {reason}")]
+    InvalidInitializationFormat {
+        channel: semver::Version,
+        component: String,
+        reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid format for subcommand '{subcommand}' of component \
+         '{component}': {reason}"
+    )]
+    InvalidSubcommandFormat {
+        channel: semver::Version,
+        component: String,
+        subcommand: String,
+        reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid format for alias '{alias}' of component '{component}': \
+         {reason}"
+    )]
+    InvalidAliasFormat {
+        channel: semver::Version,
+        component: String,
+        alias: String,
+        reason: String,
+    },
+    #[error(
+        "channel {channel}: invalid artifact uri '{uri}' of component '{component}': component is \
+         not versioned via registry"
+    )]
+    InvalidArtifactUri {
+        channel: semver::Version,
+        component: String,
+        uri: String,
     },
 }
 
@@ -380,7 +428,7 @@ pub fn validate_against(
 /// least testnet, and testnet at least mainnet, but a mainnet hotfix legitimately inverts it, and a
 /// validator that has to be overridden during an incident is worse than no validator.
 fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
-    use crate::channel::{DEFAULT_NETWORK, canonical_network};
+    use crate::channel::{DEFAULT_NETWORK, validate_network_name};
 
     if !manifest.networks.contains_key(DEFAULT_NETWORK) {
         errors.push(ValidationError::MissingDefaultNetwork(DEFAULT_NETWORK));
@@ -392,26 +440,8 @@ fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
         let invalid =
             |reason: String| ValidationError::InvalidNetworkName { name: name.clone(), reason };
 
-        if name.is_empty() {
-            errors.push(invalid("a network must have a name".to_string()));
-        } else if let Err(err) = validate_artifact_id(name) {
-            // A network name is joined straight onto `toolchains/` and written with
-            // `replace_symlink`, which renames over whatever is at that path. `../../../.zshrc`
-            // would make an ordinary `midenup install` replace a file outside `$MIDENUP_HOME`.
-            // Same rule as every other name that becomes a path segment, deliberately.
+        if let Err(err) = validate_network_name(name) {
             errors.push(invalid(err.to_string()));
-        } else if semver::Version::parse(name).is_ok() {
-            errors.push(invalid(
-                "a network may not be named like a channel, which would make 'midenup install \
-                 <name>' ambiguous"
-                    .to_string(),
-            ));
-        } else if canonical_network(name) != name {
-            errors.push(invalid(format!(
-                "'{name}' is rewritten to '{}' before any lookup, so a network declared under it \
-                 could never be reached",
-                canonical_network(name)
-            )));
         }
 
         if !known.contains(version) {
@@ -536,6 +566,94 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
                 channel: channel.name.clone(),
                 component: component.name.to_string(),
             });
+        }
+
+        // Ensure that argument vectors containing templates expand properly
+        {
+            match component.kind() {
+                ComponentKind::Command { format, subcommands, aliases, .. } => {
+                    let selector = crate::channel::UserChannel::Version(channel.name.clone());
+                    let resolver = crate::exec::Resolver::no_sysroot(&selector);
+                    if let Err(err) = format.to_argv(component, &resolver) {
+                        errors.push(ValidationError::InvalidExecutableFormat {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    for (subcommand, exec) in subcommands {
+                        if exec.is_empty() {
+                            continue;
+                        }
+                        if let Err(err) = exec.to_argv(component, &resolver) {
+                            errors.push(ValidationError::InvalidSubcommandFormat {
+                                channel: channel.name.clone(),
+                                component: component.name.to_string(),
+                                subcommand: subcommand.clone(),
+                                reason: err.to_string(),
+                            });
+                        }
+                    }
+                    for (alias, exec) in aliases {
+                        if let Err(err) = exec.to_argv(component, &resolver) {
+                            errors.push(ValidationError::InvalidAliasFormat {
+                                channel: channel.name.clone(),
+                                component: component.name.to_string(),
+                                alias: alias.clone(),
+                                reason: err.to_string(),
+                            });
+                        }
+                    }
+                },
+                ComponentKind::Executable { spec, .. }
+                | ComponentKind::CargoExtension { spec, .. } => {
+                    let selector = crate::channel::UserChannel::Version(channel.name.clone());
+                    let resolver = crate::exec::Resolver::no_sysroot(&selector);
+                    if let Some(format) = spec.call_format.as_ref()
+                        && let Err(err) = format.to_argv(component, &resolver)
+                    {
+                        errors.push(ValidationError::InvalidCallFormat {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    if let Some(format) = spec.initialization.as_ref()
+                        && let Err(err) = format.to_argv(component, &resolver)
+                    {
+                        errors.push(ValidationError::InvalidInitializationFormat {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            reason: err.to_string(),
+                        });
+                    }
+                    for (alias, exec) in spec.aliases.iter() {
+                        if let Err(err) = exec.to_argv(component, &resolver) {
+                            errors.push(ValidationError::InvalidAliasFormat {
+                                channel: channel.name.clone(),
+                                component: component.name.to_string(),
+                                alias: alias.clone(),
+                                reason: err.to_string(),
+                            });
+                        }
+                    }
+                },
+                _ => (),
+            }
+        }
+
+        if !matches!(component.version, Authority::Registry { .. }) {
+            for artifact in component.artifacts.artifacts.values() {
+                let (crate::artifact::Artifact::TargetSpecific { uri, .. }
+                | crate::artifact::Artifact::TargetAgnostic { uri, .. }) = artifact;
+                if uri.contains("%version") {
+                    errors.push(ValidationError::InvalidArtifactUri {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        uri: uri.clone(),
+                    });
+                }
+            }
         }
 
         for (id, artifact) in component.artifacts.artifacts.iter() {
@@ -876,6 +994,7 @@ mod tests {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
+            "min_client_version": "1.0.0",
             "networks": {"mainnet": "0.15.0"},
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "vm",
@@ -901,6 +1020,7 @@ mod tests {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
             "date": 1735689600,
+            "min_client_version": "1.0.0",
             "networks": {"mainnet": "0.15.0"},
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "vm",
@@ -1034,6 +1154,7 @@ mod tests {
     fn an_empty_network_name_is_rejected() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"": "0.15.0", "mainnet": "0.15.0"},
             "channels": [{"name": "0.15.0", "components": []}]
@@ -1049,9 +1170,10 @@ mod tests {
     /// a manifest make an ordinary `midenup install` replace a file anywhere on the machine.
     #[test]
     fn a_network_name_that_is_not_a_single_path_segment_is_rejected() {
-        for name in ["../../../.zshrc", "..", "sub/net"] {
+        for name in ["../../../.zshrc", "..", "sub/net", "custom", "default", "custom:dev"] {
             let src = serde_json::json!({
                 "manifest_version": "3.0.0",
+                "min_client_version": "1.0.0",
                 "date": 1735689600,
                 "networks": {name: "0.15.0", "mainnet": "0.15.0"},
                 "channels": [{"name": "0.15.0", "components": []}]
@@ -1428,6 +1550,94 @@ mod tests {
         );
     }
 
+    /// `%version` has nothing to resolve to on a component without a registry version, so the
+    /// manifest is rejected before dispatch.
+    #[test]
+    fn a_version_word_on_a_component_without_a_registry_version_is_rejected() {
+        let mut cmd = component(
+            "tool",
+            ComponentKind::Command {
+                command_name: None,
+                format: Executable::default(),
+                subcommands: [(
+                    "run".to_string(),
+                    Executable::try_from(vec!["--tag=v%version".to_string()]).unwrap(),
+                )]
+                .into_iter()
+                .collect(),
+                aliases: Default::default(),
+            },
+        );
+        cmd.version = Authority::Path {
+            path: std::path::PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let errors = errors_of(&manifest(vec![cmd]));
+        assert!(
+               errors.iter().any(|e| matches!(
+                   e,
+                   ValidationError::InvalidSubcommandFormat { component, subcommand, reason, .. }
+                       if component == "tool" && subcommand == "run" && reason.contains("it has no registry version")
+               )),
+               "{errors:?}"
+           );
+    }
+
+    /// An artifact URI with `%version` has the same problem, reported before install fails on it.
+    #[test]
+    fn a_version_uri_on_a_component_without_a_registry_version_is_rejected() {
+        let mut asset = component("tool", ComponentKind::Asset);
+        asset.artifacts.insert(
+            "tool.tar.gz".to_string(),
+            Artifact::TargetAgnostic {
+                uri: "https://example.invalid/v%version/tool.tar.gz".to_string(),
+                digest: None,
+                archive: None,
+                extra: Default::default(),
+            },
+        );
+        asset.version = Authority::Path {
+            path: std::path::PathBuf::from("/some/checkout"),
+            last_modification: None,
+        };
+
+        let errors = errors_of(&manifest(vec![asset]));
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::InvalidArtifactUri { component, uri, .. }
+                    if component == "tool" && uri == "https://example.invalid/v%version/tool.tar.gz"
+            )),
+            "{errors:?}"
+        );
+    }
+
+    /// The same word is valid on a component with a registry version.
+    #[test]
+    fn a_version_word_on_a_registry_component_is_accepted() {
+        let cmd = component(
+            "tool",
+            ComponentKind::Command {
+                command_name: None,
+                format: Executable::default(),
+                subcommands: [(
+                    "run".to_string(),
+                    Executable::try_from(vec!["--tag=v%version".to_string()]).unwrap(),
+                )]
+                .into_iter()
+                .collect(),
+                aliases: Default::default(),
+            },
+        );
+
+        assert!(
+            !errors_of(&manifest(vec![cmd]))
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidSubcommandFormat { .. }))
+        );
+    }
+
     #[test]
     fn a_command_with_no_format_no_subcommands_and_no_aliases_is_rejected() {
         let cmd = component(
@@ -1502,6 +1712,7 @@ mod tests {
     fn parsing_does_not_validate() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.13.3", "components": [{
                 "name": "midenc",

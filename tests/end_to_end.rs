@@ -111,7 +111,10 @@ impl Fixture {
     fn write(&self, file: &str, channels: serde_json::Value) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
+            // A bare update activates mainnet after migration removes the pinned default.
+            "networks": {"mainnet": channels[0]["name"]},
             "channels": channels
         });
         let path = self.dir.join(file);

@@ -84,6 +84,7 @@ impl OfflineFixture {
         let channels = core::mem::take(&mut self.channels);
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"devnet": self.devnet.clone(), "mainnet": self.mainnet.clone(), "testnet": self.testnet.clone()},
             "channels": channels
@@ -349,6 +350,7 @@ pub fn write_source_manifest(
 ) -> String {
     let manifest = serde_json::json!({
         "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
         "date": 1735689600,
         "networks": {"mainnet": "0.15.0"},
         "channels": [{
@@ -462,6 +464,7 @@ impl UpdateFixture {
     fn write(&self, name: &str, mainnet: &str, channels: serde_json::Value) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": mainnet},
             "channels": channels
@@ -567,6 +570,7 @@ impl UpdateFixture {
     fn write_split_at(&self, name: &str, mainnet: &str, devnet_vm: &str) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"devnet": "0.15.0", "mainnet": mainnet},
             "channels": [

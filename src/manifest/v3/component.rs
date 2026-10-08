@@ -793,6 +793,7 @@ mod unsupported_tests {
     fn manifest_with_kind(kind: &str) -> String {
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [
                 {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"},
@@ -849,6 +850,7 @@ mod unsupported_tests {
     fn a_malformed_known_kind_is_an_error_not_an_unsupported_component() {
         let bad = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [
                 {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"},
@@ -868,6 +870,7 @@ mod unsupported_tests {
     fn a_component_without_a_kind_is_an_error() {
         let bad = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [
                 {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"}}
@@ -916,6 +919,7 @@ mod initialization_tests {
     fn manifest_with_initialization() -> String {
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "client",
@@ -954,7 +958,8 @@ mod initialization_tests {
     /// which is far cheaper than trying to observe the absence of a side effect at runtime.
     #[test]
     fn no_new_code_path_references_initialization() {
-        const ALLOWED: &[&str] = &["manifest/v1/component.rs", "manifest/v3/component.rs"];
+        const ALLOWED: &[&str] =
+            &["manifest/v1/component.rs", "manifest/v3/component.rs", "manifest/validate.rs"];
 
         fn walk(dir: &std::path::Path, found: &mut Vec<String>, root: &std::path::Path) {
             for entry in std::fs::read_dir(dir).expect("readable source dir").flatten() {
@@ -1015,6 +1020,7 @@ mod legacy_package_tests {
         }
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [component]}]
         })
@@ -1067,6 +1073,7 @@ mod legacy_package_tests {
     fn only_legacy_packages_resolve_an_installed_package_name() {
         let src = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "core",
@@ -1089,6 +1096,7 @@ mod field_alias_tests {
     fn manifest_with(spelling: &str) -> String {
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "channels": [{"name": "0.15.0", "components": [{
                 "name": "vm",

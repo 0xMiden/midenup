@@ -297,6 +297,7 @@ fn integration_networks_dispatch_gives_each_network_its_own_var() {
 
     let manifest = serde_json::json!({
         "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
         "date": 1735689600,
         "networks": {"mainnet": "0.15.0", "testnet": "0.15.0"},
         "channels": [{
@@ -682,6 +683,31 @@ fn integration_networks_uninstall_does_not_leave_default_dangling() {
             "with default set to '{selector}', it must be removed or valid, never dangling"
         );
     }
+}
+
+/// The first install sets `default`; a later install leaves the user's default alone.
+#[test]
+fn integration_networks_first_install_becomes_the_default() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_networks_first_default");
+    let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
+    let (mut state, config) = test_setup(&test_env, &fixture.with_split_networks());
+
+    let default = test_env.midenup_home.join("toolchains").join("default");
+    assert!(std::fs::symlink_metadata(&default).is_err(), "no default before any install");
+
+    for args in [vec!["midenup", "install", "devnet"], vec!["midenup", "install", "mainnet"]] {
+        Midenup::try_parse_from(args.clone())
+            .unwrap()
+            .execute_with_state(&config, &mut state)
+            .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+    }
+
+    assert_eq!(
+        std::fs::read_link(&default).unwrap().file_name().unwrap(),
+        "devnet",
+        "the first installed network becomes the default and a later install keeps it"
+    );
 }
 
 /// `default` must point at the network link, not at the toolchain the network happens to name

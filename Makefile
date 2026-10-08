@@ -18,11 +18,11 @@ format-check: ## Runs Format using nightly toolchain but only in check mode
 
 .PHONY: check-manifest
 check-manifest: update-manifest
-	bin/update-manifest --manifest-path manifest/channel-manifest.json check
+	bin/update-manifest --manifest-path manifest/v3/manifest.json check
 
 .PHONY: format-manifest
 format-manifest: update-manifest
-	bin/update-manifest --manifest-path manifest/channel-manifest.json format
+	bin/update-manifest --manifest-path manifest/v3/manifest.json format
 
 .PHONY: lint
 lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)

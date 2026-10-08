@@ -91,19 +91,22 @@ impl Fixture {
     fn manifest_with_command(&self, file: &str) -> String {
         let compose = self.dir.join("docker-compose.yml");
         std::fs::write(&compose, "services: {}\n").unwrap();
+        let argv = self.dir.join("argv.sh");
+        std::fs::write(&argv, "printf '%s\\n' \"$@\"\n").unwrap();
 
         let node = serde_json::json!({
             "name": "node",
             "version": {"kind": "registry", "version": "0.1.0"},
             "kind": "command",
             "profiles": ["minimal"],
-            "format": ["docker", "compose", "-f", "%etc(node/docker-compose.yml)"],
+            "format": ["/bin/sh", "%etc(node/argv.sh)", "compose", "-f", "%etc(node/docker-compose.yml)"],
             "subcommands": {
                 "up": ["up", "-d"],
                 "down": ["down"]
             },
             "artifacts": {
-                "docker-compose.yml": {"uri": format!("file://{}", compose.display())}
+                "docker-compose.yml": {"uri": format!("file://{}", compose.display())},
+                "argv.sh": {"uri": format!("file://{}", argv.display())}
             }
         });
 
@@ -153,9 +156,52 @@ impl Fixture {
         self.write(file, components.iter().map(|spec| self.component(*spec)).collect())
     }
 
+    /// A manifest whose only channel supersedes `0.15.0` via `migrates_from`, so an installation
+    /// of 0.15.0 has no same-version counterpart upstream.
+    fn manifest_migrated(&self, file: &str, components: &[Spec<'_>]) -> String {
+        let manifest = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.16.0"},
+            "channels": [{
+                "name": "0.16.0",
+                "migrates_from": "0.15.0",
+                "components": components
+                    .iter()
+                    .map(|spec| self.component(*spec))
+                    .collect::<Vec<_>>()
+            }]
+        });
+
+        let path = self.dir.join(file);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        format!("file://{}", path.display())
+    }
+
+    /// A manifest publishing both `0.15.0` and a `0.16.0` that declares `migrates_from: 0.15.0`.
+    fn manifest_with_successor(&self, file: &str, components: &[Spec<'_>]) -> String {
+        let components: Vec<_> = components.iter().map(|spec| self.component(*spec)).collect();
+        let manifest = serde_json::json!({
+            "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "components": components},
+                {"name": "0.16.0", "migrates_from": "0.15.0", "components": components},
+            ]
+        });
+
+        let path = self.dir.join(file);
+        std::fs::write(&path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+        format!("file://{}", path.display())
+    }
+
     fn write(&self, file: &str, components: Vec<serde_json::Value>) -> String {
         let manifest = serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.15.0"},
             "channels": [{
@@ -502,18 +548,31 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
         .expect("failed to install");
 
     let output = config.capture_output();
-    Midenup::try_parse_from(["miden", "node", "up"])
+    Midenup::try_parse_from(["miden", "node", "up", "service with spaces"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("the declared subcommand must dispatch to the component");
 
     let output = output.borrow();
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert_eq!(output.status.code(), Some(1));
-    assert!(
-        stderr.contains("no service selected"),
-        "the failure must come from docker compose reading the generated command: {stderr}"
+    assert!(output.status.success(), "the argv probe must execute: {stderr}");
+    let compose = env
+        .midenup_home
+        .join("toolchains/0.15.0")
+        .canonicalize()
+        .unwrap()
+        .join("etc/node/docker-compose.yml");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let argv: Vec<_> = stdout.lines().collect();
+    assert_eq!(argv.len(), 6);
+    assert_eq!(
+        [argv[0], argv[1], argv[3], argv[4], argv[5]],
+        ["compose", "-f", "up", "-d", "service with spaces"],
+        "dispatch must prepend the format, expand the subcommand, and preserve trailing arguments"
     );
+    let dispatched_asset = Path::new(argv[2]);
+    assert!(dispatched_asset.starts_with(env.midenup_home.join("publications")));
+    assert_eq!(dispatched_asset.canonicalize().unwrap(), compose);
     drop(output);
 
     // ...and asking for help on it lists the verbs rather than trying to run one.
@@ -651,34 +710,108 @@ fn integration_without_a_toolchain_file_discovery_covers_everything_installed() 
     );
 }
 
-/// Spec section 8.6: local state carries no partial flag. The display derives it by comparing what
-/// is installed against the complete upstream channel -- and when upstream is unavailable, simply
-/// does not show it rather than guessing.
+/// Runs the midenup binary against `env` and `manifest_uri`.
+fn midenup_run(env: &TestEnvironment, manifest_uri: &str, args: &[&str]) -> std::process::Output {
+    midenup_command(env!("CARGO_BIN_EXE_midenup"), env, manifest_uri)
+        .args(args)
+        .output()
+        .expect("failed to run midenup")
+}
+
+/// Spec section 8.6: local state carries no update-available flag, and with no manifest at all the
+/// status is omitted.
 #[test]
-fn integration_partial_status_is_derived_from_upstream_not_stored() {
+fn integration_update_status_is_not_stored() {
     let _guard = common::harness::mutating_test_guard();
-    // Not named "partial": the temp directory path ends up inside state.json, in artifact URIs.
-    let env = environment_setup("derived_status");
+    // Not named "update": the temp directory path ends up inside state.json, in artifact URIs.
+    let env = environment_setup("derived_clean");
     let fixture = Fixture::new(env.tmp_dir.path());
     let manifest =
         fixture.manifest("manifest.json", &[("vm", &["minimal"], &[]), ("extra", &[], &[])]);
 
-    let midenup = |manifest_uri: &str, args: &[&str]| {
-        midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, manifest_uri)
-            .args(args)
-            .output()
-            .expect("failed to run midenup")
-    };
-
-    let installed = midenup(&manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    let installed = midenup_run(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
     assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
 
     let raw = std::fs::read_to_string(midenup::paths::state_path(&env.midenup_home)).unwrap();
-    assert!(!raw.contains("partial"), "state must not persist a partial flag: {raw}");
+    assert!(!raw.contains("update"), "state must not persist an update flag: {raw}");
 
-    let shown = midenup(&manifest, &["show", "list"]);
+    // `extra` belongs to no profile, so a minimal install that never asked for it is up to date.
+    let complete = midenup_run(&env, &manifest, &["show", "list"]);
     assert!(
-        String::from_utf8_lossy(&shown.stdout).contains("partially installed"),
+        !String::from_utf8_lossy(&complete.stdout).contains("update available"),
+        "an installation an update would not change has no update: {}",
+        String::from_utf8_lossy(&complete.stdout)
+    );
+
+    // With upstream unavailable it is not shown. The cached manifest would answer, so it goes too.
+    std::fs::remove_file(midenup::paths::manifest_cache(&env.midenup_home)).unwrap();
+    let offline = midenup_run(&env, "https://127.0.0.1:1/nope.json", &["show", "list"]);
+    assert!(offline.status.success(), "listing what is installed must work offline");
+
+    let stdout = String::from_utf8_lossy(&offline.stdout);
+    assert!(
+        stdout.contains("0.15.0"),
+        "the installed channel must still be listed: {stdout}"
+    );
+    assert!(
+        !stdout.contains("update available"),
+        "but its update status must not be: {stdout}"
+    );
+    assert!(!stdout.contains("mainnet"), "nor the networks naming it: {stdout}");
+}
+
+/// A definition change to a held component -- an alias, the canonical metadata-only change -- is
+/// an update even though the component set is unchanged, in `show list` and `list` alike.
+#[test]
+fn integration_update_status_shows_definition_changes() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("derived_defchange");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest =
+        fixture.manifest("manifest.json", &[("vm", &["minimal"], &[]), ("extra", &[], &[])]);
+
+    let installed = midenup_run(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let unchanged = midenup_run(&env, &manifest, &["list"]);
+    assert!(
+        String::from_utf8_lossy(&unchanged.stdout).contains("(installed)"),
+        "an unchanged installation lists as installed: {}",
+        String::from_utf8_lossy(&unchanged.stdout)
+    );
+
+    let aliased = fixture.manifest_with_vm_alias(
+        "aliased.json",
+        &[("vm", &["minimal"], &[]), ("extra", &[], &[])],
+        "vm-alias",
+    );
+    for command in [["show", "list"].as_slice(), ["list"].as_slice()] {
+        let shown = midenup_run(&env, &aliased, command);
+        assert!(
+            String::from_utf8_lossy(&shown.stdout).contains("update available"),
+            "a changed component definition upstream must be shown by {command:?}: {}",
+            String::from_utf8_lossy(&shown.stdout)
+        );
+    }
+}
+
+/// The minimal profile grows upstream, so the same intent resolves to more than is held.
+#[test]
+fn integration_update_status_shows_profile_growth() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("derived_growth");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest =
+        fixture.manifest("manifest.json", &[("vm", &["minimal"], &[]), ("extra", &[], &[])]);
+
+    let installed = midenup_run(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let grown =
+        fixture.manifest("grown.json", &[("vm", &["minimal"], &[]), ("extra", &["minimal"], &[])]);
+    let shown = midenup_run(&env, &grown, &["show", "list"]);
+    assert!(
+        String::from_utf8_lossy(&shown.stdout).contains("update available"),
         "with upstream available it must be derived and shown: {}",
         String::from_utf8_lossy(&shown.stdout)
     );
@@ -687,18 +820,80 @@ fn integration_partial_status_is_derived_from_upstream_not_stored() {
         "a channel installed by version was installed as no network: {}",
         String::from_utf8_lossy(&shown.stdout)
     );
+}
 
-    // With upstream unavailable it is not shown -- and never guessed at. The cached manifest would
-    // answer, so it goes too.
-    std::fs::remove_file(midenup::paths::manifest_cache(&env.midenup_home)).unwrap();
-    let offline = midenup("https://127.0.0.1:1/nope.json", &["show", "list"]);
-    assert!(offline.status.success(), "listing what is installed must work offline");
+/// A superseded channel: the update *is* the migration, so both listings show it as updatable
+/// rather than as unavailable or absent.
+#[test]
+fn integration_update_status_follows_migration_lineage() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("derived_lineage");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest("manifest.json", &[("vm", &["minimal"], &[])]);
 
-    let stdout = String::from_utf8_lossy(&offline.stdout);
+    let installed = midenup_run(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let migrated = fixture.manifest_migrated("migrated.json", &[("vm", &["minimal"], &[])]);
+    let shown = midenup_run(&env, &migrated, &["show", "list"]);
     assert!(
-        stdout.contains("0.15.0"),
-        "the installed channel must still be listed: {stdout}"
+        String::from_utf8_lossy(&shown.stdout).contains("update available"),
+        "a superseded channel must show as updatable: {}",
+        String::from_utf8_lossy(&shown.stdout)
     );
-    assert!(!stdout.contains("partial"), "but its partial status must not be: {stdout}");
-    assert!(!stdout.contains("mainnet"), "nor the networks naming it: {stdout}");
+
+    // `list` shows the successor channel, marked because updating the predecessor lands on it.
+    let listed = midenup_run(&env, &migrated, &["list"]);
+    let stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        stdout.contains("0.16.0") && stdout.contains("update available"),
+        "the successor must be listed as the pending update: {stdout}"
+    );
+}
+
+/// A same-version match wins over `migrates_from` in the updater, so while the installed channel is
+/// still published its successor is not a pending update.
+#[test]
+fn integration_update_status_prefers_a_still_published_predecessor() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("derived_same_version");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest = fixture.manifest("manifest.json", &[("vm", &["minimal"], &[])]);
+
+    let installed = midenup_run(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let both = fixture.manifest_with_successor("both.json", &[("vm", &["minimal"], &[])]);
+    let listed = midenup_run(&env, &both, &["list"]);
+    let stdout = String::from_utf8_lossy(&listed.stdout);
+    assert!(
+        stdout.contains("0.15.0 (installed)") && !stdout.contains("update available"),
+        "a published predecessor is up to date and its successor is not pending: {stdout}"
+    );
+}
+
+/// An explicit root removed upstream makes the intent unresolvable, which still shows as an
+/// update: running it reports the missing root (spec section 11.3) rather than dropping it.
+#[test]
+fn integration_update_status_shows_an_unresolvable_intent() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("derived_dangling");
+    let fixture = Fixture::new(env.tmp_dir.path());
+    let manifest =
+        fixture.manifest("manifest.json", &[("vm", &["minimal"], &[]), ("extra", &[], &[])]);
+
+    let installed = midenup_run(
+        &env,
+        &manifest,
+        &["install", "0.15.0", "--profile", "minimal", "--component", "extra"],
+    );
+    assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
+
+    let shrunk = fixture.manifest("shrunk.json", &[("vm", &["minimal"], &[])]);
+    let shown = midenup_run(&env, &shrunk, &["show", "list"]);
+    let stdout = String::from_utf8_lossy(&shown.stdout);
+    assert!(
+        stdout.contains("update available"),
+        "an unresolvable intent must be shown as an update: {stdout}"
+    );
 }

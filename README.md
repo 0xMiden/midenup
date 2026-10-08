@@ -24,6 +24,12 @@ The `midenup` executable facilitates two primary tasks:
 >
 > Run `midenup component list` to see a list of all available components for the active toolchain.
 
+## Prerequisites
+
+- [Rust](https://rustup.rs), latest stable.
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
+  `node` component (`miden node`).
+
 ## Usage
 
 To get started, you must first install `midenup`, and then initialize its
@@ -207,13 +213,17 @@ those, reclaim them with:
 midenup gc
 ```
 
-This only ever removes installations nothing refers to any more. It never touches an installed
-toolchain, and it is safe to run at any time.
+This removes unreferenced publications and Cargo path-build caches no installed toolchain uses.
+Caches shared by several variants remain while any variant uses their source. Installed toolchains,
+in-flight operations, source trees, and runtime data are preserved.
 
 ### Upgrading from an older `midenup`
 
-The first time a newer `midenup` runs, it converts the record an older one left in
-`$MIDENUP_HOME` into its own format. It carries over which channels you had installed and which
+Local state version 2 supports named installations and reads version 1 records as canonical
+installations. Subsequent writes use version 2, which older binaries reject.
+
+For installations predating `state.json`, the first run converts the older record in
+`$MIDENUP_HOME` into the current format. It carries over which channels you had installed and which
 components you had in each, and nothing else - everything else is re-derived from the published
 manifest, which is authoritative for it. Your toolchains are reinstalled the next time you use
 them, so that `midenup` knows exactly which files it owns; `var/` is untouched throughout.
@@ -231,13 +241,13 @@ midenup show home
 
 ### Configuring the active toolchain
 
-`miden` and `midenup` determine the current active toolchain according to the following rules:
-1. If there's a `miden-toolchain.toml` file in the present working directory,
-   then `miden` will use that to determine the current active toolchain.
-2. If not, `miden` will check if a toolchain has been set as the system's
-   default (more details in the [Configuring the active toolchain](#configuring-the-active-toolchain) section).
+`miden` and `midenup` select the active toolchain in this order:
 
-If none of the previous conditions are met, then `mainnet` will be used.
+1. An explicit `+<toolchain>` selector.
+2. The `MIDENUP_TOOLCHAIN` environment override.
+3. A `miden-toolchain.toml` file, searched for from the working directory upward.
+4. The system default.
+5. `mainnet`.
 
 #### Setting a project specific toolchain
 
@@ -285,15 +295,50 @@ components = ["vm", "midenc", "client"]
 the `minimal` profile is installed, plus `vm`, `midenc` and `client` if they are not already part
 of it.
 
-Activating a project's toolchain only ever *adds* to what is installed for a channel. Two projects
-sharing a channel cannot remove each other's components: if one asks for less, the other's
+Activating an unnamed, unpatched project's toolchain only ever *adds* to what is installed for a
+channel. Two projects sharing a channel cannot remove each other's components: if one asks for less, the other's
 components stay. Use `midenup install <channel> --profile <profile>` to deliberately reduce what is
 installed.
+
+#### Patching components
+
+Give a project toolchain a `name` to install an independent variant of an upstream channel.
+A name is required when using `[patches]` to build components from another source:
+
+```toml
+[toolchain]
+name = "project-dev"
+channel = "0.17.0"
+profile = "empty"
+components = ["vm"]
+
+[patches.vm]
+crate_name = "miden-vm"
+features = ["executable"]
+version = { kind = "git", repository_url = "https://github.com/0xMiden/miden-vm.git", revision = "8160d8a22bc5342b01946ae00a6dc4c1f224fc35" }
+```
+
+`version` takes the same forms as in the channel manifest (`git`, `path` or `registry`). Patched
+executables are built with `cargo install`, and legacy packages are extracted from the patched
+Rust crate. Run `midenup install` in the project to install this variant; the shared `0.17.0`
+installation and other named variants remain independent.
+
+Select it elsewhere with `miden +custom:project-dev`, `MIDENUP_TOOLCHAIN=custom:project-dev`, or
+`channel = "custom:project-dev"` in another toolchain file. These selectors reuse its recorded
+source and patches. `midenup update custom:project-dev` preserves that definition; a network source
+tracks its network independently, while a version source stays pinned. Mutable data lives beneath
+`var/custom/project-dev`, separated by source network or pin, and survives uninstall unless
+`--purge` is given.
+
+Projects sharing a name must agree on its source and patches. After changing the definition, run
+`midenup install` from the declaring project to reconcile it explicitly. Changing its network
+identity requires a new name.
+See [Patching components](docs/src/getting-started/usage.md#patching-components) for the full rules.
 
 
 #### Setting a global default toolchain
 
-You can customize your system's default toolchain with `midenup override <TOOLCHAIN>`. For example, to set `0.16.0` as the default toolchain, run:
+The first toolchain you install becomes your system's default. You can change it with `midenup override <TOOLCHAIN>`. For example, to set `0.16.0` as the default toolchain, run:
 ```
 midenup override 0.16.0
 ```
@@ -308,7 +353,7 @@ component from the newly selected toolchain.
 
 ## Development
 
-Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `channel-manifest.json`, and is published to Github Pages here: https://0xmiden.github.io/midenup/channel-manifest.json .
+Internally, `midenup` relies on a _channel manifest_, which describes the available toolchain channels, their names and versions, and their components. Currently, the canonical version of our channel manifest lives in this repo as `manifest/v3/manifest.json`, and is published to Github Pages here: https://0xmiden.github.io/midenup/v3/manifest.json .
 
 Locally, you can override the channel manifest URI, for testing or development purposes, by setting the `MIDENUP_MANIFEST_URI` environment variable. The URI must begin with either `file://` or `https://` at this time, but we could in theory support other URIs in the future if found useful.
 

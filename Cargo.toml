@@ -2,7 +2,7 @@
 members = [".", "tools/update-manifest"]
 
 [workspace.package]
-version = "1.0.0"
+version = "1.2.1"
 authors = ["Miden contributors"]
 repository = "https://github.com/0xMiden/midenup"
 homepage = "https://github.com/0xMiden/midenup"
@@ -21,7 +21,7 @@ chrono = { version = "0.4", default-features = false, features = [
 ] }
 clap = { version = "4.5", features = ["derive", "env"] }
 colored = "3.0"
-midenup = { version = "1.0.0-rc.1", path = "." }
+midenup = { version = "1.2.1", path = "." }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
@@ -80,6 +80,7 @@ upon = { version = "0.10", default-features = false, features = [
 
 [build-dependencies]
 cargo_toml = "1.0.0"
+serde_json.workspace = true
 
 [dev-dependencies]
 libc = "0.2"

@@ -348,6 +348,7 @@ fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
     let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
     let manifest = serde_json::json!({
         "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",
@@ -526,7 +527,7 @@ fn integration_prerelease_components_are_runnable() {
     let test_name = "integration_test_components";
     let test_env = environment_setup(test_name);
 
-    const FILE: &str = full_path_manifest!("manifest/channel-manifest.json");
+    const FILE: &str = full_path_manifest!("manifest/v3/manifest.json");
     let (mut state, config) = test_setup(&test_env, FILE);
 
     // The manifest decides which networks exist, so a new or newly promoted network is never left
@@ -621,6 +622,7 @@ fn integration_a_path_source_that_moves_during_the_build_is_refused() {
     let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
     let manifest = serde_json::json!({
         "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
         "date": 1735689600,
         "channels": [{
             "name": "0.15.0",
@@ -672,5 +674,91 @@ fn integration_a_path_source_that_moves_during_the_build_is_refused() {
     assert!(
         state.get(&semver::Version::new(0, 15, 0)).is_none(),
         "and nothing may be recorded as installed"
+    );
+}
+
+/// A direct install over a legacy patched canonical installation must re-acquire the component
+/// rather than seed the patched build into the new publication.
+#[test]
+fn integration_install_after_a_patch_does_not_keep_the_patched_build() {
+    assert_unpatched_by("integration_install_after_patch", &["midenup", "install", "0.15.0"]);
+}
+
+/// An update drops legacy canonical patches, so it must re-acquire a patched component even when
+/// the path-update policy would otherwise keep it.
+#[test]
+fn integration_update_after_a_patch_does_not_keep_the_patched_build() {
+    assert_unpatched_by(
+        "integration_update_after_patch",
+        &["midenup", "update", "--path-update=off", "0.15.0"],
+    );
+}
+
+/// Seeds a legacy canonical installation with a path patch, then asserts `args` restores upstream.
+/// New project declarations require a name, but old shared patched installations remain readable.
+fn assert_unpatched_by(test_name: &str, args: &[&str]) {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup(test_name);
+
+    let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
+    let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let channel = semver::Version::new(0, 15, 0);
+    let vm = midenup::paths::toolchain_link(&test_env.midenup_home, &channel)
+        .join("bin")
+        .join("miden-vm");
+    let upstream_vm = std::fs::read(fixture.dir.join("0.15.0").join("miden-vm")).unwrap();
+
+    let manifest = midenup::manifest::Manifest::load_from_file(&fixture.manifest_path).unwrap();
+    let mut patched = manifest.get_channel_by_name(&channel).unwrap().clone();
+    let patched_vm =
+        patched.components.iter_mut().find(|component| component.name == "vm").unwrap();
+    patched_vm.version = version::Authority::Path {
+        path: sources.path_crate.clone(),
+        last_modification: None,
+    };
+    let midenup::manifest::ComponentKind::Executable { installation_method, .. } =
+        &mut patched_vm.kind
+    else {
+        panic!("fixture vm must be executable");
+    };
+    *installation_method = midenup::manifest::InstallationMethod::Cargo {
+        crate_name: "fixture-vm".into(),
+        rustup_channel: None,
+        features: Vec::new(),
+    };
+    patched_vm.artifacts = Default::default();
+    let options = midenup::options::InstallationOptions {
+        components: vec!["vm".into()],
+        patches: serde_json::from_value(serde_json::json!({
+            "vm": {
+                "crate_name": "fixture-vm",
+                "version": { "kind": "path", "path": sources.path_crate },
+            },
+        }))
+        .unwrap(),
+        ..Default::default()
+    };
+    midenup::commands::install(&config, &patched, &mut state, &options)
+        .expect("failed to seed the legacy patched toolchain");
+    assert!(std::fs::read(&vm).unwrap() != upstream_vm, "the patch must be installed");
+
+    Midenup::try_parse_from(args)
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
+
+    let installation = state.get(&channel).unwrap();
+    assert!(installation.patches.is_empty());
+    let recorded_vm = installation.components.iter().find(|c| c.name == "vm").unwrap();
+    assert!(
+        matches!(recorded_vm.version, version::Authority::Registry { .. }),
+        "the upstream vm must be recorded, not the patch: {:?}",
+        recorded_vm.version
+    );
+    assert!(
+        std::fs::read(&vm).unwrap() == upstream_vm,
+        "the patched build must not be carried forward"
     );
 }

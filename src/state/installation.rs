@@ -1,8 +1,10 @@
 //! What `midenup` has installed, as recorded on this machine.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
-use crate::{manifest::Component, plan::PlanKey, resolve::Intent};
+use crate::{manifest::Component, plan::PlanKey, resolve::Intent, toolchain::Patch};
 
 /// An opaque identifier for one immutable published installation.
 ///
@@ -97,6 +99,8 @@ pub struct Receipt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Installation {
     pub channel: semver::Version,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom: Option<crate::identity::CustomToolchain>,
     /// What the user asked for. Re-resolved against upstream on every update.
     pub intent: Intent,
     /// The resolved component set, snapshotted so `miden` can dispatch without the network.
@@ -107,9 +111,19 @@ pub struct Installation {
     /// The midenup version that produced this installation's on-disk layout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub midenup_version: Option<semver::Version>,
+    /// The toolchain file patches `components` were built with.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub patches: BTreeMap<String, Patch>,
 }
 
 impl Installation {
+    pub fn id(&self) -> crate::identity::InstallationId {
+        match &self.custom {
+            Some(custom) => crate::identity::InstallationId::Custom(custom.name.clone()),
+            None => crate::identity::InstallationId::Version(self.channel.clone()),
+        }
+    }
+
     /// Whether this record describes files that this build manages.
     pub fn is_managed(&self) -> bool {
         matches!(self.publication, PublicationRef::Managed { .. })

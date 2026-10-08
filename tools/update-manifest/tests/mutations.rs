@@ -38,6 +38,7 @@ fn read_manifest(path: &Path) -> serde_json::Value {
 fn manifest_with(components: serde_json::Value) -> serde_json::Value {
     serde_json::json!({
         "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
         "date": 1735689600,
         "networks": {"mainnet": "0.15.0"},
         "channels": [{"name": "0.15.0", "components": components}]
@@ -53,6 +54,7 @@ fn fixture() -> (tempdir::TempDir, std::path::PathBuf) {
         dir.path(),
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.15.0"},
             "channels": [
@@ -72,6 +74,7 @@ fn fixture_with_dangling_requirement() -> (tempdir::TempDir, std::path::PathBuf)
         dir.path(),
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.15.0"},
             "channels": [
@@ -338,6 +341,7 @@ fn clone_toolchain_does_not_carry_migrates_from() {
         dir.path(),
         serde_json::json!({
             "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
             "date": 1735689600,
             "networks": {"mainnet": "0.15.0"},
             "channels": [

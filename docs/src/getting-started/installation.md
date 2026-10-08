@@ -1,5 +1,11 @@
 # Installation
 
+## Prerequisites
+
+- [Rust](https://rustup.rs), latest stable.
+- [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
+  `node` component (`miden node`).
+
 ## Installing midenup
 
 1. Install the Miden toolchain installer (midenup) using cargo:

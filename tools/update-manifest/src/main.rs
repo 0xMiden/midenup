@@ -238,6 +238,9 @@ impl Cli {
                     bail!("unknown source toolchain '{from}'")
                 };
                 let to = match to {
+                    UserChannel::Custom(name) => {
+                        bail!("custom:{name} is a local installation, not an upstream channel")
+                    },
                     UserChannel::Named(name) => {
                         bail!(
                             "cannot create a toolchain named '{name}': a toolchain is named by \

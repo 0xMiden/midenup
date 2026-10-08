@@ -53,12 +53,12 @@ pub enum PublishError {
     #[error("'{path}' is not a valid journal entry: {reason}")]
     InvalidJournal { path: PathBuf, reason: String },
     #[error(
-        "an interrupted {operation} of channel {channel} is still recorded; run any midenup \
-         command to let it finish recovering before starting another operation"
+        "an interrupted {operation} of toolchain {installation} is still recorded; run any \
+         midenup command to let it finish recovering before starting another operation"
     )]
     OperationInProgress {
         operation: OperationKind,
-        channel: semver::Version,
+        installation: crate::identity::InstallationId,
     },
     #[error("failed to publish the toolchain link '{path}': {source}")]
     Commit {
@@ -69,11 +69,11 @@ pub enum PublishError {
     #[error("failed to record the operation in local state: {reason}")]
     Record { reason: String },
     #[error(
-        "channel {channel} is recorded as installed, but {detail}; midenup will not guess what \
-         happened. To reinstall it, run: {remediation}"
+        "toolchain {installation} is recorded as installed, but {detail}; midenup will not guess \
+         what happened. To reinstall it, run: {remediation}"
     )]
     DivergentState {
-        channel: semver::Version,
+        installation: crate::identity::InstallationId,
         detail: String,
         remediation: String,
     },
@@ -160,8 +160,8 @@ pub fn receipt_for(
 /// Publication directories no `state.json` record refers to and no journal names.
 ///
 /// Because a replaced publication is left on disk rather than deleted -- another process may be
-/// executing out of it (§3.1) -- this is what accumulates, and reclaiming it is `midenup gc`'s
-/// whole job.
+/// executing out of it (§3.1) -- this is what accumulates, and reclaiming it is one part of
+/// `midenup gc`.
 ///
 /// Two things are deliberately *not* treated as garbage: a publication an in-flight operation
 /// names, which is either about to be published or about to be replaced; and anything that is not a
@@ -182,7 +182,10 @@ pub fn unreferenced(
         .collect();
 
     if let Some(entry) = journal::read(home)? {
-        for id in [&entry.old_publication, &entry.new_publication].into_iter().flatten() {
+        if let Some(id) = &entry.old_publication {
+            referenced.insert(publication_dir(home, entry.old_channel(), id));
+        }
+        if let Some(id) = &entry.new_publication {
             referenced.insert(publication_dir(home, &entry.channel, id));
         }
     }
@@ -378,6 +381,7 @@ mod tests {
         let mut state = LocalState::default();
         state.upsert(Installation {
             channel: channel.clone(),
+            custom: None,
             intent: Default::default(),
             components: vec![],
             publication: PublicationRef::Managed {
@@ -387,6 +391,7 @@ mod tests {
             },
             installed_at: 1735689600,
             midenup_version: None,
+            patches: Default::default(),
         });
 
         assert_eq!(
@@ -421,6 +426,7 @@ mod tests {
             staged.clone(),
             Installation {
                 channel: channel.clone(),
+                custom: None,
                 intent: Default::default(),
                 components: vec![],
                 publication: crate::state::PublicationRef::Managed {
@@ -430,6 +436,7 @@ mod tests {
                 },
                 installed_at: 1735689600,
                 midenup_version: None,
+                patches: Default::default(),
             },
         );
         journal::prepare(home, &entry).unwrap();
