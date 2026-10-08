@@ -18,7 +18,7 @@ use crate::{
 ///
 /// Different channels have different stability guarantees. See the specific details for the
 /// channel you are interested in to learn more.
-#[derive(Serialize, Deserialize, Debug, Clone, Hash)]
+#[derive(Serialize, Deserialize, Debug, Clone, Hash, PartialEq)]
 pub struct Channel {
     /// Channels are identified by their name. The name corresponds to the channel's version.
     /// The version can contain suffixes such as "-custom", "-beta".

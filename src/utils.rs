@@ -298,8 +298,11 @@ pub mod atomic {
         T: serde::Serialize,
         V: FnOnce(&str) -> Result<(), String>,
     {
-        let bytes = serde_json::to_vec_pretty(value)
+        let mut bytes = serde_json::to_vec_pretty(value)
             .map_err(|source| WriteError::Serialize { path: path.to_path_buf(), source })?;
+        // A text file ends with a newline; without it every rewrite of a committed document
+        // shows up as a diff hunk on its last line.
+        bytes.push(b'\n');
 
         let temporary = temporary_sibling(path);
 
