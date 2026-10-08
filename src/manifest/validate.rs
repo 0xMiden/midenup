@@ -34,7 +34,7 @@ use crate::{
         destination::DestinationClaims, destination_for, validate_artifact_id,
         validate_artifact_id_for,
     },
-    version::Authority,
+    version::{Authority, GitTarget},
 };
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -168,8 +168,37 @@ pub enum ValidationError {
          since users may still have it installed"
     )]
     ChannelRemoved(semver::Version),
+    #[error("minimum client version moves back from {from} to {to};")]
+    MinClientVersionLowered {
+        from: semver::Version,
+        to: semver::Version,
+    },
+    #[error(
+        "channel {channel} no longer declares `migrates_from` {from}; installations of {from} \
+         that have not updated yet rely on it to be carried forward"
+    )]
+    MigrationChanged {
+        channel: semver::Version,
+        from: semver::Version,
+    },
+    #[error("manifest timestamp {0} is in the future; run `update-manifest touch`")]
+    FutureTimestamp(i64),
     #[error("channel {0} declares `migrates_from` itself")]
     SelfMigration(semver::Version),
+    #[error("channel {channel} declares `migrates_from` {from}, which is not an older channel")]
+    MigrationFromNewer {
+        channel: semver::Version,
+        from: semver::Version,
+    },
+    #[error(
+        "channel {channel}: component '{component}' is fetched from {authority}, whose contents \
+         change without the manifest changing; pin a registry version, git tag or git revision"
+    )]
+    MutableAuthority {
+        channel: semver::Version,
+        component: String,
+        authority: String,
+    },
     #[error(
         "channels {first} and {second} both declare `migrates_from` {from}; an installation of \
          {from} can only be carried to one of them"
@@ -249,6 +278,10 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
 
     if manifest.date <= 0 {
         errors.push(ValidationError::InvalidTimestamp(manifest.date));
+    }
+    // A future timestamp would make every later manifest fail to advance past it.
+    if manifest.date > chrono::Utc::now().timestamp() {
+        errors.push(ValidationError::FutureTimestamp(manifest.date));
     }
 
     let mut seen_channels = BTreeSet::new();
@@ -364,6 +397,13 @@ fn validate_migrations(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
             errors.push(ValidationError::SelfMigration(channel.name.clone()));
             continue;
         }
+        // Migrating only forward also rules out cycles.
+        if from > &channel.name {
+            errors.push(ValidationError::MigrationFromNewer {
+                channel: channel.name.clone(),
+                from: from.clone(),
+            });
+        }
         if let Some(previous) = successors.insert(from, &channel.name) {
             errors.push(ValidationError::AmbiguousMigration {
                 from: from.clone(),
@@ -414,9 +454,26 @@ pub fn validate_against(
     // `update` needs the channel in the manifest to carry that installation forward, so no
     // channel is ever removed.
     for channel in previous.channels.iter() {
-        if next.get_channel_by_name(&channel.name).is_none() {
+        let Some(now) = next.get_channel_by_name(&channel.name) else {
             errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
+            continue;
+        };
+        // Adding a predecessor is allowed; dropping or replacing one strands its installations.
+        if let Some(from) = &channel.migrates_from
+            && now.migrates_from.as_ref() != Some(from)
+        {
+            errors.push(ValidationError::MigrationChanged {
+                channel: channel.name.clone(),
+                from: from.clone(),
+            });
         }
+    }
+
+    if next.min_client_version.cmp_precedence(&previous.min_client_version).is_lt() {
+        errors.push(ValidationError::MinClientVersionLowered {
+            from: previous.min_client_version.clone(),
+            to: next.min_client_version.clone(),
+        });
     }
 
     if errors.is_empty() { Ok(()) } else { Err(errors) }
@@ -467,6 +524,20 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
                 channel: channel.name.clone(),
                 component: component.name.to_string(),
                 kind: tag.clone(),
+            });
+        }
+        let authority = match &component.version {
+            Authority::Path { path, .. } => Some(format!("local path '{}'", path.display())),
+            Authority::Git {
+                target: GitTarget::Branch { name, .. }, ..
+            } => Some(format!("git branch '{name}'")),
+            Authority::Git { .. } | Authority::Registry { .. } => None,
+        };
+        if let Some(authority) = authority {
+            errors.push(ValidationError::MutableAuthority {
+                channel: channel.name.clone(),
+                component: component.name.to_string(),
+                authority,
             });
         }
     }
@@ -948,6 +1019,93 @@ mod tests {
             e,
             ValidationError::ChannelRemoved(channel) if *channel == semver::Version::new(0, 15, 0)
         )));
+    }
+
+    #[test]
+    fn a_lowered_minimum_client_version_is_rejected() {
+        let mut raised = previous();
+        raised.min_client_version = semver::Version::new(1, 2, 0);
+        let mut next = successor();
+        next.min_client_version = semver::Version::new(1, 1, 0);
+        let errors = validate_against(&raised, &next, true).err().unwrap_or_default();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::MinClientVersionLowered { .. }))
+        );
+
+        next.min_client_version = semver::Version::new(1, 3, 0);
+        assert_eq!(validate_against(&raised, &next, false), Ok(()));
+    }
+
+    #[test]
+    fn a_published_migration_cannot_be_dropped_or_replaced() {
+        let mut migrating = previous();
+        migrating.channels[1].migrates_from = Some(semver::Version::new(0, 15, 0));
+        let mut next = migrating.clone();
+        next.date = 2000;
+
+        next.channels[1].migrates_from = None;
+        let errors = validate_against(&migrating, &next, false).err().unwrap_or_default();
+        assert!(errors.iter().any(|e| matches!(e, ValidationError::MigrationChanged { .. })));
+
+        next.channels[1].migrates_from = Some(semver::Version::new(0, 14, 0));
+        let errors = validate_against(&migrating, &next, false).err().unwrap_or_default();
+        assert!(errors.iter().any(|e| matches!(e, ValidationError::MigrationChanged { .. })));
+    }
+
+    #[test]
+    fn adding_a_migration_to_a_published_channel_passes() {
+        let mut m = successor();
+        m.channels[1].migrates_from = Some(semver::Version::new(0, 15, 0));
+        assert_eq!(validate_against(&previous(), &m, false), Ok(()));
+    }
+
+    #[test]
+    fn migrating_from_a_newer_channel_is_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.channels[0].migrates_from = Some(semver::Version::new(0, 16, 0));
+        assert!(errors_of(&m).iter().any(|e| matches!(
+            e,
+            ValidationError::MigrationFromNewer { from, .. } if *from == semver::Version::new(0, 16, 0)
+        )));
+    }
+
+    #[test]
+    fn a_future_timestamp_is_rejected() {
+        let mut m = with_mainnet(manifest(vec![]));
+        m.date = chrono::Utc::now().timestamp() + 3600;
+        assert!(errors_of(&m).iter().any(|e| matches!(e, ValidationError::FutureTimestamp(_))));
+    }
+
+    #[test]
+    fn a_path_or_git_branch_authority_is_rejected() {
+        let mut path = executable("vm", "miden-vm");
+        path.version = Authority::Path {
+            path: "/tmp/vm".into(),
+            last_modification: None,
+        };
+        let mut branch = executable("debugger", "miden-debug");
+        branch.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: crate::version::GitTarget::default(),
+        };
+        let mut tag = executable("client", "miden-client");
+        tag.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: crate::version::GitTarget::Tag { name: "v1.0.0".to_string() },
+        };
+        let m = with_mainnet(manifest(vec![path, branch, tag]));
+        let flagged: Vec<String> = errors_of(&m)
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::MutableAuthority { component, .. } => Some(component),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(flagged, ["vm", "debugger"]);
     }
 
     #[test]

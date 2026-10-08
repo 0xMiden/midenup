@@ -1,5 +1,6 @@
 {
   "manifest_version": "3.0.0",
+  "min_client_version": "1.2.0",
   "date": 1791312773,
   "networks": {
     "devnet": "0.17.0",
@@ -1205,6 +1206,5 @@
         }
       ]
     }
-  ],
-  "min_client_version": "1.2.0"
+  ]
 }

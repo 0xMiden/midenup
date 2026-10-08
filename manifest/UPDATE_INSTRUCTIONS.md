@@ -115,7 +115,9 @@ Validation covers the networks map as well as the channels: every network must n
 exists in the same document, no network may be named like a toolchain or after one of the synonyms,
 and `mainnet` must be declared, since it is the toolchain `midenup` uses when nothing else selects
 one. No two toolchains may declare `migrates_from` the same one, since `midenup update` must find
-exactly one successor. A field the schema does not define is refused: `midenup` preserves such
+exactly one successor, and a toolchain may only migrate from an older one. A component must not be
+fetched from a local path or a git branch, whose contents change without the manifest changing, and
+the timestamp must not be in the future. A field the schema does not define is refused: `midenup` preserves such
 fields when reading, so a misspelled one would be published and silently never read. The exception
 is a field whose value is empty (`[]`, `{}` or `null`), which is indistinguishable from a known
 field the schema omits when empty; such a typo is harmless, since an empty field reads the same as
@@ -133,7 +135,8 @@ cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 
 This refuses a timestamp that did not advance, a removed network, a network moving to an older
-toolchain (unless `--allow-downgrade` is passed), and a removed toolchain. CI runs this comparison
+toolchain (unless `--allow-downgrade` is passed), a removed toolchain, a toolchain dropping or
+replacing the `migrates_from` it was published with, and a lower minimum client version. CI runs this comparison
 on every pull request against the base branch as it was when the pull request was last updated, on
 every push to `next` against the previous tip, and before every deployment against the manifest
 currently deployed. On a pull request a downgrade is allowed by labelling it
