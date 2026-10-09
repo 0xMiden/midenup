@@ -641,3 +641,48 @@ fn promote_does_not_announce_a_promotion_it_failed_to_write() {
     let err = run(&path, &["promote", "", "0.16.0"]).expect_err("an empty network name is invalid");
     assert!(!err.contains("created network"), "must not claim to have created it: {err}");
 }
+
+/// `diff` prints nothing for an unchanged manifest and one Markdown line per change otherwise.
+#[test]
+fn diff_prints_changes_as_markdown() {
+    let dir = tempfile::Builder::new().prefix("manifest-utils-diff").tempdir().unwrap();
+    let previous = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+    let previous_uri = format!("file://{}", previous.display());
+    assert_eq!(run(&previous, &["diff", &previous_uri]).expect("diff"), "");
+
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+    let mut next = read_manifest(&previous);
+    next["channels"][0]["components"][0]["version"]["version"] = serde_json::json!("0.14.0");
+    let next = write_manifest(&next_dir, next);
+
+    let out = run(&next, &["diff", &previous_uri]).expect("diff");
+    assert!(
+        out.contains("component `vm` version changed from `0.15.0` to `0.14.0` **(downgrade)**"),
+        "{out}"
+    );
+}
+
+/// Names from the manifest render as code spans, so they cannot inject Markdown or HTML.
+#[test]
+fn diff_escapes_names_from_the_manifest() {
+    let dir = tempfile::Builder::new().prefix("manifest-utils-diff-escape").tempdir().unwrap();
+    let previous = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
+    );
+    let previous_uri = format!("file://{}", previous.display());
+
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+    let mut next = read_manifest(&previous);
+    next["networks"]["a`\n<!--"] = next["networks"]["mainnet"].clone();
+    let next = write_manifest(&next_dir, next);
+
+    let out = run(&next, &["diff", &previous_uri]).expect("diff");
+    assert!(out.starts_with("- Network `` a`\\n<!-- `` added at "), "{out}");
+    assert_eq!(out.lines().count(), 1, "{out}");
+}

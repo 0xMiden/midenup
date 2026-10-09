@@ -161,6 +161,18 @@ revision, and that the tag of each pinned `oci://` reference resolves to the dig
 With `--against`, only new or changed components are checked. CI passes `--online` to the
 comparison above.
 
+To see what a change does, list it against the same manifest:
+
+```
+bin/manifest-utils diff --manifest-path manifest/v3/manifest.json \
+    file:///tmp/previous-manifest.json
+```
+
+It prints one Markdown line per change: the schema and minimum client versions, networks added,
+removed or moved, toolchains added (with their components) or removed, `migrates_from` changes,
+unknown fields, and components added, removed or changed, with each changed field's previous and
+new value. An empty field counts as absent. Downgrades are marked.
+
 ## Publishing
 
 Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
