@@ -86,6 +86,41 @@ jobs:
       # checked was built on it, so the comparison does not shift when the base branch moves.
       against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/v3/manifest.json
 
+  manifest_diff_comment:
+    name: manifest diff comment
+    # Keeps one comment on the pull request listing its manifest changes, removed once there are
+    # none. Only after a passing check. Pull requests from forks get a read-only token, so they
+    # only have the job summary.
+    needs: [check_manifest]
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post, update or remove the comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIFF: ${{ needs.check_manifest.outputs.diff }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          marker='<!-- manifest-diff -->'
+          existing=$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"${marker}\"))) | .id" | head -n 1)
+          if [ -z "${DIFF}" ]; then
+            if [ -n "${existing}" ]; then
+              gh api -X DELETE "repos/${REPO}/issues/comments/${existing}"
+            fi
+            exit 0
+          fi
+          body=$(printf '%s\n### Manifest changes\n\n%s\n' "${marker}" "${DIFF}")
+          if [ -n "${existing}" ]; then
+            gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" -f body="${body}" > /dev/null
+          else
+            gh api -X POST "repos/${REPO}/issues/${PR}/comments" -f body="${body}" > /dev/null
+          fi
+
   unit_tests:
     name: unit tests
     runs-on: ubuntu-latest
