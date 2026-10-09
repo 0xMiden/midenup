@@ -12,6 +12,10 @@ on:
         required: false
         default: false
         type: boolean
+    outputs:
+      diff:
+        description: The changes to the manifest as a Markdown list, empty when there are none or a check failed
+        value: ${{ jobs.check.outputs.diff }}
   # ci.yml ignores manifest-only pushes, so those are checked here directly. A push to next
   # was reviewed on a pull request, where a downgrade is acknowledged by label, so it is allowed.
   push:
@@ -26,6 +30,11 @@ jobs:
   check:
     name: check
     runs-on: ubuntu-latest
+    outputs:
+      diff: ${{ steps.diff.outputs.diff }}
+    env:
+      # On a push, the manifest at the previous tip of the branch
+      AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
     steps:
       - uses: actions/checkout@v5
       - name: Install Rust
@@ -62,8 +71,6 @@ jobs:
           fi
       - name: Check the manifest against the one it replaces
         env:
-          # On a push, the manifest at the previous tip of the branch
-          AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
           ALLOW_DOWNGRADE: ${{ (inputs.allow-downgrade || github.event_name == 'push') && '--allow-downgrade' || '' }}
         run: |
           set -euo pipefail
@@ -73,3 +80,18 @@ jobs:
       - name: How to allow a deliberate downgrade
         if: ${{ failure() && github.event_name == 'pull_request' }}
         run: echo "::notice::If the check refused a downgrade, a removed toolchain or a changed installation method and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."
+      - name: Summarize the changes to the manifest
+        id: diff
+        # Last, so it only summarizes a manifest that passed every check; a failure is read in the
+        # log instead. Not through cargo make, which prints its environment to stdout. Also an
+        # output, which ci.yml posts on the pull request.
+        run: |
+          set -euo pipefail
+          cargo run -q -p update-manifest -- --manifest-path manifest/v3/manifest.json diff "${AGAINST}" > "${RUNNER_TEMP}/diff.md"
+          cat "${RUNNER_TEMP}/diff.md" >> "${GITHUB_STEP_SUMMARY}"
+          delimiter="diff-$(openssl rand -hex 8)"
+          {
+            echo "diff<<${delimiter}"
+            cat "${RUNNER_TEMP}/diff.md"
+            echo "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
