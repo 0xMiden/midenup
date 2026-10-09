@@ -137,7 +137,7 @@ cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 
 This refuses a timestamp that did not advance, a removed network, a network moving to an older
-toolchain (unless `--allow-downgrade` is passed), a removed toolchain, a toolchain dropping or
+toolchain or a component to an older version (unless `--allow-downgrade` is passed), a removed toolchain, a toolchain dropping or
 replacing the `migrates_from` it was published with, and a lower minimum client version. CI runs this comparison
 on every pull request against the base branch as it was when the pull request was last updated, on
 every push to `next` against the previous tip, and before every deployment against the manifest

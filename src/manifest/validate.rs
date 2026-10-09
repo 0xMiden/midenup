@@ -170,6 +170,16 @@ pub enum ValidationError {
         to: semver::Version,
     },
     #[error(
+        "channel {channel}: component '{component}' moves back from {from} to {to}; pass \
+         --allow-downgrade if that is intended"
+    )]
+    ComponentDowngraded {
+        channel: semver::Version,
+        component: String,
+        from: semver::Version,
+        to: semver::Version,
+    },
+    #[error(
         "channel {0} is in the previous manifest but not in this one; a channel is never removed, \
          since users may still have it installed"
     )]
@@ -481,6 +491,23 @@ pub fn validate_against(
                 channel: channel.name.clone(),
                 from: from.clone(),
             });
+        }
+        for component in channel.components.iter() {
+            let Some(current) = now.get_component(&component.name) else {
+                continue;
+            };
+            if let (Authority::Registry { version: from }, Authority::Registry { version: to }) =
+                (&component.version, &current.version)
+                && to < from
+                && !allow_downgrade
+            {
+                errors.push(ValidationError::ComponentDowngraded {
+                    channel: channel.name.clone(),
+                    component: component.name.to_string(),
+                    from: from.clone(),
+                    to: to.clone(),
+                });
+            }
         }
     }
 
@@ -1046,6 +1073,22 @@ mod tests {
             e,
             ValidationError::ChannelRemoved(channel) if *channel == semver::Version::new(0, 15, 0)
         )));
+    }
+
+    #[test]
+    fn a_component_moving_backwards_needs_the_flag() {
+        let mut next = successor();
+        next.channels[0].components[0].version =
+            Authority::Registry { version: semver::Version::new(0, 0, 1) };
+        assert!(errors_against(&next).iter().any(|e| matches!(
+            e,
+            ValidationError::ComponentDowngraded { component, .. } if component == "vm"
+        )));
+        assert_eq!(validate_against(&previous(), &next, true), Ok(()));
+
+        next.channels[0].components[0].version =
+            Authority::Registry { version: semver::Version::new(0, 2, 0) };
+        assert_eq!(validate_against(&previous(), &next, false), Ok(()));
     }
 
     #[test]
