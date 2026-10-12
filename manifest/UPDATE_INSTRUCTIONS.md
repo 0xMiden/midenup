@@ -136,12 +136,15 @@ git show origin/next:manifest/v3/manifest.json > /tmp/previous-manifest.json
 cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 
-This refuses a timestamp that did not advance, a removed network, a network moving to an older
-toolchain or a component to an older version (unless `--allow-downgrade` is passed), a removed toolchain, a toolchain dropping or
-replacing the `migrates_from` it was published with, and a lower minimum client version. CI runs this comparison
+This refuses a timestamp that did not advance, a removed network, a toolchain dropping or replacing
+the `migrates_from` it was published with, and a lower minimum client version. Unless
+`--allow-downgrade` is passed, it also refuses a network moving to an older toolchain, a component
+moving to an older version, a removed toolchain, and a component changing its installation method:
+each can be intended, such as rolling back a yanked release or removing a legacy toolchain, so they
+need an explicit decision rather than being impossible. CI runs this comparison
 on every pull request against the base branch as it was when the pull request was last updated, on
 every push to `next` against the previous tip, and before every deployment against the manifest
-currently deployed. On a pull request a downgrade is allowed by labelling it
+currently deployed. On a pull request these changes are allowed by labelling it
 `manifest:allow-downgrade`, so the decision is visible in review; the push and deployment checks
 allow it, since the pull request already settled it.
 

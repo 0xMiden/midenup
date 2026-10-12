@@ -36,10 +36,11 @@ enum Command {
         /// Also check the manifest as a replacement for the previous one at this URI, e.g. the
         /// deployed manifest or the one on the base branch: refuses a stale timestamp, a removed
         /// network, a network or component moving backwards, a removed channel, a changed
-        /// `migrates_from`, and a lower minimum client version
+        /// installation method, a changed `migrates_from`, and a lower minimum client version
         #[arg(long, value_name = "URI")]
         against: Option<String>,
-        /// Allow a network or component to move to an older version than the previous manifest has
+        /// Allow a network or component to move to an older version, a channel to be removed, and
+        /// a component to change its installation method
         #[arg(long, requires = "against")]
         allow_downgrade: bool,
     },

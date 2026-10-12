@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       allow-downgrade:
-        description: Accept a network or component moving to an older version
+        description: Accept a network or component moving to an older version, a removed toolchain, or a changed installation method
         required: false
         default: false
         type: boolean
@@ -72,4 +72,4 @@ jobs:
           cargo make check-manifest --against "${AGAINST}" ${ALLOW_DOWNGRADE}
       - name: How to allow a deliberate downgrade
         if: ${{ failure() && github.event_name == 'pull_request' }}
-        run: echo "::notice::If the check refused a network or component moving to an older version and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."
+        run: echo "::notice::If the check refused a downgrade, a removed toolchain or a changed installation method and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."

@@ -30,7 +30,10 @@ use std::{
     path::Path,
 };
 
-use super::{Channel, Component, ComponentKind, Extra, Manifest, UnknownFields};
+use super::{
+    Channel, Component, ComponentKind, Extra, InstallationMethod, Manifest,
+    PackageInstallationMethod, UnknownFields,
+};
 use crate::{
     artifact::Artifact,
     plan::{
@@ -180,10 +183,20 @@ pub enum ValidationError {
         to: semver::Version,
     },
     #[error(
-        "channel {0} is in the previous manifest but not in this one; a channel is never removed, \
-         since users may still have it installed"
+        "channel {0} is in the previous manifest but not in this one; users may still have it \
+         installed, so pass --allow-downgrade only if removing it is intended"
     )]
     ChannelRemoved(semver::Version),
+    #[error(
+        "channel {channel}: component '{component}' changes installation method from {from} to \
+         {to}; pass --allow-downgrade if that is intended"
+    )]
+    InstallationMethodChanged {
+        channel: semver::Version,
+        component: String,
+        from: &'static str,
+        to: &'static str,
+    },
     #[error("minimum client version moves back from {from} to {to};")]
     MinClientVersionLowered {
         from: semver::Version,
@@ -480,7 +493,9 @@ pub fn validate_against(
     // channel is ever removed.
     for channel in previous.channels.iter() {
         let Some(now) = next.get_channel_by_name(&channel.name) else {
-            errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
+            if !allow_downgrade {
+                errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
+            }
             continue;
         };
         // Adding a predecessor is allowed; dropping or replacing one strands its installations.
@@ -508,6 +523,18 @@ pub fn validate_against(
                     to: to.clone(),
                 });
             }
+            if let (Some(from), Some(to)) =
+                (installation_method(component), installation_method(current))
+                && from != to
+                && !allow_downgrade
+            {
+                errors.push(ValidationError::InstallationMethodChanged {
+                    channel: channel.name.clone(),
+                    component: component.name.to_string(),
+                    from,
+                    to,
+                });
+            }
         }
     }
 
@@ -519,6 +546,29 @@ pub fn validate_against(
     }
 
     if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// How a component is acquired, by its schema name, for kinds that declare it.
+fn installation_method(component: &Component) -> Option<&'static str> {
+    match &component.kind {
+        ComponentKind::Executable { installation_method, .. }
+        | ComponentKind::CargoExtension { installation_method, .. } => {
+            Some(match installation_method {
+                InstallationMethod::Prebuilt => "prebuilt",
+                InstallationMethod::PrebuiltWithCargoFallback { .. } => {
+                    "prebuilt-with-cargo-fallback"
+                },
+                InstallationMethod::Cargo { .. } => "cargo",
+            })
+        },
+        ComponentKind::LegacyPackage { installation_method, .. } => {
+            Some(match installation_method {
+                PackageInstallationMethod::Prebuilt => "prebuilt",
+                PackageInstallationMethod::Cargo { .. } => "cargo",
+            })
+        },
+        _ => None,
+    }
 }
 
 /// Rules over the `networks` map.
@@ -1089,6 +1139,33 @@ mod tests {
         next.channels[0].components[0].version =
             Authority::Registry { version: semver::Version::new(0, 2, 0) };
         assert_eq!(validate_against(&previous(), &next, false), Ok(()));
+    }
+
+    #[test]
+    fn an_installation_method_change_needs_the_flag() {
+        let mut next = successor();
+        let ComponentKind::Executable { installation_method, .. } =
+            &mut next.channels[0].components[0].kind
+        else {
+            unreachable!()
+        };
+        *installation_method = InstallationMethod::Cargo {
+            crate_name: "miden-vm".to_string(),
+            rustup_channel: None,
+            features: vec![],
+        };
+        assert!(errors_against(&next).iter().any(|e| matches!(
+            e,
+            ValidationError::InstallationMethodChanged { from: "prebuilt", to: "cargo", .. }
+        )));
+        assert_eq!(validate_against(&previous(), &next, true), Ok(()));
+    }
+
+    #[test]
+    fn removing_a_channel_is_allowed_with_the_flag() {
+        let mut m = successor();
+        m.remove_channel(semver::Version::new(0, 16, 0));
+        assert_eq!(validate_against(&previous(), &m, true), Ok(()));
     }
 
     #[test]
