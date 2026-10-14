@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1791401512,
+  "date": 1792009724,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.16.0",
@@ -2384,7 +2384,9 @@
           "installed-executable": "miden-registry",
           "kind": "executable",
           "name": "local-registry",
-          "profiles": [],
+          "profiles": [
+            "minimal"
+          ],
           "version": {
             "kind": "registry",
             "version": "0.35.0"
