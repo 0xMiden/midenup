@@ -1,0 +1,47 @@
+# Acceptance scenarios: checks that the components of a toolchain work together.
+#
+# Each scenario applies to the toolchains in `toolchain` (a semver range with an upper bound, so a
+# new toolchain line is only covered once a team widens it) and runs when a change touches one of
+# the components in `requires`. Run them with `cargo run -p acceptance`; see
+# manifest/UPDATE_INSTRUCTIONS.md.
+#
+# [[scenarios]]
+# title = "Can compile and prove a basic MASM program with midenc and the VM"
+# toolchain = "^0.17.0"
+# requires = ["vm", "core", "midenc"]
+# kind = "script"                # or "lit", with `suite = "<directory next to this file>"`
+# needs = ["docker"]             # optional: skipped on hosts without Docker
+# script = '''
+# miden build source.masm -lmasp:static=core --exe -o source.masp
+# miden vm prove source.masp
+# '''
+
+[[scenarios]]
+title = "Can compile a MASM program against core with midenc and prove it with the VM"
+toolchain = "^0.17.0"
+requires = ["vm", "core", "midenc"]
+kind = "script"
+script = '''
+set -euo pipefail
+
+cat > source.masm <<MASM
+use miden::core::math::u64
+
+begin
+    push.1.0 push.2.0
+    exec.u64::wrapping_add
+    dropw
+end
+MASM
+echo '{"operand_stack": []}' > source.inputs
+
+miden midenc source.masm -l masp:static=miden-core --exe -o source.masp
+miden vm prove source.masp
+'''
+
+[[scenarios]]
+title = "Can debug programs produced by midenc"
+toolchain = "^0.17.0"
+requires = ["core", "midenc", "debug"]
+kind = "lit"
+suite = "debug-midenc-produced"

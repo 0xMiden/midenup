@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tools/update-manifest"]
+members = [".", "tools/acceptance", "tools/update-manifest"]
 
 [workspace.package]
 version = "1.2.1"

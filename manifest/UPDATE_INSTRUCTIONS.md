@@ -173,6 +173,23 @@ same way:
 PRERELEASE_AGAINST=file:///tmp/previous-manifest.json cargo make prerelease-test
 ```
 
+Acceptance scenarios in `acceptance/scenarios.toml` check that the components of a toolchain work
+together. Each names the toolchains it covers (`toolchain`, a semver range that must have an upper
+bound) and the components it exercises (`requires`), and is either a shell `script`, which passes
+when it exits successfully, or a `lit` suite in a directory next to the file, run with `litcheck`.
+Every component of a toolchain needs at least one scenario: a toolchain added without full coverage
+is rejected, so carrying a component into a new toolchain line means widening its scenarios' ranges.
+CI runs the scenarios that require a component a pull request changes, and every scenario before
+deploying. Each runs against a scratch midenup home with the toolchain installed, `miden` on `PATH`,
+and the versions in `MIDEN_TOOLCHAIN_VERSION` and `MIDEN_COMPONENT_<NAME>_VERSION` (and as lit
+features such as `vm=0.17.2`). A scenario that needs Docker declares `needs = ["docker"]` and is
+skipped where Docker is missing. To run them locally:
+
+```
+cargo build -p midenup -p acceptance
+./target/debug/acceptance --against file:///tmp/previous-manifest.json --midenup target/debug/midenup
+```
+
 Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
 against the candidate manifest, and fails if that release cannot read it. Support for a new schema
 therefore ships in a `midenup` release first, and the manifest starts using it only once that

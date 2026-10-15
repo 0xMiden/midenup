@@ -1,0 +1,7 @@
+use miden::core::math::u64
+
+begin
+    push.10.0 push.20.0
+    exec.u64::wrapping_add
+    drop drop
+end
