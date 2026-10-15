@@ -174,11 +174,35 @@ jobs:
         run: cargo make test-build
       - name: Test
         run: cargo make integration-test
+
+  prerelease_test:
+    name: pre-release checks (${{ matrix.os }})
+    # These install real components from this repo's copy of the manifest and run them, so it
+    # takes many minutes. Run them on main, on pull requests into main (the release path from
+    # next), and on explicitly labelled pull requests, on both targets midenup is released for
+    if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+    needs: [integration_test]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - *install-rust
+      - *install-cargo-make
+      - name: Install all rustup toolchains present in the manifest
+        run: |
+          ./.github/auxiliary_scripts/install-toolchains.sh
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ github.workflow }}-shared-tests
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          save-if: false
+      - uses: taiki-e/install-action@nextest
       - name: Pre-release checks
-        # These install real components from this repo's copy of the manifest and run them, so it
-        # takes many minutes. Run them on main, on pull requests into main (the release path from
-        # next), and on explicitly labelled pull requests
-        if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
         env:
           # On a pull request, only the toolchains changed since its base are installed; pushes to
           # main test every network's toolchain
