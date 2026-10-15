@@ -29,10 +29,15 @@ jobs:
       allow-downgrade: true
 
   prerelease-test:
-    name: pre-release checks
-    # Installs real components from this manifest and runs them, so it takes many minutes
+    name: pre-release checks (${{ matrix.os }})
+    # Installs real components from this manifest and runs them, so it takes many minutes. On
+    # both targets midenup is released for
     needs: check-manifest
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
