@@ -173,6 +173,15 @@ removed or moved, toolchains added (with their components) or removed, `migrates
 unknown fields, and components added, removed or changed, with each changed field's previous and
 new value. An empty field counts as absent. Downgrades are marked.
 
+The pre-release test installs real toolchains and runs their components, on pull requests into
+`main`, on pull requests labelled `check:install`, and on every push to `main`. On a pull request
+it installs only the toolchains whose contents changed since the base branch, including ones no
+network names; elsewhere it installs every network's toolchain. To scope a local run the same way:
+
+```
+PRERELEASE_AGAINST=file:///tmp/previous-manifest.json cargo make prerelease-test
+```
+
 ## Publishing
 
 Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
