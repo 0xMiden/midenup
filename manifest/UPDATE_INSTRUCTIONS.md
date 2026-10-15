@@ -173,6 +173,13 @@ removed or moved, toolchains added (with their components) or removed, `migrates
 unknown fields, and components added, removed or changed, with each changed field's previous and
 new value. An empty field counts as absent. Downgrades are marked.
 
+The pre-release test installs every network's toolchain through its network and runs its
+components, on Linux x86-64 and macOS ARM64, the targets midenup is released for. It runs on pull
+requests into `main`, on pull requests labelled `check:install`, and on every push to `main`. A
+toolchain with a `prebuilt-with-cargo-fallback` component is installed a second time with those
+components built by `cargo`, so the fallback is known to work before a download ever fails. Run it
+locally with `cargo make prerelease-test`.
+
 ## Publishing
 
 Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
