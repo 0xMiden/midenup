@@ -1,0 +1,17 @@
+# The debugger stops at a source line of a program midenc compiled against core, and shows the
+# stack there: the result of core's u64 addition. The debugger loads core from the toolchain's
+# libraries, which it finds through `midenup`.
+#
+# RUN: miden midenc %S/sum.masm -l masp:static=miden-core --exe -o %t.masp
+# RUN: miden debug --commands %s %t.masp 2>&1 | filecheck %s
+
+break sum.masm:6
+continue
+where
+stack
+continue
+
+# CHECK: Breakpoint 0 set: **/sum.masm:6
+# CHECK: at {{.*}}sum.masm:6
+# CHECK: [0] 30
+# CHECK: Program terminated successfully

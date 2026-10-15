@@ -1,0 +1,4 @@
+name = "debug-midenc-produced"
+patterns = ["*.test"]
+
+[format.shtest]
