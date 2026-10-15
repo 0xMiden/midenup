@@ -229,3 +229,33 @@ jobs:
             export PRERELEASE_AGAINST="file://$RUNNER_TEMP/previous-manifest.json"
           fi
           cargo make prerelease-test
+
+  acceptance:
+    name: acceptance tests
+    # Runs the scenarios in acceptance/ that require a component this pull request changes, against
+    # the toolchains it changes. Linux only: it has Docker, which some scenarios need.
+    if: github.event_name == 'pull_request'
+    needs: [unit_tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - *install-rust
+      - name: Install all rustup toolchains present in the manifest
+        run: |
+          ./.github/auxiliary_scripts/install-toolchains.sh
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ github.workflow }}-shared-tests
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          save-if: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: litcheck
+      - name: Acceptance tests
+        env:
+          AGAINST: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/v3/manifest.json
+        run: |
+          cargo build -p midenup -p acceptance
+          ./target/debug/acceptance --against "${AGAINST}" --midenup target/debug/midenup
