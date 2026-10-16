@@ -160,6 +160,15 @@ removed or moved, toolchains added (with their components) or removed, `migrates
 unknown fields, and components added, removed or changed, with each changed field's previous and
 new value. An empty field counts as absent. Downgrades are marked.
 
+The pre-release test installs real toolchains and runs their components, on pull requests into
+`main`, on pull requests labelled `check:install`, and before every deployment. On a pull request
+it installs only the toolchains whose contents changed since the base branch, including ones no
+network names; elsewhere it installs every network's toolchain. To scope a local run the same way:
+
+```
+PRERELEASE_AGAINST=file:///tmp/previous-manifest.json cargo make prerelease-test
+```
+
 Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
 against the candidate manifest, and fails if that release cannot read it. Support for a new schema
 therefore ships in a `midenup` release first, and the manifest starts using it only once that
