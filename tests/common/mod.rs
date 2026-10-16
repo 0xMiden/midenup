@@ -104,12 +104,15 @@ pub struct TestEnvironment {
 pub fn environment_setup(test_name: &str) -> TestEnvironment {
     let tmp_dir =
         tempdir::TempDir::new(&format!("midenup-{test_name}")).expect("Couldn't create temp-dir");
+    // Resolved, because some build scripts compare canonical paths, and the temporary directory
+    // sits behind a symlink on macOS (`/var` -> `/private/var`).
+    let root = std::fs::canonicalize(tmp_dir.path()).expect("Couldn't resolve temp-dir");
 
-    let tmp_present_working_directory = tmp_dir.path().join("test-working-directory");
+    let tmp_present_working_directory = root.join("test-working-directory");
 
-    let tmp_midenup_home = tmp_dir.path().join("midenup");
+    let tmp_midenup_home = root.join("midenup");
 
-    let tmp_cargo_home = tmp_dir.path().join("cargo");
+    let tmp_cargo_home = root.join("cargo");
 
     std::fs::create_dir(&tmp_present_working_directory).unwrap();
 
