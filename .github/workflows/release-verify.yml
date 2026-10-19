@@ -34,10 +34,9 @@ jobs:
     steps:
       - &install-cargo-make
         name: Install cargo-make
-        run: |
-          if ! cargo make --version 2>/dev/null; then
-            cargo install cargo-make --force
-          fi
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-make@0.37.24
 
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:

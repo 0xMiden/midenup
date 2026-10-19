@@ -36,7 +36,10 @@ jobs:
           rustup component add --toolchain nightly rustfmt
           rustc --version
       - &install-cargo-make
-        uses: taiki-e/install-action@cargo-make
+        name: Install cargo-make
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-make@0.37.24
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:

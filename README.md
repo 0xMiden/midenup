@@ -22,7 +22,7 @@ The `midenup` executable facilitates two primary tasks:
 > * The Miden protocol library packages (transaction kernel, protocol and standards library, and various standard components).
 > * Aliases for running a local instance of the [Miden node](https://github.com/0xMiden/node)
 >
-> Run `midenup component list` to see a list of all available components for the active toolchain.
+> Run `miden help toolchain` to see a list of all available components for the active toolchain.
 
 ## Prerequisites
 

@@ -59,10 +59,9 @@ jobs:
 
       - &install-cargo-make
         name: Install cargo-make
-        run: |
-          if ! cargo make --version 2>/dev/null; then
-            cargo install cargo-make --force
-          fi
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-make@0.37.24
 
       # The subject is GITHUB_SHA -- the commit this run checked out -- and it
       # must be main's tip. Attestations are built from the run's own claims, so
