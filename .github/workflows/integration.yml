@@ -40,10 +40,9 @@ jobs:
           # cache hits and cache evictions (github has a 10GB cache limit).
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       - name: Install cargo-make
-        run: |
-          if ! cargo make --version 2>/dev/null; then
-            cargo install cargo-make --force
-          fi
+        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
+        with:
+          tool: cargo-make@0.37.24
       - name: Build
         run: |
           rustup update --no-self-update
