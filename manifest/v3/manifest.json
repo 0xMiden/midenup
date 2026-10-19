@@ -1,9 +1,9 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1791401530,
+  "date": 1792161193,
   "networks": {
     "devnet": "0.17.0",
-    "mainnet": "0.16.0",
+    "mainnet": "0.17.0",
     "testnet": "0.17.0"
   },
   "channels": [
@@ -892,7 +892,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.2"
+            "version": "0.17.3"
           }
         },
         {
@@ -965,7 +965,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.17.0"
+            "version": "0.17.1"
           }
         },
         {
@@ -1098,7 +1098,7 @@
           },
           "version": {
             "kind": "registry",
-            "version": "0.17.2"
+            "version": "0.17.6"
           }
         },
         {
@@ -1135,7 +1135,7 @@
           "name": "remote-prover",
           "version": {
             "kind": "registry",
-            "version": "0.17.2"
+            "version": "0.17.6"
           }
         },
         {
@@ -1150,7 +1150,7 @@
           "name": "validator",
           "version": {
             "kind": "registry",
-            "version": "0.17.2"
+            "version": "0.17.6"
           }
         },
         {
