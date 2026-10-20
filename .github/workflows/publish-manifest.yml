@@ -64,11 +64,15 @@ jobs:
         run: cargo make prerelease-test
 
   acceptance:
-    name: acceptance tests
-    # Every scenario in acceptance/ against every network's toolchain. Linux only: it has Docker,
-    # which some scenarios need.
+    name: acceptance tests (${{ matrix.os }})
+    # Every scenario in acceptance/ against every network's toolchain, on both targets midenup is
+    # released for. Scenarios that need Docker are skipped on macOS, which lacks it.
     needs: check-manifest
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
