@@ -76,30 +76,16 @@ fn run(cli: &Cli) -> anyhow::Result<bool> {
     for target in &targets {
         let uncovered = selection::uncovered(target, &scenarios);
         if !uncovered.is_empty() {
-            accepted &= !target.added;
             gaps.push((target, uncovered));
         }
     }
     if gaps.is_empty() {
         println!("* All toolchain components have acceptance tests .. PASS");
     } else {
-        let status = if gaps.iter().any(|(target, _)| target.added) {
-            "FAIL"
-        } else {
-            "WARN"
-        };
-        println!("* All toolchain components have acceptance tests .. {status}");
+        accepted = false;
+        println!("* All toolchain components have acceptance tests .. FAIL");
         for (target, uncovered) in &gaps {
-            let note = if target.added {
-                "; required for a new toolchain"
-            } else {
-                ""
-            };
-            println!(
-                "    {}: no scenario for {}{note}",
-                target.toolchain.name,
-                uncovered.join(", ")
-            );
+            println!("    {}: no scenario for {}", target.toolchain.name, uncovered.join(", "));
         }
     }
 
