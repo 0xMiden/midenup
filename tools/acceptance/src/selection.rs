@@ -14,8 +14,6 @@ use crate::scenarios::Scenario;
 pub struct Target<'m> {
     pub toolchain: &'m Channel,
     pub changed: BTreeSet<String>,
-    /// Whether the change adds this toolchain, which makes missing coverage an error.
-    pub added: bool,
 }
 
 /// The toolchains changed since `previous`, or every network's toolchain without one.
@@ -31,7 +29,6 @@ pub fn targets<'m>(manifest: &'m Manifest, previous: Option<&Manifest>) -> Vec<T
             .map(|toolchain| Target {
                 toolchain,
                 changed: component_names(toolchain),
-                added: false,
             })
             .collect();
     };
@@ -40,14 +37,7 @@ pub fn targets<'m>(manifest: &'m Manifest, previous: Option<&Manifest>) -> Vec<T
     let mut targets: BTreeMap<&semver::Version, Target<'m>> = BTreeMap::new();
     for version in diff::affected_toolchains(&changes) {
         if let Some(toolchain) = manifest.get_channel_by_name(version) {
-            targets.insert(
-                &toolchain.name,
-                Target {
-                    toolchain,
-                    changed: BTreeSet::new(),
-                    added: false,
-                },
-            );
+            targets.insert(&toolchain.name, Target { toolchain, changed: BTreeSet::new() });
         }
     }
     for change in &changes {
@@ -55,7 +45,6 @@ pub fn targets<'m>(manifest: &'m Manifest, previous: Option<&Manifest>) -> Vec<T
             Change::ChannelAdded { channel: version, .. } => {
                 if let Some(target) = targets.get_mut(version) {
                     target.changed = component_names(target.toolchain);
-                    target.added = true;
                 }
             },
             Change::ComponentAdded { channel, component }
@@ -160,7 +149,6 @@ mod tests {
         ]));
         let targets = targets(&next, Some(&previous));
         assert_eq!(targets[0].changed, BTreeSet::from(["vm".into()]));
-        assert!(!targets[0].added);
 
         let scenarios = [
             scenario("^0.17.0", &["vm", "midenc"]),
@@ -184,7 +172,7 @@ mod tests {
         ]));
         let targets = targets(&next, Some(&previous));
         assert_eq!(targets.len(), 1);
-        assert!(targets[0].added);
+        assert_eq!(targets[0].changed, BTreeSet::from(["vm".into()]));
         assert_eq!(uncovered(&targets[0], &[scenario("^0.17.0", &["vm"])]), ["vm"]);
     }
 }

@@ -178,8 +178,9 @@ Acceptance scenarios in `acceptance/scenarios.toml` check that the components of
 together. Each names the toolchains it covers (`toolchain`, a semver range that must have an upper
 bound) and the components it exercises (`requires`), and is either a shell `script`, which passes
 when it exits successfully, or a `lit` suite in a directory next to the file, run with `litcheck`.
-Every component of a toolchain needs at least one scenario: a toolchain added without full coverage
-is rejected, so carrying a component into a new toolchain line means widening its scenarios' ranges.
+Every component of a toolchain needs at least one scenario: a change to a toolchain with an uncovered
+component is rejected, so a component is only carried into a new toolchain line once its team widens
+its scenarios' ranges (see `acceptance/README.md`).
 CI runs the scenarios that require a component a pull request changes, and every scenario before
 deploying. Each runs against a scratch midenup home with the toolchain installed, `miden` on `PATH`,
 and the versions in `MIDEN_TOOLCHAIN_VERSION` and `MIDEN_COMPONENT_<NAME>_VERSION` (and as lit
