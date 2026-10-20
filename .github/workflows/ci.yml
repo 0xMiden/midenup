@@ -211,3 +211,38 @@ jobs:
           # main test every network's toolchain
           PRERELEASE_AGAINST: ${{ github.event_name == 'pull_request' && format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.pull_request.base.sha) || '' }}
         run: cargo make prerelease-test
+
+  acceptance:
+    name: acceptance tests (${{ matrix.os }})
+    # Runs the scenarios in acceptance/ that require a component this pull request changes, against
+    # the toolchains it changes, on both targets midenup is released for. Scenarios that need Docker
+    # are skipped on macOS, which lacks it.
+    if: github.event_name == 'pull_request'
+    needs: [unit_tests]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/cleanup-runner
+      - *install-rust
+      - name: Install all rustup toolchains present in the manifest
+        run: |
+          ./.github/auxiliary_scripts/install-toolchains.sh
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ github.workflow }}-shared-tests
+          prefix-key: ${{ env.RUST_CACHE_KEY }}
+          save-if: false
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: litcheck
+      - name: Acceptance tests
+        env:
+          AGAINST: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/v3/manifest.json
+        run: |
+          cargo build -p midenup -p acceptance
+          ./target/debug/acceptance --against "${AGAINST}" --midenup target/debug/midenup
