@@ -4,7 +4,7 @@ use clap::Parser;
 use midenup::{
     channel::UserChannel,
     commands::Midenup,
-    manifest::{ComponentKind, VersionedManifest, diff},
+    manifest::{ComponentKind, InstallationMethod, VersionedManifest, diff},
     miden_wrapper, version,
 };
 
@@ -516,7 +516,8 @@ const PRERELEASE_AGAINST: &str = "PRERELEASE_AGAINST";
 /// Pre-release check: every component of every network's toolchain is actually executable.
 ///
 /// With `PRERELEASE_AGAINST` set to a manifest URI, only the toolchains whose contents changed
-/// since that manifest are checked, including ones no network names.
+/// since that manifest are checked, including ones no network names. Toolchains with a
+/// `prebuilt-with-cargo-fallback` component are installed a second time with `cargo` instead.
 ///
 /// This relies on every component respecting the `--help` flag, an assumption `miden_wrapper`
 /// already makes because clap generates help automatically.
@@ -571,69 +572,121 @@ fn integration_prerelease_components_are_runnable() {
         },
     };
 
-    for (toolchain, network) in targets {
-        let selector = network.map_or_else(|| toolchain.to_string(), str::to_string);
-        let install =
-            Midenup::try_parse_from(["midenup", "install", &selector, "--profile", "complete"])
-                .unwrap();
-        install
-            .execute_with_state(&config, &mut state)
-            .unwrap_or_else(|err| panic!("failed to install {toolchain}: {err:#}"));
+    for (toolchain, network) in &targets {
+        install_and_run(&test_env, &config, &mut state, toolchain, *network);
+    }
 
-        let channel = state
-            .get(&toolchain)
-            .expect("state must record the installed channel")
-            .as_channel();
-
-        if let Some(network) = network {
-            let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join(network))
-                .unwrap_or_else(|err| panic!("the {network} symlink must exist: {err}"));
-            assert_eq!(named, Path::new(&toolchain.to_string()), "{network} must name {toolchain}");
-        }
-
-        let networks: Vec<&str> = manifest.networks_for(&toolchain).collect();
-        println!("Installed {selector} ({}): {channel}", networks.join(", "));
-
-        // Verify each executable component is accessible and runnable
-        for component in &channel.components {
-            match component.kind() {
-                ComponentKind::Executable { spec, .. }
-                | ComponentKind::CargoExtension { spec, .. }
-                    if !spec.is_hidden() =>
-                {
-                    // `+<selector>` selects this toolchain regardless of which one is the
-                    // default
-                    let argv: Vec<OsString> = vec![
-                        "miden".into(),
-                        format!("+{selector}").into(),
-                        "help".into(),
-                        component.name.as_ref().into(),
-                    ];
-
-                    miden_wrapper::miden_wrapper(&argv, &config, &mut state).unwrap_or_else(
-                        |err| {
-                            panic!(
-                                "{selector}: component '{}' is not runnable through the 'miden' \
-                                 interface: {err:#}",
-                                component.name
+    // Prebuilt downloads and the Cargo fallback are tested separately: a copy of the manifest
+    // installs every `prebuilt-with-cargo-fallback` component with `cargo` instead. `cargo` takes
+    // no artifacts, so they are dropped.
+    let fallback_toolchains: Vec<&semver::Version> = targets
+        .iter()
+        .map(|(toolchain, _)| toolchain)
+        .filter(|toolchain| {
+            manifest.get_channel_by_name(toolchain).is_some_and(|channel| {
+                channel.components.iter().any(|component| {
+                    matches!(
+                        component.kind(),
+                        ComponentKind::Executable { installation_method, .. }
+                            | ComponentKind::CargoExtension { installation_method, .. }
+                            if matches!(
+                                installation_method,
+                                InstallationMethod::PrebuiltWithCargoFallback { .. }
                             )
-                        },
-                    );
-                },
-                // Skip executables that aren't meant to be executed directly
-                ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
-                // Skip non-executable components, or command aliases
-                ComponentKind::Asset
-                | ComponentKind::Command { .. }
-                | ComponentKind::Package
-                | ComponentKind::LegacyPackage { .. } => (),
-                // The checked-in manifest declares no unknown kinds; if one appears, the
-                // manifest and this build have diverged and the test should say so rather
-                // than skipping quietly.
-                ComponentKind::Unsupported { tag, .. } => {
-                    panic!("component '{}' has unsupported kind '{tag}'", component.name)
-                },
+                    )
+                })
+            })
+        })
+        .collect();
+    if fallback_toolchains.is_empty() {
+        return;
+    }
+
+    let fallback_env = environment_setup("integration_test_cargo_fallback");
+    let mut copy: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(full_path!("manifest/v3/manifest.json")).unwrap(),
+    )
+    .unwrap();
+    for channel in copy["channels"].as_array_mut().unwrap() {
+        for component in channel["components"].as_array_mut().unwrap() {
+            if component["installation_method"]["kind"] == "prebuilt-with-cargo-fallback" {
+                component["installation_method"]["kind"] = "cargo".into();
+                component.as_object_mut().unwrap().remove("artifacts");
             }
+        }
+    }
+    let copy_path = fallback_env.tmp_dir.path().join("manifest.json");
+    std::fs::write(&copy_path, copy.to_string()).unwrap();
+    let (mut state, config) = test_setup(&fallback_env, &format!("file://{}", copy_path.display()));
+    for toolchain in fallback_toolchains {
+        install_and_run(&fallback_env, &config, &mut state, toolchain, None);
+    }
+}
+
+/// Installs `toolchain`, through `network` when given and by version otherwise, then runs the help
+/// of each of its visible executable components through the `miden` interface.
+fn install_and_run(
+    test_env: &TestEnvironment,
+    config: &midenup::config::Config,
+    state: &mut LocalManifest,
+    toolchain: &semver::Version,
+    network: Option<&str>,
+) {
+    let selector = network.map_or_else(|| toolchain.to_string(), str::to_string);
+    let install =
+        Midenup::try_parse_from(["midenup", "install", &selector, "--profile", "complete"])
+            .unwrap();
+    install
+        .execute_with_state(config, state)
+        .unwrap_or_else(|err| panic!("failed to install {toolchain}: {err:#}"));
+
+    let channel = state
+        .get(toolchain)
+        .expect("state must record the installed channel")
+        .as_channel();
+
+    if let Some(network) = network {
+        let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join(network))
+            .unwrap_or_else(|err| panic!("the {network} symlink must exist: {err}"));
+        assert_eq!(named, Path::new(&toolchain.to_string()), "{network} must name {toolchain}");
+    }
+
+    println!("Installed {selector}: {channel}");
+
+    // Verify each executable component is accessible and runnable
+    for component in &channel.components {
+        match component.kind() {
+            ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. }
+                if !spec.is_hidden() =>
+            {
+                // `+<selector>` selects this toolchain regardless of which one is the default
+                let argv: Vec<OsString> = vec![
+                    "miden".into(),
+                    format!("+{selector}").into(),
+                    "help".into(),
+                    component.name.as_ref().into(),
+                ];
+
+                miden_wrapper::miden_wrapper(&argv, config, state).unwrap_or_else(|err| {
+                    panic!(
+                        "{selector}: component '{}' is not runnable through the 'miden' \
+                         interface: {err:#}",
+                        component.name
+                    )
+                });
+            },
+            // Skip executables that aren't meant to be executed directly
+            ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
+            // Skip non-executable components, or command aliases
+            ComponentKind::Asset
+            | ComponentKind::Command { .. }
+            | ComponentKind::Package
+            | ComponentKind::LegacyPackage { .. } => (),
+            // The checked-in manifest declares no unknown kinds; if one appears, the manifest and
+            // this build have diverged and the test should say so rather than skipping quietly.
+            ComponentKind::Unsupported { tag, .. } => {
+                panic!("component '{}' has unsupported kind '{tag}'", component.name)
+            },
         }
     }
 }
