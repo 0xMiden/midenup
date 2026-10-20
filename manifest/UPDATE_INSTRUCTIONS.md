@@ -116,7 +116,8 @@ exists in the same document, no network may be named like a toolchain or after o
 and `mainnet` must be declared, since it is the toolchain `midenup` uses when nothing else selects
 one. No two toolchains may declare `migrates_from` the same one, since `midenup update` must find
 exactly one successor, and a toolchain may only migrate from an older one. A component must not be
-fetched from a local path or a git branch, whose contents change without the manifest changing, and
+fetched from a local path, a git branch or a git tag, whose contents change without the manifest
+changing, and
 the timestamp must not be in the future. Every component must install on each target midenup is
 released for (`aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`): a prebuilt component missing
 an artifact for one must be `prebuilt-with-cargo-fallback`. A field the schema does not define is refused: `midenup` preserves such
@@ -137,7 +138,7 @@ cargo make check-manifest --against file:///tmp/previous-manifest.json
 ```
 
 This refuses a timestamp that did not advance, a removed network, a toolchain dropping or replacing
-the `migrates_from` it was published with, and a lower minimum client version. Unless
+the `migrates_from` it was published with, and a lower minimum client or manifest version. Unless
 `--allow-downgrade` is passed, it also refuses a network moving to an older toolchain, a component
 moving to an older version, a removed toolchain, and a component changing its installation method:
 each can be intended, such as rolling back a yanked release or removing a legacy toolchain, so they

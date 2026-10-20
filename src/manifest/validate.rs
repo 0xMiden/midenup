@@ -202,6 +202,11 @@ pub enum ValidationError {
         from: semver::Version,
         to: semver::Version,
     },
+    #[error("manifest version moves back from {from} to {to}")]
+    ManifestVersionLowered {
+        from: semver::Version,
+        to: semver::Version,
+    },
     #[error(
         "channel {channel} no longer declares `migrates_from` {from}; installations of {from} \
          that have not updated yet rely on it to be carried forward"
@@ -221,7 +226,7 @@ pub enum ValidationError {
     },
     #[error(
         "channel {channel}: component '{component}' is fetched from {authority}, whose contents \
-         change without the manifest changing; pin a registry version, git tag or git revision"
+         change without the manifest changing; pin a registry version or git revision"
     )]
     MutableAuthority {
         channel: semver::Version,
@@ -489,8 +494,8 @@ pub fn validate_against(
 
     // Any published channel may be installed somewhere, whether or not a network still names it:
     // a user who has not run `update` since a promotion is on the channel it moved away from.
-    // `update` needs the channel in the manifest to carry that installation forward, so no
-    // channel is ever removed.
+    // `update` needs the channel in the manifest to carry that installation forward, so removing
+    // one has to be deliberate.
     for channel in previous.channels.iter() {
         let Some(now) = next.get_channel_by_name(&channel.name) else {
             if !allow_downgrade {
@@ -542,6 +547,13 @@ pub fn validate_against(
         errors.push(ValidationError::MinClientVersionLowered {
             from: previous.min_client_version.clone(),
             to: next.min_client_version.clone(),
+        });
+    }
+
+    if next.manifest_version.cmp_precedence(&previous.manifest_version).is_lt() {
+        errors.push(ValidationError::ManifestVersionLowered {
+            from: previous.manifest_version.clone(),
+            to: next.manifest_version.clone(),
         });
     }
 
@@ -623,7 +635,11 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
             Authority::Git {
                 target: GitTarget::Branch { name, .. }, ..
             } => Some(format!("git branch '{name}'")),
-            Authority::Git { .. } | Authority::Registry { .. } => None,
+            Authority::Git { target: GitTarget::Tag { name }, .. } => {
+                Some(format!("git tag '{name}'"))
+            },
+            Authority::Git { target: GitTarget::Revision { .. }, .. }
+            | Authority::Registry { .. } => None,
         };
         if let Some(authority) = authority {
             errors.push(ValidationError::MutableAuthority {
@@ -1186,6 +1202,23 @@ mod tests {
     }
 
     #[test]
+    fn a_lowered_manifest_version_is_rejected() {
+        let mut raised = previous();
+        raised.manifest_version = semver::Version::new(3, 1, 0);
+        let mut next = successor();
+        next.manifest_version = semver::Version::new(3, 0, 0);
+        let errors = validate_against(&raised, &next, true).err().unwrap_or_default();
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::ManifestVersionLowered { .. }))
+        );
+
+        next.manifest_version = semver::Version::new(3, 1, 1);
+        assert_eq!(validate_against(&raised, &next, false), Ok(()));
+    }
+
+    #[test]
     fn a_published_migration_cannot_be_dropped_or_replaced() {
         let mut migrating = previous();
         migrating.channels[1].migrates_from = Some(semver::Version::new(0, 15, 0));
@@ -1226,7 +1259,7 @@ mod tests {
     }
 
     #[test]
-    fn a_path_or_git_branch_authority_is_rejected() {
+    fn a_path_git_branch_or_git_tag_authority_is_rejected() {
         let mut path = executable("vm", "miden-vm");
         path.version = Authority::Path {
             path: "/tmp/vm".into(),
@@ -1244,7 +1277,13 @@ mod tests {
             subpath: None,
             target: crate::version::GitTarget::Tag { name: "v1.0.0".to_string() },
         };
-        let m = with_mainnet(manifest(vec![path, branch, tag]));
+        let mut revision = executable("node", "miden-node");
+        revision.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: crate::version::GitTarget::Revision { hash: "0123abcd".to_string() },
+        };
+        let m = with_mainnet(manifest(vec![path, branch, tag, revision]));
         let flagged: Vec<String> = errors_of(&m)
             .into_iter()
             .filter_map(|e| match e {
@@ -1252,7 +1291,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(flagged, ["vm", "debugger"]);
+        assert_eq!(flagged, ["vm", "debugger", "client"]);
     }
 
     fn linux_only(mut component: Component) -> Component {
