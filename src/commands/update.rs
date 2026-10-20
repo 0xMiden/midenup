@@ -7,7 +7,7 @@
 
 use std::{
     io::{BufRead, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context;
@@ -20,8 +20,10 @@ use crate::{
     identity::InstallationId,
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
+    profile::Profile,
+    resolve::Intent,
     state::{Installation, LocalState},
-    toolchain::Toolchain,
+    toolchain::{Toolchain, ToolchainJustification},
     version::{Authority, GitTarget},
 };
 
@@ -146,6 +148,13 @@ fn update_network(
         )
     })?;
 
+    let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
+        format!("network '{name}' names channel {target}, which is not upstream")
+    })?;
+    if installation.is_managed() {
+        check_roots(&installation.intent, &upstream, name, project_file(config, name).as_ref())?;
+    }
+
     crate::info!("{name} is now {target} (installed as {installed})");
 
     if installed == target {
@@ -153,10 +162,6 @@ fn update_network(
         // components may have.
         return update_installed_channel(config, &installation, state, options);
     }
-
-    let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
-        format!("network '{name}' names channel {target}, which is not upstream")
-    })?;
 
     if target < installed {
         crate::warn!("{name} has moved back from {installed} to {target}.");
@@ -262,6 +267,15 @@ fn update_installed_channel(
         );
         return Ok(());
     };
+    if installation.is_managed() {
+        let selector = upstream.channel.name.to_string();
+        check_roots(
+            &installation.intent,
+            &upstream.channel,
+            &selector,
+            project_file(config, &selector).as_ref(),
+        )?;
+    }
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
@@ -282,6 +296,67 @@ fn update_installed_channel(
             )
         },
     }
+}
+
+/// The active `miden-toolchain.toml` and the components it selects, if it selects `selector`.
+fn project_file(config: &Config, selector: &str) -> Option<(PathBuf, Vec<String>)> {
+    match Toolchain::current(config, None) {
+        Ok((toolchain, ToolchainJustification::MidenToolchainFile { path }))
+            if toolchain.selector().to_string() == selector
+                || toolchain
+                    .installation_id(config)
+                    .is_some_and(|id| id.to_string() == selector) =>
+        {
+            Some((path, toolchain.components))
+        },
+        _ => None,
+    }
+}
+
+/// Refuses an update to `upstream` that lacks a root of `intent`, before anything changes, naming
+/// the `install` for `selector` that leaves it out. Migrated records skip it; `install` drops them.
+fn check_roots(
+    intent: &Intent,
+    upstream: &Channel,
+    selector: &str,
+    project_file: Option<&(PathBuf, Vec<String>)>,
+) -> anyhow::Result<()> {
+    let (kept, missing): (Vec<&String>, Vec<&String>) =
+        intent.roots.iter().partition(|root| upstream.get_component(root).is_some());
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    // Activation adds a project file's components back, so the file has to change first.
+    if let Some((path, components)) = project_file
+        && let Some(root) = missing.iter().find(|root| components.contains(root))
+    {
+        anyhow::bail!(
+            "{selector} was not updated: channel {} no longer has '{root}', which {} selects. \
+             Nothing was changed. Remove it from that file, then run:\n    {}\n",
+            upstream.name,
+            path.display(),
+            install_command(intent, &kept, selector)
+        );
+    }
+
+    let missing = missing.iter().map(|root| format!("'{root}'")).collect::<Vec<_>>().join(", ");
+    anyhow::bail!(
+        "{selector} was not updated: channel {} no longer has {missing}, which you selected. \
+         Nothing was changed. To update without it, run:\n    {}\n",
+        upstream.name,
+        install_command(intent, &kept, selector)
+    )
+}
+
+/// The `install` that records `intent`'s profile with only the `kept` roots.
+fn install_command(intent: &Intent, kept: &[&String], selector: &str) -> String {
+    let profile = intent.profiles.iter().max().copied().unwrap_or(Profile::Empty);
+    let mut command = format!("midenup install {selector} --profile {profile}");
+    for root in kept {
+        command.push_str(&format!(" --component {root}"));
+    }
+    command
 }
 
 /// The channel this one supersedes, if this really is a migration.
@@ -871,6 +946,57 @@ mod tests {
             ComponentKind::Executable { spec, .. } => spec,
             _ => unreachable!("the fixture is an executable"),
         }
+    }
+
+    #[test]
+    fn roots_still_upstream_pass_the_check() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
+        let intent = Intent::new(&[Profile::Minimal], &["vm"]);
+        assert!(check_roots(&intent, &upstream, "mainnet", None).is_ok());
+    }
+
+    #[test]
+    fn a_root_missing_upstream_is_refused_with_the_command_that_drops_it() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
+        let intent = Intent::new(&[Profile::Complete], &["vm", "client"]);
+        let message = check_roots(&intent, &upstream, "mainnet", None).unwrap_err().to_string();
+        assert!(message.contains("channel 0.16.0 no longer has 'client'"), "{message}");
+        assert!(
+            message.contains("midenup install mainnet --profile complete --component vm\n"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_root_from_the_project_file_is_refused_naming_the_file() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
+        let intent = Intent::new(&[Profile::Minimal], &["client"]);
+        let file = (PathBuf::from("/project/miden-toolchain.toml"), vec!["client".to_string()]);
+        let message =
+            check_roots(&intent, &upstream, "mainnet", Some(&file)).unwrap_err().to_string();
+        assert!(message.contains("which /project/miden-toolchain.toml selects"), "{message}");
+        assert!(message.contains("midenup install mainnet --profile minimal\n"), "{message}");
+    }
+
+    #[test]
+    fn a_project_file_is_named_only_for_the_toolchain_it_selects() {
+        let temp = tempdir::TempDir::new("update-project-file").unwrap();
+        std::fs::write(
+            temp.path().join("miden-toolchain.toml"),
+            "[toolchain]\nchannel = \"0.18.0\"\ncomponents = [\"client\"]\n",
+        )
+        .unwrap();
+        let config = Config::init(
+            temp.path().to_path_buf(),
+            temp.path().join("home"),
+            temp.path().join("cargo"),
+            "",
+            false,
+        )
+        .unwrap();
+
+        assert!(project_file(&config, "0.18.0").is_some());
+        assert!(project_file(&config, "0.17.0").is_none());
     }
 
     #[test]
