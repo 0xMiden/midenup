@@ -151,9 +151,13 @@ fn update_network(
     let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
         format!("network '{name}' names channel {target}, which is not upstream")
     })?;
-    if installation.is_managed() {
-        check_roots(&installation.intent, &upstream, name, project_file(config).as_ref())?;
-    }
+    check_roots(
+        &installation.intent,
+        &upstream,
+        name,
+        project_file(config).as_ref(),
+        (!installation.is_managed()).then_some(&installation.channel),
+    )?;
 
     crate::info!("{name} is now {target} (installed as {installed})");
 
@@ -267,14 +271,13 @@ fn update_installed_channel(
         );
         return Ok(());
     };
-    if installation.is_managed() {
-        check_roots(
-            &installation.intent,
-            &upstream.channel,
-            &upstream.channel.name.to_string(),
-            project_file(config).as_ref(),
-        )?;
-    }
+    check_roots(
+        &installation.intent,
+        &upstream.channel,
+        &upstream.channel.name.to_string(),
+        project_file(config).as_ref(),
+        (!installation.is_managed()).then_some(&installation.channel),
+    )?;
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
@@ -308,12 +311,13 @@ fn project_file(config: &Config) -> Option<(PathBuf, Vec<String>)> {
 }
 
 /// Refuses an update to `upstream` that lacks a root of `intent`, before anything changes, naming
-/// the `install` for `selector` that leaves it out. Migrated records skip it; `install` drops them.
-fn check_roots(
+/// the `install` for `selector` that leaves it out, after uninstalling `migrated` when given.
+pub(super) fn check_roots(
     intent: &Intent,
     upstream: &Channel,
     selector: &str,
     project_file: Option<&(PathBuf, Vec<String>)>,
+    migrated: Option<&semver::Version>,
 ) -> anyhow::Result<()> {
     let (kept, missing): (Vec<&String>, Vec<&String>) =
         intent.roots.iter().partition(|root| upstream.get_component(root).is_some());
@@ -330,7 +334,7 @@ fn check_roots(
              Nothing was changed. Remove it from that file, then run:\n    {}\n",
             upstream.name,
             path.display(),
-            install_command(intent, &kept, selector)
+            install_command(intent, &kept, selector, migrated)
         );
     }
 
@@ -339,14 +343,24 @@ fn check_roots(
         "{selector} was not updated: channel {} no longer has {missing}, which you selected. \
          Nothing was changed. To update without it, run:\n    {}\n",
         upstream.name,
-        install_command(intent, &kept, selector)
+        install_command(intent, &kept, selector, migrated)
     )
 }
 
-/// The `install` that records `intent`'s profile with only the `kept` roots.
-fn install_command(intent: &Intent, kept: &[&String], selector: &str) -> String {
+/// The `install` that records `intent`'s profile with only the `kept` roots. A migrated record is
+/// uninstalled first, since `install` carries its selection forward.
+fn install_command(
+    intent: &Intent,
+    kept: &[&String],
+    selector: &str,
+    migrated: Option<&semver::Version>,
+) -> String {
     let profile = intent.profiles.iter().max().copied().unwrap_or(Profile::Empty);
-    let mut command = format!("midenup install {selector} --profile {profile}");
+    let mut command = match migrated {
+        Some(version) => format!("midenup uninstall {version} && "),
+        None => String::new(),
+    };
+    command.push_str(&format!("midenup install {selector} --profile {profile}"));
     for root in kept {
         command.push_str(&format!(" --component {root}"));
     }
@@ -946,14 +960,15 @@ mod tests {
     fn roots_still_upstream_pass_the_check() {
         let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
         let intent = Intent::new(&[Profile::Minimal], &["vm"]);
-        assert!(check_roots(&intent, &upstream, "mainnet", None).is_ok());
+        assert!(check_roots(&intent, &upstream, "mainnet", None, None).is_ok());
     }
 
     #[test]
     fn a_root_missing_upstream_is_refused_with_the_command_that_drops_it() {
         let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
         let intent = Intent::new(&[Profile::Complete], &["vm", "client"]);
-        let message = check_roots(&intent, &upstream, "mainnet", None).unwrap_err().to_string();
+        let message =
+            check_roots(&intent, &upstream, "mainnet", None, None).unwrap_err().to_string();
         assert!(message.contains("channel 0.16.0 no longer has 'client'"), "{message}");
         assert!(
             message.contains("midenup install mainnet --profile complete --component vm\n"),
@@ -966,10 +981,28 @@ mod tests {
         let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
         let intent = Intent::new(&[Profile::Minimal], &["client"]);
         let file = (PathBuf::from("/project/miden-toolchain.toml"), vec!["client".to_string()]);
-        let message =
-            check_roots(&intent, &upstream, "mainnet", Some(&file)).unwrap_err().to_string();
+        let message = check_roots(&intent, &upstream, "mainnet", Some(&file), None)
+            .unwrap_err()
+            .to_string();
         assert!(message.contains("which /project/miden-toolchain.toml selects"), "{message}");
         assert!(message.contains("midenup install mainnet --profile minimal\n"), "{message}");
+    }
+
+    #[test]
+    fn a_migrated_record_is_uninstalled_before_reinstalling_without_the_root() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 15, 0), vec![base()]);
+        let intent = Intent::new(&[], &["vm", "client"]);
+        let migrated = semver::Version::new(0, 15, 0);
+        let message = check_roots(&intent, &upstream, "0.15.0", None, Some(&migrated))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            message.contains(
+                "midenup uninstall 0.15.0 && midenup install 0.15.0 --profile empty --component \
+                 vm\n"
+            ),
+            "{message}"
+        );
     }
 
     #[test]

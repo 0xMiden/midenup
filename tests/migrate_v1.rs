@@ -231,39 +231,44 @@ fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
     assert!(!installation.components.is_empty(), "and a component snapshot to dispatch from");
 }
 
-/// Spec section 12.1: a migrated root that no longer exists upstream is dropped, once, with a
-/// warning. Blocking would strand every v1 user whose channel happened to drop a component.
+/// A migrated root that no longer exists upstream refuses the reinstall before anything changes,
+/// and the clean reinstall it suggests works.
 #[test]
-fn integration_migrated_roots_missing_upstream_are_dropped_once_with_a_warning() {
+fn integration_migrated_roots_missing_upstream_refuse_with_a_clean_reinstall() {
     let _guard = common::harness::mutating_test_guard();
-    let env = environment_setup("migrated_root_dropped");
+    let env = environment_setup("migrated_root_refused");
     write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm", "goneaway"]));
 
     let manifest = upstream(&env, "upstream.json", &["vm"]);
     run_midenup(&env, &manifest, &["list"]);
+    let before = std::fs::read_to_string(paths::state_path(&env.midenup_home)).unwrap();
 
     let output = run_midenup(&env, &manifest, &["install", "0.15.0", "--profile", "minimal"]);
-    assert!(
-        output.status.success(),
-        "a missing migrated root must not block: {}",
-        String::from_utf8_lossy(&output.stderr)
+    assert!(!output.status.success(), "a missing migrated root must refuse the reinstall");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("'goneaway'"), "the missing root must be named: {stderr}");
+    assert_eq!(
+        std::fs::read_to_string(paths::state_path(&env.midenup_home)).unwrap(),
+        before,
+        "nothing changes"
     );
 
-    // Diagnostics go to stderr; stdout carries results.
-    let reported = String::from_utf8_lossy(&output.stderr);
-    assert!(reported.contains("goneaway"), "the dropped root must be named: {reported}");
-
+    let suggested = stderr.lines().skip_while(|line| !line.ends_with("run:")).nth(1).unwrap();
+    for command in suggested.trim().split(" && ") {
+        let args: Vec<&str> = command.split_whitespace().skip(1).collect();
+        let output = run_midenup(&env, &manifest, &args);
+        assert!(
+            output.status.success(),
+            "{command}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
     let installation = &state_of(&env.midenup_home).installations[0];
-    assert!(
-        !installation.intent.roots.contains("goneaway"),
-        "intent must be rewritten without it: {:?}",
-        installation.intent
-    );
+    assert!(!installation.intent.roots.contains("goneaway"));
     assert!(matches!(installation.publication, PublicationRef::Managed { .. }));
 }
 
-/// ...and only once. The relaxation exists because migrated roots were inferred rather than
-/// chosen; once the user has installed on top of them, they are chosen.
+/// Once a migrated record is reinstalled, a root removed upstream blocks the update like any other.
 #[test]
 fn integration_after_the_first_operation_a_removed_root_blocks_as_normal() {
     let _guard = common::harness::mutating_test_guard();
@@ -272,7 +277,7 @@ fn integration_after_the_first_operation_a_removed_root_blocks_as_normal() {
 
     let with_client = upstream(&env, "with-client.json", &["vm", "client"]);
     run_midenup(&env, &with_client, &["list"]);
-    // Consumes the relaxation: the record stops being a migrated one here.
+    // The record stops being a migrated one here.
     let output = run_midenup(&env, &with_client, &["install", "0.15.0", "--profile", "minimal"]);
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 

@@ -893,7 +893,7 @@ The migrated installation is expressed as ordinary native intent:
 
 This is why there is no `Frozen` intent variant. Roots-only intent already provides exactly the semantics a frozen migration needs - new dependencies of the roots are picked up, unrelated new profile members are not - using the same resolver as everything else.
 
-**One-time root relaxation.** §11.3 blocks an update when an explicit root has disappeared upstream, because the user chose that root deliberately. Migrated roots were not chosen in the current schema's terms - they are inferred from a v1 record - so on the *first* install after migration, roots absent from the channel are **dropped with a warning** listing each one, and the intent is rewritten without them. Blocking here would strand every v1 user whose channel dropped a component. From the second operation onward the normal blocking rule applies.
+**Missing migrated roots.** On the first install after migration, a root absent from the channel refuses the install before anything changes, naming each missing root and the clean reinstall that leaves it out (`midenup uninstall <version> && midenup install ...`). From then on the record is managed and §11.3 applies.
 
 ### 12.2 Sequence
 
