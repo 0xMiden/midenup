@@ -182,4 +182,8 @@ jobs:
         # takes many minutes. Run them on main, on pull requests into main (the release path from
         # next), and on explicitly labelled pull requests
         if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+        env:
+          # On a pull request, only the toolchains changed since its base are installed; pushes to
+          # main test every network's toolchain
+          PRERELEASE_AGAINST: ${{ github.event_name == 'pull_request' && format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.pull_request.base.sha) || '' }}
         run: cargo make prerelease-test

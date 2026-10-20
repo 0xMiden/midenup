@@ -1,5 +1,7 @@
 //! What changed between two manifests.
 
+use std::collections::BTreeSet;
+
 use super::{Channel, Component, Extra, Manifest, validate::is_empty_value};
 use crate::version::Authority;
 
@@ -131,6 +133,28 @@ pub fn diff(previous: &Manifest, next: &Manifest) -> Vec<Change> {
     }
 
     changes
+}
+
+/// Toolchains whose contents changed and that still exist, from the output of [diff].
+pub fn affected_toolchains(changes: &[Change]) -> BTreeSet<&semver::Version> {
+    changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::ChannelAdded { channel, .. }
+            | Change::ChannelFieldsChanged { channel, .. }
+            | Change::MigrationChanged { channel, .. }
+            | Change::ComponentAdded { channel, .. }
+            | Change::ComponentRemoved { channel, .. }
+            | Change::ComponentChanged { channel, .. } => Some(channel),
+            Change::ManifestVersionChanged { .. }
+            | Change::ManifestFieldsChanged(_)
+            | Change::MinClientVersionChanged { .. }
+            | Change::NetworkAdded { .. }
+            | Change::NetworkRemoved { .. }
+            | Change::NetworkMoved { .. }
+            | Change::ChannelRemoved(_) => None,
+        })
+        .collect()
 }
 
 fn diff_channel(old: &Channel, new: &Channel, changes: &mut Vec<Change>) {
@@ -386,6 +410,27 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn only_changes_inside_an_existing_toolchain_affect_it() {
+        let mut next = previous();
+        next.channels.push(Channel::new(semver::Version::new(0, 16, 0), vec![]));
+        next.promote("mainnet", semver::Version::new(0, 16, 0));
+        next.channels[0].components[0].requires = vec!["core".to_string()];
+        let changes = diff(&previous(), &next);
+        assert_eq!(
+            affected_toolchains(&changes),
+            BTreeSet::from([&semver::Version::new(0, 15, 0), &semver::Version::new(0, 16, 0)])
+        );
+
+        let mut moved_only = previous();
+        moved_only.promote("testnet", semver::Version::new(0, 15, 0));
+        assert!(affected_toolchains(&diff(&previous(), &moved_only)).is_empty());
+
+        let mut removed = previous();
+        removed.remove_channel(semver::Version::new(0, 15, 0));
+        assert!(affected_toolchains(&diff(&previous(), &removed)).is_empty());
     }
 
     #[test]
