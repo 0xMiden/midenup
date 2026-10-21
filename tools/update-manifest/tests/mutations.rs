@@ -682,3 +682,64 @@ fn diff_preserves_version_metadata_during_a_registry_bump() {
         }
     }
 }
+
+#[test]
+fn diff_ignores_empty_fields_inside_known_objects() {
+    let dir = tempdir::TempDir::new("update-manifest-diff-nested-empty").unwrap();
+    let mut old = manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")]));
+    old["channels"][0]["components"][0]["artifacts"] = serde_json::json!({
+        "miden-vm": {
+            "uri": "https://example.com/vm-%target.tar.gz",
+            "targets": {"aarch64-apple-darwin": {}},
+            "archive": "tar.gz"
+        }
+    });
+    let previous = write_manifest(dir.path(), old.clone());
+    let previous_uri = format!("file://{}", previous.display());
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+
+    for (pointer, value) in [
+        ("/installation_method/features", serde_json::json!([])),
+        ("/version/vendor", serde_json::Value::Null),
+        ("/artifacts/miden-vm/vendor", serde_json::json!({})),
+        (
+            "/artifacts/miden-vm/targets/aarch64-apple-darwin/vendor",
+            serde_json::Value::Null,
+        ),
+        (
+            "/artifacts/miden-vm/archive",
+            serde_json::json!({"format": "tar.gz", "vendor": null}),
+        ),
+    ] {
+        let mut next = old.clone();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        next["channels"][0]["components"][0].pointer_mut(parent).unwrap()[key] = value;
+        let next = write_manifest(&next_dir, next);
+        let out = run(&next, &["diff", &previous_uri]).expect("diff");
+        assert_eq!(out, "", "empty field at {pointer} is equivalent to absence");
+        let reverse =
+            run(&previous, &["diff", &format!("file://{}", next.display())]).expect("diff");
+        assert_eq!(reverse, "", "removing empty field at {pointer} is also a no-op");
+    }
+}
+
+#[test]
+fn diff_preserves_empty_artifact_target_entries() {
+    let dir = tempdir::TempDir::new("update-manifest-diff-empty-target").unwrap();
+    let mut old = manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")]));
+    old["channels"][0]["components"][0]["artifacts"] = serde_json::json!({
+        "miden-vm": {
+            "uri": "https://example.com/vm-%target",
+            "targets": {"aarch64-apple-darwin": {}}
+        }
+    });
+    let previous = write_manifest(dir.path(), old.clone());
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+    old["channels"][0]["components"][0]["artifacts"]["miden-vm"]["targets"] = serde_json::json!({});
+    let next = write_manifest(&next_dir, old);
+    let out = run(&next, &["diff", &format!("file://{}", previous.display())]).expect("diff");
+    assert!(out.contains("`artifacts` changed"), "{out}");
+    assert!(out.contains("aarch64-apple-darwin"), "{out}");
+}
