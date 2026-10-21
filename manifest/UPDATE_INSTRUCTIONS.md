@@ -149,6 +149,18 @@ currently deployed. On a pull request these changes are allowed by labelling it
 `manifest:allow-downgrade`, so the decision is visible in review; the push and deployment checks
 allow it, since the pull request already settled it.
 
+To see what a change does, list it against the same manifest:
+
+```
+bin/update-manifest --manifest-path manifest/v3/manifest.json \
+    diff file:///tmp/previous-manifest.json
+```
+
+It prints one Markdown line per change: the schema and minimum client versions, networks added,
+removed or moved, toolchains added (with their components) or removed, `migrates_from` changes,
+unknown fields, and components added, removed or changed, with each changed field's previous and
+new value. An empty field counts as absent. Downgrades are marked.
+
 Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
 against the candidate manifest, and fails if that release cannot read it. Support for a new schema
 therefore ships in a `midenup` release first, and the manifest starts using it only once that

@@ -8,7 +8,9 @@ use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
     channel::{self, UserChannel},
     manifest::{
-        Component, ComponentKind, Manifest, Promotion, VersionedManifest, validate::ValidationError,
+        Component, ComponentKind, Manifest, Promotion, VersionedManifest,
+        diff::{Change, FieldChange},
+        validate::ValidationError,
     },
     profile::Profile,
     version::Authority,
@@ -44,6 +46,14 @@ enum Command {
         /// a component to change its installation method
         #[arg(long, requires = "against")]
         allow_downgrade: bool,
+    },
+    /// Print the changes from the manifest at this URI to this one, as Markdown
+    ///
+    /// Prints nothing when there are no changes besides the timestamp.
+    Diff {
+        /// The previous manifest's URI
+        #[arg(required(true), value_name = "PREVIOUS")]
+        previous: String,
     },
     /// Format the manifest
     Format {
@@ -228,6 +238,13 @@ impl Cli {
                         )
                     })?;
                 }
+                Ok(())
+            },
+            Command::Diff { previous: uri } => {
+                let previous = VersionedManifest::load_from(uri)
+                    .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
+                let changes = midenup::manifest::diff::diff(&previous, &manifest);
+                print!("{}", render_changes(&changes));
                 Ok(())
             },
             Command::Format { stdout: false } => write_manifest(&manifest, &self.manifest_path),
@@ -460,6 +477,151 @@ impl Cli {
             },
         }
     }
+}
+
+/// Renders `changes` as a Markdown list, or nothing when there are none.
+fn render_changes(changes: &[Change]) -> String {
+    let backwards = |from: &semver::Version, to: &semver::Version| {
+        if to.cmp_precedence(from).is_lt() {
+            " **(downgrade)**"
+        } else {
+            ""
+        }
+    };
+    let optional = |version: &Option<semver::Version>| match version {
+        Some(version) => format!("`{version}`"),
+        None => "none".to_string(),
+    };
+    let value = |value: &Option<serde_json::Value>| match value {
+        Some(value) => code(&value.to_string()),
+        None => "none".to_string(),
+    };
+    let fields = |fields: &[FieldChange]| {
+        fields
+            .iter()
+            .map(|change| {
+                format!(
+                    "{} changed from {} to {}",
+                    code(&change.field),
+                    value(&change.from),
+                    value(&change.to)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ")
+    };
+
+    let mut out = String::new();
+    for change in changes {
+        let line = match change {
+            Change::ManifestVersionChanged { from, to } => {
+                format!("Schema version changed from `{from}` to `{to}`")
+            },
+            Change::ManifestFieldsChanged(changed) => {
+                format!("Unknown fields: {}", fields(changed))
+            },
+            Change::ChannelFieldsChanged { channel, fields: changed } => {
+                format!("Toolchain `{channel}`: unknown fields: {}", fields(changed))
+            },
+            Change::MinClientVersionChanged { from, to } => {
+                format!(
+                    "Minimum client version changed from `{from}` to `{to}`{}",
+                    backwards(from, to)
+                )
+            },
+            Change::NetworkAdded { network, channel } => {
+                format!("Network {} added at `{channel}`", code(network))
+            },
+            Change::NetworkRemoved { network, channel } => {
+                format!("Network {} removed (was `{channel}`)", code(network))
+            },
+            Change::NetworkMoved { network, from, to } => format!(
+                "Network {} moved from `{from}` to `{to}`{}",
+                code(network),
+                backwards(from, to)
+            ),
+            Change::ChannelAdded { channel, components } if components.is_empty() => {
+                format!("Toolchain `{channel}` added with no components")
+            },
+            Change::ChannelAdded { channel, components } => format!(
+                "Toolchain `{channel}` added with components {}",
+                components.iter().map(|c| code(c)).collect::<Vec<_>>().join(", ")
+            ),
+            Change::ChannelRemoved(channel) => format!("Toolchain `{channel}` removed"),
+            Change::MigrationChanged { channel, from, to } => format!(
+                "Toolchain `{channel}`: `migrates_from` changed from {} to {}",
+                optional(from),
+                optional(to)
+            ),
+            Change::ComponentAdded { channel, component } => {
+                format!("Toolchain `{channel}`: component {} added", code(component))
+            },
+            Change::ComponentRemoved { channel, component } => {
+                format!("Toolchain `{channel}`: component {} removed", code(component))
+            },
+            Change::ComponentChanged {
+                channel,
+                component,
+                fields: changed,
+                version,
+            } => {
+                let mut parts = Vec::new();
+                if let Some((from, to)) = version {
+                    parts.push(format!(
+                        "version changed from `{from}` to `{to}`{}",
+                        backwards(from, to)
+                    ));
+                }
+                let others: Vec<FieldChange> = changed
+                    .iter()
+                    .filter(|change| {
+                        version.is_none()
+                            || change.field != "version"
+                            || registry_metadata(&change.from) != registry_metadata(&change.to)
+                    })
+                    .cloned()
+                    .collect();
+                if !others.is_empty() {
+                    parts.push(fields(&others));
+                }
+                format!("Toolchain `{channel}`: component {} {}", code(component), parts.join("; "))
+            },
+        };
+        out.push_str(&format!("- {line}\n"));
+    }
+    out
+}
+
+/// The registry version summary covers the number, but not preserved metadata alongside it.
+fn registry_metadata(
+    value: &Option<serde_json::Value>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut fields = value.as_ref()?.as_object()?.clone();
+    fields.remove("version");
+    Some(fields)
+}
+
+/// Renders `text` as one Markdown code span, so no manifest content is read as Markdown or HTML.
+///
+/// Control characters are escaped so the span stays on one line, and the fence is longer than any
+/// run of backticks inside it.
+fn code(text: &str) -> String {
+    let text: String = text
+        .chars()
+        .map(|c| {
+            if c.is_control() {
+                c.escape_default().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect();
+    let longest_run = text.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    if longest_run == 0 {
+        return format!("`{text}`");
+    }
+    let fence = "`".repeat(longest_run + 1);
+    format!("{fence} {text} {fence}")
 }
 
 /// Prints every validation error, then summarizes them as one failure.
