@@ -1,7 +1,7 @@
 //! What changed between two manifests.
 
-use super::{Channel, Component, Extra, Manifest, validate::is_empty_value};
-use crate::version::Authority;
+use super::{Channel, Component, Extra, Manifest, UnknownFields, validate::is_empty_value};
+use crate::{artifact::Artifact, version::Authority};
 
 /// A field whose value differs; a side is `None` when the field is absent or empty there.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -177,11 +177,48 @@ fn diff_channel(old: &Channel, new: &Channel, changes: &mut Vec<Change>) {
 
 /// Top-level fields whose serialized values differ.
 fn changed_fields(old: &Component, new: &Component) -> Vec<FieldChange> {
-    let serialize = |component: &Component| match serde_json::to_value(component) {
+    changed_values(&component_fields(old), &component_fields(new))
+}
+
+/// Empty omitted fields can be preserved in extras at any known schema object. Normalize only
+/// those containers: an empty entry in a map such as artifact targets still carries meaning,
+/// and the structure of an unknown field's nonempty value is opaque to this build.
+fn component_fields(component: &Component) -> Extra {
+    fn discard_empty(extra: &mut Extra) {
+        extra.retain(|_, value| !is_empty_value(value));
+    }
+
+    fn discard_nested_empty(unknown: &mut UnknownFields) {
+        discard_empty(&mut unknown.fields);
+        for inner in unknown.nested.values_mut() {
+            discard_nested_empty(inner);
+        }
+    }
+
+    let mut component = component.clone();
+    discard_nested_empty(&mut component.extra);
+    for artifact in component.artifacts.artifacts.values_mut() {
+        let (extra, archive) = match artifact {
+            Artifact::TargetSpecific {
+                substitutions, targets, archive, extra, ..
+            } => {
+                for substitutions in substitutions.iter_mut().chain(targets.values_mut()) {
+                    discard_empty(&mut substitutions.extra);
+                }
+                (extra, archive)
+            },
+            Artifact::TargetAgnostic { archive, extra, .. } => (extra, archive),
+        };
+        discard_empty(extra);
+        if let Some(archive) = archive {
+            discard_empty(&mut archive.extra);
+        }
+    }
+
+    match serde_json::to_value(component) {
         Ok(serde_json::Value::Object(fields)) => fields,
         _ => unreachable!("a component serializes to an object"),
-    };
-    changed_values(&serialize(old), &serialize(new))
+    }
 }
 
 /// Keys whose values differ, sorted, treating an empty value the same as an absent key.
@@ -360,6 +397,20 @@ mod tests {
             .fields
             .insert("requires".to_string(), serde_json::json!([]));
         assert_eq!(diff(&previous(), &next), []);
+    }
+
+    #[test]
+    fn a_nonempty_unknown_object_is_kept_opaque() {
+        let mut next = previous();
+        next.channels[0].components[0]
+            .extra
+            .fields
+            .insert("vendor".to_string(), serde_json::json!({"flag": null}));
+        assert!(matches!(
+            &diff(&previous(), &next)[..],
+            [Change::ComponentChanged { fields, .. }]
+                if fields == &[field("vendor", None, Some(serde_json::json!({"flag": null})))]
+        ));
     }
 
     #[test]
