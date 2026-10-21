@@ -17,6 +17,13 @@ on:
       - "**.md"
       - "**.txt"
       - "docs/**"
+
+# A newer PR event supersedes its checks and comment update. Push runs are independent.
+# Grouping at workflow entry prevents an older, slower check from evicting a newer update.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 env:
   # Set the new value when the cache grows too much and we hit the runner's disk space limit
   # via https://github.com/rust-lang/docs.rs/pull/2433
@@ -105,8 +112,14 @@ jobs:
           DIFF: ${{ needs.check_manifest.outputs.diff }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
+          current_head=$(gh api "repos/${REPO}/pulls/${PR}" --jq .head.sha)
+          if [ "${current_head}" != "${HEAD_SHA}" ]; then
+            echo 'Skipping the manifest summary for an obsolete pull request revision'
+            exit 0
+          fi
           marker='<!-- manifest-diff -->'
           existing=$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" \
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"${marker}\"))) | .id" | head -n 1)
