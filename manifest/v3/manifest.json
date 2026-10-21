@@ -1,6 +1,6 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1792600747,
+  "date": 1792606710,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.17.0",
@@ -1307,6 +1307,43 @@
           }
         },
         {
+          "format": [
+            "docker",
+            "compose",
+            "-f",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "--profile",
+            "telemetry",
+            "--profile",
+            "monitor"
+          ],
+          "kind": "command",
+          "name": "node",
+          "subcommands": {
+            "delete": [
+              "down",
+              "-v",
+              "--remove-orphans"
+            ],
+            "down": [
+              "down",
+              "--remove-orphans"
+            ],
+            "logs": [
+              "logs",
+              "-f"
+            ],
+            "up": [
+              "up",
+              "-d"
+            ]
+          },
+          "version": {
+            "kind": "registry",
+            "version": "0.18.0"
+          }
+        },
+        {
           "artifacts": {
             "miden-protocol.masp": {
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
@@ -1323,6 +1360,36 @@
           "profiles": [
             "minimal"
           ],
+          "version": {
+            "kind": "registry",
+            "version": "0.18.0"
+          }
+        },
+        {
+          "hide": false,
+          "installation_method": {
+            "crate_name": "miden-remote-prover",
+            "kind": "cargo",
+            "rustup_channel": "1.98"
+          },
+          "installed-executable": "miden-remote-prover",
+          "kind": "executable",
+          "name": "remote-prover",
+          "version": {
+            "kind": "registry",
+            "version": "0.18.0"
+          }
+        },
+        {
+          "hide": false,
+          "installation_method": {
+            "crate_name": "miden-validator",
+            "kind": "cargo",
+            "rustup_channel": "1.98"
+          },
+          "installed-executable": "miden-validator",
+          "kind": "executable",
+          "name": "validator",
           "version": {
             "kind": "registry",
             "version": "0.18.0"
