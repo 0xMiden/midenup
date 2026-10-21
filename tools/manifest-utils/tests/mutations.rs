@@ -686,3 +686,39 @@ fn diff_escapes_names_from_the_manifest() {
     assert!(out.starts_with("- Network `` a`\\n<!-- `` added at "), "{out}");
     assert_eq!(out.lines().count(), 1, "{out}");
 }
+
+/// A concise registry bump must not hide changes alongside the version number.
+#[test]
+fn diff_preserves_version_metadata_during_a_registry_bump() {
+    let dir = tempfile::Builder::new()
+        .prefix("manifest-utils-diff-metadata")
+        .tempdir()
+        .unwrap();
+    let mut old = manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")]));
+    old["channels"][0]["components"][0]["version"]["vendor"] = serde_json::json!("old");
+    let previous = write_manifest(dir.path(), old.clone());
+    let previous_uri = format!("file://{}", previous.display());
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+
+    for metadata in [Some("new"), None] {
+        let mut next = old.clone();
+        let version = next["channels"][0]["components"][0]["version"].as_object_mut().unwrap();
+        version.insert("version".to_string(), serde_json::json!("0.14.0"));
+        match metadata {
+            Some(value) => {
+                version.insert("vendor".to_string(), serde_json::json!(value));
+            },
+            None => {
+                version.remove("vendor");
+            },
+        }
+        let next = write_manifest(&next_dir, next);
+        let out = run(&next, &["diff", &previous_uri]).expect("diff");
+        assert!(out.contains("**(downgrade)**"), "{out}");
+        assert!(out.contains("\"vendor\":\"old\""), "{out}");
+        if metadata.is_some() {
+            assert!(out.contains("\"vendor\":\"new\""), "{out}");
+        }
+    }
+}

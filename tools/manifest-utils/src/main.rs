@@ -694,7 +694,11 @@ fn render_changes(changes: &[Change]) -> String {
                 }
                 let others: Vec<FieldChange> = changed
                     .iter()
-                    .filter(|change| version.is_none() || change.field != "version")
+                    .filter(|change| {
+                        version.is_none()
+                            || change.field != "version"
+                            || registry_metadata(&change.from) != registry_metadata(&change.to)
+                    })
                     .cloned()
                     .collect();
                 if !others.is_empty() {
@@ -706,6 +710,15 @@ fn render_changes(changes: &[Change]) -> String {
         out.push_str(&format!("- {line}\n"));
     }
     out
+}
+
+/// The registry version summary covers the number, but not preserved metadata alongside it.
+fn registry_metadata(
+    value: &Option<serde_json::Value>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut fields = value.as_ref()?.as_object()?.clone();
+    fields.remove("version");
+    Some(fields)
 }
 
 /// Renders `text` as one Markdown code span, so no manifest content is read as Markdown or HTML.
