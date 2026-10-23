@@ -317,7 +317,7 @@ fn check_against_the_deployed_manifest() {
     let next = write_manifest(&next_dir, next);
     run(&next, &["check", "--against", &against]).expect("a promotion must pass");
 
-    // Moving back afterwards is refused without the flag. Written elsewhere: `next` is about to
+    // Moving back afterwards is refused. Written elsewhere: `next` is about to
     // become the deployed side of the comparison.
     let back_dir = dir.path().join("back");
     std::fs::create_dir(&back_dir).unwrap();
@@ -328,8 +328,6 @@ fn check_against_the_deployed_manifest() {
     let next_uri = format!("file://{}", next.display());
     let err = run(&back, &["check", "--against", &next_uri]).expect_err("must fail");
     assert!(err.contains("moves back"), "{err}");
-    run(&back, &["check", "--against", &next_uri, "--allow-downgrade"])
-        .expect("the flag must allow it");
 }
 
 /// A clone must not inherit its source's predecessor: the update path picks a successor by that
@@ -390,13 +388,6 @@ fn clone_toolchain_can_declare_what_it_supersedes() {
         .find(|c| c["name"] == "0.17.0")
         .expect("the clone must exist");
     assert_eq!(cloned["migrates_from"], "0.16.0");
-}
-
-#[test]
-fn allow_downgrade_requires_against() {
-    let (_dir, path) = fixture();
-    let err = run(&path, &["check", "--allow-downgrade"]).expect_err("must be a usage error");
-    assert!(err.contains("--against"), "{err}");
 }
 
 /// Removing a component that something else still requires would leave the channel unresolvable.

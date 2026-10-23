@@ -40,10 +40,6 @@ enum Command {
         /// version
         #[arg(long, value_name = "URI")]
         against: Option<String>,
-        /// Allow a network or component to move to an older version, a channel to be removed, and
-        /// a component to change its installation method
-        #[arg(long, requires = "against")]
-        allow_downgrade: bool,
     },
     /// Format the manifest
     Format {
@@ -197,7 +193,7 @@ impl Cli {
     fn execute(&self) -> anyhow::Result<()> {
         let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
         match &self.command {
-            Command::Check { against, allow_downgrade } => {
+            Command::Check { against } => {
                 // Structural validation first: it reports every problem in one pass, which is
                 // what an authoring tool should do. Loading the manifest does NOT run this --
                 // see the module docs on src/manifest/validate.rs.
@@ -219,17 +215,14 @@ impl Cli {
                 if let Some(uri) = against {
                     let previous = VersionedManifest::load_from(uri)
                         .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
-                    midenup::manifest::validate::validate_against(
-                        &previous,
-                        &manifest,
-                        *allow_downgrade,
-                    )
-                    .map_err(|errors| {
-                        report_errors(
-                            &format!("manifest cannot replace the one at '{uri}'"),
-                            errors,
-                        )
-                    })?;
+                    midenup::manifest::validate::validate_against(&previous, &manifest).map_err(
+                        |errors| {
+                            report_errors(
+                                &format!("manifest cannot replace the one at '{uri}'"),
+                                errors,
+                            )
+                        },
+                    )?;
                 }
                 Ok(())
             },

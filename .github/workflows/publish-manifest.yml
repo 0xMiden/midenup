@@ -23,10 +23,8 @@ jobs:
     uses: ./.github/workflows/check-manifest.yml
     with:
       # The manifest users are fetching right now, which is what this push replaces: a push
-      # whose deployment failed never reached them. A downgrade was acknowledged by label on
-      # the pull request, so it is allowed here.
+      # whose deployment failed never reached them.
       against: https://0xmiden.github.io/midenup/v3/manifest.json
-      allow-downgrade: true
 
   prerelease-test:
     name: pre-release checks

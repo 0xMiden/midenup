@@ -163,19 +163,13 @@ pub enum ValidationError {
     StaleTimestamp { previous: i64, next: i64 },
     #[error("network '{network}' is declared by the previous manifest but not by this one")]
     NetworkRemoved { network: String },
-    #[error(
-        "network '{network}' moves back from {from} to {to}; pass --allow-downgrade if that is \
-         intended"
-    )]
+    #[error("network '{network}' moves back from {from} to {to}")]
     NetworkDowngraded {
         network: String,
         from: semver::Version,
         to: semver::Version,
     },
-    #[error(
-        "channel {channel}: component '{component}' moves back from {from} to {to}; pass \
-         --allow-downgrade if that is intended"
-    )]
+    #[error("channel {channel}: component '{component}' moves back from {from} to {to}")]
     ComponentDowngraded {
         channel: semver::Version,
         component: String,
@@ -184,12 +178,12 @@ pub enum ValidationError {
     },
     #[error(
         "channel {0} is in the previous manifest but not in this one; users may still have it \
-         installed, so pass --allow-downgrade only if removing it is intended"
+         installed"
     )]
     ChannelRemoved(semver::Version),
     #[error(
-        "channel {channel}: component '{component}' changes installation method from {from} to \
-         {to}; pass --allow-downgrade if that is intended"
+        "channel {channel}: component '{component}' changes how it is acquired, from {from} to \
+         {to}"
     )]
     InstallationMethodChanged {
         channel: semver::Version,
@@ -468,11 +462,7 @@ fn validate_migrations(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
 ///
 /// Every rule here needs two documents: it is about what a change does to users of the previous
 /// manifest, which no single document can say.
-pub fn validate_against(
-    previous: &Manifest,
-    next: &Manifest,
-    allow_downgrade: bool,
-) -> Result<(), Vec<ValidationError>> {
+pub fn validate_against(previous: &Manifest, next: &Manifest) -> Result<(), Vec<ValidationError>> {
     // An unchanged manifest replaces the previous one trivially. Checked first so that a pull
     // request leaving the manifest alone is not failed for not advancing its timestamp.
     if previous == next {
@@ -488,7 +478,7 @@ pub fn validate_against(
     for (network, tracked) in previous.networks.iter() {
         match next.network_version(network) {
             None => errors.push(ValidationError::NetworkRemoved { network: network.clone() }),
-            Some(now) if now < tracked && !allow_downgrade => {
+            Some(now) if now < tracked => {
                 errors.push(ValidationError::NetworkDowngraded {
                     network: network.clone(),
                     from: tracked.clone(),
@@ -505,9 +495,7 @@ pub fn validate_against(
     // one has to be deliberate.
     for channel in previous.channels.iter() {
         let Some(now) = next.get_channel_by_name(&channel.name) else {
-            if !allow_downgrade {
-                errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
-            }
+            errors.push(ValidationError::ChannelRemoved(channel.name.clone()));
             continue;
         };
         // Adding a predecessor is allowed; dropping or replacing one strands its installations.
@@ -526,7 +514,6 @@ pub fn validate_against(
             if let (Authority::Registry { version: from }, Authority::Registry { version: to }) =
                 (&component.version, &current.version)
                 && to < from
-                && !allow_downgrade
             {
                 errors.push(ValidationError::ComponentDowngraded {
                     channel: channel.name.clone(),
@@ -538,7 +525,6 @@ pub fn validate_against(
             if let (Some(from), Some(to)) =
                 (installation_method(component), installation_method(current))
                 && from != to
-                && !allow_downgrade
             {
                 errors.push(ValidationError::InstallationMethodChanged {
                     channel: channel.name.clone(),
@@ -1085,18 +1071,18 @@ mod tests {
     }
 
     fn errors_against(next: &Manifest) -> Vec<ValidationError> {
-        validate_against(&previous(), next, false).err().unwrap_or_default()
+        validate_against(&previous(), next).err().unwrap_or_default()
     }
 
     #[test]
     fn a_successor_that_only_advances_the_timestamp_passes() {
-        assert_eq!(validate_against(&previous(), &successor(), false), Ok(()));
+        assert_eq!(validate_against(&previous(), &successor()), Ok(()));
     }
 
     /// Most pull requests do not touch the manifest at all; those must not be judged.
     #[test]
     fn an_unchanged_manifest_passes_without_advancing_the_timestamp() {
-        assert_eq!(validate_against(&previous(), &previous(), false), Ok(()));
+        assert_eq!(validate_against(&previous(), &previous()), Ok(()));
     }
 
     #[test]
@@ -1129,25 +1115,24 @@ mod tests {
     }
 
     #[test]
-    fn a_network_moving_backwards_needs_the_flag() {
+    fn a_network_moving_backwards_is_rejected() {
         let mut ahead = previous();
         ahead.promote("mainnet", semver::Version::new(0, 16, 0));
         let mut next = successor();
         next.promote("mainnet", semver::Version::new(0, 15, 0));
 
-        let errors = validate_against(&ahead, &next, false).err().unwrap_or_default();
+        let errors = validate_against(&ahead, &next).err().unwrap_or_default();
         assert!(errors.iter().any(|e| matches!(
             e,
             ValidationError::NetworkDowngraded { network, .. } if network == "mainnet"
         )));
-        assert_eq!(validate_against(&ahead, &next, true), Ok(()));
     }
 
     #[test]
     fn a_network_moving_forward_passes() {
         let mut m = successor();
         m.promote("mainnet", semver::Version::new(0, 16, 0));
-        assert_eq!(validate_against(&previous(), &m, false), Ok(()));
+        assert_eq!(validate_against(&previous(), &m), Ok(()));
     }
 
     /// The channel `mainnet` names disappears. A successor declaring `migrates_from` it does not
@@ -1167,7 +1152,7 @@ mod tests {
     }
 
     #[test]
-    fn a_component_moving_backwards_needs_the_flag() {
+    fn a_component_moving_backwards_is_rejected() {
         let mut next = successor();
         next.channels[0].components[0].version =
             Authority::Registry { version: semver::Version::new(0, 0, 1) };
@@ -1175,15 +1160,14 @@ mod tests {
             e,
             ValidationError::ComponentDowngraded { component, .. } if component == "vm"
         )));
-        assert_eq!(validate_against(&previous(), &next, true), Ok(()));
 
         next.channels[0].components[0].version =
             Authority::Registry { version: semver::Version::new(0, 2, 0) };
-        assert_eq!(validate_against(&previous(), &next, false), Ok(()));
+        assert_eq!(validate_against(&previous(), &next), Ok(()));
     }
 
     #[test]
-    fn an_installation_method_change_needs_the_flag() {
+    fn an_installation_method_change_is_rejected() {
         let mut next = successor();
         let ComponentKind::Executable { installation_method, .. } =
             &mut next.channels[0].components[0].kind
@@ -1199,14 +1183,6 @@ mod tests {
             e,
             ValidationError::InstallationMethodChanged { from: "prebuilt", to: "cargo", .. }
         )));
-        assert_eq!(validate_against(&previous(), &next, true), Ok(()));
-    }
-
-    #[test]
-    fn removing_a_channel_is_allowed_with_the_flag() {
-        let mut m = successor();
-        m.remove_channel(semver::Version::new(0, 16, 0));
-        assert_eq!(validate_against(&previous(), &m, true), Ok(()));
     }
 
     #[test]
@@ -1215,7 +1191,7 @@ mod tests {
         raised.min_client_version = semver::Version::new(1, 2, 0);
         let mut next = successor();
         next.min_client_version = semver::Version::new(1, 1, 0);
-        let errors = validate_against(&raised, &next, true).err().unwrap_or_default();
+        let errors = validate_against(&raised, &next).err().unwrap_or_default();
         assert!(
             errors
                 .iter()
@@ -1223,7 +1199,7 @@ mod tests {
         );
 
         next.min_client_version = semver::Version::new(1, 3, 0);
-        assert_eq!(validate_against(&raised, &next, false), Ok(()));
+        assert_eq!(validate_against(&raised, &next), Ok(()));
     }
 
     #[test]
@@ -1232,7 +1208,7 @@ mod tests {
         raised.manifest_version = semver::Version::new(3, 1, 0);
         let mut next = successor();
         next.manifest_version = semver::Version::new(3, 0, 0);
-        let errors = validate_against(&raised, &next, true).err().unwrap_or_default();
+        let errors = validate_against(&raised, &next).err().unwrap_or_default();
         assert!(
             errors
                 .iter()
@@ -1240,7 +1216,7 @@ mod tests {
         );
 
         next.manifest_version = semver::Version::new(3, 1, 1);
-        assert_eq!(validate_against(&raised, &next, false), Ok(()));
+        assert_eq!(validate_against(&raised, &next), Ok(()));
     }
 
     #[test]
@@ -1251,11 +1227,11 @@ mod tests {
         next.date = 2000;
 
         next.channels[1].migrates_from = None;
-        let errors = validate_against(&migrating, &next, false).err().unwrap_or_default();
+        let errors = validate_against(&migrating, &next).err().unwrap_or_default();
         assert!(errors.iter().any(|e| matches!(e, ValidationError::MigrationChanged { .. })));
 
         next.channels[1].migrates_from = Some(semver::Version::new(0, 14, 0));
-        let errors = validate_against(&migrating, &next, false).err().unwrap_or_default();
+        let errors = validate_against(&migrating, &next).err().unwrap_or_default();
         assert!(errors.iter().any(|e| matches!(e, ValidationError::MigrationChanged { .. })));
     }
 
@@ -1263,7 +1239,7 @@ mod tests {
     fn adding_a_migration_to_a_published_channel_passes() {
         let mut m = successor();
         m.channels[1].migrates_from = Some(semver::Version::new(0, 15, 0));
-        assert_eq!(validate_against(&previous(), &m, false), Ok(()));
+        assert_eq!(validate_against(&previous(), &m), Ok(()));
     }
 
     #[test]

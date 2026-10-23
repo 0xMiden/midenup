@@ -7,13 +7,7 @@ on:
         description: URI of the manifest this change replaces
         required: true
         type: string
-      allow-downgrade:
-        description: Accept a network or component moving to an older version, a removed toolchain, or a changed installation method
-        required: false
-        default: false
-        type: boolean
-  # ci.yml ignores manifest-only pushes, so those are checked here directly. A push to next
-  # was reviewed on a pull request, where a downgrade is acknowledged by label, so it is allowed.
+  # ci.yml ignores manifest-only pushes, so those are checked here directly.
   push:
     branches: [next]
     paths:
@@ -43,12 +37,4 @@ jobs:
         env:
           # On a push, the manifest at the previous tip of the branch
           AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
-          ALLOW_DOWNGRADE: ${{ (inputs.allow-downgrade || github.event_name == 'push') && '--allow-downgrade' || '' }}
-        run: |
-          set -euo pipefail
-          # ALLOW_DOWNGRADE is deliberately unquoted: it is either a flag or nothing
-          # shellcheck disable=SC2086
-          cargo make check-manifest --against "${AGAINST}" ${ALLOW_DOWNGRADE}
-      - name: How to allow a deliberate downgrade
-        if: ${{ failure() && github.event_name == 'pull_request' }}
-        run: echo "::notice::If the check refused a downgrade, a removed toolchain or a changed installation method and that is intended, add the 'manifest:allow-downgrade' label to this pull request and it re-runs."
+        run: cargo make check-manifest --against "${AGAINST}"
