@@ -149,12 +149,6 @@ currently deployed. On a pull request these changes are allowed by labelling it
 `manifest:allow-downgrade`, so the decision is visible in review; the push and deployment checks
 allow it, since the pull request already settled it.
 
-Schema changes are guarded separately: CI downloads the latest released `midenup` and runs it
-against the candidate manifest, and fails if that release cannot read it. Support for a new schema
-therefore ships in a `midenup` release first, and the manifest starts using it only once that
-release is out. Fields and component kinds the release does not know are tolerated, as they are by
-the `midenup` users have installed.
-
 ## Publishing
 
 Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
