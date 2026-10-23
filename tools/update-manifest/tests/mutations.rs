@@ -455,6 +455,45 @@ fn add_component_accepts_profiles() {
     assert_eq!(component(&manifest, "vm")["profiles"], serde_json::json!(["minimal"]));
 }
 
+#[test]
+fn add_component_accepts_artifacts_for_a_prebuilt_component() {
+    let dir = tempdir::TempDir::new("update-manifest-add-prebuilt").unwrap();
+    let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
+    let kind = r#"{"kind":"executable","installation_method":{"kind":"prebuilt"},"installed-executable":"miden-client"}"#;
+
+    let err = run(
+        &path,
+        &[
+            "add-component",
+            "--channel",
+            "0.15.0",
+            "client",
+            "--authority",
+            r#"{"kind":"registry","version":"0.15.0"}"#,
+            "--kind",
+            kind,
+        ],
+    )
+    .expect_err("a prebuilt component without artifacts covers no target");
+    assert!(err.contains("cannot be installed on"), "{err}");
+
+    run(&path, &[
+        "add-component",
+        "--channel", "0.15.0",
+        "client",
+        "--authority", r#"{"kind":"registry","version":"0.15.0"}"#,
+        "--kind", kind,
+        "--artifacts", r#"{"miden-client":{"uri":"https://example.invalid/%target","targets":{"aarch64-apple-darwin":{},"x86_64-unknown-linux-gnu":{}}}}"#,
+    ])
+    .expect("add-component should succeed");
+
+    let manifest = read_manifest(&path);
+    assert_eq!(
+        component(&manifest, "client")["artifacts"]["miden-client"]["uri"],
+        "https://example.invalid/%target"
+    );
+}
+
 /// `legacy-package` is closed to new authoring: packages ship prebuilt from here on.
 #[test]
 fn authoring_a_legacy_package_is_rejected() {

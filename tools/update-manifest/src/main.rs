@@ -101,6 +101,9 @@ enum Command {
         /// Specify other components this component implicitly requires
         #[arg(long, value_delimiter = ',', value_name = "VERSION")]
         requires: Vec<String>,
+        /// The component's prebuilt artifacts, as a JSON object keyed by artifact name
+        #[arg(long, value_name = "SPEC", value_parser = parse_json_object)]
+        artifacts: Option<serde_json::Value>,
     },
     /// Remove a component from a toolchain
     RemoveComponent {
@@ -331,6 +334,7 @@ impl Cli {
                 kind,
                 profiles,
                 requires,
+                artifacts,
             } => {
                 // `legacy-package` exists only so that channels 0.9-0.15, which ship packages
                 // extracted from Rust crates, remain installable. It is closed to new authoring:
@@ -357,7 +361,11 @@ impl Cli {
                     kind: kind.clone(),
                     profiles: profiles.clone(),
                     requires: requires.clone(),
-                    artifacts: Default::default(),
+                    artifacts: match artifacts {
+                        Some(artifacts) => serde_json::from_value(artifacts.clone())
+                            .context("invalid --artifacts")?,
+                        None => Default::default(),
+                    },
                     // A newly authored component has no fields this build does not understand.
                     extra: Default::default(),
                 };
