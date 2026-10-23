@@ -29,6 +29,8 @@ pub struct Cli {
     command: Command,
 }
 
+// Parsed once per run, so the size of its largest variant costs nothing.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Check that the manifest is valid

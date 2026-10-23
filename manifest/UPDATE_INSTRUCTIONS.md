@@ -116,11 +116,12 @@ exists in the same document, no network may be named like a toolchain or after o
 and `mainnet` must be declared, since it is the toolchain `midenup` uses when nothing else selects
 one. No two toolchains may declare `migrates_from` the same one, since `midenup update` must find
 exactly one successor, and a toolchain may only migrate from an older one. A component must not be
-fetched from a local path, a git branch or a git tag, whose contents change without the manifest
-changing, and
-the timestamp must not be in the future. Every component must install on each target midenup is
-released for (`aarch64-apple-darwin` and `x86_64-unknown-linux-gnu`): a prebuilt component missing
-an artifact for one must be `prebuilt-with-cargo-fallback`. A field the schema does not define is refused: `midenup` preserves such
+fetched from a local path, a git branch, a git tag or a git revision that is not a full commit ID,
+whose contents change without the manifest changing, and the timestamp must not be in the future.
+Every component must install on each target midenup is released for (`aarch64-apple-darwin` and
+`x86_64-unknown-linux-gnu`): a prebuilt component missing an artifact for one must be
+`prebuilt-with-cargo-fallback`, and any other reason the installer would refuse it, such as an
+artifact not named after the installed executable, is reported for that target. A field the schema does not define is refused: `midenup` preserves such
 fields when reading, so a misspelled one would be published and silently never read. The exception
 is a field whose value is empty (`[]`, `{}` or `null`), which is indistinguishable from a known
 field the schema omits when empty; such a typo is harmless, since an empty field reads the same as
@@ -141,8 +142,8 @@ This refuses a timestamp that did not advance, a removed network, a toolchain dr
 the `migrates_from` it was published with, a lower minimum client or manifest version, a network
 moving to an older toolchain, a component moving to an older version, a removed toolchain, and a
 component changing its installation method. CI runs this comparison on every pull request against
-the base branch as it was when the pull request was last updated, on every push to `next` against
-the previous tip, and before every deployment against the manifest currently deployed.
+the base branch as it was when the pull request was last updated, and on every push to `next`
+against the previous tip.
 
 ## Publishing
 
