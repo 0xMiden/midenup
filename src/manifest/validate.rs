@@ -226,7 +226,7 @@ pub enum ValidationError {
     },
     #[error(
         "channel {channel}: component '{component}' is fetched from {authority}, whose contents \
-         change without the manifest changing; pin a registry version or git revision"
+         change without the manifest changing; pin a registry version or a full git commit ID"
     )]
     MutableAuthority {
         channel: semver::Version,
@@ -614,6 +614,12 @@ fn validate_networks(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
     }
 }
 
+/// A full SHA-1 or SHA-256 git object ID; anything shorter, or a ref name, can resolve differently
+/// over time.
+fn is_full_commit_id(hash: &str) -> bool {
+    matches!(hash.len(), 40 | 64) && hash.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
 fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
     let mut seen: HashMap<&str, ()> = HashMap::new();
     for component in channel.components.iter() {
@@ -637,6 +643,11 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
             } => Some(format!("git branch '{name}'")),
             Authority::Git { target: GitTarget::Tag { name }, .. } => {
                 Some(format!("git tag '{name}'"))
+            },
+            Authority::Git { target: GitTarget::Revision { hash }, .. }
+                if !is_full_commit_id(hash) =>
+            {
+                Some(format!("git revision '{hash}', which is not a full commit ID"))
             },
             Authority::Git { target: GitTarget::Revision { .. }, .. }
             | Authority::Registry { .. } => None,
@@ -1259,7 +1270,7 @@ mod tests {
     }
 
     #[test]
-    fn a_path_git_branch_or_git_tag_authority_is_rejected() {
+    fn a_path_git_branch_git_tag_or_partial_revision_authority_is_rejected() {
         let mut path = executable("vm", "miden-vm");
         path.version = Authority::Path {
             path: "/tmp/vm".into(),
@@ -1283,7 +1294,28 @@ mod tests {
             subpath: None,
             target: crate::version::GitTarget::Revision { hash: "0123abcd".to_string() },
         };
-        let m = with_mainnet(manifest(vec![path, branch, tag, revision]));
+        let mut moving_revision = executable("faucet", "miden-faucet");
+        moving_revision.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: crate::version::GitTarget::Revision { hash: "main".to_string() },
+        };
+        let mut full_revision = executable("prover", "miden-prover");
+        full_revision.version = Authority::Git {
+            repository_url: "https://example.invalid/repo".to_string(),
+            subpath: None,
+            target: crate::version::GitTarget::Revision {
+                hash: "83df2aa115b2617e211d1d929a1189ffabbd137b".to_string(),
+            },
+        };
+        let m = with_mainnet(manifest(vec![
+            path,
+            branch,
+            tag,
+            revision,
+            moving_revision,
+            full_revision,
+        ]));
         let flagged: Vec<String> = errors_of(&m)
             .into_iter()
             .filter_map(|e| match e {
@@ -1291,7 +1323,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(flagged, ["vm", "debugger", "client"]);
+        assert_eq!(flagged, ["vm", "debugger", "client", "node", "faucet"]);
     }
 
     fn linux_only(mut component: Component) -> Component {
