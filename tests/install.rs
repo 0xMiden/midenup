@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, ffi::OsString, fs::OpenOptions, path::Path};
+use std::{collections::BTreeSet, ffi::OsString, fs::OpenOptions, path::Path, process::ExitCode};
 
 use clap::Parser;
 use midenup::{
@@ -578,14 +578,19 @@ fn integration_prerelease_components_are_runnable() {
                         component.name.as_ref().into(),
                     ];
 
-                    miden_wrapper::miden_wrapper(&argv, &config, &mut state).unwrap_or_else(
-                        |err| {
+                    let exit_code = miden_wrapper::miden_wrapper(&argv, &config, &mut state)
+                        .unwrap_or_else(|err| {
                             panic!(
                                 "{network}: component '{}' is not runnable through the 'miden' \
                                  interface: {err:#}",
                                 component.name
                             )
-                        },
+                        });
+                    assert_eq!(
+                        exit_code,
+                        ExitCode::SUCCESS,
+                        "{network} ({toolchain}): component '{}' exited unsuccessfully",
+                        component.name
                     );
                 },
                 // Skip executables that aren't meant to be executed directly
