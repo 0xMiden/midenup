@@ -75,6 +75,17 @@ jobs:
         run: |
           cargo make check-format
 
+  check_manifest:
+    name: check manifest
+    # Pushes are checked by check-manifest.yml's own trigger, which also sees manifest-only
+    # pushes that this workflow ignores.
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/check-manifest.yml
+    with:
+      # The base as it was when the pull request was last updated: the merge commit being
+      # checked was built on it, so the comparison does not shift when the base branch moves.
+      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/v3/manifest.json
+
   unit_tests:
     name: unit tests
     runs-on: ubuntu-latest
@@ -131,6 +142,7 @@ jobs:
         run: cargo make integration-test
       - name: Pre-release checks
         # These install real components from this repo's copy of the manifest and run them, so it
-        # takes many minutes. Run them on main or on explicitly labelled PRs
-        if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
+        # takes many minutes. Run them on main, on pull requests into main (the release path from
+        # next), and on explicitly labelled pull requests
+        if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
         run: cargo make prerelease-test

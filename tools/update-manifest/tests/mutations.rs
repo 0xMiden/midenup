@@ -132,7 +132,7 @@ fn partial_kind_update_changes_the_requested_field() {
             "--authority",
             r#"{"kind":"registry","version":"0.15.0"}"#,
             "--kind",
-            r#"{"installation_method":{"kind":"prebuilt"}}"#,
+            r#"{"installation_method":{"kind":"prebuilt-with-cargo-fallback","crate_name":"some-crate"}}"#,
         ],
     )
     .expect("update-component should succeed");
@@ -140,7 +140,7 @@ fn partial_kind_update_changes_the_requested_field() {
     let vm = read_manifest(&path);
     let vm = component(&vm, "vm");
     assert_eq!(
-        vm["installation_method"]["kind"], "prebuilt",
+        vm["installation_method"]["kind"], "prebuilt-with-cargo-fallback",
         "the requested field must actually change"
     );
     assert_eq!(
@@ -292,6 +292,104 @@ fn check_reports_all_errors_at_once() {
     assert!(err.contains("alsoghost"), "both problems must be reported in one pass: {err}");
 }
 
+/// `check --against` judges the manifest as a replacement for the deployed one.
+#[test]
+fn check_against_the_deployed_manifest() {
+    let (dir, deployed) = fixture();
+    let against = format!("file://{}", deployed.display());
+
+    // Unchanged is trivially fine, whatever the timestamp says.
+    run(&deployed, &["check", "--against", &against]).expect("an unchanged manifest must pass");
+
+    // A change that leaves the timestamp alone is the mistake the rule exists for.
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+    let mut stale = read_manifest(&deployed);
+    stale["networks"]["mainnet"] = serde_json::json!("0.16.0");
+    let stale = write_manifest(&next_dir, stale);
+    let err = run(&stale, &["check", "--against", &against]).expect_err("must fail");
+    assert!(err.contains("timestamp"), "{err}");
+
+    // A promotion with a fresh timestamp is exactly what a release looks like.
+    let mut next = read_manifest(&deployed);
+    next["date"] = serde_json::json!(1735689601);
+    next["networks"]["mainnet"] = serde_json::json!("0.16.0");
+    let next = write_manifest(&next_dir, next);
+    run(&next, &["check", "--against", &against]).expect("a promotion must pass");
+
+    // Moving back afterwards is refused. Written elsewhere: `next` is about to
+    // become the deployed side of the comparison.
+    let back_dir = dir.path().join("back");
+    std::fs::create_dir(&back_dir).unwrap();
+    let mut back = read_manifest(&deployed);
+    back["date"] = serde_json::json!(1735689602);
+    back["networks"]["mainnet"] = serde_json::json!("0.15.0");
+    let back = write_manifest(&back_dir, back);
+    let next_uri = format!("file://{}", next.display());
+    let err = run(&back, &["check", "--against", &next_uri]).expect_err("must fail");
+    assert!(err.contains("moves back"), "{err}");
+}
+
+/// A clone must not inherit its source's predecessor: the update path picks a successor by that
+/// field, and two channels claiming one predecessor is refused by `check`.
+#[test]
+fn clone_toolchain_does_not_carry_migrates_from() {
+    let dir = tempdir::TempDir::new("update-manifest-clone").unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "migrates_from": "0.14.0",
+                 "components": [cargo_executable("vm", "miden-vm")]}
+            ]
+        }),
+    );
+
+    run(&path, &["clone-toolchain", "--from", "0.15.0", "--to", "0.16.0"]).expect("clone");
+
+    let manifest = read_manifest(&path);
+    let cloned = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "0.16.0")
+        .expect("the clone must exist");
+    assert!(cloned.get("migrates_from").is_none(), "{cloned}");
+    run(&path, &["check"]).expect("the result must pass check");
+}
+
+#[test]
+fn clone_toolchain_can_declare_what_it_supersedes() {
+    let (_dir, path) = fixture();
+
+    run(
+        &path,
+        &[
+            "clone-toolchain",
+            "--from",
+            "0.16.0",
+            "--to",
+            "0.17.0",
+            "--migrates-from",
+            "0.16.0",
+        ],
+    )
+    .expect("clone");
+
+    let manifest = read_manifest(&path);
+    let cloned = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "0.17.0")
+        .expect("the clone must exist");
+    assert_eq!(cloned["migrates_from"], "0.16.0");
+}
+
 /// Removing a component that something else still requires would leave the channel unresolvable.
 #[test]
 fn removing_a_still_required_component_is_rejected() {
@@ -346,6 +444,45 @@ fn add_component_accepts_profiles() {
 
     let manifest = read_manifest(&path);
     assert_eq!(component(&manifest, "vm")["profiles"], serde_json::json!(["minimal"]));
+}
+
+#[test]
+fn add_component_accepts_artifacts_for_a_prebuilt_component() {
+    let dir = tempdir::TempDir::new("update-manifest-add-prebuilt").unwrap();
+    let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
+    let kind = r#"{"kind":"executable","installation_method":{"kind":"prebuilt"},"installed-executable":"miden-client"}"#;
+
+    let err = run(
+        &path,
+        &[
+            "add-component",
+            "--channel",
+            "0.15.0",
+            "client",
+            "--authority",
+            r#"{"kind":"registry","version":"0.15.0"}"#,
+            "--kind",
+            kind,
+        ],
+    )
+    .expect_err("a prebuilt component without artifacts covers no target");
+    assert!(err.contains("cannot be installed on"), "{err}");
+
+    run(&path, &[
+        "add-component",
+        "--channel", "0.15.0",
+        "client",
+        "--authority", r#"{"kind":"registry","version":"0.15.0"}"#,
+        "--kind", kind,
+        "--artifacts", r#"{"miden-client":{"uri":"https://example.invalid/%target","targets":{"aarch64-apple-darwin":{},"x86_64-unknown-linux-gnu":{}}}}"#,
+    ])
+    .expect("add-component should succeed");
+
+    let manifest = read_manifest(&path);
+    assert_eq!(
+        component(&manifest, "client")["artifacts"]["miden-client"]["uri"],
+        "https://example.invalid/%target"
+    );
 }
 
 /// `legacy-package` is closed to new authoring: packages ship prebuilt from here on.
