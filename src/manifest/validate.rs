@@ -242,6 +242,13 @@ pub enum ValidationError {
         component: String,
         target: &'static str,
     },
+    #[error("channel {channel}: component '{component}' cannot be planned for {target}: {reason}")]
+    Uninstallable {
+        channel: semver::Version,
+        component: String,
+        target: &'static str,
+        reason: String,
+    },
     #[error(
         "channels {first} and {second} both declare `migrates_from` {from}; an installation of \
          {from} can only be carried to one of them"
@@ -660,14 +667,21 @@ fn validate_channel(channel: &Channel, errors: &mut Vec<ValidationError>) {
             });
         } else if component.is_supported() {
             for target in RELEASE_TARGETS {
-                if let Err(PlanError::TargetUnsupported { .. }) =
-                    component_key(component, target, Path::new("/"))
-                {
-                    errors.push(ValidationError::TargetNotCovered {
+                match component_key(component, target, Path::new("/")) {
+                    Ok(_) => (),
+                    Err(PlanError::TargetUnsupported { .. }) => {
+                        errors.push(ValidationError::TargetNotCovered {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            target,
+                        })
+                    },
+                    Err(err) => errors.push(ValidationError::Uninstallable {
                         channel: channel.name.clone(),
                         component: component.name.to_string(),
                         target,
-                    });
+                        reason: err.to_string(),
+                    }),
                 }
             }
         }
@@ -1372,6 +1386,19 @@ mod tests {
         };
         let m = with_mainnet(manifest(vec![vm]));
         assert!(uncovered_targets(&m).is_empty());
+    }
+
+    #[test]
+    fn an_artifact_named_unlike_the_installed_executable_is_rejected() {
+        let m = with_mainnet(manifest(vec![with_artifact(executable("vm", "miden-vm"), "vm")]));
+        let uninstallable: Vec<&'static str> = errors_of(&m)
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::Uninstallable { target, .. } => Some(target),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(uninstallable, RELEASE_TARGETS);
     }
 
     #[test]
