@@ -17,7 +17,10 @@
 //! conversion it is about to run. The steps after it are idempotent, so the `conversion` marker is
 //! the whole journal: a run that finds it repeats the steps and then clears it.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::BTreeSet,
+    path::{Path, PathBuf},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -224,8 +227,8 @@ fn convert(home: &Path) -> Result<(), HomeFormatError> {
     Ok(())
 }
 
-/// Rewrites `state.json` at the current state version. Its layout, links, receipts and journal
-/// already read as they are, so nothing else changes.
+/// Removes carried-forward toolchains' alpha directories and rewrites `state.json` at the current
+/// state version. Everything else already reads as it is.
 fn convert_released_v1(home: &Path) -> Result<(), HomeFormatError> {
     let path = paths::state_path(home);
     if !path.exists() {
@@ -233,6 +236,13 @@ fn convert_released_v1(home: &Path) -> Result<(), HomeFormatError> {
     }
     let failed = |reason: String| HomeFormatError::Convert { home: home.to_path_buf(), reason };
     let state = LocalState::load(&path).map_err(|err| failed(err.to_string()))?;
+    for channel in carried_forward(&state) {
+        let dir = paths::toolchains_dir(home).join(channel);
+        if std::fs::symlink_metadata(&dir).is_ok_and(|meta| meta.is_dir()) {
+            std::fs::remove_dir_all(&dir)
+                .map_err(|err| failed(format!("failed to remove '{}': {err}", dir.display())))?;
+        }
+    }
     state.save(&path).map_err(|err| failed(err.to_string()))
 }
 
@@ -267,7 +277,8 @@ fn preflight(home: &Path) -> Result<Conversion, HomeFormatError> {
         }
     }
 
-    check_links(home, &paths::toolchains_dir(home), true)?;
+    let carried_forward = carried_forward(&state);
+    check_links(home, &paths::toolchains_dir(home), true, &carried_forward)?;
 
     // Every release that leaves anything installed writes it.
     if !state_path.exists() {
@@ -290,8 +301,25 @@ fn preflight(home: &Path) -> Result<Conversion, HomeFormatError> {
     Ok(Conversion::ReleasedV1)
 }
 
-/// Every toolchain entry must be a link; only the top level may hold the `custom` directory.
-fn check_links(home: &Path, dir: &Path, top: bool) -> Result<(), HomeFormatError> {
+/// The toolchains v1.x carried forward from an alpha home, whose alpha directory it left in place.
+fn carried_forward(state: &LocalState) -> BTreeSet<String> {
+    state
+        .installations
+        .iter()
+        .filter(|i| i.custom.is_none())
+        .filter(|i| matches!(i.publication, crate::state::PublicationRef::NeedsReinstall))
+        .map(|i| i.channel.to_string())
+        .collect()
+}
+
+/// Every toolchain entry must be a link, except a carried-forward toolchain's alpha directory;
+/// only the top level may hold the `custom` directory.
+fn check_links(
+    home: &Path,
+    dir: &Path,
+    top: bool,
+    carried_forward: &BTreeSet<String>,
+) -> Result<(), HomeFormatError> {
     let entries = match std::fs::read_dir(dir) {
         Ok(entries) => entries,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -314,7 +342,9 @@ fn check_links(home: &Path, dir: &Path, top: bool) -> Result<(), HomeFormatError
             });
         }
         if top && name == "custom" && file_type.is_dir() {
-            check_links(home, &entry.path(), false)?;
+            check_links(home, &entry.path(), false, carried_forward)?;
+        } else if top && file_type.is_dir() && carried_forward.contains(&name) {
+            // Reinstalled on first use, which needs the link's place.
         } else if !file_type.is_symlink() {
             return Err(HomeFormatError::AlphaEra {
                 home: home.to_path_buf(),
@@ -400,6 +430,38 @@ mod tests {
         std::fs::create_dir_all(paths::toolchains_dir(&home).join("0.15.0")).unwrap();
         assert!(matches!(enter(&home), Err(HomeFormatError::AlphaEra { .. })));
         assert_eq!(read(&home).unwrap(), None);
+    }
+
+    #[test]
+    fn a_carried_forward_toolchain_directory_is_removed_by_the_conversion() {
+        let (_temp, home) = home();
+        let alpha = paths::toolchains_dir(&home).join("0.15.0");
+        std::fs::create_dir_all(alpha.join("bin")).unwrap();
+        std::fs::write(alpha.join("bin").join("miden-vm"), "alpha").unwrap();
+        let other = paths::toolchains_dir(&home).join("0.16.0");
+        let mut state = LocalState::default();
+        state.upsert(crate::state::Installation {
+            channel: semver::Version::new(0, 15, 0),
+            custom: None,
+            intent: Default::default(),
+            components: Vec::new(),
+            publication: crate::state::PublicationRef::NeedsReinstall,
+            installed_at: 1,
+            midenup_version: None,
+            patches: Default::default(),
+        });
+        state.save(&paths::state_path(&home)).unwrap();
+
+        std::fs::create_dir_all(&other).unwrap();
+        assert!(
+            matches!(enter(&home), Err(HomeFormatError::AlphaEra { .. })),
+            "a directory no carried-forward record names is still refused"
+        );
+        std::fs::remove_dir(&other).unwrap();
+
+        let (_lease, converted) = enter(&home).unwrap();
+        assert!(converted);
+        assert!(!alpha.exists(), "its place is needed for the reinstall's link");
     }
 
     #[test]

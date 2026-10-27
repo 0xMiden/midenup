@@ -277,6 +277,8 @@ or update restores the upstream components.
 
 A home written before midenup v1.0.0 (one without `state.json`) is not converted. midenup refuses
 it without changing anything; reinstall into a fresh `MIDENUP_HOME` instead.
+A toolchain that midenup v1.x carried forward from such a home is reinstalled the next time you use
+it; converting the home removes its old directory.
 
 ## Working offline
 

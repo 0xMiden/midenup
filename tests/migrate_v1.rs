@@ -2,7 +2,8 @@
 //!
 //! An alpha home -- a `manifest.json` and no installations in `state.json` -- is refused without
 //! changes. A released v1.x home may still hold the records v1.x carried forward from one, which
-//! describe no publication; those are reinstalled on first use.
+//! describe no publication, beside the alpha toolchain directory; converting the home removes the
+//! directory, and the toolchain is reinstalled on first use.
 
 use std::path::Path;
 
@@ -54,7 +55,10 @@ fn write_alpha_home(env: &TestEnvironment) {
 
 /// A released v1.x home holding the record v1.x carried forward from an alpha one.
 fn write_carried_forward_home(env: &TestEnvironment, channel: &str, roots: &[&str]) {
-    std::fs::create_dir_all(paths::toolchains_dir(&env.midenup_home)).unwrap();
+    // v1.x left the alpha toolchain directory in place.
+    let alpha = paths::toolchains_dir(&env.midenup_home).join(channel).join("bin");
+    std::fs::create_dir_all(&alpha).unwrap();
+    std::fs::write(alpha.join("miden-vm"), "alpha").unwrap();
     std::fs::create_dir_all(paths::publications_dir(&env.midenup_home)).unwrap();
     let mut state = LocalState::default();
     state.upsert(Installation {
@@ -187,6 +191,10 @@ fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
         ),
         "converting the home alone must not claim the toolchain is usable"
     );
+    assert!(
+        !paths::toolchains_dir(&env.midenup_home).join("0.15.0").exists(),
+        "the conversion removes the alpha directory the reinstall's link replaces"
+    );
 
     // Dispatch triggers the install, exactly as it would for a toolchain that was never installed.
     let output = midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, &manifest)
@@ -201,6 +209,11 @@ fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
         "the reinstall must produce a publication midenup owns"
     );
     assert!(!installation.components.is_empty(), "and a component snapshot to dispatch from");
+    assert!(
+        std::fs::symlink_metadata(paths::toolchains_dir(&env.midenup_home).join("0.15.0"))
+            .unwrap()
+            .is_symlink()
+    );
 }
 
 /// Spec section 12.1: a migrated root that no longer exists upstream is dropped, once, with a
