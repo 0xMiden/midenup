@@ -559,8 +559,8 @@ pub fn display_version(config: &Config, style: crate::commands::VersionStyle) ->
     };
     let cargo_version = cargo_version.trim();
 
-    // Only read, and only from a home whose format this build reads: a refused home must still be
-    // able to report which midenup refused it.
+    // Only read, and skipped when this build refuses the home's envelope, so that home can still
+    // report which midenup refused it.
     let toolchain = if crate::home_format::read(&config.midenup_home).is_ok() {
         Toolchain::current(config, None)
     } else {

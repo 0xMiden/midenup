@@ -83,6 +83,8 @@ pub enum HomeFormatError {
     Lock(#[from] lock::LockError),
     #[error("failed to convert '{home}': {reason}")]
     Convert { home: PathBuf, reason: String },
+    #[error("failed to write '{path}': {reason}")]
+    Write { path: PathBuf, reason: String },
     #[error(transparent)]
     Injected(#[from] crate::fault::InjectedFault),
 }
@@ -146,7 +148,7 @@ pub fn read(home: &Path) -> Result<Option<Envelope>, HomeFormatError> {
 /// Atomically replaces the envelope and syncs the home directory, so the replacement is durable.
 fn write(home: &Path, envelope: &Envelope) -> Result<(), HomeFormatError> {
     let path = paths::home_format_path(home);
-    let failed = |reason: String| HomeFormatError::Convert { home: home.to_path_buf(), reason };
+    let failed = |reason: String| HomeFormatError::Write { path: path.clone(), reason };
     std::fs::create_dir_all(home).map_err(|err| failed(err.to_string()))?;
     crate::utils::atomic::write_validated(&path, envelope, |written| {
         serde_json::from_str::<Envelope>(written)
