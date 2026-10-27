@@ -513,10 +513,11 @@ fn integration_install_from_non_cargo() {
 /// Names the manifest this one replaces; when set, only the toolchains that changed are tested.
 const PRERELEASE_AGAINST: &str = "PRERELEASE_AGAINST";
 
-/// Pre-release check: every component of every network's toolchain is actually executable.
+/// Pre-release check: every component of the tested toolchains is actually executable.
 ///
-/// With `PRERELEASE_AGAINST` set to a manifest URI, only the toolchains whose contents changed
-/// since that manifest are checked, including ones no network names.
+/// By default these are every network's toolchain. With `PRERELEASE_AGAINST` set to a manifest
+/// URI, they are the toolchains whose contents changed since that manifest, including ones no
+/// network names.
 ///
 /// This relies on every component respecting the `--help` flag, an assumption `miden_wrapper`
 /// already makes because clap generates help automatically.
@@ -536,42 +537,42 @@ fn integration_prerelease_components_are_runnable() {
     let test_name = "integration_test_components";
     let test_env = environment_setup(test_name);
 
+    // CI's pre-release step reads the base's copy at this same path
     const FILE: &str = full_path_manifest!("manifest/v3/manifest.json");
     let (mut state, config) = test_setup(&test_env, FILE);
 
-    // Given the manifest this one replaces, only the toolchains whose contents changed since then
-    // are tested, each selected by version. Otherwise the manifest decides which networks exist, so
-    // a new or newly promoted network is never left untested. Several networks may name one
-    // toolchain; it is installed once, through the first of them, since the binaries are the same
-    // whichever network asks for them. Only the network asked for gets a `toolchains/<network>`
-    // link.
+    // Without a previous manifest, the manifest decides which networks exist, so a new or newly
+    // promoted network is never left untested. A toolchain several networks name is installed
+    // once, through the first of them, since the binaries are the same whichever network asks for
+    // them; one no network names is installed by version. Only the network asked for gets a
+    // `toolchains/<network>` link.
     let manifest = config.upstream_manifest().expect("the manifest must load");
     let previous = std::env::var(PRERELEASE_AGAINST).ok().filter(|uri| !uri.is_empty());
-    let targets: Vec<(semver::Version, Option<&str>)> = match previous {
+    let toolchains: BTreeSet<semver::Version> = match previous {
         Some(uri) => {
             let previous = VersionedManifest::load_from(&uri)
                 .unwrap_or_else(|err| panic!("failed to load the manifest at '{uri}': {err}"));
             let changes = diff::diff(&previous, manifest);
-            let affected = diff::affected_toolchains(&changes);
+            let affected: BTreeSet<semver::Version> =
+                diff::affected_toolchains(&changes).into_iter().cloned().collect();
             if affected.is_empty() {
                 println!("No toolchain changed since {uri}");
             }
-            affected.into_iter().map(|toolchain| (toolchain.clone(), None)).collect()
+            affected
         },
         None => {
-            let toolchains: BTreeSet<&semver::Version> = manifest
+            let toolchains: BTreeSet<semver::Version> = manifest
                 .network_names()
                 .filter_map(|network| manifest.network_version(network))
+                .cloned()
                 .collect();
             assert!(!toolchains.is_empty(), "the manifest must declare at least one network");
             toolchains
-                .into_iter()
-                .map(|toolchain| (toolchain.clone(), manifest.networks_for(toolchain).next()))
-                .collect()
         },
     };
 
-    for (toolchain, network) in targets {
+    for toolchain in toolchains {
+        let network = manifest.networks_for(&toolchain).next();
         let selector = network.map_or_else(|| toolchain.to_string(), str::to_string);
         let install =
             Midenup::try_parse_from(["midenup", "install", &selector, "--profile", "complete"])
