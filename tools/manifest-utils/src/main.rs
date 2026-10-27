@@ -84,6 +84,11 @@ enum Command {
         #[arg(long, value_name = "PATH", required(true))]
         midenup: PathBuf,
     },
+    /// Print the URI of every artifact the manifest declares, for every target, one per line
+    ArtifactUris {
+        #[command(flatten)]
+        manifest: ManifestPath,
+    },
     /// Format the manifest
     Format {
         #[command(flatten)]
@@ -256,6 +261,7 @@ impl Command {
             Self::Check { manifest, .. }
             | Self::Diff { manifest, .. }
             | Self::Acceptance { manifest, .. }
+            | Self::ArtifactUris { manifest }
             | Self::Format { manifest, .. }
             | Self::Touch { manifest }
             | Self::CloneToolchain { manifest, .. }
@@ -332,6 +338,24 @@ impl Cli {
             Command::Acceptance { against, scenarios, midenup, .. } => {
                 if !acceptance::run(manifest_path, against.as_deref(), scenarios, midenup)? {
                     bail!("the acceptance scenarios rejected the change");
+                }
+                Ok(())
+            },
+            Command::ArtifactUris { .. } => {
+                let mut uris = std::collections::BTreeSet::new();
+                for channel in manifest.get_channels() {
+                    for component in channel.components.iter() {
+                        for (id, artifact) in component.artifacts.iter() {
+                            let resolved =
+                                artifact.get_uris_for(id, component).with_context(|| {
+                                    format!("toolchain {} has an invalid artifact", channel.name)
+                                })?;
+                            uris.extend(resolved.into_iter().map(|uri| uri.to_string()));
+                        }
+                    }
+                }
+                for uri in uris {
+                    println!("{uri}");
                 }
                 Ok(())
             },
