@@ -250,10 +250,10 @@ fn check_rejects_a_cyclic_manifest() {
         manifest_with(serde_json::json!([
             {"name": "a", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "package", "requires": ["b"], "profiles": ["minimal"],
-             "artifacts": {"a.masp": {"uri": "https://example.invalid/a.masp"}}},
+             "artifacts": {"a.masp": {"uri": "https://example.invalid/a.masp", "digest": unrelated_digest()}}},
             {"name": "b", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "package", "requires": ["a"], "profiles": ["minimal"],
-             "artifacts": {"b.masp": {"uri": "https://example.invalid/b.masp"}}}
+             "artifacts": {"b.masp": {"uri": "https://example.invalid/b.masp", "digest": unrelated_digest()}}}
         ])),
     );
 
@@ -280,10 +280,10 @@ fn check_reports_all_errors_at_once() {
         manifest_with(serde_json::json!([
             {"name": "a", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "package", "requires": ["ghost"], "profiles": ["minimal"],
-             "artifacts": {"a.masp": {"uri": "https://example.invalid/a.masp"}}},
+             "artifacts": {"a.masp": {"uri": "https://example.invalid/a.masp", "digest": unrelated_digest()}}},
             {"name": "b", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "package", "requires": ["alsoghost"], "profiles": ["minimal"],
-             "artifacts": {"b.masp": {"uri": "https://example.invalid/b.masp"}}}
+             "artifacts": {"b.masp": {"uri": "https://example.invalid/b.masp", "digest": unrelated_digest()}}}
         ])),
     );
 
@@ -301,7 +301,7 @@ fn removing_a_still_required_component_is_rejected() {
         manifest_with(serde_json::json!([
             {"name": "core", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "package", "profiles": ["minimal"],
-             "artifacts": {"core.masp": {"uri": "https://example.invalid/core.masp"}}},
+             "artifacts": {"core.masp": {"uri": "https://example.invalid/core.masp", "digest": unrelated_digest()}}},
             {"name": "client", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "executable", "requires": ["core"], "profiles": ["minimal"],
              "installation_method": {"kind": "cargo", "crate_name": "c"},

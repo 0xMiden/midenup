@@ -317,7 +317,7 @@ If a component is selected and any of its declared artifacts has no entry for th
 
 Installation verifies the fetched bytes against the digest declared for the target being installed, before anything is unpacked or written (§9.3). The digest is not part of the plan key, so adding or changing one does not re-fetch or re-verify an existing installation. Only `sha256` with 64 hex digits can be verified: any other digest parses, so the rest of the manifest stays readable, but fails validation and plan construction for that artifact.
 
-A mismatch is terminal. It fails the install and never takes a `prebuilt-with-cargo-fallback` path: wrong bytes are not unavailable bytes. An artifact without a digest installs unverified.
+A mismatch is terminal. It fails the install and never takes a `prebuilt-with-cargo-fallback` path: wrong bytes are not unavailable bytes. An artifact without a digest installs unverified, but fails validation (§14.2), so a published manifest declares one for every artifact and target.
 
 For an archived artifact (§6.5) the digest describes the archive as fetched, not the file installed out of it: it belongs to the bytes at the URI.
 
@@ -1095,6 +1095,7 @@ The following are call disallowed and caught by validation:
 *  a `%target`-less URI in a target-specific artifact
 * malformed `digest`, or a `digest` beside `targets` in a target-specific artifact
 * a `digest` that is not SHA-256 (§6.4)
+* an artifact without a `digest` for a target it declares (§6.4)
 * an `archive` format this build cannot read
 * an artifact whose resolved URI ends in a known archive extension without declaring `archive`, which would install the container as the artifact - unless the artifact id carries that extension too, which asks for exactly that
 * `legacy-package` in a newly authored channel

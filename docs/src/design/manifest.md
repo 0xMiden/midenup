@@ -105,7 +105,7 @@ The map key is both the artifact's identity **and the exact filename it is insta
 
 Substitutions available in a URI are `%target`, `%version` (which requires a registry version), `%basename` (defaulting to the component name), and `%extension`. Per-target values override component-level ones.
 
-`digest` is the SHA-256 of the bytes at the URI, written `sha256:<64 hex digits>`. A target-specific artifact declares one in each `targets` entry; a target-agnostic one declares it beside `uri`. midenup checks the fetched bytes against it before unpacking or installing anything, and a mismatch fails the install without falling back to a source build. Artifacts without a digest install unverified. `update-manifest digest` fills in missing digests.
+`digest` is the SHA-256 of the bytes at the URI, written `sha256:<64 hex digits>`. A target-specific artifact declares one in each `targets` entry; a target-agnostic one declares it beside `uri`. midenup checks the fetched bytes against it before unpacking or installing anything, and a mismatch fails the install without falling back to a source build. Artifacts without a digest install unverified, but fail `update-manifest check`. `update-manifest digest` fills in missing digests.
 
 #### Compressed artifacts
 
@@ -149,7 +149,7 @@ To install the tarball itself, omit `archive` and use a key such as `node-config
 
 Validation is an authoring gate, not a parsing gate: `update-manifest check` runs the full structural validator, and plan construction re-checks what depends on the current target. Parsing deliberately does *not* validate — the published manifest has historically contained channels with dangling requirements, and refusing to parse would break every command for every user over a channel they were not using.
 
-The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests or ones that are not SHA-256, archive formats midenup cannot read, `.tar.gz` URIs that forgot to declare `archive`, and the network rules described above. Target availability is checked only when an installation is actually planned.
+The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, missing or malformed digests or ones that are not SHA-256, archive formats midenup cannot read, `.tar.gz` URIs that forgot to declare `archive`, and the network rules described above. Target availability is checked only when an installation is actually planned.
 
 ## Custom manifests
 

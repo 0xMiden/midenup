@@ -65,9 +65,11 @@ For removed components, see the `remove-component` subcommand.
 
 ## Artifact digests
 
-Every artifact should carry the SHA-256 digest of its bytes: midenup refuses to install bytes that do
-not match it, and does not fall back to a source build when they don't. A target-agnostic artifact
-declares it beside `uri`; a target-specific one declares it in each `targets` entry:
+Every artifact must carry the SHA-256 digest of its bytes, for every target it declares: `check`
+refuses a manifest that lacks one, and the editing subcommands refuse to write one. midenup refuses
+to install bytes that do not match it, and does not fall back to a source build when they don't. A
+target-agnostic artifact declares it beside `uri`; a target-specific one declares it in each
+`targets` entry:
 
 ```json
 "targets": {
