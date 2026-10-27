@@ -31,6 +31,9 @@ jobs:
       AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
     steps:
       - uses: actions/checkout@v5
+      # Clients older than the v3 endpoint read this file, so it stays byte-for-byte as recorded.
+      - name: Check the legacy manifest is unchanged
+        run: sha256sum -c manifest/channel-manifest.json.sha256
       - name: Install Rust
         run: |
           rustup update --no-self-update
