@@ -144,7 +144,7 @@ the `migrates_from` it was published with, a lower minimum client or manifest ve
 moving to an older toolchain, a component moving to an older version, a removed toolchain, a
 component removed from a toolchain, and a component changing its installation method. CI runs this
 comparison on every pull request against the base branch as it was when the pull request was last
-updated, on every push to `next` against the previous tip, and before deploying a push to `main`.
+updated, on every push to `next` against the previous tip, and before every publication.
 
 Every component built from source (`cargo` or `prebuilt-with-cargo-fallback`) must set
 `rustup_channel` to an exact release such as `1.90.0` or a dated nightly such as
@@ -211,19 +211,23 @@ cargo build -p midenup -p manifest-utils
 Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
 check-manifest` deploys nothing, and no user has seen any of it yet.
 
-What users fetch is the copy of `manifest/` deployed to GitHub Pages, and
-`.github/workflows/publish-manifest.yml` runs that deployment on any push to `main` touching
-`manifest/**`. So the release lands the way every other change does:
+What users fetch is the manifest deployed to GitHub Pages by
+`.github/workflows/publish-manifest.yml`. Nothing deploys it automatically: a maintainer dispatches
+that workflow on `main`, the manifest checks and acceptance scenarios run on that commit, and a
+second maintainer approves the deployment. A manifest whose `min_client_version` is not released yet
+is refused; see "Manifest publication" in `release-process.md`.
+`channel-manifest.json` is frozen for clients that predate the v3 endpoint: do not edit it. So the
+release lands the way every other change does:
 
 ```
 git add manifest/v3/manifest.json
 git commit
 ```
 
-then open a pull request for review. Merging to `main` triggers the Pages deployment, and *that* is
-the point at which the new toolchain and the promotion become reachable. Until the merge,
-`midenup install mainnet` on any machine still resolves to whatever the deployed manifest says —
-a promotion that only exists locally has shipped to nobody.
+then open a pull request for review. Once it is merged to `main`, dispatch the publication; its
+approved deployment is the point at which the new toolchain and the promotion become reachable.
+Until then, `midenup install mainnet` on any machine still resolves to whatever the deployed manifest
+says — a promotion that only exists locally has shipped to nobody.
 
 [^1]: A release refers to a tagged version of the Miden protocol. That version tag serves as the
 reference point for assembling a compatible toolchain, as all related components (VM, client, node,
