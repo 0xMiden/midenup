@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub use self::{channel::*, component::*, unknown::*};
 use super::{CURRENT_CLIENT_VERSION, ManifestError};
 
-pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 0, 0);
+pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 1, 0);
 
 /// The global manifest of all known channels and their toolchains
 #[derive(Serialize, Deserialize, Debug, Clone)]

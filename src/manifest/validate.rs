@@ -146,6 +146,17 @@ pub enum ValidationError {
         artifact: String,
         format: &'static str,
     },
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' declares digest \
+         '{digest}', which midenup cannot verify; declare a SHA-256 digest ('sha256:' followed by \
+         64 lowercase hex characters)"
+    )]
+    UnsupportedDigest {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+        digest: String,
+    },
     #[error("channel {channel}: invalid 'format' for component '{component}': {reason}")]
     InvalidExecutableFormat {
         channel: semver::Version,
@@ -475,6 +486,18 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
                         });
                     }
                 },
+            }
+
+            // As with archive formats: any algorithm parses, but only SHA-256 can be installed.
+            for target in artifact.targets() {
+                if let Some(digest) = artifact.digest_for(&target).filter(|d| !d.is_sha256()) {
+                    errors.push(ValidationError::UnsupportedDigest {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        artifact: id.to_string(),
+                        digest: digest.to_string(),
+                    });
+                }
             }
         }
     }
@@ -852,6 +875,55 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, ValidationError::UnsupportedArchiveFormat { .. })),
             "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_digest_midenup_cannot_verify_is_rejected_for_publication() {
+        let sha256 = format!("sha256:{}", "a".repeat(64));
+        let mut c = component("vm", ComponentKind::Package);
+        for (id, digest) in [
+            ("a.masp", "sha512:abcd"),
+            ("b.masp", "sha256:abcd"),
+            ("c.masp", sha256.as_str()),
+        ] {
+            c.artifacts.insert(
+                id.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "uri": format!("https://example.invalid/{id}"),
+                    "digest": digest
+                }))
+                .expect("any algorithm must parse"),
+            );
+        }
+        c.artifacts.insert(
+            "d.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/%target/d.masp",
+                "targets": {
+                    "aarch64-apple-darwin": {"digest": "md5:abcd"},
+                    "x86_64-unknown-linux-gnu": {"digest": sha256}
+                }
+            }))
+            .expect("must parse"),
+        );
+
+        let rejected: Vec<_> = errors_of(&manifest(vec![c]))
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::UnsupportedDigest { artifact, digest, .. } => {
+                    Some((artifact, digest))
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            rejected,
+            [
+                ("a.masp".to_string(), "sha512:abcd".to_string()),
+                ("b.masp".to_string(), "sha256:abcd".to_string()),
+                ("d.masp".to_string(), "md5:abcd".to_string()),
+            ]
         );
     }
 

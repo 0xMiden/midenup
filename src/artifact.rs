@@ -53,6 +53,15 @@ pub enum InvalidArtifactError {
         component: String,
         format: String,
     },
+    #[error(
+        "invalid artifact: artifact {id} of {component} declares digest '{digest}', but midenup \
+         only verifies SHA-256 digests ('sha256:' followed by 64 lowercase hex characters)"
+    )]
+    UnsupportedDigest {
+        id: String,
+        component: String,
+        digest: String,
+    },
 }
 
 /// How an artifact is packaged at its URI.
@@ -211,12 +220,15 @@ impl<'de> Deserialize<'de> for ArchiveFormat {
     }
 }
 
-/// An artifact resolved for one target: where to fetch it, and what it is packaged as.
+/// An artifact resolved for one target: where to fetch it, what it is packaged as, and the digest
+/// its bytes must match.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedArtifact {
     pub uri: ArtifactUri,
     /// Present when the fetched bytes are an archive rather than the file itself.
     pub archive: Option<SupportedFormat>,
+    /// The SHA-256 digest of the fetched bytes, when the manifest declares one.
+    pub digest: Option<Digest>,
 }
 
 /// All the artifacts that the [Component] contains.
@@ -233,6 +245,10 @@ impl Artifacts {
 
     pub fn insert(&mut self, id: String, artifact: Artifact) -> bool {
         self.artifacts.insert(id, artifact).is_none()
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&str, &mut Artifact)> {
+        self.artifacts.iter_mut().map(|(id, artifact)| (id.as_str(), artifact))
     }
 
     /// Returns the `(artifact id, resolved artifact)` pairs that should be installed for `target`.
@@ -334,12 +350,11 @@ pub enum Artifact {
         /// The only substitution required to be present is `%target` - the other substituions are
         /// optional, and can be used at your convenience.
         uri: String,
-        /// Substitutions that apply to all targets
+        /// Substitutions that apply to all targets. Never carries a digest: see [Substitutions].
         substitutions: Option<Substitutions>,
         /// The supported target triples for this artifact, and their target-specific substitutions
+        /// and digests
         targets: BTreeMap<String, Substitutions>,
-        /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
-        digest: Option<Digest>,
         /// How the artifact is packaged at that URI, if it is not the bare file. See [Archive].
         archive: Option<Archive>,
         /// Fields declared by a newer schema that this build does not recognize.
@@ -353,7 +368,7 @@ pub enum Artifact {
         /// the version of the containing component. Note that `%version` requires that the
         /// component have an associated semantic version, or an error will be produced.
         uri: String,
-        /// An optional content digest. Recorded and round-tripped, never verified. See [Digest].
+        /// The digest the fetched bytes must match, if declared. See [Digest].
         digest: Option<Digest>,
         /// How the artifact is packaged at that URI, if it is not the bare file. See [Archive].
         archive: Option<Archive>,
@@ -375,8 +390,6 @@ enum ArtifactFields {
         substitutions: Option<Substitutions>,
         targets: BTreeMap<String, Substitutions>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        digest: Option<Digest>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
         archive: Option<Archive>,
     },
     TargetAgnostic {
@@ -391,19 +404,13 @@ enum ArtifactFields {
 impl Artifact {
     fn fields(&self) -> ArtifactFields {
         match self {
-            Self::TargetSpecific {
-                uri,
-                substitutions,
-                targets,
-                digest,
-                archive,
-                ..
-            } => ArtifactFields::TargetSpecific {
-                uri: uri.clone(),
-                substitutions: substitutions.clone(),
-                targets: targets.clone(),
-                digest: digest.clone(),
-                archive: archive.clone(),
+            Self::TargetSpecific { uri, substitutions, targets, archive, .. } => {
+                ArtifactFields::TargetSpecific {
+                    uri: uri.clone(),
+                    substitutions: substitutions.clone(),
+                    targets: targets.clone(),
+                    archive: archive.clone(),
+                }
             },
             Self::TargetAgnostic { uri, digest, archive, .. } => ArtifactFields::TargetAgnostic {
                 uri: uri.clone(),
@@ -449,19 +456,21 @@ impl<'de> Deserialize<'de> for Artifact {
             .map_err(D::Error::custom)?;
 
         Ok(match fields {
-            ArtifactFields::TargetSpecific {
-                uri,
-                substitutions,
-                targets,
-                digest,
-                archive,
-            } => Self::TargetSpecific {
-                uri,
-                substitutions,
-                targets,
-                digest,
-                archive,
-                extra,
+            ArtifactFields::TargetSpecific { uri, substitutions, targets, archive } => {
+                // One digest cannot describe the bytes of several targets.
+                if substitutions.as_ref().is_some_and(|subs| subs.digest.is_some()) {
+                    return Err(D::Error::custom(
+                        "a target-specific artifact declares its digest in each \
+                         `targets.<target>` entry, not beside `targets`",
+                    ));
+                }
+                Self::TargetSpecific {
+                    uri,
+                    substitutions,
+                    targets,
+                    archive,
+                    extra,
+                }
             },
             ArtifactFields::TargetAgnostic { uri, digest, archive } => {
                 Self::TargetAgnostic { uri, digest, archive, extra }
@@ -471,15 +480,30 @@ impl<'de> Deserialize<'de> for Artifact {
 }
 
 impl Artifact {
-    /// The declared content digest, if any. Never verified -- see [Digest].
-    ///
-    /// For an archived artifact it describes the archive as fetched, not the file installed out of
-    /// it.
-    pub fn digest(&self) -> Option<&Digest> {
+    /// The targets this artifact resolves for. A target-agnostic artifact resolves for any target,
+    /// listed once as the empty string.
+    pub fn targets(&self) -> Vec<String> {
         match self {
-            Self::TargetSpecific { digest, .. } | Self::TargetAgnostic { digest, .. } => {
-                digest.as_ref()
+            Self::TargetSpecific { targets, .. } => targets.keys().cloned().collect(),
+            Self::TargetAgnostic { .. } => vec![String::new()],
+        }
+    }
+
+    /// The digest declared for `target`, which a target-agnostic artifact shares across targets.
+    pub fn digest_for(&self, target: &str) -> Option<&Digest> {
+        match self {
+            Self::TargetSpecific { targets, .. } => targets.get(target)?.digest.as_ref(),
+            Self::TargetAgnostic { digest, .. } => digest.as_ref(),
+        }
+    }
+
+    /// Where the digest for `target` is declared, or `None` if the artifact has no such target.
+    pub fn digest_mut(&mut self, target: &str) -> Option<&mut Option<Digest>> {
+        match self {
+            Self::TargetSpecific { targets, .. } => {
+                targets.get_mut(target).map(|subs| &mut subs.digest)
             },
+            Self::TargetAgnostic { digest, .. } => Some(digest),
         }
     }
 
@@ -508,6 +532,10 @@ pub struct Substitutions {
     /// The default extension is determined by the component type
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extension: Option<String>,
+    /// The digest of this target's artifact. Only meaningful in a `targets` entry: one digest
+    /// cannot match the bytes of several targets, so the shared substitutions never carry one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub digest: Option<Digest>,
     /// Fields declared by a newer schema that this build does not recognize.
     #[serde(flatten)]
     pub extra: crate::manifest::v3::unknown::Extra,
@@ -600,7 +628,7 @@ impl Artifact {
         component: &Component,
     ) -> Result<Option<ResolvedArtifact>, InvalidArtifactError> {
         match self {
-            Self::TargetAgnostic { uri, archive, .. } => {
+            Self::TargetAgnostic { uri, archive, digest, .. } => {
                 let Some((scheme, rest)) = uri.split_once("://") else {
                     return Err(InvalidArtifactError::MissingScheme {
                         id: id.to_string(),
@@ -619,14 +647,17 @@ impl Artifact {
                     Cow::Borrowed(rest)
                 };
                 let archive = supported_archive(archive.as_ref(), id, component)?;
+                let digest = supported_digest(digest.as_ref(), id, component)?;
                 match scheme {
                     "file" => Ok(Some(ResolvedArtifact {
                         uri: ArtifactUri::File(PathBuf::from(rest.into_owned())),
                         archive,
+                        digest,
                     })),
                     "http" | "https" => Ok(Some(ResolvedArtifact {
                         uri: ArtifactUri::Http(format!("{scheme}://{rest}")),
                         archive,
+                        digest,
                     })),
                     scheme => Err(InvalidArtifactError::InvalidScheme {
                         id: id.to_string(),
@@ -686,14 +717,17 @@ impl Artifact {
                 };
                 let rest = rest.replace("%basename", basename);
                 let archive = supported_archive(archive.as_ref(), id, component)?;
+                let digest = supported_digest(target_subs.digest.as_ref(), id, component)?;
                 match scheme {
                     "file" => Ok(Some(ResolvedArtifact {
                         uri: ArtifactUri::File(PathBuf::from(rest)),
                         archive,
+                        digest,
                     })),
                     "http" | "https" => Ok(Some(ResolvedArtifact {
                         uri: ArtifactUri::Http(format!("{scheme}://{rest}")),
                         archive,
+                        digest,
                     })),
                     scheme => Err(InvalidArtifactError::InvalidScheme {
                         id: id.to_string(),
@@ -727,15 +761,48 @@ fn supported_archive(
     })
 }
 
+/// Narrows a declared digest to one this build can verify, rejecting the rest.
+fn supported_digest(
+    digest: Option<&Digest>,
+    id: &str,
+    component: &Component,
+) -> Result<Option<Digest>, InvalidArtifactError> {
+    match digest {
+        Some(digest) if !digest.is_sha256() => Err(InvalidArtifactError::UnsupportedDigest {
+            id: id.to_string(),
+            component: component.name.to_string(),
+            digest: digest.to_string(),
+        }),
+        digest => Ok(digest.cloned()),
+    }
+}
+
 /// A content digest declared for an artifact, e.g. `sha256:9f86d081...`.
 ///
-/// Reserved, not enforced: the value is validated for shape, recorded, and round-tripped, but no
-/// verification is performed against downloaded bytes. Turning verification on later is then a
-/// behavior change rather than a schema break.
+/// Parsing checks only its shape, so any algorithm round-trips; installing verifies the fetched
+/// bytes against it, which only a SHA-256 digest can be used for.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Digest {
     pub algorithm: String,
     pub hex: String,
+}
+
+impl Digest {
+    /// The SHA-256 digest of `bytes`.
+    pub fn sha256(bytes: &[u8]) -> Self {
+        use sha2::Digest as _;
+
+        let hash = sha2::Sha256::digest(bytes);
+        Self {
+            algorithm: "sha256".to_string(),
+            hex: hash.iter().map(|byte| format!("{byte:02x}")).collect(),
+        }
+    }
+
+    /// Whether this is a well-formed SHA-256 digest, the only kind midenup verifies.
+    pub fn is_sha256(&self) -> bool {
+        self.algorithm == "sha256" && self.hex.len() == 64
+    }
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -809,7 +876,7 @@ mod digest_tests {
         assert!("sha256:ABCD".parse::<Digest>().is_err(), "uppercase hex");
     }
 
-    /// The digest survives a manifest round-trip and is not verified against anything.
+    /// The digest survives a manifest round-trip.
     #[test]
     fn digest_round_trips_through_a_manifest() {
         let src = serde_json::json!({
@@ -856,6 +923,87 @@ mod digest_tests {
         .to_string();
 
         assert!(crate::manifest::VersionedManifest::parse_str(&src).is_err());
+    }
+
+    const SHA256_ABC: &str =
+        "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+
+    fn component() -> Component {
+        serde_json::from_value(serde_json::json!({
+            "name": "vm",
+            "version": {"kind": "registry", "version": "0.16.0"},
+            "kind": "package"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn sha256_hashes_bytes_into_a_verifiable_digest() {
+        let digest = Digest::sha256(b"abc");
+        assert_eq!(digest.to_string(), SHA256_ABC);
+        assert!(digest.is_sha256());
+    }
+
+    /// Each target carries the digest of its own bytes, and resolving a target yields that one.
+    #[test]
+    fn per_target_digests_round_trip_and_resolve() {
+        let other = Digest::sha256(b"other").to_string();
+        let source = serde_json::json!({
+            "uri": "https://example.invalid/vm-%target",
+            "targets": {
+                "aarch64-apple-darwin": {"digest": SHA256_ABC},
+                "x86_64-unknown-linux-gnu": {"digest": other}
+            }
+        });
+        let artifact: Artifact = serde_json::from_value(source.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&artifact).unwrap(), source);
+
+        for (target, expected) in
+            [("aarch64-apple-darwin", SHA256_ABC), ("x86_64-unknown-linux-gnu", &other)]
+        {
+            let resolved = artifact.resolve_for("vm", target, &component()).unwrap().unwrap();
+            assert_eq!(resolved.digest.unwrap().to_string(), expected, "for {target}");
+        }
+    }
+
+    #[test]
+    fn a_target_agnostic_digest_resolves_for_every_target() {
+        let artifact: Artifact = serde_json::from_value(serde_json::json!({
+            "uri": "https://example.invalid/core.masp",
+            "digest": SHA256_ABC
+        }))
+        .unwrap();
+        let resolved = artifact.resolve_for("core.masp", "", &component()).unwrap().unwrap();
+        assert_eq!(resolved.digest.unwrap().to_string(), SHA256_ABC);
+    }
+
+    /// One digest cannot describe several targets' bytes, so it is refused rather than applied to
+    /// all of them.
+    #[test]
+    fn a_shared_digest_on_a_target_specific_artifact_is_rejected() {
+        let err = serde_json::from_value::<Artifact>(serde_json::json!({
+            "uri": "https://example.invalid/vm-%target",
+            "digest": SHA256_ABC,
+            "targets": {"aarch64-apple-darwin": {}}
+        }))
+        .expect_err("must reject");
+        assert!(err.to_string().contains("targets.<target>"), "{err}");
+    }
+
+    /// Any algorithm parses, so the manifest stays readable, but installing needs one midenup can
+    /// verify.
+    #[test]
+    fn a_digest_midenup_cannot_verify_does_not_resolve() {
+        for digest in ["sha512:abcd", "sha256:abcd"] {
+            let artifact: Artifact = serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/core.masp",
+                "digest": digest
+            }))
+            .expect("must parse");
+            let err = artifact.resolve_for("core.masp", "", &component()).expect_err("must fail");
+            assert!(matches!(err, InvalidArtifactError::UnsupportedDigest { .. }), "{err}");
+            assert!(err.to_string().contains(digest), "{err}");
+        }
     }
 }
 

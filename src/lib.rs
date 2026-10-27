@@ -1,6 +1,6 @@
 #![deny(warnings)]
 
-mod artifact;
+pub mod artifact;
 pub mod channel;
 pub mod commands;
 pub mod config;

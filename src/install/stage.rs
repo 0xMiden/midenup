@@ -51,6 +51,13 @@ pub enum StageError {
     UnsupportedFallback { owner: String },
 }
 
+impl StageError {
+    /// Whether fetched bytes did not match their declared digest.
+    fn is_integrity_failure(&self) -> bool {
+        matches!(self, Self::Acquire(ExecError::DigestMismatch { .. }))
+    }
+}
+
 /// How each destination in a staged tree was actually produced.
 pub type Realized = BTreeMap<PathBuf, RealizedMethod>;
 
@@ -176,8 +183,9 @@ pub fn execute(
             Err(err) => {
                 // A declared Cargo fallback is what makes an unavailable artifact recoverable
                 // rather than fatal. Only one retry: if the build fails too, the original
-                // acquisition failure is not the interesting one.
-                let Some(fallback) = step.fallback() else {
+                // acquisition failure is not the interesting one. Bytes that fail their digest
+                // are not unavailable, they are wrong, and that is never recoverable.
+                let Some(fallback) = step.fallback().filter(|_| !err.is_integrity_failure()) else {
                     return Err(err);
                 };
                 crate::warn!("could not acquire {}: {err}", step.owner().bold());
@@ -363,8 +371,8 @@ fn create_symlinks(plan: &InstallationPlan, staging_root: &Path) -> Result<(), S
 /// Checks the staged tree structurally, before anything is published.
 ///
 /// Structural only: that each planned file exists, is a regular file, and carries the planned
-/// mode. Contents are deliberately not verified -- digests are recorded but never checked -- so
-/// this makes no claim about *what* was installed, only that the plan was carried out.
+/// mode. Content is checked against declared digests as it is acquired, not here: a digest
+/// describes the bytes fetched, which for an archive are not the file installed.
 pub fn verify(plan: &InstallationPlan, staging_root: &Path) -> Result<(), StageError> {
     for step in &plan.steps {
         let path = step.dest();
@@ -485,6 +493,7 @@ mod tests {
             dest: dest.to_path_buf(),
             owner: owner.to_string(),
             mode: MODE_DATA,
+            digest: None,
             archive: None,
             fallback: None,
         })
@@ -1097,11 +1106,51 @@ mod tests {
             dest,
             mode: MODE_EXECUTABLE,
             owner: "vm".to_string(),
+            digest: None,
             archive: None,
             fallback: None,
         };
 
         assert!(execute(&plan, &staging, &temp.path().join("cache"), false, true).is_err());
+    }
+
+    /// Bytes that fail their digest are never replaced by the fallback, even one that would
+    /// succeed.
+    #[test]
+    fn a_digest_mismatch_does_not_take_the_fallback() {
+        let temp = tempdir::TempDir::new("stage-digest-mismatch").unwrap();
+        let (plan, staging) = staged(temp.path());
+        prepare(&staging).unwrap();
+
+        let fetched = temp.path().join("fetched");
+        std::fs::write(&fetched, b"tampered").unwrap();
+        let replacement = temp.path().join("replacement");
+        std::fs::write(&replacement, b"from-the-fallback").unwrap();
+
+        let mut plan = plan;
+        let dest = staging.join("bin").join("miden-vm");
+        plan.steps[0] = PlanStep::CopyLocal {
+            src: fetched,
+            dest: dest.clone(),
+            mode: MODE_EXECUTABLE,
+            owner: "vm".to_string(),
+            digest: Some(crate::artifact::Digest::sha256(b"binary")),
+            archive: None,
+            fallback: Some(Box::new(PlanStep::CopyLocal {
+                src: replacement,
+                dest: dest.clone(),
+                mode: MODE_EXECUTABLE,
+                owner: "vm".to_string(),
+                digest: None,
+                archive: None,
+                fallback: None,
+            })),
+        };
+
+        let err = execute(&plan, &staging, &temp.path().join("cache"), false, true)
+            .expect_err("a mismatch must be fatal");
+        assert!(err.is_integrity_failure(), "{err}");
+        assert!(!dest.exists(), "neither the fetched bytes nor the fallback may be installed");
     }
 
     /// Spec section 9.3: a failed transfer for a component declaring a fallback is recoverable,
@@ -1127,12 +1176,14 @@ mod tests {
             dest: dest.clone(),
             mode: MODE_EXECUTABLE,
             owner: "vm".to_string(),
+            digest: None,
             archive: None,
             fallback: Some(Box::new(PlanStep::CopyLocal {
                 src: replacement,
                 dest: dest.clone(),
                 mode: MODE_EXECUTABLE,
                 owner: "vm".to_string(),
+                digest: None,
                 archive: None,
                 fallback: None,
             })),
