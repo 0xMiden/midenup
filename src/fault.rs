@@ -36,12 +36,6 @@ pub enum FaultPoint {
     PostDerive,
     /// During uninstall cleanup, after the tombstone is removed but before the journal is deleted.
     PostUninstallTombstone,
-    /// Inside v1 migration, after the state document is built and before it is written.
-    ///
-    /// Not part of the publication protocol: migration has its own single commit point (the rename
-    /// of `state.json`), and what it has to prove is the opposite -- that a failure *before* that
-    /// point leaves the v1 document byte-for-byte intact.
-    PreMigrationCommit,
     /// Right after a home conversion's commit point: the envelope records the conversion, and none
     /// of its steps have run.
     PostFormatCommit,
@@ -49,7 +43,7 @@ pub enum FaultPoint {
 
 impl FaultPoint {
     /// Every point that can be armed.
-    pub const ALL: [FaultPoint; 9] = [
+    pub const ALL: [FaultPoint; 8] = [
         Self::PostPrepare,
         Self::PostStage,
         Self::PostVerify,
@@ -57,7 +51,6 @@ impl FaultPoint {
         Self::PostRecord,
         Self::PostDerive,
         Self::PostUninstallTombstone,
-        Self::PreMigrationCommit,
         Self::PostFormatCommit,
     ];
     /// The publication protocol's points, in order.
@@ -79,7 +72,6 @@ impl FaultPoint {
             Self::PostRecord => "post-record",
             Self::PostDerive => "post-derive",
             Self::PostUninstallTombstone => "post-uninstall-tombstone",
-            Self::PreMigrationCommit => "pre-migration-commit",
             Self::PostFormatCommit => "post-format-commit",
         }
     }

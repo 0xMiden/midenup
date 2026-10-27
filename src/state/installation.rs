@@ -51,7 +51,7 @@ pub enum PublicationRef {
     ///
     /// The v1 layout is not described by any receipt, so `midenup` cannot know what it owns.
     /// Such a record is never executed against; the next operation touching the channel reinstalls
-    /// it. Produced only by migration.
+    /// it. This build never writes one; released midenup v1.x homes may still hold them.
     NeedsReinstall,
 }
 

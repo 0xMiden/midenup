@@ -186,11 +186,9 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
         let expected = match point {
             FaultPoint::PostPrepare | FaultPoint::PostStage | FaultPoint::PostVerify => 1,
             FaultPoint::PostCommit | FaultPoint::PostRecord | FaultPoint::PostDerive => 2,
-            // Not reachable: this loop walks `PUBLICATION`, and migration has its own commit
-            // point and its own test.
-            FaultPoint::PreMigrationCommit
-            | FaultPoint::PostUninstallTombstone
-            | FaultPoint::PostFormatCommit => {
+            // Not reachable: this loop walks `PUBLICATION`, and a home conversion has its own
+            // commit point and its own test.
+            FaultPoint::PostUninstallTombstone | FaultPoint::PostFormatCommit => {
                 unreachable!("not an install publication step")
             },
         };

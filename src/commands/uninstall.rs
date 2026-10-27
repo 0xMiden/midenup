@@ -32,7 +32,7 @@ pub fn uninstall(
     purge: bool,
 ) -> anyhow::Result<()> {
     // Resolved against local state, never upstream: a channel that has been withdrawn upstream is
-    // precisely one a user needs to be able to remove (spec section 12.3).
+    // precisely one a user needs to be able to remove (spec section 12.4).
     let installed = config.local_installation_id(requested).and_then(|id| state.get_by_id(&id));
 
     let Some(installation) = installed else {

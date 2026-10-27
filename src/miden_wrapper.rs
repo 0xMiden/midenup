@@ -559,7 +559,14 @@ pub fn display_version(config: &Config, style: crate::commands::VersionStyle) ->
     };
     let cargo_version = cargo_version.trim();
 
-    let toolchain_version = Toolchain::current(config, None)
+    // Only read, and only from a home whose format this build reads: a refused home must still be
+    // able to report which midenup refused it.
+    let toolchain = if crate::home_format::read(&config.midenup_home).is_ok() {
+        Toolchain::current(config, None)
+    } else {
+        Err(anyhow::anyhow!("the home format is not supported"))
+    };
+    let toolchain_version = toolchain
         .inspect_err(|err| {
             crate::warn!("failed to obtain the current toolchain ({err}); leaving it as unknown")
         })

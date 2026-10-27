@@ -1,16 +1,15 @@
-//! Migrating a v1.0.1 local manifest, as it actually happens: at startup, in the real binary.
+//! Homes holding what an alpha midenup's local manifest left behind.
 //!
-//! These spawn `midenup` rather than calling into the library, because the property under test is
-//! about *ordering within startup* -- migration must happen before the upstream manifest is
-//! fetched, so an unreachable upstream cannot strand a user on an unreadable local document. An
-//! in-process test that builds its own `Config` has already done the fetch.
+//! An alpha home -- a `manifest.json` and no installations in `state.json` -- is refused without
+//! changes. A released v1.x home may still hold the records v1.x carried forward from one, which
+//! describe no publication; those are reinstalled on first use.
 
 use std::path::Path;
 
 use midenup::{
-    migrate_v1::v1_manifest_path,
     paths,
-    state::{LocalState, PublicationRef},
+    resolve::Intent,
+    state::{Installation, LocalState, PublicationRef},
 };
 
 mod common;
@@ -40,114 +39,87 @@ fn v1_manifest(version: &str, channel: &str, components: &[&str]) -> String {
     .to_string()
 }
 
-fn write_v1_manifest(env: &TestEnvironment, contents: &str) {
-    std::fs::create_dir_all(&env.midenup_home).unwrap();
-    std::fs::write(v1_manifest_path(&env.midenup_home), contents).unwrap();
+/// A home as an alpha midenup left it: its local manifest, the `stable` link and the toolchain
+/// tree.
+fn write_alpha_home(env: &TestEnvironment) {
+    let toolchains = paths::toolchains_dir(&env.midenup_home);
+    std::fs::create_dir_all(toolchains.join("0.15.0").join("bin")).unwrap();
+    std::os::unix::fs::symlink("0.15.0", toolchains.join("stable")).unwrap();
+    std::fs::write(
+        env.midenup_home.join("manifest.json"),
+        v1_manifest("1.0.1", "0.15.0", &["vm", "client"]),
+    )
+    .unwrap();
+}
+
+/// A released v1.x home holding the record v1.x carried forward from an alpha one.
+fn write_carried_forward_home(env: &TestEnvironment, channel: &str, roots: &[&str]) {
+    std::fs::create_dir_all(paths::toolchains_dir(&env.midenup_home)).unwrap();
+    std::fs::create_dir_all(paths::publications_dir(&env.midenup_home)).unwrap();
+    let mut state = LocalState::default();
+    state.upsert(Installation {
+        channel: channel.parse().unwrap(),
+        custom: None,
+        intent: Intent {
+            profiles: Default::default(),
+            roots: roots.iter().map(ToString::to_string).collect(),
+        },
+        components: Vec::new(),
+        publication: PublicationRef::NeedsReinstall,
+        installed_at: 1735689600,
+        midenup_version: None,
+        patches: Default::default(),
+    });
+    let mut state = serde_json::to_value(state).unwrap();
+    state["state_version"] = "1.0.0".into();
+    std::fs::write(paths::state_path(&env.midenup_home), state.to_string()).unwrap();
 }
 
 fn state_of(home: &Path) -> LocalState {
     LocalState::load(&paths::state_path(home)).expect("state.json must be readable")
 }
 
-/// Migration is the first local operation, ahead of any upstream fetch.
-///
-/// A user whose network is down must still end up with a readable `state.json`: making migration
-/// depend on a successful fetch would strand exactly the people whose installation most needs to
-/// keep working.
+/// Whatever the command, an alpha home is refused before anything in it changes, with the way to
+/// start over in a separate home.
 #[test]
-fn integration_a_v1_manifest_is_migrated_even_when_upstream_is_unreachable() {
+fn integration_an_alpha_home_is_refused_unchanged() {
     let _guard = common::harness::mutating_test_guard();
-    let env = environment_setup("v1_migrate_offline");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm", "client"]));
+    let env = environment_setup("alpha_refused");
+    write_alpha_home(&env);
+    let before = snapshot_tree(&env.midenup_home);
+
+    for args in [&["list"][..], &["show", "list"], &["install", "0.15.0"], &["init"]] {
+        let output = run_midenup(&env, UNREACHABLE_UPSTREAM, args);
+        assert!(!output.status.success(), "{args:?} must refuse");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("pre-1.0 midenup"), "{args:?}: {stderr}");
+        assert!(stderr.contains("MIDENUP_HOME=<new dir> midenup init"), "{args:?}: {stderr}");
+    }
+
+    assert!(
+        snapshot_tree(&env.midenup_home) == before,
+        "the alpha home must be left as it was"
+    );
+}
+
+/// Its local manifest alone is enough to refuse: nothing else records what it installed.
+#[test]
+fn integration_an_alpha_manifest_without_installed_state_is_refused() {
+    let _guard = common::harness::mutating_test_guard();
+    let env = environment_setup("alpha_manifest_only");
+    std::fs::create_dir_all(&env.midenup_home).unwrap();
+    std::fs::write(env.midenup_home.join("manifest.json"), v1_manifest("1.0.1", "0.15.0", &["vm"]))
+        .unwrap();
+    std::fs::write(
+        paths::state_path(&env.midenup_home),
+        r#"{"state_version":"2.0.0","installations":[]}"#,
+    )
+    .unwrap();
+    let before = snapshot_tree(&env.midenup_home);
 
     let output = run_midenup(&env, UNREACHABLE_UPSTREAM, &["list"]);
-    assert!(
-        !output.status.success(),
-        "the command itself must fail on the unreachable upstream"
-    );
-
-    let state = state_of(&env.midenup_home);
-    assert_eq!(state.installations.len(), 1, "the installed channel must be carried forward");
-
-    let installation = state.get(&semver::Version::new(0, 15, 0)).expect("0.15.0 must be recorded");
-    assert!(matches!(installation.publication, PublicationRef::NeedsReinstall));
-    assert!(installation.intent.roots.contains("vm"));
-    assert!(installation.intent.roots.contains("client"));
-    assert!(
-        installation.intent.profiles.is_empty(),
-        "migrated intent is roots-only, so unrelated new profile members are not pulled in"
-    );
-
-    assert!(
-        !v1_manifest_path(&env.midenup_home).exists(),
-        "the v1 document is removed once the state document is committed"
-    );
-}
-
-/// Below the floor, the file is left byte-for-byte intact: the user's only remaining option is the
-/// binary that wrote it, and destroying its record would take that away too.
-#[test]
-fn integration_a_document_below_the_migration_floor_is_rejected_and_preserved() {
-    let _guard = common::harness::mutating_test_guard();
-    let env = environment_setup("v1_too_old");
-    write_v1_manifest(&env, &v1_manifest("1.0.0", "0.15.0", &["vm"]));
-
-    let path = v1_manifest_path(&env.midenup_home);
-    let before = std::fs::read(&path).unwrap();
-
-    let output = run_midenup(&env, UNREACHABLE_UPSTREAM, &["list"]);
-    assert!(!output.status.success(), "must refuse");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("1.0.0"), "the diagnostic must name the version found: {stderr}");
-
-    assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be untouched");
-    assert!(
-        !paths::state_path(&env.midenup_home).exists(),
-        "and must leave no partial state document"
-    );
-}
-
-/// Startup must be idempotent: a second run migrates nothing and rewrites nothing.
-#[test]
-fn integration_re_running_startup_after_migration_changes_nothing() {
-    let _guard = common::harness::mutating_test_guard();
-    let env = environment_setup("v1_idempotent");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm"]));
-
-    run_midenup(&env, UNREACHABLE_UPSTREAM, &["list"]);
-    let after_first = std::fs::read(paths::state_path(&env.midenup_home)).unwrap();
-
-    run_midenup(&env, UNREACHABLE_UPSTREAM, &["list"]);
-    assert_eq!(std::fs::read(paths::state_path(&env.midenup_home)).unwrap(), after_first);
-}
-
-/// A failure anywhere before the rename leaves the v1 document intact and writes no state.
-///
-/// Needs the `fault-injection` feature, which compiles the abort point; run with
-/// `make recovery-test`.
-#[cfg(feature = "fault-injection")]
-#[test]
-fn integration_recovery_a_failure_before_the_migration_commit_preserves_the_v1_document() {
-    let _guard = common::harness::mutating_test_guard();
-    let env = environment_setup("v1_precommit_failure");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm"]));
-
-    let path = v1_manifest_path(&env.midenup_home);
-    let before = std::fs::read(&path).unwrap();
-
-    let output = midenup_command(env!("CARGO_BIN_EXE_midenup"), &env, UNREACHABLE_UPSTREAM)
-        .arg("list")
-        .env(midenup::fault::FAULT_POINT_ENV, "pre-migration-commit")
-        .output()
-        .expect("failed to run midenup");
-
     assert!(!output.status.success());
-    assert_eq!(std::fs::read(&path).unwrap(), before, "the v1 document must be untouched");
-    assert!(
-        !paths::state_path(&env.midenup_home).exists(),
-        "and no partial state document may be left behind"
-    );
+    assert!(snapshot_tree(&env.midenup_home) == before);
 }
 
 /// A fixture channel with `vm` (minimal) plus whatever else is named, all `file://` backed.
@@ -197,13 +169,13 @@ fn upstream(env: &TestEnvironment, file: &str, components: &[&str]) -> String {
     format!("file://{}", path.display())
 }
 
-/// A migrated record describes a tree no receipt covers, so midenup will not execute against it:
-/// the first use installs it properly, and only then dispatches.
+/// A carried-forward record describes a tree no receipt covers, so midenup will not execute against
+/// it: the first use installs it properly, and only then dispatches.
 #[test]
 fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("needs_reinstall");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm"]));
+    write_carried_forward_home(&env, "0.15.0", &["vm"]);
 
     let manifest = upstream(&env, "upstream.json", &["vm"]);
     run_midenup(&env, &manifest, &["list"]);
@@ -213,7 +185,7 @@ fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
             state_of(&env.midenup_home).installations[0].publication,
             PublicationRef::NeedsReinstall
         ),
-        "migration alone must not claim the toolchain is usable"
+        "converting the home alone must not claim the toolchain is usable"
     );
 
     // Dispatch triggers the install, exactly as it would for a toolchain that was never installed.
@@ -237,7 +209,7 @@ fn integration_a_migrated_installation_is_reinstalled_on_first_use() {
 fn integration_migrated_roots_missing_upstream_are_dropped_once_with_a_warning() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("migrated_root_dropped");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm", "goneaway"]));
+    write_carried_forward_home(&env, "0.15.0", &["vm", "goneaway"]);
 
     let manifest = upstream(&env, "upstream.json", &["vm"]);
     run_midenup(&env, &manifest, &["list"]);
@@ -268,7 +240,7 @@ fn integration_migrated_roots_missing_upstream_are_dropped_once_with_a_warning()
 fn integration_after_the_first_operation_a_removed_root_blocks_as_normal() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("relaxation_is_one_time");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.15.0", &["vm", "client"]));
+    write_carried_forward_home(&env, "0.15.0", &["vm", "client"]);
 
     let with_client = upstream(&env, "with-client.json", &["vm", "client"]);
     run_midenup(&env, &with_client, &["list"]);
@@ -300,7 +272,7 @@ fn integration_after_the_first_operation_a_removed_root_blocks_as_normal() {
 fn integration_a_migrated_channel_absent_upstream_is_reported_not_deleted() {
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("migrated_channel_gone");
-    write_v1_manifest(&env, &v1_manifest("1.0.1", "0.1.0", &["vm"]));
+    write_carried_forward_home(&env, "0.1.0", &["vm"]);
 
     let manifest = upstream(&env, "upstream.json", &["vm"]);
     let output = run_midenup(&env, &manifest, &["show", "list"]);

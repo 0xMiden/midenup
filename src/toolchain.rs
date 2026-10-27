@@ -403,6 +403,7 @@ impl Toolchain {
                 // Dispatch becomes a writer only when installation is needed. Re-read state
                 // after waiting: another process may have installed the toolchain in the meantime.
                 let _lock = crate::lock::acquire(&config.midenup_home)?;
+                crate::home_format::initialize_if_empty(&config.midenup_home)?;
                 *state = config.local_state()?;
                 current_toolchain.ensure_installed(config, state, &justification)?
             },
