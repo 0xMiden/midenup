@@ -296,6 +296,40 @@ fn check_reports_all_errors_at_once() {
     assert!(err.contains("alsoghost"), "both problems must be reported in one pass: {err}");
 }
 
+/// `artifact-uris` resolves every substitution for every declared target, as an install would.
+#[test]
+fn artifact_uris_resolves_every_target() {
+    let dir = tempfile::Builder::new().prefix("manifest-utils-uris").tempdir().unwrap();
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([
+            {"name": "client", "version": {"kind": "registry", "version": "0.15.0"},
+             "kind": "executable", "installation_method": {"kind": "prebuilt"},
+             "installed-executable": "miden-client", "profiles": ["minimal"],
+             "artifacts": {"miden-client": {
+                 "uri": "https://example.invalid/v%version/%basename-%target.%extension",
+                 "extension": "bin",
+                 "targets": {
+                     "aarch64-apple-darwin": {"basename": "client"},
+                     "x86_64-unknown-linux-gnu": {}
+                 }}}},
+            {"name": "core", "version": {"kind": "registry", "version": "0.1.0"},
+             "kind": "package", "profiles": ["minimal"],
+             "artifacts": {"core.masp": {"uri": "https://example.invalid/v%version/core.masp"}}}
+        ])),
+    );
+
+    let uris = run(&path, &["artifact-uris"]).expect("artifact-uris should succeed");
+    assert_eq!(
+        uris.lines().collect::<Vec<_>>(),
+        [
+            "https://example.invalid/v0.1.0/core.masp",
+            "https://example.invalid/v0.15.0/client-aarch64-apple-darwin.bin",
+            "https://example.invalid/v0.15.0/client-x86_64-unknown-linux-gnu.bin",
+        ]
+    );
+}
+
 /// `check --against` judges the manifest as a replacement for the deployed one.
 #[test]
 fn check_against_the_deployed_manifest() {
