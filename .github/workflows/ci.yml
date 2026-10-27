@@ -167,6 +167,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # The pre-release checks compare against the merge commit's base parent
+          fetch-depth: 2
       - uses: ./.github/actions/cleanup-runner
       - *install-rust
       - *install-cargo-make
@@ -193,8 +196,12 @@ jobs:
         # takes many minutes. Run them on main, on pull requests into main (the release path from
         # next), and on explicitly labelled pull requests
         if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
-        env:
-          # On a pull request, only the toolchains changed since its base are installed; pushes to
-          # main test every network's toolchain
-          PRERELEASE_AGAINST: ${{ github.event_name == 'pull_request' && format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.pull_request.base.sha) || '' }}
-        run: cargo make prerelease-test
+        # A pull request that changes nothing outside `manifest/` installs only the toolchains
+        # changed since its base; any other change, and every push to main, tests every network's
+        # toolchain. `HEAD^1` is the base side of the pull request's merge commit
+        run: |
+          if [ "${{ github.event_name }}" = pull_request ] && git diff --quiet HEAD^1 HEAD -- ':!manifest'; then
+            git show HEAD^1:manifest/v3/manifest.json > "$RUNNER_TEMP/previous-manifest.json"
+            export PRERELEASE_AGAINST="file://$RUNNER_TEMP/previous-manifest.json"
+          fi
+          cargo make prerelease-test
