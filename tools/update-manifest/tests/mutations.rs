@@ -497,3 +497,153 @@ fn promote_does_not_announce_a_promotion_it_failed_to_write() {
     let err = run(&path, &["promote", "", "0.16.0"]).expect_err("an empty network name is invalid");
     assert!(!err.contains("created network"), "must not claim to have created it: {err}");
 }
+
+fn sha256(path: &Path) -> String {
+    midenup::artifact::Digest::sha256(&std::fs::read(path).unwrap()).to_string()
+}
+
+fn file_uri(path: &Path) -> String {
+    format!("file://{}", path.display())
+}
+
+/// A digest that is valid but matches none of the fixture files.
+fn unrelated_digest() -> String {
+    format!("sha256:{}", "0".repeat(64))
+}
+
+/// A package with a target-agnostic artifact lacking a digest and one already carrying one, and a
+/// prebuilt executable published for two targets.
+fn fixture_with_artifacts() -> (tempdir::TempDir, std::path::PathBuf) {
+    let dir = tempdir::TempDir::new("update-manifest-digest").unwrap();
+    for (name, contents) in [
+        ("core.masp", "core"),
+        ("kept.masp", "kept"),
+        ("vm-aarch64-apple-darwin", "vm for macos"),
+        ("vm-x86_64-unknown-linux-gnu", "vm for linux"),
+    ] {
+        std::fs::write(dir.path().join(name), contents).unwrap();
+    }
+
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([
+            {"name": "core", "version": {"kind": "registry", "version": "0.15.0"},
+             "kind": "package",
+             "artifacts": {
+                 "core.masp": {"uri": file_uri(&dir.path().join("core.masp"))},
+                 "kept.masp": {
+                     "uri": file_uri(&dir.path().join("kept.masp")),
+                     "digest": unrelated_digest()
+                 }
+             }},
+            {"name": "vm", "version": {"kind": "registry", "version": "0.15.0"},
+             "kind": "executable",
+             "installation_method": {"kind": "prebuilt"},
+             "installed-executable": "miden-vm",
+             "artifacts": {"miden-vm": {
+                 "uri": file_uri(&dir.path().join("vm-%target")),
+                 "targets": {"aarch64-apple-darwin": {}, "x86_64-unknown-linux-gnu": {}}
+             }}}
+        ])),
+    );
+    (dir, path)
+}
+
+/// `digest` hashes each artifact for every target it declares, and leaves recorded digests alone.
+#[test]
+fn digest_records_every_missing_digest() {
+    let (dir, path) = fixture_with_artifacts();
+
+    run(&path, &["digest", "--channel", "0.15.0"]).expect("digest should succeed");
+
+    let manifest = read_manifest(&path);
+    let core = &component(&manifest, "core")["artifacts"];
+    assert_eq!(core["core.masp"]["digest"], sha256(&dir.path().join("core.masp")));
+    assert_eq!(
+        core["kept.masp"]["digest"],
+        unrelated_digest(),
+        "a recorded digest must not be replaced"
+    );
+    let vm = &component(&manifest, "vm")["artifacts"]["miden-vm"];
+    for target in ["aarch64-apple-darwin", "x86_64-unknown-linux-gnu"] {
+        assert_eq!(
+            vm["targets"][target]["digest"],
+            sha256(&dir.path().join(format!("vm-{target}"))),
+            "each target carries the digest of its own bytes"
+        );
+    }
+    assert!(vm.get("digest").is_none(), "a target-specific artifact has no shared digest");
+}
+
+#[test]
+fn digest_with_nothing_missing_writes_nothing() {
+    let (_dir, path) = fixture_with_artifacts();
+    run(&path, &["digest"]).expect("digest should succeed");
+    let before = std::fs::read(&path).unwrap();
+
+    let stdout = run(&path, &["digest"]).expect("digest should succeed");
+    assert!(stdout.contains("nothing to do"), "{stdout}");
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be unchanged");
+}
+
+#[test]
+fn digest_of_an_unreadable_artifact_fails_without_writing() {
+    let (dir, path) = fixture_with_artifacts();
+    std::fs::remove_file(dir.path().join("vm-x86_64-unknown-linux-gnu")).unwrap();
+    let before = std::fs::read(&path).unwrap();
+
+    let err = run(&path, &["digest"]).expect_err("a missing artifact must fail");
+    assert!(err.contains("vm-x86_64-unknown-linux-gnu"), "{err}");
+    assert_eq!(std::fs::read(&path).unwrap(), before, "the file must be unchanged");
+}
+
+/// A new version moves a `%version` URI to different bytes, so its digest is recomputed. An
+/// artifact whose URI did not move keeps the digest it has.
+#[test]
+fn update_component_records_the_digest_of_a_moved_artifact() {
+    let dir = tempdir::TempDir::new("update-manifest-digest-update").unwrap();
+    for (name, contents) in
+        [("core-0.15.0.masp", "old"), ("core-0.16.0.masp", "new"), ("docs.masp", "docs")]
+    {
+        std::fs::write(dir.path().join(name), contents).unwrap();
+    }
+    let path = write_manifest(
+        dir.path(),
+        manifest_with(serde_json::json!([
+            {"name": "core", "version": {"kind": "registry", "version": "0.15.0"},
+             "kind": "package",
+             "artifacts": {
+                 "core.masp": {
+                     "uri": file_uri(&dir.path().join("core-%version.masp")),
+                     "digest": sha256(&dir.path().join("core-0.15.0.masp"))
+                 },
+                 "docs.masp": {
+                     "uri": file_uri(&dir.path().join("docs.masp")),
+                     "digest": unrelated_digest()
+                 }
+             }}
+        ])),
+    );
+
+    run(
+        &path,
+        &[
+            "update-component",
+            "--channel",
+            "0.15.0",
+            "core",
+            "--authority",
+            r#"{"kind":"registry","version":"0.16.0"}"#,
+        ],
+    )
+    .expect("update-component should succeed");
+
+    let manifest = read_manifest(&path);
+    let artifacts = &component(&manifest, "core")["artifacts"];
+    assert_eq!(artifacts["core.masp"]["digest"], sha256(&dir.path().join("core-0.16.0.masp")));
+    assert_eq!(
+        artifacts["docs.masp"]["digest"],
+        unrelated_digest(),
+        "an unmoved artifact keeps its digest"
+    );
+}

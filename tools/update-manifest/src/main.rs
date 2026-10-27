@@ -6,6 +6,7 @@ use std::{
 use anyhow::{Context, bail};
 use clap::{Parser, Subcommand, builder::ArgPredicate};
 use midenup::{
+    artifact::{ArtifactUri, Digest},
     channel::{self, UserChannel},
     manifest::{Component, ComponentKind, Manifest, Promotion, VersionedManifest},
     profile::Profile,
@@ -93,6 +94,9 @@ enum Command {
         #[arg(required(true), value_name = "NAME")]
         name: String,
     },
+    /// Update a component of a toolchain
+    ///
+    /// Records the digest of each of its artifacts that has none, or whose URI the update changed.
     UpdateComponent {
         /// The channel in which to find the component being updated
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
@@ -131,6 +135,15 @@ enum Command {
             default_value_if("requires", ArgPredicate::IsPresent, Some("false"))
         )]
         keep_existing_requires: bool,
+    },
+    /// Record the SHA-256 digest of every artifact that has none
+    ///
+    /// Fetches each such artifact for every target it declares. Digests already recorded are left
+    /// as they are.
+    Digest {
+        /// The toolchain whose artifacts to fill in; every toolchain if omitted
+        #[arg(long, value_name = "CHANNEL", value_parser)]
+        channel: Option<channel::UserChannel>,
     },
 }
 
@@ -396,6 +409,7 @@ impl Cli {
                         channel.name
                     );
                 };
+                let previous = component.clone();
                 component.version = authority.clone();
                 if !*keep_existing_profiles {
                     component.profiles = profiles.clone();
@@ -421,11 +435,78 @@ impl Cli {
                         },
                     }
                 }
+                record_digests(component, Some(&previous))?;
+                manifest.update_last_modified();
+                write_manifest(&manifest, &self.manifest_path)
+            },
+            Command::Digest { channel } => {
+                let channels: Vec<semver::Version> = match channel {
+                    Some(channel) => {
+                        let Some(channel) = manifest.get_channel(channel) else {
+                            bail!("unknown toolchain '{channel}'")
+                        };
+                        vec![channel.name.clone()]
+                    },
+                    None => manifest.get_channels().map(|channel| channel.name.clone()).collect(),
+                };
+
+                let mut recorded = 0;
+                for name in channels {
+                    let channel =
+                        manifest.get_channel_by_name_mut(&name).expect("listed from the manifest");
+                    for component in channel.components.iter_mut() {
+                        recorded += record_digests(component, None)?;
+                    }
+                }
+                if recorded == 0 {
+                    println!("every artifact already has a digest; nothing to do");
+                    return Ok(());
+                }
+
                 manifest.update_last_modified();
                 write_manifest(&manifest, &self.manifest_path)
             },
         }
     }
+}
+
+/// Records the digest of each artifact of `component` that has none, or whose URI resolves
+/// differently than it did in `previous`. Returns how many digests were recorded.
+fn record_digests(
+    component: &mut Component,
+    previous: Option<&Component>,
+) -> anyhow::Result<usize> {
+    // Resolution reads the component's version and name while its artifacts are being edited.
+    let resolver = component.clone();
+    let mut recorded = 0;
+    for (id, artifact) in component.artifacts.iter_mut() {
+        for target in artifact.targets() {
+            let Some(resolved) = artifact.resolve_for(id, &target, &resolver)? else {
+                continue;
+            };
+            let moved = previous.is_some_and(|previous| {
+                let before = previous.artifacts.get_artifact_for_target(id, &target, previous);
+                before.ok().flatten().map(|before| before.uri) != Some(resolved.uri.clone())
+            });
+            if resolved.digest.is_some() && !moved {
+                continue;
+            }
+
+            let bytes = match &resolved.uri {
+                ArtifactUri::File(path) => std::fs::read(path)
+                    .with_context(|| format!("failed to read '{}'", path.display()))?,
+                ArtifactUri::Http(uri) => midenup::install::download::fetch(uri, id)?,
+            };
+            let digest = Digest::sha256(&bytes);
+            match target.as_str() {
+                "" => println!("{} {id}: {digest}", resolver.name),
+                target => println!("{} {id} ({target}): {digest}", resolver.name),
+            }
+            *artifact.digest_mut(&target).expect("the target was just resolved") = Some(digest);
+            recorded += 1;
+        }
+    }
+    Ok(recorded)
 }
 
 /// Writes `manifest`, but only if it parses and validates once read back from disk.
