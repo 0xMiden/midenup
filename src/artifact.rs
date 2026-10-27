@@ -62,6 +62,11 @@ pub enum InvalidArtifactError {
         component: String,
         digest: String,
     },
+    #[error(
+        "invalid artifact: artifact {id} of {component} declares one digest for every target; \
+         declare it in each `targets.<target>` entry instead"
+    )]
+    SharedDigest { id: String, component: String },
 }
 
 /// How an artifact is packaged at its URI.
@@ -457,13 +462,6 @@ impl<'de> Deserialize<'de> for Artifact {
 
         Ok(match fields {
             ArtifactFields::TargetSpecific { uri, substitutions, targets, archive } => {
-                // One digest cannot describe the bytes of several targets.
-                if substitutions.as_ref().is_some_and(|subs| subs.digest.is_some()) {
-                    return Err(D::Error::custom(
-                        "a target-specific artifact declares its digest in each \
-                         `targets.<target>` entry, not beside `targets`",
-                    ));
-                }
                 Self::TargetSpecific {
                     uri,
                     substitutions,
@@ -670,6 +668,13 @@ impl Artifact {
                 let Some(target_subs) = targets.get(target) else {
                     return Ok(None);
                 };
+                // One digest cannot describe the bytes of several targets.
+                if substitutions.as_ref().is_some_and(|subs| subs.digest.is_some()) {
+                    return Err(InvalidArtifactError::SharedDigest {
+                        id: id.to_string(),
+                        component: component.name.to_string(),
+                    });
+                }
                 let basename = target_subs
                     .basename
                     .as_deref()
@@ -978,16 +983,19 @@ mod digest_tests {
     }
 
     /// One digest cannot describe several targets' bytes, so it is refused rather than applied to
-    /// all of them.
+    /// all of them, but only for that artifact: the manifest stays readable.
     #[test]
-    fn a_shared_digest_on_a_target_specific_artifact_is_rejected() {
-        let err = serde_json::from_value::<Artifact>(serde_json::json!({
+    fn a_shared_digest_on_a_target_specific_artifact_does_not_resolve() {
+        let artifact: Artifact = serde_json::from_value(serde_json::json!({
             "uri": "https://example.invalid/vm-%target",
             "digest": SHA256_ABC,
             "targets": {"aarch64-apple-darwin": {}}
         }))
-        .expect_err("must reject");
-        assert!(err.to_string().contains("targets.<target>"), "{err}");
+        .expect("must parse");
+        let err = artifact
+            .resolve_for("vm", "aarch64-apple-darwin", &component())
+            .expect_err("must fail");
+        assert!(matches!(err, InvalidArtifactError::SharedDigest { .. }), "{err}");
     }
 
     /// Any algorithm parses, so the manifest stays readable, but installing needs one midenup can

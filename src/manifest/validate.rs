@@ -157,6 +157,15 @@ pub enum ValidationError {
         artifact: String,
         digest: String,
     },
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' declares one digest \
+         for every target; declare it in each 'targets.<target>' entry instead"
+    )]
+    SharedDigest {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+    },
     #[error("channel {channel}: invalid 'format' for component '{component}': {reason}")]
     InvalidExecutableFormat {
         channel: semver::Version,
@@ -486,6 +495,17 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
                         });
                     }
                 },
+            }
+
+            if let crate::artifact::Artifact::TargetSpecific { substitutions: Some(subs), .. } =
+                artifact
+                && subs.digest.is_some()
+            {
+                errors.push(ValidationError::SharedDigest {
+                    channel: channel.name.clone(),
+                    component: component.name.to_string(),
+                    artifact: id.to_string(),
+                });
             }
 
             // As with archive formats: any algorithm parses, but only SHA-256 can be installed.
@@ -874,6 +894,26 @@ mod tests {
             errors
                 .iter()
                 .any(|e| matches!(e, ValidationError::UnsupportedArchiveFormat { .. })),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_shared_digest_is_rejected_for_publication() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "vm".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/vm-%target",
+                "digest": format!("sha256:{}", "a".repeat(64)),
+                "targets": {"aarch64-apple-darwin": {}}
+            }))
+            .expect("a shared digest must still parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors.iter().any(|e| matches!(e, ValidationError::SharedDigest { .. })),
             "{errors:?}"
         );
     }

@@ -313,7 +313,7 @@ If a component is selected and any of its declared artifacts has no entry for th
 
 ### 6.4 Digests
 
-`digest` is optional, of the form `<algorithm>:<hex>`. A target-agnostic artifact declares it beside `uri`; a target-specific artifact declares one in each `targets.<target>` entry, since one digest cannot match the bytes of several targets. A `digest` beside `targets` fails the parse. Shape is checked at parse time and the value round-trips losslessly.
+`digest` is optional, of the form `<algorithm>:<hex>`. A target-agnostic artifact declares it beside `uri`; a target-specific artifact declares one in each `targets.<target>` entry, since one digest cannot match the bytes of several targets. A `digest` beside `targets` parses, but fails validation and plan construction for that artifact. Shape is checked at parse time and the value round-trips losslessly.
 
 Installation verifies the fetched bytes against the digest declared for the target being installed, before anything is unpacked or written (§9.3), and records it in the receipt. Only `sha256` with 64 hex digits can be verified: any other digest parses, so the rest of the manifest stays readable, but fails validation and plan construction for that artifact.
 
