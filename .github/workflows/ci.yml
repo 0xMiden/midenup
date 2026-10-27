@@ -135,46 +135,12 @@ jobs:
         if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
         run: cargo make prerelease-test
 
-  upgrade_test:
-    name: upgrade from releases (${{ matrix.os }})
-    # A home built by a released midenup must keep working once this build replaces it. The
-    # minimum supported and latest releases on every run; every release on the way to main.
+  released_binaries:
+    name: released binaries
+    # Pull requests that change the client or the manifest reach this job: only docs are ignored.
     needs: [unit_tests]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-          - os: macos-15
-            target: aarch64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v5
-      - *install-rust
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: ${{ github.workflow }}-shared-tests
-          prefix-key: ${{ env.RUST_CACHE_KEY }}
-          save-if: false
-      - name: Upgrade from each release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TARGET: ${{ matrix.target }}
-          ALL_RELEASES: ${{ github.ref_name == 'main' || github.base_ref == 'main' }}
-        run: |
-          set -euo pipefail
-          if [ "${ALL_RELEASES}" = "true" ]; then
-            tags=$(gh release list --exclude-pre-releases --exclude-drafts --limit 100 --json tagName --jq '.[].tagName')
-          else
-            tags="v$(jq -r .min_client_version manifest/v3/manifest.json) $(gh release view --json tagName --jq .tagName)"
-          fi
-          cargo test --test upgrade --no-run
-          for tag in $(printf '%s\n' ${tags} | sort -u); do
-            echo "::group::upgrade from ${tag}"
-            mkdir -p "${RUNNER_TEMP}/${tag}"
-            gh release download "${tag}" --pattern "midenup-${TARGET}.tar.gz" --output - | tar xz -C "${RUNNER_TEMP}/${tag}"
-            MIDENUP_UPGRADE_FROM="${RUNNER_TEMP}/${tag}/midenup" cargo test --test upgrade
-            echo "::endgroup::"
-          done
+    permissions:
+      contents: read
+    uses: ./.github/workflows/released-binaries.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}

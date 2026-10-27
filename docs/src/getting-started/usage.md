@@ -270,6 +270,10 @@ installed toolchains, in-flight operations, source trees, and runtime data.
 
 ## Upgrading from an older midenup
 
+The first run of a newer midenup converts a home written by midenup v1.0.0 through v1.2.1 in place,
+without rebuilding anything. Those releases are not supported on the converted home; keep an older
+midenup on its own `MIDENUP_HOME`.
+
 Local state version 2 records named installation identities. Version 1 state remains readable as
 canonical installations, and the next state write uses version 2. Older binaries reject version 2.
 Legacy patches recorded on canonical installations remain readable; an ordinary canonical install

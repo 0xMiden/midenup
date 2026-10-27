@@ -117,6 +117,17 @@ jobs:
       ref: ${{ needs.plan.outputs.subject }}
       full: true
 
+  # Every released midenup against this commit, whether or not the manifest changed.
+  released:
+    name: released binaries
+    needs: plan
+    # The ceiling for every job in the called workflow; see release-ci.yml.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/released-binaries.yml
+    with:
+      ref: ${{ needs.plan.outputs.subject }}
+
   # ---------------------------------------------------------------- Phase C --
   stage:
     name: seal and stage
@@ -287,7 +298,7 @@ jobs:
   # ---------------------------------------------------------------- Phase D --
   publish:
     name: publish
-    needs: [plan, stage, stage-artifacts, attest]
+    needs: [plan, stage, stage-artifacts, attest, released]
     runs-on: ubuntu-latest
     # The approval gate. Everything before this is reversible; nothing after it
     # is. Deployment is restricted to protected main by the environment itself.
