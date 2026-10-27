@@ -188,7 +188,9 @@ fn integration_recovery_allows_the_operation_to_be_retried() {
             FaultPoint::PostCommit | FaultPoint::PostRecord | FaultPoint::PostDerive => 2,
             // Not reachable: this loop walks `PUBLICATION`, and migration has its own commit
             // point and its own test.
-            FaultPoint::PreMigrationCommit | FaultPoint::PostUninstallTombstone => {
+            FaultPoint::PreMigrationCommit
+            | FaultPoint::PostUninstallTombstone
+            | FaultPoint::PostFormatCommit => {
                 unreachable!("not an install publication step")
             },
         };

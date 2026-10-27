@@ -6,6 +6,7 @@ pub mod commands;
 pub mod config;
 pub mod exec;
 pub mod fault;
+pub mod home_format;
 pub mod identity;
 pub mod install;
 pub mod lock;

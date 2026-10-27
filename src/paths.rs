@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! $MIDENUP_HOME/
+//! |- home-format.json                    the format of everything below
 //! |- state.json                          local installation state
 //! |- cache/cargo/<source-path-hash>/      reusable, disposable path-build outputs
 //! |- publications/
@@ -25,6 +26,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::{channel::UserChannel, identity::InstallationId, state::PublicationId};
+
+/// The home format envelope ([`crate::home_format`]).
+pub fn home_format_path(home: &Path) -> PathBuf {
+    home.join("home-format").with_extension("json")
+}
 
 /// Local installation state: the sole logical authority on what is installed.
 pub fn state_path(home: &Path) -> PathBuf {
