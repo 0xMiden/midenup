@@ -20,9 +20,10 @@ use crate::{
     identity::InstallationId,
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
+    plan::InstallationPlan,
     profile::Profile,
     resolve::Intent,
-    state::{Installation, LocalState},
+    state::{Installation, LocalState, Receipt},
     toolchain::{Toolchain, ToolchainJustification},
     version::{Authority, GitTarget},
 };
@@ -551,24 +552,119 @@ fn perform_update(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     let id = install_options.installation_id(&upstream.name);
-    match work_for(upstream, state, install_options, logical_only)? {
+    // Held-back components stay at their installed definitions, so the whole selection is resolved
+    // against upstream with those substituted.
+    let selection = with_held_back(upstream, &install_options.held_back);
+    match work_for(&selection, state, install_options, logical_only, config.target())? {
         Work::Physical => {
-            display_warnings(upstream, install_options, options);
+            if !install_options.held_back.is_empty() {
+                let (plan, previous) =
+                    plan_held_back(config, upstream, &selection, state, install_options)?;
+                check_held_back_reusable(&plan, previous.as_ref(), install_options, &id)?;
+            }
+            display_warnings(&selection, install_options, options);
             crate::info!("Updating toolchain {id}");
-            commands::install(config, upstream, state, install_options)
+            commands::install(config, &selection, state, install_options)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
         // file is committed as a single atomic `state.json` write. No journal, no staging, no new
         // publication -- republishing an identical tree to record an alias would be pure cost.
         Work::LogicalOnly => {
-            crate::info!("Updating recorded metadata for toolchain {}..", upstream.name);
-            record_logical_changes(config, upstream, state, install_options)
+            crate::info!("Updating recorded metadata for toolchain {}..", selection.name);
+            record_logical_changes(config, &selection, state, install_options)
         },
         Work::Nothing => {
             crate::info!("Toolchain {id} is up to date");
             Ok(())
         },
     }
+}
+
+/// `upstream` with each held-back component at the definition it is installed with.
+fn with_held_back(upstream: &Channel, held_back: &[Component]) -> Channel {
+    let mut selection = upstream.clone();
+    for held in held_back {
+        if let Some(component) = selection.get_component_mut(&held.name) {
+            *component = held.clone();
+        }
+    }
+    selection
+}
+
+/// Plans `selection` onto the publication being replaced, refusing before anything changes when
+/// the held-back components no longer fit the rest of `upstream`.
+fn plan_held_back(
+    config: &Config,
+    upstream: &Channel,
+    selection: &Channel,
+    state: &LocalState,
+    options: &InstallationOptions,
+) -> anyhow::Result<(InstallationPlan, Option<(PathBuf, Receipt)>)> {
+    let id = options.installation_id(&upstream.name);
+    let previous = commands::install::previous_publication(config, state, &id);
+    let sysroot = previous
+        .as_ref()
+        .map_or_else(|| PathBuf::from("/sysroot"), |(dir, _)| dir.clone());
+    let intent = commands::install::effective_intent(state, selection, options);
+
+    let err = match crate::plan::build_plan(selection, &intent, config.target(), &sysroot) {
+        Ok(plan) => return Ok((plan, previous)),
+        Err(err) => err,
+    };
+    // Upstream itself does not plan: that is not a conflict the held-back components caused.
+    if crate::plan::build_plan(upstream, &intent, config.target(), &sysroot).is_err() {
+        return Err(err.into());
+    }
+    anyhow::bail!(
+        "{id} was not updated: keeping {} at the installed definition conflicts with channel {}: \
+         {err}. Nothing was changed. To update it together with the rest, run:\n    midenup \
+         update {id} --path-update=all\n",
+        held_names(options),
+        upstream.name
+    )
+}
+
+/// Refuses a physical update when a held-back component's installed files cannot be carried
+/// forward, because their hashes are missing from the receipt or no longer match it.
+fn check_held_back_reusable(
+    plan: &InstallationPlan,
+    previous: Option<&(PathBuf, Receipt)>,
+    options: &InstallationOptions,
+    id: &InstallationId,
+) -> anyhow::Result<()> {
+    for step in &plan.steps {
+        if !options.held_back.iter().any(|held| held.name == step.owner()) {
+            continue;
+        }
+        let reusable = previous.is_some_and(|(dir, receipt)| {
+            let path = step.dest().strip_prefix(dir).unwrap_or(step.dest());
+            receipt.outputs.iter().any(|output| {
+                output.path == path
+                    && output.owner == step.owner()
+                    && crate::install::matches_receipt(dir, output)
+            })
+        });
+        if !reusable {
+            anyhow::bail!(
+                "{id} was not updated: '{}' would stay at the installed definition, but its \
+                 installed files cannot be verified against the publication receipt. Nothing was \
+                 changed. To rebuild it together with the rest, run:\n    midenup update {id} \
+                 --path-update=all\n",
+                step.owner()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The held-back components, quoted, for a message.
+fn held_names(options: &InstallationOptions) -> String {
+    options
+        .held_back
+        .iter()
+        .map(|held| format!("'{}'", held.name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// How much of the protocol an update actually needs.
@@ -585,6 +681,7 @@ fn work_for(
     state: &LocalState,
     options: &InstallationOptions,
     logical_only: bool,
+    target: &str,
 ) -> anyhow::Result<Work> {
     if !options.stale.is_empty() {
         return Ok(Work::Physical);
@@ -606,7 +703,11 @@ fn work_for(
     if installed.channel != upstream.name || installed_names != resolved_names {
         return Ok(Work::Physical);
     }
-    if logical_only || installed.intent != intent {
+    if logical_only
+        || installed.intent != intent
+        || (installed.is_managed()
+            && installed.snapshot != commands::install::snapshot_for(upstream, options, target))
+    {
         return Ok(Work::LogicalOnly);
     }
     Ok(Work::Nothing)
@@ -708,6 +809,7 @@ fn record_logical_changes(
         .with_context(|| format!("channel {} is not installed", upstream.name))?;
     installation.intent = intent;
     installation.patches = options.patches.clone();
+    installation.snapshot = commands::install::snapshot_for(upstream, options, config.target());
 
     for component in installation.components.iter_mut() {
         let Some(upstream_component) = upstream.get_component(&component.name) else {

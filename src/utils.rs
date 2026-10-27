@@ -168,6 +168,30 @@ pub mod fs {
     /// without the working tree having moved at all.
     const IGNORED: &[&str] = &["target", ".git"];
 
+    /// The lowercase hex SHA-256 of the file at `path`.
+    pub fn sha256(path: &Path) -> std::io::Result<String> {
+        use std::fmt::Write;
+
+        use sha2::Digest;
+
+        let mut hasher = sha2::Sha256::new();
+        let mut file = std::io::BufReader::new(fs::File::open(path)?);
+        loop {
+            let chunk = std::io::BufRead::fill_buf(&mut file)?;
+            if chunk.is_empty() {
+                break;
+            }
+            hasher.update(chunk);
+            let read = chunk.len();
+            std::io::BufRead::consume(&mut file, read);
+        }
+        let mut hex = String::with_capacity(64);
+        for byte in hasher.finalize() {
+            write!(&mut hex, "{byte:02x}").expect("writing to a String cannot fail");
+        }
+        Ok(hex)
+    }
+
     /// Returns the latest registered modification time inside a directory, including its
     /// subdirectories.
     ///

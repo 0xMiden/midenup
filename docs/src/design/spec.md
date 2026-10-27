@@ -175,6 +175,12 @@ patch definitions. Identity lookup, replacement, publication seeding, uninstall 
 the installation ID rather than the resolved channel. Canonical and named records may therefore
 share an upstream version without sharing files or lifecycle.
 
+A canonical record whose components are exactly the upstream definition also stores `snapshot`:
+`"sn1:" || hex(sha256(...))` over the channel name, the target, and every component definition
+with artifacts resolved for that target and local authority pins (branch commit, path mtime)
+removed. The manifest date and network pointers do not contribute. Named, patched and partially
+held-back records store none.
+
 ### 4.3 Version compatibility
 
 `manifest_version` and `state_version` are SemVer version strings. Compatibility is evaluated on the **major** component only:
@@ -726,8 +732,10 @@ Multi-object publication cannot be made atomic by a single filesystem operation.
                new_publication?, target_intent, plan_key }
 2. STAGE     build publications/<channel>-<new-pub-id>/
              seeding from the old publication via its receipt's owned paths only,
-             omitting anything not in the new plan
-3. VERIFY    structural check (§9.6); write receipt.json
+             when their bytes match the receipt's SHA-256, omitting anything not
+             in the new plan
+3. VERIFY    structural check (§9.6); write receipt.json with each output's
+             acquisition method and SHA-256
 4. COMMIT    atomically repoint toolchains/<channel>  <- THE COMMIT POINT
 5. RECORD    atomically commit state.json
 6. DERIVE    repoint toolchains/<network> for the network requested, if any, and
@@ -741,7 +749,7 @@ Uninstall replaces step 4 with an atomic replacement of the symlink by a **tombs
 
 Before publication, for every plan step: the destination exists, is of the expected type, is owned by the expected component, has the expected mode, and collides with nothing else. Components with no physical output are skipped.
 
-Verification is **structural only**. No byte or digest verification is performed (§6.4). A matching plan key is not evidence of matching bytes and never authorizes content reuse.
+Verification is **structural only**. Newly acquired bytes are not checked against declared digests (§6.4). A matching plan key is not evidence of matching bytes and never authorizes content reuse. A seeded output is reused only when its bytes match the SHA-256 recorded in the previous receipt; an output whose receipt records no hash, or whose bytes differ, is acquired again.
 
 ### 9.7 Recovery
 
@@ -824,6 +832,8 @@ Equivalently: a component needs reinstallation iff its contribution to the plan 
 ### 11.2 Path and git update policy
 
 `--path-update={off,interactive,all}` continues to govern whether `path`-authority components are rebuilt. A component held back by this policy still receives graph-only and runtime-metadata-only updates.
+
+The update resolves and plans upstream with each held-back component at its installed definition. If that selection does not plan (a missing requirement, a destination or Cargo-unit collision) while upstream alone does, or if a held-back component's installed files cannot be verified against the receipt, the update is refused before anything changes and names `midenup update <id> --path-update=all`.
 
 ### 11.3 Update resolution
 
