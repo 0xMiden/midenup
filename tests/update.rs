@@ -539,6 +539,36 @@ fn integration_removing_a_selected_component_refuses_the_update() {
     assert_eq!(std::fs::read(&state_path).unwrap(), before, "nothing may change");
 }
 
+/// A selected component the new snapshot cannot install on this target refuses the update, naming
+/// the command that leaves it out.
+#[test]
+fn integration_a_selected_component_without_target_support_refuses_the_update() {
+    let env = environment_setup("snapshot_selected_unsupported");
+    let fixture = common::harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
+    succeeded(run_midenup(
+        &env,
+        &fixture.manifest_uri,
+        &["install", "0.15.0", "--component", "assets"],
+    ));
+    let state_path = midenup::paths::state_path(&env.midenup_home);
+    let before = std::fs::read(&state_path).unwrap();
+
+    edit_manifest(&fixture, |manifest| {
+        let config = fixture.dir.join("0.15.0").join("config.yml");
+        component_of(manifest, "0.15.0", "assets")["artifacts"]["config.yml"] = serde_json::json!({
+            "uri": format!("file://{}-%target", config.display()),
+            "targets": {"riscv64gc-unknown-none-elf": {}}
+        });
+    });
+    let output = run_midenup(&env, &fixture.manifest_uri, &["update", "0.15.0"]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("cannot install 'assets', which you selected"), "{stderr}");
+    assert!(stderr.contains("Nothing was changed"), "{stderr}");
+    assert!(stderr.contains("midenup install 0.15.0 --profile minimal\n"), "{stderr}");
+    assert_eq!(std::fs::read(&state_path).unwrap(), before, "nothing may change");
+}
+
 /// A carried-forward file is reused only when its bytes match the receipt. A modified one, or one
 /// a receipt without hashes cannot vouch for, is acquired again.
 #[test]

@@ -842,6 +842,7 @@ Update re-resolves the **persisted intent** against the new upstream channel:
 - `profiles` are re-resolved, so a `minimal` installation gains components newly tagged `minimal`.
 - An installation whose intent is roots-only gains new transitive *dependencies* of those roots, but not unrelated new profile members.
 - An explicit root that no longer exists upstream **blocks** the update and preserves the existing installation. The schema has no component-rename declaration, so guessing is not available.
+- An explicit root the new channel cannot plan (no artifact for this target, a missing requirement, a collision) also blocks the update before anything changes, naming the `midenup install` that leaves it out.
 
 Named updates resolve the saved source selector and reapply the saved patches before comparison.
 Pinned named sources stay pinned; network sources follow their own upstream pointer without moving

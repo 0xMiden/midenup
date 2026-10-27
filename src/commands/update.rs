@@ -20,9 +20,9 @@ use crate::{
     identity::InstallationId,
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
-    plan::InstallationPlan,
+    plan::{InstallationPlan, PlanError},
     profile::Profile,
-    resolve::Intent,
+    resolve::{Intent, ResolutionError},
     state::{Installation, LocalState, Receipt},
     toolchain::{Toolchain, ToolchainJustification},
     version::{Authority, GitTarget},
@@ -106,7 +106,8 @@ fn update_custom(
         intent_update: Some(IntentUpdate::Preserve),
         ..Default::default()
     };
-    perform_update(config, &upstream, state, &install_options, logical_only, options)
+    let selector = installation.id().to_string();
+    perform_update(config, &upstream, state, &install_options, logical_only, options, &selector)
 }
 
 /// Brings a network to the channel it now names.
@@ -181,6 +182,7 @@ fn update_network(
         IntentUpdate::Replace(installation.intent.clone()),
         changes,
         options,
+        name,
     )?;
 
     // DERIVE writes this link too, and writing it twice is a rename onto the same target -- but
@@ -294,6 +296,7 @@ fn update_installed_channel(
                 IntentUpdate::Preserve,
                 changes,
                 options,
+                &upstream.channel.name.to_string(),
             )
         },
     }
@@ -350,6 +353,63 @@ fn check_roots(
     )
 }
 
+/// Turns a plan error about a root of `intent` into a refusal naming the `install` for `selector`
+/// that leaves it out. The plan is built before anything changes, so nothing has.
+fn refuse_selected(
+    err: anyhow::Error,
+    intent: &Intent,
+    channel: &semver::Version,
+    selector: &str,
+    project_file: Option<(PathBuf, Vec<String>)>,
+) -> anyhow::Error {
+    let Some(plan_error) = err.downcast_ref::<PlanError>() else {
+        return err;
+    };
+    let Some(root) = plan_error_components(plan_error)
+        .into_iter()
+        .find_map(|component| intent.roots.iter().find(|root| *root == component))
+    else {
+        return err;
+    };
+    let kept: Vec<&String> = intent.roots.iter().filter(|kept| *kept != root).collect();
+    let command = install_command(intent, &kept, selector);
+
+    // Activation adds a project file's components back, so the file has to change first.
+    if let Some((path, components)) = project_file
+        && components.contains(root)
+    {
+        return anyhow::anyhow!(
+            "{selector} was not updated: channel {channel} cannot install '{root}', which {} \
+             selects: {plan_error}. Nothing was changed. Remove it from that file, then run:\n    \
+             {command}\n",
+            path.display()
+        );
+    }
+    anyhow::anyhow!(
+        "{selector} was not updated: channel {channel} cannot install '{root}', which you \
+         selected: {plan_error}. Nothing was changed. To update without it, run:\n    {command}\n"
+    )
+}
+
+/// The components a plan error is about.
+fn plan_error_components(err: &PlanError) -> Vec<&str> {
+    match err {
+        PlanError::TargetUnsupported { component, .. }
+        | PlanError::ArtifactCardinality { component, .. }
+        | PlanError::ArtifactIdMismatch { component, .. }
+        | PlanError::Resolution(
+            ResolutionError::UnknownRequirement { component, .. }
+            | ResolutionError::UnsupportedComponentKind { component, .. },
+        ) => vec![component],
+        PlanError::DestinationCollision { first, second, .. }
+        | PlanError::CargoUnitConflict { first, second, .. } => vec![first, second],
+        PlanError::Resolution(_)
+        | PlanError::Destination(_)
+        | PlanError::Artifact(_)
+        | PlanError::Pin(_) => vec![],
+    }
+}
+
 /// The `install` that records `intent`'s profile with only the `kept` roots.
 fn install_command(intent: &Intent, kept: &[&String], selector: &str) -> String {
     let profile = intent.profiles.iter().max().copied().unwrap_or(Profile::Empty);
@@ -400,6 +460,7 @@ fn migrate(
         IntentUpdate::Replace(installation.intent.clone()),
         changes,
         options,
+        &upstream.name.to_string(),
     )?;
 
     // A migration is the one operation that changes what a *pinned* selector means: the channel the
@@ -531,6 +592,7 @@ fn install_for_update(
     intent_update: IntentUpdate,
     changes: Changes,
     options: &UpdateOptions,
+    selector: &str,
 ) -> anyhow::Result<()> {
     let logical_only = changes.logical_only;
     let install_options = InstallationOptions {
@@ -540,7 +602,7 @@ fn install_for_update(
         ..Default::default()
     };
 
-    perform_update(config, upstream, state, &install_options, logical_only, options)
+    perform_update(config, upstream, state, &install_options, logical_only, options, selector)
 }
 
 fn perform_update(
@@ -550,6 +612,7 @@ fn perform_update(
     install_options: &InstallationOptions,
     logical_only: bool,
     options: &UpdateOptions,
+    selector: &str,
 ) -> anyhow::Result<()> {
     let id = install_options.installation_id(&upstream.name);
     // Held-back components stay at their installed definitions, so the whole selection is resolved
@@ -557,14 +620,25 @@ fn perform_update(
     let selection = with_held_back(upstream, &install_options.held_back);
     match work_for(&selection, state, install_options, logical_only, config.target())? {
         Work::Physical => {
+            let intent = commands::install::effective_intent(state, &selection, install_options);
+            let refuse = |err| {
+                refuse_selected(
+                    err,
+                    &intent,
+                    &selection.name,
+                    selector,
+                    project_file(config, selector),
+                )
+            };
             if !install_options.held_back.is_empty() {
                 let (plan, previous) =
-                    plan_held_back(config, upstream, &selection, state, install_options)?;
+                    plan_held_back(config, upstream, &selection, state, install_options)
+                        .map_err(refuse)?;
                 check_held_back_reusable(&plan, previous.as_ref(), install_options, &id)?;
             }
             display_warnings(&selection, install_options, options);
             crate::info!("Updating toolchain {id}");
-            commands::install(config, &selection, state, install_options)
+            commands::install(config, &selection, state, install_options).map_err(refuse)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
         // file is committed as a single atomic `state.json` write. No journal, no staging, no new
