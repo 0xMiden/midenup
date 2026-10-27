@@ -1,41 +1,99 @@
-name: Publish midenup manifest to Github Pages
+# Publishes the manifest on main to GitHub Pages, after the required manifest checks and the
+# acceptance scenarios pass on the same commit, and confirms the public URLs serve it. Dispatched by
+# hand; a reviewer other than the dispatcher approves the deployment. See "Manifest publication" in
+# release-process.md.
+name: publish manifest
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - manifest/**
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run every check and stage the site, but deploy nothing
+        type: boolean
+        default: false
 
-# Grant GITHUB_TOKEN the permissions required to make a Pages deployment
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+permissions: {}
+
+# One publication at a time, held through confirmation.
+concurrency:
+  group: publish-manifest
+  cancel-in-progress: false
 
 jobs:
-  check-manifest:
-    name: check manifest
-    # A called workflow can only downgrade the calling job's token.
+  prepare:
+    name: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: read
+    outputs:
+      action: ${{ steps.decide.outputs.action }}
+      receipt: ${{ steps.decide.outputs.receipt }}
+      deployed: ${{ steps.decide.outputs.deployed }}
+    steps:
+      - name: Require main
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "the manifest is published from main only; dispatch this workflow on main" >&2
+          exit 1
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+          save-if: false
+
+      - name: Decide
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUBJECT: ${{ github.sha }}
+        run: >-
+          cargo run -q -p manifest-utils -- publish decide --subject "${SUBJECT}"
+          --site "${RUNNER_TEMP}/site"
+
+      - name: Upload the site
+        if: steps.decide.outputs.action == 'deploy'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ runner.temp }}/site
+
+  # The required checks, on the commit being published, against the deployed manifest.
+  check:
+    name: check
+    needs: prepare
     permissions:
       contents: read
     uses: ./.github/workflows/check-manifest.yml
     with:
-      # The manifest this push replaces, so nothing that fails the comparison is deployed.
-      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.before }}/manifest/v3/manifest.json
+      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.prepare.outputs.deployed }}/manifest/v3/manifest.json
 
   acceptance:
     name: acceptance tests (${{ matrix.os }})
     # Every scenario in acceptance/ against every network's toolchain, on both targets midenup is
     # released for. Scenarios that need Docker are skipped on macOS, which lacks it.
-    needs: check-manifest
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-15]
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: ./.github/actions/cleanup-runner
       - name: Install Rust
         run: |
@@ -55,36 +113,57 @@ jobs:
           cargo build -p midenup -p manifest-utils
           ./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json --midenup target/debug/midenup
 
-  upload-manifest:
-    name: upload manifest
-    needs: [check-manifest, acceptance]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v5
-
-      - name: Upload manifest.json
-        id: deployment
-        uses: actions/upload-pages-artifact@v3 # or specific "vX.X.X" version tag for this action
-        with:
-          path: manifest/
-
+  # Waits for a reviewer other than the dispatcher: the github-pages environment requires one.
   deploy:
-    name: Deploy github page containing midenup manifest
-    needs: upload-manifest
+    name: deploy
+    needs: [prepare, check, acceptance]
+    if: needs.prepare.outputs.action == 'deploy' && !inputs.dry_run
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
 
+  confirm:
+    name: confirm
+    needs: [prepare, check, acceptance, deploy]
+    if: >-
+      !cancelled() && !inputs.dry_run && needs.check.result == 'success' &&
+      needs.acceptance.result == 'success' &&
+      (needs.deploy.result == 'success' || needs.prepare.outputs.action == 'confirm')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+          save-if: false
+
+      - name: Confirm the served files
+        env:
+          RECEIPT: ${{ needs.prepare.outputs.receipt }}
+        run: cargo run -q -p manifest-utils -- publish confirm --receipt "${RECEIPT}"
+
   smoke:
     name: Run smoke tests
-    needs: deploy
-    if: ${{ needs.deploy.result == 'success' }}
+    needs: confirm
     # A called workflow can only *downgrade* the calling job's token, so this
     # grant is the ceiling for every job in `smoke.yml`. Without it the
     # job inherits the top-level permissions and the call is rejected as an escalation

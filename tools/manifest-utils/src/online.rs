@@ -313,14 +313,14 @@ fn fetch(uri: &str) -> anyhow::Result<Vec<u8>> {
     Ok(response.body)
 }
 
-struct Response {
-    status: u32,
+pub(crate) struct Response {
+    pub status: u32,
     headers: Vec<String>,
-    body: Vec<u8>,
+    pub body: Vec<u8>,
 }
 
 /// Requests `uri` with `headers`, without a body when `head` is set; any status is returned.
-fn transfer(uri: &str, headers: &[String], head: bool) -> anyhow::Result<Response> {
+pub(crate) fn transfer(uri: &str, headers: &[String], head: bool) -> anyhow::Result<Response> {
     let mut response = Response {
         status: 0,
         headers: Vec::new(),
