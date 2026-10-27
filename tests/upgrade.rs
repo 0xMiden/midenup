@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use midenup::state::LocalState;
+use midenup::{paths, state::LocalState};
 
 mod common;
 
@@ -150,8 +150,20 @@ fn upgrade_from_a_released_midenup_keeps_the_home() {
         std::fs::write(home.join("var").join(store).join("store"), contents).unwrap();
     }
 
-    // The candidate replaces it and brings the home up to date with a newer manifest.
+    // The candidate replaces it, and its first command converts the home without rebuilding it.
+    let publications = snapshot_tree(&home.join("publications"));
+    let links = snapshot_tree(&home.join("toolchains"));
     install_binary(Path::new(env!("CARGO_BIN_EXE_midenup")), &midenup);
+    assert_eq!(run(&miden, &env, &fixture.before, None, &["vm"]).trim(), "miden-vm-1");
+    let envelope = std::fs::read_to_string(paths::home_format_path(home)).unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&envelope).unwrap(),
+        serde_json::json!({"format": 1})
+    );
+    assert!(snapshot_tree(&home.join("publications")) == publications, "nothing was rebuilt");
+    assert!(snapshot_tree(&home.join("toolchains")) == links, "every link is kept");
+
+    // Then it brings the home up to date with a newer manifest.
     run(&midenup, &env, &fixture.after, None, &["update"]);
     run(&midenup, &env, &fixture.after, None, &["update", "mainnet"]);
 
@@ -164,6 +176,10 @@ fn upgrade_from_a_released_midenup_keeps_the_home() {
     let toolchains = home.join("toolchains");
     assert_eq!(std::fs::read_link(toolchains.join("mainnet")).unwrap(), Path::new("0.17.0"));
     assert!(std::fs::read_link(toolchains.join("default")).unwrap().ends_with("0.15.0"));
+    assert!(
+        snapshot_tree(&toolchains).get(Path::new("0.15.0")) == links.get(Path::new("0.15.0")),
+        "0.15.0 did not change upstream and was not rebuilt"
+    );
     for (store, contents) in [("mainnet", "network data"), ("0.15.0", "pinned data")] {
         let read = std::fs::read_to_string(home.join("var").join(store).join("store")).unwrap();
         assert_eq!(read, contents, "var/{store} is intact");
