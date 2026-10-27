@@ -925,7 +925,7 @@ Conversion runs under the exclusive format lease and the home lock, and never fe
 
 The steps are idempotent, so the `conversion` field is the whole journal: a run that finds it repeats them from step 3 without consulting upstream. Older releases that know the envelope refuse the new format from step 2 on.
 
-Preflight accepts only what midenup v1.0.0-v1.2.1 leave behind: a `state.json` with state version 1 or 2, `toolchains/` entries that are links or the alpha directory of a toolchain v1.x carried forward, receipts and a pending journal that parse. A publication missing behind a state record is not a reason to refuse; recovery reports it as divergence with its remedy (§9.7). The `released-v1` steps remove carried-forward toolchains' alpha directories, which their reinstall replaces with a link, and rewrite `state.json` at the current state version; the layout, links, receipts, and journal of those releases are already read as they are.
+Preflight accepts only what midenup v1.0.0-v1.2.1 leave behind: a `state.json` with state version 1 or 2 (other top-level entries are left alone), `toolchains/` entries that are links or the alpha directory of a toolchain v1.x carried forward, receipts and a pending journal that parse. A publication missing behind a state record is not a reason to refuse; recovery reports it as divergence with its remedy (§9.7). The `released-v1` steps remove carried-forward toolchains' alpha directories, which their reinstall replaces with a link, and rewrite `state.json` at the current state version; the layout, links, receipts, and journal of those releases are already read as they are.
 
 ### 12.3 Alpha-era homes
 

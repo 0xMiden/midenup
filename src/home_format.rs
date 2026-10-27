@@ -160,15 +160,15 @@ fn write(home: &Path, envelope: &Envelope) -> Result<(), HomeFormatError> {
 }
 
 /// Whether the home records nothing installed: no state, and only caches, empty directories, lock
-/// files and temporaries.
+/// files, temporaries and entries midenup does not write.
 fn is_empty(home: &Path) -> Result<bool, HomeFormatError> {
     for name in visible_entries(home)? {
         let empty = match name.as_str() {
-            "channel-manifest.json" | "cache" => true,
             "toolchains" | "publications" | "journal" => {
                 visible_entries(&home.join(&name))?.is_empty()
             },
-            _ => false,
+            "state.json" | "manifest.json" | "var" | "opt" => false,
+            _ => true,
         };
         if !empty {
             return Ok(false);
@@ -273,7 +273,8 @@ fn preflight(home: &Path) -> Result<Conversion, HomeFormatError> {
             // A leftover beside real state is inert; without it, it is the only record.
             "manifest.json" if !state.installations.is_empty() => {},
             "manifest.json" => return Err(alpha("it holds 'manifest.json' and no installations")),
-            _ => return Err(unrecognized(format!("'{name}' is not something midenup writes"))),
+            // Not midenup's, and the conversion leaves it alone.
+            _ => {},
         }
     }
 
@@ -416,12 +417,19 @@ mod tests {
     }
 
     #[test]
-    fn unrecognized_contents_are_refused() {
+    fn entries_midenup_does_not_write_are_left_alone() {
         let (_temp, home) = home();
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(home.join("notes.txt"), "mine").unwrap();
-        assert!(matches!(enter(&home), Err(HomeFormatError::Unrecognized { .. })));
-        assert_eq!(read(&home).unwrap(), None);
+        let (lease, converted) = enter(&home).unwrap();
+        assert!(!converted, "a home holding only someone else's file is empty");
+        drop(lease);
+
+        std::fs::write(paths::state_path(&home), r#"{"state_version":"1.0.0","installations":[]}"#)
+            .unwrap();
+        let (_lease, converted) = enter(&home).unwrap();
+        assert!(converted);
+        assert_eq!(std::fs::read_to_string(home.join("notes.txt")).unwrap(), "mine");
     }
 
     #[test]
