@@ -93,10 +93,9 @@ An artifact is one named file plus the rules for finding it per target:
 "artifacts": {
   "miden-vm": {
     "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/%basename-%target",
-    "digest": "sha256:9f86d081…",
     "targets": {
-      "aarch64-apple-darwin":     { "basename": "miden-vm" },
-      "x86_64-unknown-linux-gnu": { "basename": "miden-vm" }
+      "aarch64-apple-darwin":     { "basename": "miden-vm", "digest": "sha256:9f86d081…" },
+      "x86_64-unknown-linux-gnu": { "basename": "miden-vm", "digest": "sha256:4e07a1…" }
     }
   }
 }
@@ -106,7 +105,7 @@ The map key is both the artifact's identity **and the exact filename it is insta
 
 Substitutions available in a URI are `%target`, `%version` (which requires a registry version), `%basename` (defaulting to the component name), and `%extension`. Per-target values override component-level ones.
 
-`digest` is **recorded and never verified**. It exists so that a future release can start checking it without a schema change; nothing today draws any conclusion from it, and nothing should claim otherwise.
+`digest` is the SHA-256 of the bytes at the URI, written `sha256:<64 hex digits>`. A target-specific artifact declares one in each `targets` entry; a target-agnostic one declares it beside `uri`. midenup checks the fetched bytes against it before unpacking or installing anything, and a mismatch fails the install without falling back to a source build. Artifacts without a digest install unverified. `update-manifest digest` fills in missing digests.
 
 #### Compressed artifacts
 
@@ -150,7 +149,7 @@ To install the tarball itself, omit `archive` and use a key such as `node-config
 
 Validation is an authoring gate, not a parsing gate: `update-manifest check` runs the full structural validator, and plan construction re-checks what depends on the current target. Parsing deliberately does *not* validate — the published manifest has historically contained channels with dangling requirements, and refusing to parse would break every command for every user over a channel they were not using.
 
-The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests, archive formats midenup cannot read, `.tar.gz` URIs that forgot to declare `archive`, and the network rules described above. Target availability is checked only when an installation is actually planned.
+The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests or ones that are not SHA-256, archive formats midenup cannot read, `.tar.gz` URIs that forgot to declare `archive`, and the network rules described above. Target availability is checked only when an installation is actually planned.
 
 ## Custom manifests
 
