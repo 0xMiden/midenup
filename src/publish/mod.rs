@@ -141,15 +141,6 @@ pub fn receipt_for(
                 owner: step.owner().to_string(),
                 mode: step.mode(),
                 realized,
-                // Only the prebuilt bytes were checked against it; a taken fallback built them.
-                digest: match step {
-                    PlanStep::Download { digest, .. } | PlanStep::CopyLocal { digest, .. }
-                        if realized == RealizedMethod::Prebuilt =>
-                    {
-                        digest.clone()
-                    },
-                    _ => None,
-                },
             }
         })
         .collect();
@@ -251,7 +242,6 @@ mod tests {
                 owner: "vm".to_string(),
                 mode: 0o755,
                 realized: RealizedMethod::Prebuilt,
-                digest: None,
             }],
         }
     }
@@ -329,33 +319,6 @@ mod tests {
             receipt.outputs[0].path,
             PathBuf::from("bin").join("miden-vm"),
             "outputs are relative to the publication, so a receipt is not tied to one MIDENUP_HOME"
-        );
-    }
-
-    /// The digest describes the prebuilt artifact, so it is recorded only when that artifact is
-    /// what was installed.
-    #[test]
-    fn the_receipt_records_a_digest_only_for_a_prebuilt_output() {
-        let publication = Path::new("/home/publications/0.15.0-jkl");
-        let dest = publication.join("bin").join("miden-vm");
-        let digest = crate::artifact::Digest::sha256(b"miden-vm");
-        let mut step = download(&dest);
-        let PlanStep::Download { digest: declared, .. } = &mut step else {
-            unreachable!("download() builds a download step");
-        };
-        *declared = Some(digest.clone());
-        let plan = plan_with(vec![step]);
-
-        let receipt_realized_as = |method| {
-            let realized = BTreeMap::from([(dest.clone(), method)]);
-            receipt_for(&plan, publication, &PublicationId::generate(), &realized, None)
-        };
-
-        assert_eq!(receipt_realized_as(RealizedMethod::Prebuilt).outputs[0].digest, Some(digest));
-        assert_eq!(
-            receipt_realized_as(RealizedMethod::Cargo).outputs[0].digest,
-            None,
-            "a binary the fallback built was never checked against the artifact's digest"
         );
     }
 

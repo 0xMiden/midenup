@@ -914,7 +914,6 @@ mod tests {
             owner: owner.to_string(),
             mode,
             realized: RealizedMethod::Prebuilt,
-            digest: None,
         };
 
         let receipt = Receipt {
@@ -997,7 +996,6 @@ mod tests {
             owner: "debug".to_string(),
             mode: MODE_EXECUTABLE,
             realized: RealizedMethod::Prebuilt,
-            digest: None,
         });
 
         let (plan, staging) = staged(temp.path());
