@@ -300,14 +300,25 @@ pub mod atomic {
     {
         let bytes = serde_json::to_vec_pretty(value)
             .map_err(|source| WriteError::Serialize { path: path.to_path_buf(), source })?;
+        write_bytes_validated(path, &bytes, validate)
+    }
 
+    /// As [write_validated], for bytes that are already serialized.
+    pub fn write_bytes_validated<V>(
+        path: &Path,
+        bytes: &[u8],
+        validate: V,
+    ) -> Result<(), WriteError>
+    where
+        V: FnOnce(&str) -> Result<(), String>,
+    {
         let temporary = temporary_sibling(path);
 
         // Everything from here to the rename is fallible, so each error path removes the
         // temporary file before returning.
         let result = (|| {
             let mut file = std::fs::File::create(&temporary)?;
-            file.write_all(&bytes)?;
+            file.write_all(bytes)?;
             file.flush()?;
             file.sync_all()?;
             drop(file);
