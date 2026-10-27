@@ -1,0 +1,33 @@
+# Checks daily that GitHub Pages serves what its receipt records, and that every artifact the
+# served manifest declares can still be downloaded.
+name: verify manifest
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+
+      - name: Check the served files and every artifact of the served manifest
+        run: cargo run -q -p manifest-utils -- publish verify
