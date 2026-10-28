@@ -41,9 +41,6 @@ jobs:
         run: |
           rustup update --no-self-update
           rustc --version
-      - name: Install all rustup toolchains present in the manifest
-        run: |
-          ./.github/auxiliary_scripts/install-toolchains.sh
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
