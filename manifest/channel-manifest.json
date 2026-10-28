@@ -2587,7 +2587,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.36.2"
+            "version": "0.36.1"
           }
         },
         {
@@ -2706,7 +2706,7 @@
           },
           "version": {
             "kind": "registry",
-            "version": "0.18.0"
+            "version": "0.18.1"
           }
         },
         {
