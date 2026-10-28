@@ -7,7 +7,7 @@ use midenup::manifest::{
     diff::{self, Change},
 };
 
-use crate::scenarios::Scenario;
+use super::scenarios::Scenario;
 
 /// A toolchain to verify and the components whose change put it here.
 #[derive(Debug)]

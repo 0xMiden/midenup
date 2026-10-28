@@ -44,8 +44,8 @@ To cover a new toolchain line, widen `toolchain`, e.g. `>=0.17.0, <0.19.0`.
 ## Running locally
 
 ```
-cargo build -p midenup -p acceptance
-./target/debug/acceptance --midenup target/debug/midenup
+cargo build -p midenup -p manifest-utils
+./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json --midenup target/debug/midenup
 ```
 
 Without `--against`, every network's toolchain is verified. With

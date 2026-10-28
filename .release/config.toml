@@ -42,9 +42,5 @@ unit = "main"
 # --- private ------------------------------------------------------------
 
 [[packages]]
-name = "acceptance"
-unit = "private"
-
-[[packages]]
 name = "manifest-utils"
 unit = "private"

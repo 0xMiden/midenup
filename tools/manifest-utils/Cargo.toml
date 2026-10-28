@@ -30,3 +30,4 @@ serde_json.workspace = true
 tar = { version = "0.4", default-features = false }
 tempfile = "3"
 thiserror.workspace = true
+toml = "1.0"

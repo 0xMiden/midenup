@@ -10,7 +10,7 @@ use anyhow::{Context, bail};
 use midenup::manifest::Channel;
 use tempfile::TempDir;
 
-use crate::scenarios::{self, Kind, Need, Scenario};
+use super::scenarios::{self, Kind, Need, Scenario};
 
 /// How a scenario ended.
 pub enum Outcome {
