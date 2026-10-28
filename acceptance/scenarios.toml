@@ -45,3 +45,25 @@ toolchain = "^0.17.0"
 requires = ["core", "midenc", "debug"]
 kind = "lit"
 suite = "debug-midenc-produced"
+
+# Temporary stubs so every component counts as covered until its team adds real scenarios.
+[[scenarios]]
+title = "Stub for toolchain 0.15.0"
+toolchain = "=0.15.0"
+requires = ["cargo-miden", "client", "core", "debug", "faucet-client", "midenc", "node", "ntx-builder", "protocol", "remote-prover", "validator", "verify", "vm"]
+kind = "script"
+script = "true"
+
+[[scenarios]]
+title = "Stub for toolchains 0.16.0 and 0.17.0"
+toolchain = ">=0.16.0, <0.18.0"
+requires = ["cargo-miden", "client", "core", "debug", "faucet-client", "format", "local-registry", "midenc", "node", "protocol", "remote-prover", "validator", "verify", "vm"]
+kind = "script"
+script = "true"
+
+[[scenarios]]
+title = "Stub for toolchain 0.18.0"
+toolchain = "=0.18.0"
+requires = ["core", "debug", "format", "local-registry", "node", "protocol", "remote-prover", "validator", "vm"]
+kind = "script"
+script = "true"
