@@ -26,6 +26,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          mkdir -p "${CARGO_HOME}/bin"
           if [ "${{ inputs.release }}" != "latest" ]; then
             tag="${{ inputs.release }}"
             url="https://github.com/0xMiden/midenup/releases/download/${tag}/installer.sh"
