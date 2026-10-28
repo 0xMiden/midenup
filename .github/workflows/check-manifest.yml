@@ -1,0 +1,46 @@
+name: check manifest
+
+on:
+  workflow_call:
+    inputs:
+      against:
+        description: URI of the manifest this change replaces
+        required: true
+        type: string
+  # ci.yml ignores manifest-only pushes, so those are checked here directly.
+  push:
+    branches: [next]
+    paths:
+      - manifest/**
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+      - uses: taiki-e/install-action@cargo-make
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+      - name: Check the channel manifest is formatted
+        run: cargo make check-manifest-format
+      - name: Validate the channel manifest
+        run: cargo make check-manifest
+      # `--online` checks upstream only what differs from the manifest being replaced, so a change
+      # that leaves the manifest alone makes no requests.
+      - name: Check the manifest against the one it replaces
+        # A push that creates the branch has no previous tip to compare against.
+        if: inputs.against != '' || github.event.before != '0000000000000000000000000000000000000000'
+        env:
+          # On a push, the manifest at the previous tip of the branch
+          AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
+        run: cargo make check-manifest --against "${AGAINST}" --online
