@@ -94,7 +94,8 @@ fn dependency_spec(authority: &ResolvedAuthority, features: &[String]) -> String
     let mut parts = Vec::with_capacity(2);
 
     match authority {
-        ResolvedAuthority::Registry { version } => parts.push(format!("version = \"{version}\"")),
+        // A bare version is a caret requirement to Cargo; `=` keeps it to the pinned release.
+        ResolvedAuthority::Registry { version } => parts.push(format!("version = \"={version}\"")),
         ResolvedAuthority::Git { url, revision, .. } => {
             parts.push(format!("git = \"{url}\", rev = \"{revision}\""))
         },
@@ -270,6 +271,7 @@ mod tests {
         let parsed: toml::Value = toml::from_str(&frontmatter(&script)).unwrap();
         let dep = &parsed["dependencies"]["fixture-pkg"];
 
+        assert_eq!(dep["version"].as_str(), Some("=0.1.0"), "the pinned version must be exact");
         assert_eq!(dep["default-features"].as_bool(), Some(false));
         let features: Vec<&str> = dep["features"]
             .as_array()
