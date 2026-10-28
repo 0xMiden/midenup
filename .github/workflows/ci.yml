@@ -246,9 +246,6 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/cleanup-runner
       - *install-rust
-      - name: Install all rustup toolchains present in the manifest
-        run: |
-          ./.github/auxiliary_scripts/install-toolchains.sh
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
