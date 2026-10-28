@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, bail};
 use midenup::manifest::Channel;
-use tempdir::TempDir;
+use tempfile::TempDir;
 
 use crate::scenarios::{self, Kind, Need, Scenario};
 
@@ -38,7 +38,10 @@ impl<'m> Home<'m> {
         manifest_uri: &str,
         toolchain: &'m Channel,
     ) -> anyhow::Result<Self> {
-        let root = TempDir::new("acceptance").context("failed to create a scratch directory")?;
+        let root = tempfile::Builder::new()
+            .prefix("acceptance")
+            .tempdir()
+            .context("failed to create a scratch directory")?;
         // Resolved, because some build scripts compare canonical paths, and the temporary
         // directory sits behind a symlink on macOS (`/var` -> `/private/var`).
         let resolved = std::fs::canonicalize(root.path())?;
@@ -90,7 +93,7 @@ impl<'m> Home<'m> {
             return Ok(Outcome::Skipped("needs Docker, which this host does not have".into()));
         }
 
-        let work = TempDir::new_in(&self.dir, "scenario")?;
+        let work = tempfile::Builder::new().prefix("scenario").tempdir_in(&self.dir)?;
         let output = match &scenario.kind {
             Kind::Script { script } => {
                 // Beside the working directory, so the scenario starts in an empty one.
@@ -204,7 +207,7 @@ mod tests {
 
     #[test]
     fn features_are_appended_to_the_suite_configuration() {
-        let dir = TempDir::new("acceptance-features").unwrap();
+        let dir = tempfile::Builder::new().prefix("acceptance-features").tempdir().unwrap();
         let config = dir.path().join("lit.suite.toml");
         std::fs::write(&config, "name = 'debug'\navailable_features = ['native']\n").unwrap();
         add_features(&config, vec!["toolchain=0.17.0".into(), "vm=0.17.2".into()]).unwrap();

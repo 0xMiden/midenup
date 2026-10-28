@@ -21,7 +21,7 @@ clap.workspace = true
 midenup.workspace = true
 semver = { version = "1.0", features = ["serde"] }
 serde.workspace = true
-tempdir = "0.3"
+tempfile = "3"
 toml = "1.0"
 
 [dev-dependencies]
