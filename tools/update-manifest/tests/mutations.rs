@@ -48,8 +48,8 @@ fn manifest_with(components: serde_json::Value) -> serde_json::Value {
 /// A manifest with two toolchains, `mainnet` naming the older one.
 ///
 /// This is the shape `promote` exists to change: a network that has somewhere to move to.
-fn fixture() -> (tempdir::TempDir, std::path::PathBuf) {
-    let dir = tempdir::TempDir::new("update-manifest-promote").unwrap();
+fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::Builder::new().prefix("update-manifest-promote").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         serde_json::json!({
@@ -68,8 +68,11 @@ fn fixture() -> (tempdir::TempDir, std::path::PathBuf) {
 
 /// The same, except that toolchain 0.16.0 cannot be resolved: `client` requires a component that
 /// is not in the channel.
-fn fixture_with_dangling_requirement() -> (tempdir::TempDir, std::path::PathBuf) {
-    let dir = tempdir::TempDir::new("update-manifest-promote-dangling").unwrap();
+fn fixture_with_dangling_requirement() -> (tempfile::TempDir, std::path::PathBuf) {
+    let dir = tempfile::Builder::new()
+        .prefix("update-manifest-promote-dangling")
+        .tempdir()
+        .unwrap();
     let path = write_manifest(
         dir.path(),
         serde_json::json!({
@@ -82,7 +85,7 @@ fn fixture_with_dangling_requirement() -> (tempdir::TempDir, std::path::PathBuf)
                 {"name": "0.16.0", "components": [
                     {"name": "client", "version": {"kind": "registry", "version": "0.16.0"},
                      "kind": "executable", "requires": ["ghost"], "profiles": ["minimal"],
-                     "installation_method": {"kind": "cargo", "crate_name": "c"},
+                     "installation_method": {"kind": "cargo", "crate_name": "c", "rustup_channel": "1.90.0"},
                      "installed-executable": "miden-client"}
                 ]}
             ]
@@ -96,7 +99,7 @@ fn cargo_executable(name: &str, installed: &str) -> serde_json::Value {
         "name": name,
         "version": {"kind": "registry", "version": "0.15.0"},
         "kind": "executable",
-        "installation_method": {"kind": "cargo", "crate_name": "some-crate"},
+        "installation_method": {"kind": "cargo", "crate_name": "some-crate", "rustup_channel": "1.90.0"},
         "installed-executable": installed,
         "profiles": ["minimal"]
     })
@@ -116,7 +119,7 @@ fn component<'a>(manifest: &'a serde_json::Value, name: &str) -> &'a serde_json:
 /// The merge applies the user's new value over the existing one, so the new value wins.
 #[test]
 fn partial_kind_update_changes_the_requested_field() {
-    let dir = tempdir::TempDir::new("update-manifest-patch").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-patch").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -132,7 +135,7 @@ fn partial_kind_update_changes_the_requested_field() {
             "--authority",
             r#"{"kind":"registry","version":"0.15.0"}"#,
             "--kind",
-            r#"{"installation_method":{"kind":"prebuilt"}}"#,
+            r#"{"installation_method":{"kind":"prebuilt-with-cargo-fallback","crate_name":"some-crate","rustup_channel":"1.90.0"}}"#,
         ],
     )
     .expect("update-component should succeed");
@@ -140,7 +143,7 @@ fn partial_kind_update_changes_the_requested_field() {
     let vm = read_manifest(&path);
     let vm = component(&vm, "vm");
     assert_eq!(
-        vm["installation_method"]["kind"], "prebuilt",
+        vm["installation_method"]["kind"], "prebuilt-with-cargo-fallback",
         "the requested field must actually change"
     );
     assert_eq!(
@@ -153,7 +156,7 @@ fn partial_kind_update_changes_the_requested_field() {
 /// which is where a reversed merge is least visible.
 #[test]
 fn partial_kind_update_can_change_a_nested_field() {
-    let dir = tempdir::TempDir::new("update-manifest-nested").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-nested").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -169,7 +172,7 @@ fn partial_kind_update_can_change_a_nested_field() {
             "--authority",
             r#"{"kind":"registry","version":"0.15.0"}"#,
             "--kind",
-            r#"{"installation_method":{"kind":"cargo","crate_name":"renamed-crate"}}"#,
+            r#"{"installation_method":{"kind":"cargo","crate_name":"renamed-crate","rustup_channel":"1.90.0"}}"#,
         ],
     )
     .expect("update-component should succeed");
@@ -185,7 +188,7 @@ fn partial_kind_update_can_change_a_nested_field() {
 /// updating one of its fields -- and does so while reporting success.
 #[test]
 fn a_non_object_kind_patch_is_rejected() {
-    let dir = tempdir::TempDir::new("update-manifest-nonobject").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-nonobject").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -215,7 +218,7 @@ fn a_non_object_kind_patch_is_rejected() {
 /// A failed mutation must leave the original file byte-for-byte intact.
 #[test]
 fn a_failed_mutation_does_not_write() {
-    let dir = tempdir::TempDir::new("update-manifest-nowrite").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-nowrite").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -244,7 +247,7 @@ fn a_failed_mutation_does_not_write() {
 /// discarding it accepts a cyclic manifest.
 #[test]
 fn check_rejects_a_cyclic_manifest() {
-    let dir = tempdir::TempDir::new("update-manifest-cycle").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-cycle").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([
@@ -263,7 +266,7 @@ fn check_rejects_a_cyclic_manifest() {
 
 #[test]
 fn check_accepts_a_well_formed_manifest() {
-    let dir = tempdir::TempDir::new("update-manifest-ok").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-ok").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -274,7 +277,7 @@ fn check_accepts_a_well_formed_manifest() {
 /// `check` must report every problem in one pass, not one per run.
 #[test]
 fn check_reports_all_errors_at_once() {
-    let dir = tempdir::TempDir::new("update-manifest-many").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-many").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([
@@ -292,10 +295,108 @@ fn check_reports_all_errors_at_once() {
     assert!(err.contains("alsoghost"), "both problems must be reported in one pass: {err}");
 }
 
+/// `check --against` judges the manifest as a replacement for the deployed one.
+#[test]
+fn check_against_the_deployed_manifest() {
+    let (dir, deployed) = fixture();
+    let against = format!("file://{}", deployed.display());
+
+    // Unchanged is trivially fine, whatever the timestamp says.
+    run(&deployed, &["check", "--against", &against]).expect("an unchanged manifest must pass");
+
+    // A change that leaves the timestamp alone is the mistake the rule exists for.
+    let next_dir = dir.path().join("next");
+    std::fs::create_dir(&next_dir).unwrap();
+    let mut stale = read_manifest(&deployed);
+    stale["networks"]["mainnet"] = serde_json::json!("0.16.0");
+    let stale = write_manifest(&next_dir, stale);
+    let err = run(&stale, &["check", "--against", &against]).expect_err("must fail");
+    assert!(err.contains("timestamp"), "{err}");
+
+    // A promotion with a fresh timestamp is exactly what a release looks like.
+    let mut next = read_manifest(&deployed);
+    next["date"] = serde_json::json!(1735689601);
+    next["networks"]["mainnet"] = serde_json::json!("0.16.0");
+    let next = write_manifest(&next_dir, next);
+    run(&next, &["check", "--against", &against]).expect("a promotion must pass");
+
+    // Moving back afterwards is refused. Written elsewhere: `next` is about to
+    // become the deployed side of the comparison.
+    let back_dir = dir.path().join("back");
+    std::fs::create_dir(&back_dir).unwrap();
+    let mut back = read_manifest(&deployed);
+    back["date"] = serde_json::json!(1735689602);
+    back["networks"]["mainnet"] = serde_json::json!("0.15.0");
+    let back = write_manifest(&back_dir, back);
+    let next_uri = format!("file://{}", next.display());
+    let err = run(&back, &["check", "--against", &next_uri]).expect_err("must fail");
+    assert!(err.contains("moves back"), "{err}");
+}
+
+/// A clone must not inherit its source's predecessor: the update path picks a successor by that
+/// field, and two channels claiming one predecessor is refused by `check`.
+#[test]
+fn clone_toolchain_does_not_carry_migrates_from() {
+    let dir = tempfile::Builder::new().prefix("update-manifest-clone").tempdir().unwrap();
+    let path = write_manifest(
+        dir.path(),
+        serde_json::json!({
+            "manifest_version": "3.0.0",
+            "min_client_version": "1.0.0",
+            "date": 1735689600,
+            "networks": {"mainnet": "0.15.0"},
+            "channels": [
+                {"name": "0.15.0", "migrates_from": "0.14.0",
+                 "components": [cargo_executable("vm", "miden-vm")]}
+            ]
+        }),
+    );
+
+    run(&path, &["clone-toolchain", "--from", "0.15.0", "--to", "0.16.0"]).expect("clone");
+
+    let manifest = read_manifest(&path);
+    let cloned = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "0.16.0")
+        .expect("the clone must exist");
+    assert!(cloned.get("migrates_from").is_none(), "{cloned}");
+    run(&path, &["check"]).expect("the result must pass check");
+}
+
+#[test]
+fn clone_toolchain_can_declare_what_it_supersedes() {
+    let (_dir, path) = fixture();
+
+    run(
+        &path,
+        &[
+            "clone-toolchain",
+            "--from",
+            "0.16.0",
+            "--to",
+            "0.17.0",
+            "--migrates-from",
+            "0.16.0",
+        ],
+    )
+    .expect("clone");
+
+    let manifest = read_manifest(&path);
+    let cloned = manifest["channels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "0.17.0")
+        .expect("the clone must exist");
+    assert_eq!(cloned["migrates_from"], "0.16.0");
+}
+
 /// Removing a component that something else still requires would leave the channel unresolvable.
 #[test]
 fn removing_a_still_required_component_is_rejected() {
-    let dir = tempdir::TempDir::new("update-manifest-remove").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-remove").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([
@@ -304,7 +405,7 @@ fn removing_a_still_required_component_is_rejected() {
              "artifacts": {"core.masp": {"uri": "https://example.invalid/core.masp"}}},
             {"name": "client", "version": {"kind": "registry", "version": "0.1.0"},
              "kind": "executable", "requires": ["core"], "profiles": ["minimal"],
-             "installation_method": {"kind": "cargo", "crate_name": "c"},
+             "installation_method": {"kind": "cargo", "crate_name": "c", "rustup_channel": "1.90.0"},
              "installed-executable": "miden-client"}
         ])),
     );
@@ -320,7 +421,7 @@ fn removing_a_still_required_component_is_rejected() {
 
 #[test]
 fn removing_an_unrequired_component_succeeds() {
-    let dir = tempdir::TempDir::new("update-manifest-remove-ok").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-remove-ok").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -331,7 +432,7 @@ fn removing_an_unrequired_component_succeeds() {
 
 #[test]
 fn add_component_accepts_profiles() {
-    let dir = tempdir::TempDir::new("update-manifest-add").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-add").tempdir().unwrap();
     let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
 
     run(&path, &[
@@ -339,7 +440,7 @@ fn add_component_accepts_profiles() {
         "--channel", "0.15.0",
         "vm",
         "--authority", r#"{"kind":"registry","version":"0.15.0"}"#,
-        "--kind", r#"{"kind":"executable","installation_method":{"kind":"cargo","crate_name":"miden-vm"},"installed-executable":"miden-vm"}"#,
+        "--kind", r#"{"kind":"executable","installation_method":{"kind":"cargo","crate_name":"miden-vm","rustup_channel":"1.90.0"},"installed-executable":"miden-vm"}"#,
         "--profile", "minimal",
     ])
     .expect("add-component should succeed");
@@ -348,10 +449,52 @@ fn add_component_accepts_profiles() {
     assert_eq!(component(&manifest, "vm")["profiles"], serde_json::json!(["minimal"]));
 }
 
+#[test]
+fn add_component_accepts_artifacts_for_a_prebuilt_component() {
+    let dir = tempfile::Builder::new()
+        .prefix("update-manifest-add-prebuilt")
+        .tempdir()
+        .unwrap();
+    let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
+    let kind = r#"{"kind":"executable","installation_method":{"kind":"prebuilt"},"installed-executable":"miden-client"}"#;
+
+    let err = run(
+        &path,
+        &[
+            "add-component",
+            "--channel",
+            "0.15.0",
+            "client",
+            "--authority",
+            r#"{"kind":"registry","version":"0.15.0"}"#,
+            "--kind",
+            kind,
+        ],
+    )
+    .expect_err("a prebuilt component without artifacts covers no target");
+    assert!(err.contains("cannot be installed on"), "{err}");
+
+    run(&path, &[
+        "add-component",
+        "--channel", "0.15.0",
+        "client",
+        "--authority", r#"{"kind":"registry","version":"0.15.0"}"#,
+        "--kind", kind,
+        "--artifacts", r#"{"miden-client":{"uri":"https://example.invalid/%target","targets":{"aarch64-apple-darwin":{},"x86_64-unknown-linux-gnu":{}}}}"#,
+    ])
+    .expect("add-component should succeed");
+
+    let manifest = read_manifest(&path);
+    assert_eq!(
+        component(&manifest, "client")["artifacts"]["miden-client"]["uri"],
+        "https://example.invalid/%target"
+    );
+}
+
 /// `legacy-package` is closed to new authoring: packages ship prebuilt from here on.
 #[test]
 fn authoring_a_legacy_package_is_rejected() {
-    let dir = tempdir::TempDir::new("update-manifest-legacy").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-legacy").tempdir().unwrap();
     let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
 
     let err = run(&path, &[
@@ -373,7 +516,7 @@ fn authoring_a_legacy_package_is_rejected() {
 /// only then renamed into place.
 #[test]
 fn a_mutation_producing_an_invalid_manifest_is_refused() {
-    let dir = tempdir::TempDir::new("update-manifest-invalid").unwrap();
+    let dir = tempfile::Builder::new().prefix("update-manifest-invalid").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
