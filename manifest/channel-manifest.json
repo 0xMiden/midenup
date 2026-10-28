@@ -1,10 +1,10 @@
 {
   "manifest_version": "3.0.0",
-  "date": 1793208995,
+  "date": 1793227303,
   "networks": {
-    "devnet": "0.17.0",
-    "mainnet": "0.17.0",
-    "testnet": "0.17.0"
+    "devnet": "0.18.0",
+    "mainnet": "0.18.0",
+    "testnet": "0.18.0"
   },
   "channels": [
     {
@@ -2575,6 +2575,67 @@
       "name": "0.18.0",
       "components": [
         {
+          "aliases": {
+            "account": [
+              "%installed-executable",
+              "account"
+            ],
+            "call": [
+              "%installed-executable",
+              "call"
+            ],
+            "consumable-notes": [
+              "%installed-executable",
+              "notes",
+              "--list",
+              "consumable"
+            ],
+            "consume-notes": [
+              "%installed-executable",
+              "consume-notes"
+            ],
+            "exec": [
+              "%installed-executable",
+              "exec"
+            ],
+            "new-wallet": [
+              "%installed-executable",
+              "new-wallet"
+            ],
+            "sync": [
+              "%installed-executable",
+              "sync"
+            ],
+            "transfer": [
+              "%installed-executable",
+              "transfer"
+            ]
+          },
+          "artifacts": {
+            "miden-client": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/rust-sdk/releases/download/v%version/miden-client-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-client",
+          "kind": "executable",
+          "name": "client",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.18.0"
+          }
+        },
+        {
           "artifacts": {
             "miden-core.masp": {
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
@@ -2641,7 +2702,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.36.2"
+            "version": "0.36.3"
           }
         },
         {
@@ -2669,7 +2730,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.36.2"
+            "version": "0.36.3"
           }
         },
         {
@@ -2743,7 +2804,7 @@
           "name": "remote-prover",
           "version": {
             "kind": "registry",
-            "version": "0.18.0"
+            "version": "0.18.1"
           }
         },
         {
@@ -2758,7 +2819,7 @@
           "name": "validator",
           "version": {
             "kind": "registry",
-            "version": "0.18.0"
+            "version": "0.18.1"
           }
         },
         {
@@ -2783,7 +2844,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.36.2"
+            "version": "0.36.3"
           }
         }
       ]
