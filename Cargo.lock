@@ -12,7 +12,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "tempdir",
+ "tempfile",
  "toml",
 ]
 
