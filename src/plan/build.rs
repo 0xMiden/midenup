@@ -85,6 +85,14 @@ pub struct SymlinkSpec {
     pub target_binary: String,
 }
 
+/// The packaging and member selector for one archived artifact.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveMember {
+    pub format: SupportedFormat,
+    /// The artifact key, used as an exact relative member path in multi-file archives.
+    pub member: String,
+}
+
 /// One thing the executor must do. Every path is final and absolute.
 #[derive(Debug, Clone, PartialEq)]
 pub enum PlanStep {
@@ -97,7 +105,7 @@ pub enum PlanStep {
         /// Recorded in the receipt, never verified. See [crate::artifact::Digest].
         digest: Option<Digest>,
         /// Set when the fetched bytes are an archive to unpack the artifact from.
-        archive: Option<SupportedFormat>,
+        archive: Option<ArchiveMember>,
         /// What to do instead if the transfer fails (spec section 9.3).
         ///
         /// Only a `prebuilt-with-cargo-fallback` component has one, and the planner only ever
@@ -113,7 +121,7 @@ pub enum PlanStep {
         mode: u32,
         owner: String,
         /// As [PlanStep::Download::archive]. A `file://` artifact can be an archive too.
-        archive: Option<SupportedFormat>,
+        archive: Option<ArchiveMember>,
         /// As [PlanStep::Download::fallback]. A `file://` artifact can be missing just as a
         /// download can 404, and the declared fallback is what makes either recoverable.
         fallback: Option<Box<PlanStep>>,
@@ -611,6 +619,7 @@ fn push_transfer_with_fallback(
         uri: uri.to_string(),
         archive: archive.map(|format| format.as_str().to_string()),
     });
+    let archive = archive.map(|format| ArchiveMember { format, member: id.to_string() });
 
     steps.push(match uri {
         ArtifactUri::File(src) => PlanStep::CopyLocal {
@@ -917,10 +926,11 @@ mod tests {
                 assert_eq!(dest, &sysroot().join("bin").join("miden-vm"));
                 assert_eq!(*mode, crate::plan::MODE_EXECUTABLE);
                 assert_eq!(
-                    archive.as_ref().map(|format| format.as_str()),
+                    archive.as_ref().map(|archive| archive.format.as_str()),
                     Some("tar.gz"),
                     "the step must carry the archive format"
                 );
+                assert_eq!(archive.as_ref().unwrap().member, "miden-vm");
             },
             other => panic!("expected a download, got {other:?}"),
         }
