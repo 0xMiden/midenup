@@ -259,5 +259,5 @@ jobs:
         env:
           AGAINST: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.pull_request.base.sha }}/manifest/v3/manifest.json
         run: |
-          cargo build -p midenup -p acceptance
-          ./target/debug/acceptance --against "${AGAINST}" --midenup target/debug/midenup
+          cargo build -p midenup -p manifest-utils
+          ./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json --against "${AGAINST}" --midenup target/debug/midenup

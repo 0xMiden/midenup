@@ -2,7 +2,7 @@
 #
 # Each scenario applies to the toolchains in `toolchain` (a semver range with an upper bound, so a
 # new toolchain line is only covered once a team widens it) and runs when a change touches one of
-# the components in `requires`. Run them with `cargo run -p acceptance`; see
+# the components in `requires`. Run them with `manifest-utils acceptance`; see
 # manifest/UPDATE_INSTRUCTIONS.md.
 #
 # [[scenarios]]

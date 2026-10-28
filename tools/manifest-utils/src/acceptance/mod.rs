@@ -1,62 +1,36 @@
+//! Runs the acceptance scenarios for the toolchains a manifest change affects.
+
 mod runner;
 mod scenarios;
 mod selection;
 
-use std::{path::PathBuf, process::ExitCode};
+use std::path::Path;
 
 use anyhow::Context;
-use clap::Parser;
 use midenup::manifest::{VersionedManifest, validate};
 
-use crate::runner::{Home, Outcome};
-
-/// Runs the acceptance scenarios for the toolchains a manifest change affects.
-#[derive(Debug, Parser)]
-#[command(name = "acceptance")]
-struct Cli {
-    /// The candidate manifest
-    #[arg(long, value_name = "PATH", default_value = "manifest/v3/manifest.json")]
-    manifest_path: PathBuf,
-    /// The manifest this one replaces; only toolchains changed since then are verified, otherwise
-    /// every network's toolchain is
-    #[arg(long, value_name = "URI")]
-    against: Option<String>,
-    /// The scenario file; lit suites live in directories next to it
-    #[arg(long, value_name = "PATH", default_value = "acceptance/scenarios.toml")]
-    scenarios: PathBuf,
-    /// The `midenup` binary that installs the toolchains, put on the scenarios' `PATH`
-    #[arg(long, value_name = "PATH", required(true))]
-    midenup: PathBuf,
-}
-
-fn main() -> ExitCode {
-    match run(&Cli::parse()) {
-        Ok(true) => ExitCode::SUCCESS,
-        Ok(false) => ExitCode::FAILURE,
-        Err(err) => {
-            eprintln!("error: {err:#}");
-            ExitCode::FAILURE
-        },
-    }
-}
+use self::runner::{Home, Outcome};
 
 /// Prints the report and returns whether the change is accepted.
-fn run(cli: &Cli) -> anyhow::Result<bool> {
-    let manifest_path = std::fs::canonicalize(&cli.manifest_path)
-        .with_context(|| format!("failed to find {}", cli.manifest_path.display()))?;
+pub fn run(
+    manifest_path: &Path,
+    against: Option<&str>,
+    scenarios_path: &Path,
+    midenup: &Path,
+) -> anyhow::Result<bool> {
+    let manifest_path = std::fs::canonicalize(manifest_path)
+        .with_context(|| format!("failed to find {}", manifest_path.display()))?;
     let manifest = VersionedManifest::load_from_file(&manifest_path)?;
-    let previous = cli
-        .against
-        .as_ref()
+    let previous = against
         .map(|uri| {
             VersionedManifest::load_from(uri)
                 .with_context(|| format!("failed to load the manifest at '{uri}'"))
         })
         .transpose()?;
-    let scenarios = scenarios::load(&cli.scenarios)?;
+    let scenarios = scenarios::load(scenarios_path)?;
     let mut accepted = true;
 
-    println!("Verifying {}..\n", cli.manifest_path.display());
+    println!("Verifying {}..\n", manifest_path.display());
     println!("Pre-requisites:\n");
 
     match validate::validate_manifest(&manifest) {
@@ -109,7 +83,7 @@ fn run(cli: &Cli) -> anyhow::Result<bool> {
             target.toolchain.name
         );
 
-        let home = match Home::install(&cli.midenup, &manifest_uri, target.toolchain) {
+        let home = match Home::install(midenup, &manifest_uri, target.toolchain) {
             Ok(home) => home,
             Err(err) => {
                 println!("* Install toolchain {} .. FAIL\n\n{err:#}\n", target.toolchain.name);
@@ -118,7 +92,7 @@ fn run(cli: &Cli) -> anyhow::Result<bool> {
             },
         };
         for scenario in selected {
-            match home.run(scenario, &cli.scenarios)? {
+            match home.run(scenario, scenarios_path)? {
                 Outcome::Pass => println!("* {} .. PASS", scenario.title),
                 Outcome::Fail(output) => {
                     println!("* {} .. FAIL\n\n{output}\n", scenario.title);

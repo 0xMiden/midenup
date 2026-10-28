@@ -1,3 +1,4 @@
+mod acceptance;
 mod online;
 
 use std::{
@@ -68,6 +69,20 @@ enum Command {
         /// The previous manifest's URI
         #[arg(required(true), value_name = "PREVIOUS")]
         previous: String,
+    },
+    /// Run the acceptance scenarios for the toolchains this manifest changes
+    Acceptance {
+        #[command(flatten)]
+        manifest: ManifestPath,
+        /// The manifest this one replaces; without it, every network's toolchain is verified
+        #[arg(long, value_name = "URI")]
+        against: Option<String>,
+        /// The scenario file; lit suites live in directories next to it
+        #[arg(long, value_name = "PATH", default_value = "acceptance/scenarios.toml")]
+        scenarios: PathBuf,
+        /// The `midenup` binary that installs the toolchains, put on the scenarios' `PATH`
+        #[arg(long, value_name = "PATH", required(true))]
+        midenup: PathBuf,
     },
     /// Format the manifest
     Format {
@@ -240,6 +255,7 @@ impl Command {
         match self {
             Self::Check { manifest, .. }
             | Self::Diff { manifest, .. }
+            | Self::Acceptance { manifest, .. }
             | Self::Format { manifest, .. }
             | Self::Touch { manifest }
             | Self::CloneToolchain { manifest, .. }
@@ -311,6 +327,12 @@ impl Cli {
                     .with_context(|| format!("failed to load the manifest at '{uri}'"))?;
                 let changes = midenup::manifest::diff::diff(&previous, &manifest);
                 print!("{}", render_changes(&changes));
+                Ok(())
+            },
+            Command::Acceptance { against, scenarios, midenup, .. } => {
+                if !acceptance::run(manifest_path, against.as_deref(), scenarios, midenup)? {
+                    bail!("the acceptance scenarios rejected the change");
+                }
                 Ok(())
             },
             Command::Format { check: true, .. } => {

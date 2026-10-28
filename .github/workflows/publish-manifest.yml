@@ -52,8 +52,8 @@ jobs:
           tool: litcheck
       - name: Acceptance tests
         run: |
-          cargo build -p midenup -p acceptance
-          ./target/debug/acceptance --midenup target/debug/midenup
+          cargo build -p midenup -p manifest-utils
+          ./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json --midenup target/debug/midenup
 
   upload-manifest:
     name: upload manifest

@@ -201,8 +201,9 @@ features such as `vm=0.17.2`). A scenario that needs Docker declares `needs = ["
 skipped where Docker is missing. To run them locally:
 
 ```
-cargo build -p midenup -p acceptance
-./target/debug/acceptance --against file:///tmp/previous-manifest.json --midenup target/debug/midenup
+cargo build -p midenup -p manifest-utils
+./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json \
+    --against file:///tmp/previous-manifest.json --midenup target/debug/midenup
 ```
 
 ## Publishing
