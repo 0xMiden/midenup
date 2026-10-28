@@ -1,147 +1,185 @@
-//! Getting the file out of an archived artifact.
+//! Selecting installed files from an archive in one decompression pass.
 //!
-//! An artifact is exactly one installed file (spec section 6.1), so the archive must hold exactly
-//! one file. That file is streamed to a writer the caller owns rather than returned as bytes: a
-//! release binary runs to hundreds of megabytes, and the compressed body it comes out of is still
-//! in hand while it is being unpacked. Nothing but the artifact is written anywhere.
-//!
-//! # Adding a new supported format
-//!
-//! A reader beside [from_tar], and an arm for it in [extract]. A reader takes a stream, so any
-//! decompression composes in front of it, and owes that stream a read through to EOF; one needing
-//! random access -- a zip's central directory sits at the end -- can take the whole body instead.
-//! The size limit lives in [extract], where it bounds every byte any reader pulls.
+//! Only requested regular members are retained, plus the first regular file until a second
+//! rules out sole-file compatibility. The caller supplies temporary writers, so decompressed
+//! files need not live in memory. Member paths are lookup keys, never filesystem destinations.
 
-use std::io::{Read, Write};
+use std::{
+    collections::{BTreeMap, BTreeSet, btree_map::Entry},
+    io::{Read, Write},
+};
 
 use crate::artifact::SupportedFormat;
 
-/// 2 GB limit on decompressed archive size.
+/// 2 GiB limit on decompressed archive size, including unselected members and metadata.
 const MAX_UNPACKED_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ArchiveError {
     #[error("failed to read the archive fetched from '{uri}': {reason}")]
     Malformed { uri: String, reason: String },
-    #[error("the archive fetched from '{uri}' contains more than one file")]
-    NonZeroFiles { uri: String },
     #[error("the archive fetched from '{uri}' contains no files at all")]
     Empty { uri: String },
+    #[error("the archive fetched from '{uri}' has no regular file named '{member}'")]
+    MissingMember { uri: String, member: String },
+    #[error("the archive fetched from '{uri}' contains '{member}' more than once")]
+    DuplicateMember { uri: String, member: String },
+    #[error("the member '{member}' in the archive fetched from '{uri}' is not a regular file")]
+    NotRegular { uri: String, member: String },
     #[error("the archive fetched from '{uri}' unpacks to more than {limit} bytes")]
     TooLarge { uri: String, limit: u64 },
     #[error("failed to write the file unpacked from '{uri}': {reason}")]
     Unwritable { uri: String, reason: String },
 }
 
-/// Writes the one file `body` holds, as packaged by `format`, to `out`.
-///
-/// Every format has a reader by construction: [SupportedFormat] is exactly the set this build can
-/// read, so there is no unreadable case to report from here.
-///
-/// `uri` is only used to say what failed: the bytes are already in hand.
-///
-/// A failure can leave `out` written to: the file is streamed out before the trailer proving the
-/// archive intact has been read, and a second file only turns up after the first has been handed
-/// over. What arrived is the artifact when this returns `Ok`, and is to be discarded otherwise.
-pub fn extract(
-    body: &[u8],
-    format: SupportedFormat,
-    uri: &str,
-    out: &mut impl Write,
-) -> Result<(), ArchiveError> {
-    extract_bounded(body, format, uri, out, MAX_UNPACKED_BYTES)
+#[derive(Debug)]
+enum MemberError {
+    Duplicate,
+    NotRegular,
 }
 
-/// [extract], against a stated `limit`.
-fn extract_bounded(
+/// Selected temporary files from a fully validated archive.
+#[derive(Debug)]
+pub struct Extracted<W> {
+    files: BTreeMap<Vec<u8>, Result<W, MemberError>>,
+    sole: Option<Vec<u8>>,
+    uri: String,
+}
+
+impl<W> Extracted<W> {
+    /// Exact relative path match, or the sole regular file for legacy single-file archives.
+    pub fn member(&self, name: &str) -> Result<&W, ArchiveError> {
+        let selected = self
+            .files
+            .get(name.as_bytes())
+            .or_else(|| self.sole.as_ref().and_then(|sole| self.files.get(sole)));
+        match selected {
+            Some(Ok(file)) => Ok(file),
+            Some(Err(MemberError::Duplicate)) => Err(ArchiveError::DuplicateMember {
+                uri: self.uri.clone(),
+                member: name.to_string(),
+            }),
+            Some(Err(MemberError::NotRegular)) => Err(ArchiveError::NotRegular {
+                uri: self.uri.clone(),
+                member: name.to_string(),
+            }),
+            None => Err(ArchiveError::MissingMember {
+                uri: self.uri.clone(),
+                member: name.to_string(),
+            }),
+        }
+    }
+}
+
+/// Scans the complete archive before exposing any selected file. Duplicate and non-regular
+/// selected members are per-member errors; malformed streams invalidate the entire result.
+/// Every temporary writer is dropped on failure, including a candidate discarded when a second
+/// regular file rules out sole-file compatibility.
+pub fn extract<W: Write>(
     body: &[u8],
     format: SupportedFormat,
     uri: &str,
-    out: &mut impl Write,
+    requested: &[&str],
+    create: impl FnMut() -> std::io::Result<W>,
+) -> Result<Extracted<W>, ArchiveError> {
+    extract_bounded(body, format, uri, requested, create, MAX_UNPACKED_BYTES)
+}
+
+fn extract_bounded<W: Write>(
+    body: &[u8],
+    format: SupportedFormat,
+    uri: &str,
+    requested: &[&str],
+    create: impl FnMut() -> std::io::Result<W>,
     limit: u64,
-) -> Result<(), ArchiveError> {
-    // One past the limit, so that running out of allowance is distinguishable from a stream that
-    // ended on it.
+) -> Result<Extracted<W>, ArchiveError> {
     let mut stream = match format {
         SupportedFormat::TarGz => flate2::read::MultiGzDecoder::new(body).take(limit + 1),
     };
-
-    let result = from_tar(&mut stream, uri, out);
-
-    // Ahead of `result`: a stream cut off at the limit reaches the format reader as one that ended,
-    // which it may well accept, and a corrupt archive is the wrong thing to report about an archive
-    // that is merely too big.
+    let result = from_tar(&mut stream, uri, requested, create);
     if stream.limit() == 0 {
         return Err(ArchiveError::TooLarge { uri: uri.to_string(), limit });
     }
-
     result
 }
 
-/// Streams the sole regular file out of a tar stream to `out`.
-///
-/// The stream is read through to EOF even once the tar data is accounted for, because a
-/// decompressor in front of it only verifies its checksum and length trailer when a read pushes
-/// past the compressed data, and the tar end-of-archive blocks come first. Stopping at the end of
-/// the tar takes a truncated or tampered archive for an intact one.
-fn from_tar<R: Read>(stream: R, uri: &str, out: &mut impl Write) -> Result<(), ArchiveError> {
+fn from_tar<W: Write>(
+    stream: impl Read,
+    uri: &str,
+    requested: &[&str],
+    mut create: impl FnMut() -> std::io::Result<W>,
+) -> Result<Extracted<W>, ArchiveError> {
     let malformed = |err: std::io::Error| ArchiveError::Malformed {
         uri: uri.to_string(),
         reason: err.to_string(),
     };
-
+    let unwritable = |err: std::io::Error| ArchiveError::Unwritable {
+        uri: uri.to_string(),
+        reason: err.to_string(),
+    };
+    let requested: BTreeSet<&[u8]> = requested.iter().map(|name| name.as_bytes()).collect();
+    let mut extracted = Extracted {
+        files: BTreeMap::new(),
+        sole: None,
+        uri: uri.to_string(),
+    };
+    let mut count = 0;
     let mut tar = tar::Archive::new(stream);
-    // A tar end marker is allowed to be followed by more tar data. Continue past zero blocks so a
-    // concatenated archive cannot hide a second file, and so arbitrary trailing payload is parsed
-    // and rejected rather than silently discarded below.
+    // Concatenated tar data cannot hide later members or arbitrary trailing payload.
     tar.set_ignore_zeros(true);
-    let entries = tar.entries().map_err(malformed)?;
-
-    // A flag rather than the bytes: the file is gone once written out, and a decompressing stream
-    // cannot be rewound to come back for it.
-    let mut found = false;
-    // 64 KiB sized buffer.
     let mut buffer = [0u8; 64 * 1024];
 
-    for entry in entries {
+    for entry in tar.entries().map_err(malformed)? {
         let mut entry = entry.map_err(malformed)?;
-
-        // A directory is not a candidate, and neither is a symlink or any other special entry.
+        let path = entry.path_bytes();
+        let mut name = path.as_ref();
+        while let Some(rest) = name.strip_prefix(b"./") {
+            name = rest;
+        }
+        let name = name.to_vec();
+        let selected = requested.contains(name.as_slice());
         if !entry.header().entry_type().is_file() {
+            if selected {
+                extracted.files.insert(name, Err(MemberError::NotRegular));
+            }
             continue;
         }
 
-        // A second file settles it, so there is nothing to learn from the rest of the stream.
-        if found {
-            return Err(ArchiveError::NonZeroFiles { uri: uri.to_string() });
+        count += 1;
+        if count == 1 {
+            extracted.sole = Some(name.clone());
+        } else if count == 2 {
+            extracted.sole = None;
+            extracted.files.retain(|name, _| requested.contains(name.as_slice()));
         }
-        found = true;
+        if !selected && count != 1 {
+            continue;
+        }
+        let slot = match extracted.files.entry(name) {
+            Entry::Occupied(mut slot) => {
+                *slot.get_mut() = Err(MemberError::Duplicate);
+                continue;
+            },
+            Entry::Vacant(slot) => slot,
+        };
 
-        // Copied by hand rather than with `io::copy`, which gives both sides one error type: a
-        // destination that cannot be written to says nothing about whether the archive reads.
+        let mut file = create().map_err(unwritable)?;
         loop {
             let read = entry.read(&mut buffer).map_err(malformed)?;
             if read == 0 {
                 break;
             }
-            out.write_all(&buffer[..read]).map_err(|err| ArchiveError::Unwritable {
-                uri: uri.to_string(),
-                reason: err.to_string(),
-            })?;
+            file.write_all(&buffer[..read]).map_err(unwritable)?;
         }
+        slot.insert(Ok(file));
     }
 
-    // Read for the errors it raises rather than for the bytes. Ignoring zero blocks normally makes
-    // the entry iterator reach EOF itself, but keep this drain as the format reader's explicit
-    // guarantee that a decompressor in front of it validates every trailer before success.
-    let mut rest = tar.into_inner();
-    std::io::copy(&mut rest, &mut std::io::sink()).map_err(malformed)?;
-
-    if !found {
+    // Gzip trailers are validated only after the decompressed tar reaches EOF.
+    std::io::copy(&mut tar.into_inner(), &mut std::io::sink()).map_err(malformed)?;
+    if count == 0 {
         return Err(ArchiveError::Empty { uri: uri.to_string() });
     }
-
-    Ok(())
+    Ok(extracted)
 }
 
 #[cfg(test)]
@@ -157,14 +195,16 @@ mod tests {
 
     /// What [extract] writes out for `body`, or the error it refuses with.
     fn extracted(body: &[u8]) -> Result<Vec<u8>, ArchiveError> {
-        let mut out = Vec::new();
-        extract(body, SupportedFormat::TarGz, URI, &mut out).map(|()| out)
+        extract(body, SupportedFormat::TarGz, URI, &["artifact"], || Ok(Vec::new()))?
+            .member("artifact")
+            .cloned()
     }
 
     /// What [extract] writes out for `body` under a limit of `limit`, or the error it refuses with.
     fn extracted_under(limit: u64, body: &[u8]) -> Result<Vec<u8>, ArchiveError> {
-        let mut out = Vec::new();
-        extract_bounded(body, SupportedFormat::TarGz, URI, &mut out, limit).map(|()| out)
+        extract_bounded(body, SupportedFormat::TarGz, URI, &["artifact"], || Ok(Vec::new()), limit)?
+            .member("artifact")
+            .cloned()
     }
 
     /// A tar archive of `(path, contents)` entries.
@@ -232,11 +272,11 @@ mod tests {
         assert_eq!(extracted, contents, "every read must reach the writer, in order");
     }
 
-    /// Which of two files is the artifact is not something to guess.
+    /// Multi-file archives require the requested member, never an arbitrary first file.
     #[test]
-    fn several_files_is_an_error() {
+    fn a_missing_member_in_a_multi_file_archive_is_an_error() {
         let err = extracted(&tarball(&[("a", b"one"), ("b", b"two")])).expect_err("must fail");
-        assert!(matches!(err, ArchiveError::NonZeroFiles { .. }), "{err}");
+        assert!(matches!(err, ArchiveError::MissingMember { .. }), "{err}");
         assert!(err.to_string().contains(URI), "the message must name the source: {err}");
     }
 
@@ -247,7 +287,103 @@ mod tests {
         joined.extend(tar(&[("b", b"two")]));
 
         let err = extracted(&gzipped(joined)).expect_err("must fail");
-        assert!(matches!(err, ArchiveError::NonZeroFiles { .. }), "{err}");
+        assert!(matches!(err, ArchiveError::MissingMember { .. }), "{err}");
+    }
+
+    #[test]
+    fn selected_members_match_exact_relative_paths_and_ignore_unrequested_files() {
+        let body = tarball(&[
+            ("other/config.yml", b"other"),
+            ("./nested/config.yml", b"nested"),
+            ("./config.yml", b"top-level"),
+            ("README", b"ignored"),
+        ]);
+        let files = extract(
+            &body,
+            SupportedFormat::TarGz,
+            URI,
+            &["config.yml", "nested/config.yml"],
+            || Ok(Vec::new()),
+        )
+        .unwrap();
+        assert_eq!(files.member("config.yml").unwrap(), b"top-level");
+        assert_eq!(files.member("nested/config.yml").unwrap(), b"nested");
+        assert!(matches!(files.member("missing"), Err(ArchiveError::MissingMember { .. })));
+    }
+
+    #[test]
+    fn a_later_matching_member_does_not_retain_bytes_from_the_first_candidate() {
+        let body = tarball(&[("README", b"long unrequested contents"), ("config.yml", b"x")]);
+        let files = extract(&body, SupportedFormat::TarGz, URI, &["config.yml"], || Ok(Vec::new()))
+            .unwrap();
+        assert_eq!(files.member("config.yml").unwrap(), b"x");
+    }
+
+    #[test]
+    fn a_selected_link_cannot_fall_back_to_the_sole_regular_file() {
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o777);
+        link.set_link_name("payload").unwrap();
+        link.set_cksum();
+        tar.append_data(&mut link, "config.yml", std::io::empty()).unwrap();
+        let mut file = tar::Header::new_gnu();
+        file.set_size(7);
+        file.set_mode(0o644);
+        file.set_cksum();
+        tar.append_data(&mut file, "payload", &b"content"[..]).unwrap();
+        let files = extract(
+            &gzipped(tar.into_inner().unwrap()),
+            SupportedFormat::TarGz,
+            URI,
+            &["config.yml"],
+            || Ok(Vec::new()),
+        )
+        .unwrap();
+        assert!(matches!(files.member("config.yml"), Err(ArchiveError::NotRegular { .. })));
+    }
+
+    #[test]
+    fn a_duplicate_requested_member_does_not_invalidate_other_members() {
+        let mut joined = tar(&[("config.yml", b"first"), ("valid.yml", b"valid")]);
+        joined.extend(tar(&[("./config.yml", b"duplicate")]));
+        let files = extract(
+            &gzipped(joined),
+            SupportedFormat::TarGz,
+            URI,
+            &["config.yml", "valid.yml"],
+            || Ok(Vec::new()),
+        )
+        .unwrap();
+        assert!(matches!(files.member("config.yml"), Err(ArchiveError::DuplicateMember { .. })));
+        assert_eq!(files.member("valid.yml").unwrap(), b"valid");
+    }
+
+    #[test]
+    fn selected_files_are_not_returned_when_a_later_gzip_trailer_is_corrupt() {
+        let mut body = tarball(&[("config.yml", b"selected"), ("README", b"ignored")]);
+        body.extend(gzipped(vec![0; 1024]));
+        let crc = body.len() - TRAILER;
+        body[crc] ^= 0xff;
+        let result =
+            extract(&body, SupportedFormat::TarGz, URI, &["config.yml"], || Ok(Vec::new()));
+        assert!(matches!(result, Err(ArchiveError::Malformed { .. })));
+    }
+
+    #[test]
+    fn unselected_members_still_count_toward_the_decompression_limit() {
+        let body = tarball(&[("config.yml", b"selected"), ("unselected", &vec![0; 128 * 1024])]);
+        let result = extract_bounded(
+            &body,
+            SupportedFormat::TarGz,
+            URI,
+            &["config.yml"],
+            || Ok(Vec::new()),
+            64 * 1024,
+        );
+        assert!(matches!(result, Err(ArchiveError::TooLarge { .. })));
     }
 
     #[test]
@@ -309,6 +445,7 @@ mod tests {
     /// A destination that refuses the bytes is not a defect in the archive.
     #[test]
     fn a_writer_that_fails_is_reported_as_such() {
+        #[derive(Debug)]
         struct Full;
         impl Write for Full {
             fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
@@ -320,8 +457,8 @@ mod tests {
             }
         }
 
-        let err =
-            extract(&nested(), SupportedFormat::TarGz, URI, &mut Full).expect_err("must fail");
+        let err = extract(&nested(), SupportedFormat::TarGz, URI, &["artifact"], || Ok(Full))
+            .expect_err("must fail");
         assert!(matches!(err, ArchiveError::Unwritable { .. }), "{err}");
         assert!(err.to_string().contains(URI), "the message must name the source: {err}");
     }

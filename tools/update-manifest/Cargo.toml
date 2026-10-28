@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Tool for updating midenup manifests safely"
 authors.workspace = true
 repository.workspace = true
-homepage.workspace = true
 documentation.workspace = true
 categories.workspace = true
 keywords.workspace = true

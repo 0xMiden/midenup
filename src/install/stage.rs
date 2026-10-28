@@ -148,6 +148,7 @@ pub fn execute(
     let mut pending_extractions = Vec::new();
     let mut realized = Realized::new();
     let mut announced = BTreeSet::new();
+    let mut acquisitions = crate::install::download::Acquisitions::new(&plan.steps);
 
     let planned = planned_announcements(plan);
     announce_summary(&planned);
@@ -170,7 +171,7 @@ pub fn execute(
 
         announce(step, &mut announced, Some(&mut progress));
 
-        let method = match run(step, staging_root, build_cache, verbose, debug) {
+        let method = match run(step, &mut acquisitions, staging_root, build_cache, verbose, debug) {
             Ok(method) => method,
             Err(err) => {
                 // A declared Cargo fallback is what makes an unavailable artifact recoverable
@@ -181,7 +182,7 @@ pub fn execute(
                 };
                 crate::warn!("could not acquire {}: {err}", step.owner().bold());
                 announce(fallback, &mut announced, None);
-                run(fallback, staging_root, build_cache, verbose, debug)?
+                run(fallback, &mut acquisitions, staging_root, build_cache, verbose, debug)?
             },
         };
 
@@ -316,6 +317,7 @@ fn announce(
 /// Performs one step, reporting how its output was produced.
 fn run(
     step: &PlanStep,
+    acquisitions: &mut crate::install::download::Acquisitions<'_>,
     staging_root: &Path,
     build_cache: &Path,
     verbose: bool,
@@ -323,7 +325,7 @@ fn run(
 ) -> Result<RealizedMethod, StageError> {
     match step {
         PlanStep::Download { .. } | PlanStep::CopyLocal { .. } => {
-            crate::install::acquire(step)?;
+            acquisitions.acquire(step)?;
             Ok(RealizedMethod::Prebuilt)
         },
         PlanStep::CargoBuild { .. } => {
@@ -427,6 +429,268 @@ mod tests {
     };
 
     const TARGET: &str = "aarch64-apple-darwin";
+
+    fn shared_archive_plan(uri: &str, staging: &Path) -> InstallationPlan {
+        let component: Component = serde_json::from_value(serde_json::json!({
+            "name": "node", "kind": "asset",
+            "version": {"kind": "registry", "version": "1.0.0"},
+            "profiles": ["minimal"],
+            "artifacts": {
+                "compose.yml": {"uri": uri, "archive": "tar.gz"},
+                "prometheus.yml": {"uri": uri, "archive": "tar.gz"}
+            }
+        }))
+        .unwrap();
+        build_plan(
+            &Channel::new(semver::Version::new(0, 15, 0), vec![component]),
+            &Intent::new(&[Profile::Minimal], &[]),
+            TARGET,
+            staging,
+        )
+        .unwrap()
+    }
+
+    fn config_archive() -> Vec<u8> {
+        use std::io::Write;
+        let mut tar = tar::Builder::new(Vec::new());
+        for (name, contents) in
+            [("compose.yml", "compose"), ("prometheus.yml", "metrics"), ("README", "ignored")]
+        {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o600);
+            header.set_cksum();
+            tar.append_data(&mut header, name, contents.as_bytes()).unwrap();
+        }
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gzip.write_all(&tar.into_inner().unwrap()).unwrap();
+        gzip.finish().unwrap()
+    }
+
+    fn serve_archive_once(status: u16) -> (String, std::thread::JoinHandle<()>) {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let uri = format!("http://{}/config.tar.gz", server.server_addr());
+        let handle = std::thread::spawn(move || {
+            let request = server.recv_timeout(std::time::Duration::from_secs(10)).unwrap().unwrap();
+            request
+                .respond(tiny_http::Response::from_data(config_archive()).with_status_code(status))
+                .unwrap();
+        });
+        (uri, handle)
+    }
+
+    fn copy_fallback(src: &Path, dest: &Path, owner: &str) -> Box<PlanStep> {
+        Box::new(PlanStep::CopyLocal {
+            src: src.to_path_buf(),
+            dest: dest.to_path_buf(),
+            owner: owner.to_string(),
+            mode: MODE_DATA,
+            archive: None,
+            fallback: None,
+        })
+    }
+
+    #[test]
+    fn shared_archive_members_are_downloaded_once_and_receipted_as_individual_files() {
+        let temp = tempdir::TempDir::new("stage-shared-archive").unwrap();
+        let staging = temp.path().join("staging");
+        // The server closes after one response. Any second fetch fails rather than hanging.
+        let (uri, handle) = serve_archive_once(200);
+        let plan = shared_archive_plan(&uri, &staging);
+        prepare(&staging).unwrap();
+
+        let realized = execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
+        handle.join().unwrap();
+        verify(&plan, &staging).unwrap();
+
+        let etc = staging.join("etc/node");
+        assert_eq!(std::fs::read(etc.join("compose.yml")).unwrap(), b"compose");
+        assert_eq!(std::fs::read(etc.join("prometheus.yml")).unwrap(), b"metrics");
+        assert_eq!(std::fs::read_dir(&etc).unwrap().count(), 2);
+        assert_eq!(realized.len(), 2);
+        let receipt = crate::publish::receipt_for(
+            &plan,
+            &staging,
+            &crate::state::PublicationId::generate(),
+            &realized,
+            None,
+        );
+        assert_eq!(receipt.outputs.len(), 2);
+        assert!(receipt.outputs.iter().all(|o| o.owner == "node" && o.mode == 0o644));
+        assert_eq!(receipt.outputs[0].path, Path::new("etc/node/compose.yml"));
+        assert_eq!(receipt.outputs[1].path, Path::new("etc/node/prometheus.yml"));
+    }
+
+    #[test]
+    fn one_archive_member_can_supply_different_components_and_modes() {
+        let temp = tempdir::TempDir::new("stage-shared-owners").unwrap();
+        let staging = temp.path().join("staging");
+        let (uri, handle) = serve_archive_once(200);
+        let mut plan = shared_archive_plan(&uri, &staging);
+        let mut executable = plan.steps[0].clone();
+        if let PlanStep::Download { dest, owner, mode, .. } = &mut executable {
+            *dest = staging.join("bin/compose.yml");
+            *owner = "runner".into();
+            *mode = MODE_EXECUTABLE;
+        }
+        plan.steps.push(executable);
+        prepare(&staging).unwrap();
+
+        let realized = execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
+        handle.join().unwrap();
+        verify(&plan, &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("bin/compose.yml")).unwrap(), b"compose");
+        let receipt = crate::publish::receipt_for(
+            &plan,
+            &staging,
+            &crate::state::PublicationId::generate(),
+            &realized,
+            None,
+        );
+        assert_eq!(receipt.outputs[0].owner, "node");
+        assert_eq!(receipt.outputs[0].mode, MODE_DATA);
+        assert_eq!(receipt.outputs[2].owner, "runner");
+        assert_eq!(receipt.outputs[2].mode, MODE_EXECUTABLE);
+    }
+
+    #[test]
+    fn seeded_archive_members_are_preserved_while_missing_members_are_reacquired() {
+        let temp = tempdir::TempDir::new("stage-shared-seed").unwrap();
+        let staging = temp.path().join("staging");
+        let (uri, handle) = serve_archive_once(200);
+        let plan = shared_archive_plan(&uri, &staging);
+        let previous = temp.path().join("previous");
+        std::fs::create_dir_all(previous.join("etc/node")).unwrap();
+        std::fs::write(previous.join("etc/node/compose.yml"), b"seeded").unwrap();
+        let mut receipt = crate::publish::receipt_for(
+            &plan,
+            &staging,
+            &crate::state::PublicationId::generate(),
+            &Realized::new(),
+            None,
+        );
+        receipt.outputs.truncate(1);
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &[],
+            },
+        )
+        .unwrap();
+
+        let realized = execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
+        handle.join().unwrap();
+        verify(&plan, &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("etc/node/compose.yml")).unwrap(), b"seeded");
+        assert_eq!(std::fs::read(staging.join("etc/node/prometheus.yml")).unwrap(), b"metrics");
+        assert_eq!(realized.len(), 1);
+        // With every output present, execution succeeds even though the server is gone.
+        assert!(
+            execute(&plan, &staging, &temp.path().join("cache"), false, true)
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_missing_archive_member_uses_its_fallback_without_refetching_valid_peers() {
+        let temp = tempdir::TempDir::new("stage-shared-fallback").unwrap();
+        let staging = temp.path().join("staging");
+        let (uri, handle) = serve_archive_once(200);
+        let mut plan = shared_archive_plan(&uri, &staging);
+        let replacement = temp.path().join("replacement");
+        std::fs::write(&replacement, b"fallback").unwrap();
+        if let PlanStep::Download { archive, dest, owner, fallback, .. } = &mut plan.steps[0] {
+            archive.as_mut().unwrap().member = "missing.yml".into();
+            *dest = staging.join("etc/node/missing.yml");
+            *fallback = Some(copy_fallback(&replacement, dest, owner));
+        }
+        prepare(&staging).unwrap();
+
+        let realized = execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
+        handle.join().unwrap();
+        verify(&plan, &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("etc/node/missing.yml")).unwrap(), b"fallback");
+        assert_eq!(std::fs::read(staging.join("etc/node/prometheus.yml")).unwrap(), b"metrics");
+        assert_eq!(realized.len(), 2);
+    }
+
+    #[test]
+    fn a_shared_archive_transfer_failure_is_fetched_once_and_each_step_can_fall_back() {
+        use std::sync::Arc;
+        let temp = tempdir::TempDir::new("stage-shared-failed-transfer").unwrap();
+        let staging = temp.path().join("staging");
+        let server = Arc::new(tiny_http::Server::http("127.0.0.1:0").unwrap());
+        let uri = format!("http://{}/config.tar.gz", server.server_addr());
+        let responding = Arc::clone(&server);
+        let handle = std::thread::spawn(move || {
+            let mut requests = 0;
+            while let Ok(request) = responding.recv() {
+                requests += 1;
+                request.respond(tiny_http::Response::empty(404)).unwrap();
+            }
+            requests
+        });
+        let mut plan = shared_archive_plan(&uri, &staging);
+        let replacement = temp.path().join("replacement");
+        std::fs::write(&replacement, b"fallback").unwrap();
+        for step in &mut plan.steps {
+            if let PlanStep::Download { dest, owner, fallback, .. } = step {
+                *fallback = Some(copy_fallback(&replacement, dest, owner));
+            }
+        }
+        prepare(&staging).unwrap();
+
+        let result = execute(&plan, &staging, &temp.path().join("cache"), false, true);
+        server.unblock();
+        assert_eq!(handle.join().unwrap(), 1, "a failed source is fetched only once");
+        result.unwrap();
+        verify(&plan, &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("etc/node/compose.yml")).unwrap(), b"fallback");
+        assert_eq!(std::fs::read(staging.join("etc/node/prometheus.yml")).unwrap(), b"fallback");
+    }
+
+    #[test]
+    fn an_archive_selector_keeps_the_artifact_keys_relative_path() {
+        use std::io::Write;
+        let temp = tempdir::TempDir::new("stage-shared-nested").unwrap();
+        let staging = temp.path().join("staging");
+        let mut tar = tar::Builder::new(Vec::new());
+        for (name, data) in [("config.yml", "wrong"), ("nested/config.yml", "right")] {
+            let mut header = tar::Header::new_gnu();
+            header.set_mode(0o644);
+            header.set_size(data.len() as u64);
+            header.set_cksum();
+            tar.append_data(&mut header, name, data.as_bytes()).unwrap();
+        }
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gzip.write_all(&tar.into_inner().unwrap()).unwrap();
+        let archive_path = temp.path().join("config.tar.gz");
+        std::fs::write(&archive_path, gzip.finish().unwrap()).unwrap();
+        // Build the nested artifact through the planner rather than deriving a selector from dest.
+        let component: Component = serde_json::from_value(serde_json::json!({
+            "name": "node", "kind": "asset", "version": {"kind": "registry", "version": "1.0.0"},
+            "profiles": ["minimal"],
+            "artifacts": {"nested/config.yml": {"uri": format!("file://{}", archive_path.display()), "archive": "tar.gz"}}
+        })).unwrap();
+        let plan = build_plan(
+            &Channel::new(semver::Version::new(0, 15, 0), vec![component]),
+            &Intent::new(&[Profile::Minimal], &[]),
+            TARGET,
+            &staging,
+        )
+        .unwrap();
+        prepare(&staging).unwrap();
+
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
+        verify(&plan, &staging).unwrap();
+        assert_eq!(std::fs::read(staging.join("etc/node/nested/config.yml")).unwrap(), b"right");
+        assert!(!staging.join("etc/node/config.yml").exists());
+    }
 
     #[test]
     fn a_one_step_summary_is_singular() {

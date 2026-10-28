@@ -57,9 +57,9 @@ pub enum InvalidArtifactError {
 
 /// How an artifact is packaged at its URI.
 ///
-/// The archive must hold exactly one file, which is the artifact. An archive holding several is an
-/// error. An unsupported format would still parse; it is rejected when an installation is planned
-/// for it.
+/// The artifact key selects a regular member by relative path. For compatibility, an archive
+/// containing exactly one regular file supplies that file regardless of its name or nesting.
+/// An unsupported format still parses; it is rejected when an installation is planned for it.
 #[derive(Debug, Clone, Hash, PartialEq)]
 pub struct Archive {
     pub format: ArchiveFormat,

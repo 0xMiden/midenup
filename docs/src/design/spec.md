@@ -293,7 +293,7 @@ An artifact is one named file plus the rules for locating it per target.
 
 ### 6.1 Artifact ID is the installed filename
 
-The map key is both the artifact's identity and the **exact filename it is installed as**. It must be a single safe path segment:
+The map key is both the artifact's identity and the **exact filename it is installed as**. Assets and commands may use a relative path beneath `etc/<component>/`; other kinds require a single filename. Every segment must satisfy:
 
 - non-empty;
 - contains no `/`, `\`, or NUL;
@@ -336,11 +336,13 @@ An artifact may be published inside an archive. `archive` names the format:
 ```
 
 - **Format:** `tar.gz`. Others are additive: a format is a variant plus a reader, and a manifest declaring one this build does not know would still parse (§4.4) and be rejected only when an installation is planned for it. The plan carries a format narrowed to the set this build reads (`SupportedFormat`), not the declared one, so the executor has no unsupported case to handle.
-- **The archive must hold exactly one file**, which is the artifact. Zero, or more than one, is an error; nothing is inferred from member names, and there is no way to select among several. Directory entries are skipped, so a file nested under one is found.
+- **Member selection:** the artifact key selects the regular member with the exact relative path, ignoring leading `./` prefixes. Unrequested entries are not installed; missing or duplicate selected members and selected non-regular entries are errors. No recursive basename matching or directory extraction is performed.
+- **Sole-file compatibility:** if the entire archive contains exactly one regular file, that file is used even when differently named or nested beneath a directory. A matching non-regular entry is still an error. An archive without regular files is an error.
+- **Shared acquisition:** pending outputs with the same fully resolved source URI and format fetch and decompress once per installation run. Seeded outputs are excluded; each output retains its own owner, mode, digest and fallback. A source or malformed-archive failure affects the group; a missing or duplicate member affects its individual step. No persistent cache is used.
 - **The decompressed archive may be at most 2 GiB**, including format metadata and padding. Anything larger is rejected while it is being unpacked.
 - The object form `{ "format": "tar.gz" }` is also accepted, so a newer schema can add fields beside the format without an older `midenup` losing them (§4.4).
 
-An archive changes only how the bytes travel: the artifact id is still the installed filename, the destination and mode still come from §8, and the receipt records `prebuilt` like any other artifact. The compressed source is held in memory while the decompressed archive is streamed. Its sole file is written to temporary storage and published only after the complete archive has been validated; the archive container itself is never written.
+An archive changes only how the bytes travel: the artifact id is still the installed filename, the destination and mode still come from §8, and the receipt records `prebuilt` like any other artifact. The compressed source is held in memory while the decompressed archive is streamed. Selected files are written to temporary storage, as is the first regular file until a second rules out sole-file compatibility. Only after validating the complete archive are selected files published to their planned destinations; member paths never determine filesystem destinations. The archive container itself is never written. To install a tarball unchanged, omit `archive` and retain its archive extension in the artifact key.
 
 ---
 
@@ -638,15 +640,17 @@ struct InstallationPlan {
 
 enum PlanStep {
     Download   { uri: ArtifactUri, dest: PathBuf, mode: u32, owner: ComponentName,
-                 digest: Option<Digest>, archive: Option<SupportedFormat> },
+                 digest: Option<Digest>, archive: Option<ArchiveMember> },
     CopyLocal  { src: PathBuf, dest: PathBuf, mode: u32, owner: ComponentName,
-                 archive: Option<SupportedFormat> },
+                 archive: Option<ArchiveMember> },
     CargoBuild { crate_name: String, authority: ResolvedAuthority, features: Vec<String>,
                  rustup_channel: Option<String>, expect_binary: String,
                  dest: PathBuf, owner: ComponentName },
     ExtractPackage { crate_name: String, authority: ResolvedAuthority, features: Vec<String>,
                      extractor: String, dest: PathBuf, owner: ComponentName },
 }
+
+struct ArchiveMember { format: SupportedFormat, member: String }
 ```
 
 :::note
@@ -667,10 +671,10 @@ Before the plan key is computed, every authority is pinned:
 
 **Downloads** are performed natively by `midenup`. For each `Download` step:
 
-1. Transfer to a unique temporary sibling of `dest` (`<dest>.<random>.part`), following at most 10 redirects.
+1. Transfer into memory, following at most 10 redirects.
 2. Check the HTTP status **after** the transfer completes and reject any non-2xx terminal response. Previously the install script read the response code early as 0, so 404/500 responses would be written to disk as if they succeeded.
 3. Reject an empty body.
-4. When the step carries an `archive` (§6.5), read the one file out of the transferred bytes and continue with that; the container itself is never written.
+4. When the step carries an `archive` (§6.5), group pending acquisitions of that source and format and scan the archive once into temporary files. Continue with this step's selected file only after complete validation; the container itself is never written. Bare files are written to a unique temporary sibling of `dest`.
 5. Apply the mode from the plan.
 6. `rename` into place.
 7. On any failure, remove the temporary file. If the owning component declares `prebuilt-with-cargo-fallback`, convert the step to `CargoBuild` and retry once; a successful fallback clears the failure.
