@@ -13,21 +13,24 @@
 //! The temporary file an artifact stages through is unique per attempt, not derived from the
 //! destination's stem: `core.masp` and `core.wasm` must not stage through the same path.
 //!
-//! An archived artifact takes the same path with one step inserted: the file inside the transferred
-//! bytes is read out (see [crate::install::archive]) and *that* is what gets published. It is
-//! streamed into the temporary as it is unpacked, so the artifact is never held in memory alongside
-//! the bytes it came out of, and the container is never written anywhere.
+//! Pending archived artifacts sharing a source and format are fetched and scanned once (see
+//! [Acquisitions]). Selected files are streamed into temporary storage and published individually
+//! only after complete archive validation. Decompressed files stay on disk rather than in memory,
+//! and the archive container is never written anywhere.
 
 use std::{
     cell::RefCell,
-    io::Write,
+    collections::BTreeMap,
+    io::{Seek, Write},
     path::{Path, PathBuf},
+    rc::Rc,
+    sync::Arc,
 };
 
 use crate::{
     artifact::SupportedFormat,
     install::{ArchiveError, archive},
-    plan::PlanStep,
+    plan::{ArchiveMember, PlanStep},
     report,
 };
 
@@ -66,6 +69,9 @@ pub enum ExecError {
     },
     #[error(transparent)]
     Archive(#[from] ArchiveError),
+    /// One source failure is shared by all outputs depending on that archive.
+    #[error(transparent)]
+    Shared(Arc<ExecError>),
 }
 
 /// Performs one acquisition step.
@@ -73,18 +79,112 @@ pub enum ExecError {
 /// Only [PlanStep::Download] and [PlanStep::CopyLocal] are handled; build steps belong to the
 /// Cargo executor. Every path is taken verbatim from the plan.
 pub fn acquire(step: &PlanStep) -> Result<(), ExecError> {
+    Acquisitions::new(std::slice::from_ref(step)).acquire(step)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Source<'a> {
+    Http(&'a str),
+    Local(&'a Path),
+}
+
+fn archived(step: &PlanStep) -> Option<(Source<'_>, &ArchiveMember)> {
     match step {
-        PlanStep::Download { uri, dest, mode, archive, owner, .. } => {
-            download(uri, dest, *mode, *archive, owner)
+        PlanStep::Download { uri, archive: Some(archive), .. } => {
+            Some((Source::Http(uri), archive))
         },
-        PlanStep::CopyLocal { src, dest, mode, archive, .. } => {
-            copy_local(src, dest, *mode, *archive)
+        PlanStep::CopyLocal { src, archive: Some(archive), .. } => {
+            Some((Source::Local(src), archive))
         },
-        PlanStep::CargoBuild { .. } | PlanStep::ExtractPackage { .. } => Ok(()),
+        _ => None,
     }
 }
 
-/// Fetches `uri` to `dest`, atomically, unpacking it first when it is an archive.
+type SharedArchive = Result<Rc<archive::Extracted<TemporaryFile>>, Arc<ExecError>>;
+
+/// Run-scoped acquisition. Each pending archive source is fetched and scanned together; its
+/// temporary files live only until the last dependent step has consumed them. Seeded outputs
+/// never enter the group. Logical steps and their fallbacks still run in plan order.
+pub(crate) struct Acquisitions<'a> {
+    steps: &'a [PlanStep],
+    pending: BTreeMap<PathBuf, SharedArchive>,
+}
+
+impl<'a> Acquisitions<'a> {
+    pub fn new(steps: &'a [PlanStep]) -> Self {
+        Self { steps, pending: BTreeMap::new() }
+    }
+
+    pub fn acquire(&mut self, step: &PlanStep) -> Result<(), ExecError> {
+        if let Some((source, archive)) = archived(step) {
+            let extracted = match self.pending.remove(step.dest()) {
+                Some(result) => result,
+                None => {
+                    let group: Vec<_> = self
+                        .steps
+                        .iter()
+                        .filter(|other| {
+                            !other.dest().exists()
+                                && archived(other).is_some_and(|(other_source, other_archive)| {
+                                    source == other_source && archive.format == other_archive.format
+                                })
+                        })
+                        .collect();
+                    // A fallback is itself a step and need not be among the primary steps.
+                    let mut members: Vec<_> = group
+                        .iter()
+                        .map(|other| archived(other).unwrap().1.member.as_str())
+                        .collect();
+                    members.push(&archive.member);
+                    let result = load_archive(source, archive.format, &members, step)
+                        .map(Rc::new)
+                        .map_err(Arc::new);
+                    for other in group {
+                        if other.dest() != step.dest() {
+                            self.pending.insert(other.dest().to_path_buf(), result.clone());
+                        }
+                    }
+                    result
+                },
+            }
+            .map_err(ExecError::Shared)?;
+            return publish_member(extracted.member(&archive.member)?, step.dest(), step.mode());
+        }
+
+        match step {
+            PlanStep::Download { uri, dest, mode, owner, .. } => {
+                download(uri, dest, *mode, None, owner)
+            },
+            PlanStep::CopyLocal { src, dest, mode, .. } => copy_local(src, dest, *mode, None),
+            PlanStep::CargoBuild { .. } | PlanStep::ExtractPackage { .. } => Ok(()),
+        }
+    }
+}
+
+fn load_archive(
+    source: Source<'_>,
+    format: SupportedFormat,
+    members: &[&str],
+    step: &PlanStep,
+) -> Result<archive::Extracted<TemporaryFile>, ExecError> {
+    let (body, uri) = match source {
+        Source::Http(uri) => (fetch(uri, step.owner())?, uri.to_string()),
+        Source::Local(src) => (
+            std::fs::read(src).map_err(|source| ExecError::Copy {
+                src: src.to_path_buf(),
+                dest: step.dest().to_path_buf(),
+                source,
+            })?,
+            format!("file://{}", src.display()),
+        ),
+    };
+    Ok(archive::extract(&body, format, &uri, members, || {
+        TemporaryFile::new(step.dest())
+    })?)
+}
+
+/// Fetches `uri` to `dest`, atomically. For an archive, the destination filename is the member
+/// selector. Planned acquisitions use the explicit artifact key, which may be a relative path.
 ///
 /// `label` names what is being transferred for the progress display; it is the owning component,
 /// never anything derived from the URL.
@@ -183,11 +283,7 @@ fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
     Ok(body)
 }
 
-/// Writes the artifact `body` carries to a unique temporary sibling of `dest`, then renames it into
-/// place. `body` can either be the artifact itself or the archive holding it.
-///
-/// The temporary is a sibling so the rename stays within one filesystem, and unique so that two
-/// artifacts sharing a stem cannot stage through the same path.
+/// Publishes a bare file or a selected member from a fully validated archive.
 fn publish(
     body: &[u8],
     archive: Option<SupportedFormat>,
@@ -195,46 +291,89 @@ fn publish(
     dest: &Path,
     mode: u32,
 ) -> Result<(), ExecError> {
-    if let Some(parent) = dest.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|source| ExecError::Create { path: parent.to_path_buf(), source })?;
+    match archive {
+        Some(format) => {
+            let member = dest.file_name().unwrap_or_default().to_string_lossy();
+            let extracted =
+                archive::extract(body, format, source, &[&member], || TemporaryFile::new(dest))?;
+            publish_member(extracted.member(&member)?, dest, mode)
+        },
+        None => publish_with(dest, mode, |file| file.write_all(body)),
+    }
+}
+
+/// Temporary storage with ownership-based cleanup on every return path.
+#[derive(Debug)]
+struct TemporaryFile {
+    path: PathBuf,
+    file: std::fs::File,
+}
+
+impl TemporaryFile {
+    fn new(dest: &Path) -> std::io::Result<Self> {
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let path = temporary_sibling(dest);
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&path)?;
+        Ok(Self { path, file })
+    }
+}
+
+impl Write for TemporaryFile {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.file.write(bytes)
     }
 
-    let temporary = temporary_sibling(dest);
-    let unusable = |source: std::io::Error| ExecError::Create { path: temporary.clone(), source };
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.file.flush()
+    }
+}
 
-    let result = (|| -> Result<(), ExecError> {
-        let mut file = std::fs::File::create(&temporary).map_err(unusable)?;
-        match archive {
-            Some(format) => archive::extract(body, format, source, &mut file)?,
-            None => file.write_all(body).map_err(unusable)?,
-        }
-        file.flush().map_err(unusable)?;
-        file.sync_all().map_err(unusable)?;
+impl Drop for TemporaryFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            file.set_permissions(std::fs::Permissions::from_mode(mode)).map_err(unusable)?;
-        }
-        #[cfg(not(unix))]
-        let _ = mode;
-
+fn publish_member(member: &TemporaryFile, dest: &Path, mode: u32) -> Result<(), ExecError> {
+    let mut reader = &member.file;
+    publish_with(dest, mode, |file| {
+        reader.rewind()?;
+        std::io::copy(&mut reader, file)?;
         Ok(())
-    })();
+    })
+}
 
-    if let Err(err) = result {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(err);
+fn publish_with(
+    dest: &Path,
+    mode: u32,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<(), ExecError> {
+    let mut temporary = TemporaryFile::new(dest)
+        .map_err(|source| ExecError::Create { path: dest.to_path_buf(), source })?;
+    let unusable =
+        |source: std::io::Error| ExecError::Create { path: temporary.path.clone(), source };
+    write(&mut temporary.file).map_err(unusable)?;
+    temporary.file.flush().map_err(unusable)?;
+    temporary.file.sync_all().map_err(unusable)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        temporary
+            .file
+            .set_permissions(std::fs::Permissions::from_mode(mode))
+            .map_err(unusable)?;
     }
-
-    crate::trace!("publishing {} -> {}", temporary.display(), dest.display());
-    if let Err(source) = std::fs::rename(&temporary, dest) {
-        let _ = std::fs::remove_file(&temporary);
-        return Err(ExecError::Publish { dest: dest.to_path_buf(), source });
-    }
-
-    Ok(())
+    #[cfg(not(unix))]
+    let _ = mode;
+    crate::trace!("publishing {} -> {}", temporary.path.display(), dest.display());
+    std::fs::rename(&temporary.path, dest)
+        .map_err(|source| ExecError::Publish { dest: dest.to_path_buf(), source })
 }
 
 fn temporary_sibling(dest: &Path) -> PathBuf {
@@ -444,7 +583,7 @@ mod tests {
         encoder.finish().unwrap()
     }
 
-    /// A gzipped tarball of several members, for the archives that must be refused.
+    /// A gzipped tarball of several named members.
     fn tarball_of(members: &[(&str, &[u8])]) -> Vec<u8> {
         use std::io::Write;
 
@@ -460,6 +599,55 @@ mod tests {
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(&tar.into_inner().unwrap()).unwrap();
         encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn a_named_file_is_selected_from_a_multi_file_archive() {
+        let dir = temp();
+        let src = dir.path().join("config.tar.gz");
+        std::fs::write(&src, tarball_of(&[("README", b"ignored"), ("./config.yml", b"selected")]))
+            .unwrap();
+        let dest = dir.path().join("installed/config.yml");
+
+        copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), b"selected");
+        assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_duplicate_selected_member_is_rejected_without_replacing_the_destination() {
+        let dir = temp();
+        let src = dir.path().join("config.tar.gz");
+        std::fs::write(&src, tarball_of(&[("config.yml", b"one"), ("./config.yml", b"two")]))
+            .unwrap();
+        let dest = dir.path().join("config.yml");
+        std::fs::write(&dest, b"existing").unwrap();
+
+        let err = copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).unwrap_err();
+
+        assert!(err.to_string().contains("config.yml"), "{err}");
+        assert!(err.to_string().contains("more than once"), "{err}");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"existing");
+        assert_eq!(leftovers(dir.path(), "config.yml"), vec!["config.tar.gz"]);
+    }
+
+    #[test]
+    fn a_corrupt_archive_discards_selected_temporary_files() {
+        let dir = temp();
+        let src = dir.path().join("config.tar.gz");
+        let mut body = tarball_of(&[("config.yml", b"selected"), ("README", b"ignored")]);
+        let crc = body.len() - 8;
+        body[crc] ^= 0xff;
+        std::fs::write(&src, body).unwrap();
+        let dest = dir.path().join("config.yml");
+        std::fs::write(&dest, b"existing").unwrap();
+
+        let err = copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).unwrap_err();
+
+        assert!(matches!(err, ExecError::Archive(ArchiveError::Malformed { .. })), "{err}");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"existing");
+        assert_eq!(leftovers(dir.path(), "config.yml"), vec!["config.tar.gz"]);
     }
 
     /// The archived file lands at the planned path with the planned name and mode.
@@ -520,10 +708,9 @@ mod tests {
         assert!(leftovers(dir.path(), "miden-vm").is_empty(), "no partial files");
     }
 
-    /// The temporary an archive unpacks into is written before the archive has been shown to hold
-    /// exactly one file. Only the rename publishes anything, so a rejected archive leaves nothing.
+    /// A multi-file archive without the requested member must not publish an arbitrary file.
     #[test]
-    fn an_archive_holding_more_than_one_file_writes_nothing() {
+    fn an_archive_missing_the_requested_member_writes_nothing() {
         let dir = temp();
         let src = dir.path().join("two.tar.gz");
         std::fs::write(&src, tarball_of(&[("first", b"one"), ("second", b"two")])).unwrap();

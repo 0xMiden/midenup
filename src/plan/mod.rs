@@ -8,7 +8,8 @@ pub mod key;
 pub use self::{
     authority::{PinError, ResolvedAuthority, pin, recheck_path},
     build::{
-        InstallationPlan, PlanError, PlanStep, SymlinkSpec, build as build_plan, component_key,
+        ArchiveMember, InstallationPlan, PlanError, PlanStep, SymlinkSpec, build as build_plan,
+        component_key,
     },
     destination::{
         Destination, DestinationError, InvalidArtifactId, MODE_DATA, MODE_EXECUTABLE,

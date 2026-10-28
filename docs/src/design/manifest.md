@@ -102,7 +102,7 @@ An artifact is one named file plus the rules for finding it per target:
 }
 ```
 
-The map key is both the artifact's identity **and the exact filename it is installed as**. It must be a single safe path segment: non-empty, no separators or NUL, not `.` or `..`, and not starting with `-`. Two artifacts resolving to the same destination — within a component or across two of them — is a validation error naming both owners.
+The map key is both the artifact's identity **and the exact filename it is installed as**. For assets and commands it may be a relative path beneath `etc/<component>/`; other kinds require a single filename. Each path segment must be non-empty, contain no separators or NUL, not be `.` or `..`, and not start with `-`. Conflicting destinations, including file/parent conflicts, are validation errors naming both owners.
 
 Substitutions available in a URI are `%target`, `%version` (which requires a registry version), `%basename` (defaulting to the component name), and `%extension`. Per-target values override component-level ones.
 
@@ -125,9 +125,26 @@ The artifact may be a compressed binary. In that case, the "archive" field defin
 
 Currently, `tar.gz` is the only format supported (more may be added later). A format not supported will cause an installation failure.
 
-The archive must hold exactly one file, which is the artifact; a file nested under a directory is fine. Several files is an error, so an archive shipping a README or a licence beside the binary cannot be used as-is.
+The artifact key selects the regular archive member with that exact relative path; leading `./` prefixes are ignored. Other members are not installed. A missing member, a duplicate selected member, or a selected link or other non-regular entry is an error. For compatibility, if the entire archive contains exactly one regular file, that file may have a different name or be nested under a directory.
 
-Nothing after acquisition changes: the artifact id is still the installed filename, and the destination, mode and receipt are what a bare file would get. Only that one file is written.
+Several artifacts can select different files from the same archive:
+
+```json
+"artifacts": {
+  "docker-compose.yml": {
+    "uri": "https://example.com/node-config.tar.gz",
+    "archive": "tar.gz"
+  },
+  "prometheus.yml": {
+    "uri": "https://example.com/node-config.tar.gz",
+    "archive": "tar.gz"
+  }
+}
+```
+
+For the `node` component these install directly as `etc/node/docker-compose.yml` and `etc/node/prometheus.yml`. Pending artifacts sharing a resolved URI and format fetch and decompress once per installation run, including when used by different components. Each file retains its own destination, permissions and receipt entry. Updates reuse unchanged files as usual and acquire only missing or stale outputs.
+
+To install the tarball itself, omit `archive` and use a key such as `node-config.tar.gz`. Directory extraction is not supported.
 
 ## Validation
 
