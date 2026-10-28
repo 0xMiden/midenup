@@ -1,7 +1,7 @@
 {
   "manifest_version": "3.0.0",
-  "min_client_version": "1.2.0",
-  "date": 1793213045,
+  "min_client_version": "1.3.0",
+  "date": 1793221561,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.17.0",
@@ -976,6 +976,142 @@
           "artifacts": {
             "miden-protocol.masp": {
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
+            },
+            "miden-standards-access-authority.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-access-ownable2step.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-access-pausable-manager.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-access-pausable.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-access-rbac.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-guarded-multisig.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-multisig-smart.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-multisig.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-network-account.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-no-auth.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-singlesig.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-auth-tx-fee-collector.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-fungible-faucet.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-non-fungible-faucet.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-burn-allow-all.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-burn-min-burn-amount.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-burn-owner-controlled-owner-only.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-mint-allow-all.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-mint-owner-controlled-owner-only.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-policy-manager-v2.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-policy-manager.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-transfer-allow-all.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-transfer-allowlist-manager.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-transfer-basic-allowlist.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-transfer-basic-blocklist.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-faucets-policies-transfer-blocklist-manager.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-fees-policies-basic-constant-fee.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-fees-policies-constant-fee-manager.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-inspection-code-inspection.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-inspection-schema-commitment.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-note-note-creator.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-oracle-price-oracle.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-upgrade-manager.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
+            },
+            "miden-standards-wallets-basic-wallet.masp": {
+              "archive": "tar.gz",
+              "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards-components.tar.gz"
             },
             "miden-standards.masp": {
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards.masp"
