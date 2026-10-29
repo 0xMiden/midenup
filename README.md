@@ -32,22 +32,22 @@ The `midenup` executable facilitates two primary tasks:
 
 ## Usage
 
-To get started, you must first install `midenup`, and then initialize its
-environment:
+To get started, install `midenup`.
 
 We provide pre-built executables with build attestations for some platforms (Linux and macOS). You can use our installer script to install
 `midenup` easily, while also verifying against those attestations (if you have
 the `gh` executable installed):
 
 ```
-curl -L --proto '=https' --tlsv1.2 -sSf 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh | bash
+curl -L --proto '=https' --tlsv1.2 -sSf 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh' | bash
 ```
 
 If prebuilt artifacts are not available for your machine, the script will install from crates.io using Cargo. You can disable this fallback by running
 the script with arguments, like so:
 
 ```
-curl -L --proto '=https' --tlsv1.2 -sSf -O 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh
+curl -L --proto '=https' --tlsv1.2 -sSf -O 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh'
+chmod +x installer.sh
 ./installer.sh --no-cargo-fallback
 ```
 
@@ -79,7 +79,7 @@ You are now ready to install your first toolchain!
 The repository doubles as a composite action that installs `midenup` and a toolchain in one step:
 
 ```yaml
-- uses: 0xMiden/midenup@v1.1.0  # We use immutable releases, and only exact tags
+- uses: 0xMiden/midenup@v1.3.0  # We use immutable releases, and only exact tags
   with:
     toolchain: testnet          # network or version, default `mainnet`
     profile: minimal            # `minimal` or `complete`, default `minimal`
@@ -104,7 +104,7 @@ are two ways to do this:
 1. Installing a release network, e.g. `mainnet`, which installs the toolchain currently deployed to
 that network. When a network is promoted to a newer toolchain, `midenup update mainnet` follows it,
 carrying your component selection and any toolchain-managed data across.
-2. Installing a specific toolchain version, e.g. `0.15.0`, which pins you to that toolchain regardless of what the networks do.
+2. Installing a specific toolchain version, e.g. `0.18.0`, which pins you to that toolchain regardless of what the networks do.
 
 In both cases, you simply run `midenup install <TOOLCHAIN>`.
 
@@ -233,10 +233,16 @@ will report it as absent. If you need to go back, reinstall your toolchains with
 
 ### Uninstalling `midenup`
 
-You can easily uninstall `midenup` itself by deleting the `$MIDENUP_HOME` directory.
+You can easily uninstall `midenup` itself by deleting the `$MIDENUP_HOME` directory,
+along with the `midenup` executable and the `miden` symlink in `$CARGO_HOME/bin`.
 The location of the `$MIDENUP_HOME` directory can be obtained by running:
 ```
 midenup show home
+```
+
+Then remove the executables:
+```
+rm "${CARGO_HOME:-$HOME/.cargo}/bin/midenup" "${CARGO_HOME:-$HOME/.cargo}/bin/miden"
 ```
 
 ### Configuring the active toolchain
