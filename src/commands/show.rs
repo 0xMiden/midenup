@@ -227,7 +227,7 @@ impl ShowCommand {
                                     }
                                 },
                                 // Retained, not deleted: the user may still want `var/` and an
-                                // explicit uninstall (spec section 12.3).
+                                // explicit uninstall (spec section 12.4).
                                 None => push_marker(&mut line, "(unavailable upstream)", use_color),
                             }
                         }

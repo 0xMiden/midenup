@@ -275,18 +275,16 @@ canonical installations, and the next state write uses version 2. Older binaries
 Legacy patches recorded on canonical installations remain readable; an ordinary canonical install
 or update restores the upstream components.
 
-For installations predating `state.json`, the first run converts the older record in
-`$MIDENUP_HOME` into the current format. It carries over which channels you had installed and which components you had
-in each — everything else is re-derived from the published manifest, which is authoritative for it.
-Your toolchains are reinstalled the next time you use them, so that `midenup` knows exactly which
-files it owns. `var/` is untouched throughout.
+The first run converts a home written by a release that predates the home format in place. After
+that, use only this midenup or a newer one on it: those releases do not check the home format and
+can still change the home.
 
-`midenup show list` marks a toolchain in that state as needing reinstallation until it happens.
-
-:::warning
-The conversion is one-way. Afterwards an older `midenup` will not see your installation and will
-report it as absent. If you need to go back, reinstall your toolchains with the older version.
-:::
+A home written before midenup v1.0.0 (one without `state.json`) is not converted. midenup refuses
+it without changing anything. To keep its installations, run any command once with midenup v1.3.0,
+which converts a `manifest.json` of version 1.0.1 or later, then upgrade again; otherwise reinstall
+into a fresh `MIDENUP_HOME`.
+A toolchain that midenup v1.x carried forward from such a home is reinstalled the next time you use
+it; converting the home removes its old directory.
 
 ## Working offline
 
