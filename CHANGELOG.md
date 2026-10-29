@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [1.3.0]
+
+### Added
+
+- Custom manifests can now select files from a multi-file `tar.gz` archive by using each file's
+  relative archive path as its artifact key. Unrequested files are skipped, and artifacts sharing
+  an archive download and decompress it once per installation. Single-file archives still allow
+  the file to have a different name or be nested in a directory, unless a non-regular entry
+  matches the artifact key.
+- Added the initial 0.18.0 toolchain with protocol 0.18.0, core 0.36.1 to match the protocol's
+  dependency, VM, formatter and local registry 0.36.2, and debugger 0.19.0. It also includes
+  `miden node` using the 0.18.1 local network, plus remote prover and validator 0.18.0.
+
+### Changed
+
+- Updated the 0.17.0 toolchain to client 0.17.3, cargo-miden and midenc 0.11.0, faucet client and
+  protocol 0.17.1, node, remote prover and validator 0.17.6, and `miden-verify` 0.7.0.
+
+### Fixed
+
+- Corrected the README's component-listing command to `miden help toolchain`.
+
+### Migration and breaking changes
+
+- `mainnet` and `testnet` now track 0.17.0 instead of 0.16.0. Installing or updating these networks
+  follows the promotion. Pin `channel = "0.16.0"` in `miden-toolchain.toml` or use
+  `midenup override 0.16.0` to retain the older toolchain.
+- The default upstream manifest is now `https://0xmiden.github.io/midenup/v3/manifest.json` and
+  no longer offers toolchains older than 0.16.0. Existing installations are retained, but fresh
+  installations of those versions require a custom manifest supplied through `MIDENUP_MANIFEST_URI`.
+- Custom v3 manifests must include a top-level `min_client_version` containing a semantic version,
+  such as `"1.3.0"`. A manifest requiring a newer `midenup` is rejected with the required version;
+  a compatible cached manifest is used with a warning when available. Upgrade `midenup` to use
+  a manifest whose minimum exceeds your installed version.
+- An archive entry matching an artifact key must now be a regular file. A matching link,
+  directory or other non-regular entry fails installation instead of falling back to the
+  archive's sole regular file. Repackage affected archives so the key names a regular file.
+- Rust API users constructing `PlanStep::Download` or `PlanStep::CopyLocal` must change `archive`
+  from `Option<SupportedFormat>` to `Option<ArchiveMember>`. Wrap the format in
+  `ArchiveMember { format, member }`, with `member` set to the artifact's relative archive path.
+- Calls to `install::archive::extract` must replace the output writer argument with a slice of
+  requested member paths and a closure that creates a writer. The result is now `Extracted<W>`;
+  use `.member(path)` to access each selected writer. Replace matches on
+  `ArchiveError::NonZeroFiles` with handling for `MissingMember`, `DuplicateMember` and
+  `NotRegular`.
+- Update exhaustive matches on `ManifestError` for `UnsupportedClientVersion` and
+  `InvalidClientVersion`, and on `ExecError` for `Shared`.
+
 ## [1.2.1]
 
 ### Added
@@ -251,6 +299,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   construction and matches to use `Current { flags }` and `List { flags }`. Reporting is now
   configured through `report::set`.
 
+[1.3.0]: https://github.com/0xMiden/midenup/releases/tag/v1.3.0
 [1.2.1]: https://github.com/0xMiden/midenup/releases/tag/v1.2.1
 [1.2.0]: https://github.com/0xMiden/midenup/releases/tag/v1.2.0
 [1.1.0]: https://github.com/0xMiden/midenup/releases/tag/v1.1.0
