@@ -1,5 +1,5 @@
 {
-  "manifest_version": "3.0.0",
+  "manifest_version": "4.0.0",
   "date": 1793227303,
   "networks": {
     "devnet": "0.18.0",
