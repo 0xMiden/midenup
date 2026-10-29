@@ -905,7 +905,7 @@ Every entry point - each `midenup` command and `miden` dispatch - reads the enve
 | format 1 with a known `conversion` | resume that conversion (§12.2), then continue |
 | another format, an unknown `conversion`, or malformed | refuse; nothing changes |
 | missing, home empty or absent | continue; the first writer writes format 1 |
-| missing, a home from midenup v1.0.0-v1.2.1 (it has a `state.json`) | preflight, convert (§12.2), then continue |
+| missing, a home from a release that predates the envelope (it has a `state.json`) | preflight, convert (§12.2), then continue |
 | missing, anything else | refuse; nothing changes |
 
 A home is empty when it has no `state.json` and holds only the manifest cache, `cache/`, empty `toolchains/`, `publications/` or `journal/` directories, lock files and temporaries.
@@ -925,7 +925,7 @@ Conversion runs under the exclusive format lease and the home lock, and never fe
 
 The steps are idempotent, so the `conversion` field is the whole journal: a run that finds it repeats them from step 3 without consulting upstream. Older releases that know the envelope refuse the new format from step 2 on.
 
-Preflight accepts only what midenup v1.0.0-v1.2.1 leave behind: a `state.json` with state version 1 or 2 (other top-level entries are left alone), `toolchains/` entries that are links or the alpha directory of a toolchain v1.x carried forward, receipts and a pending journal that parse. A publication missing behind a state record is not a reason to refuse; recovery reports it as divergence with its remedy (§9.7). The `released-v1` steps remove carried-forward toolchains' alpha directories, which their reinstall replaces with a link, and rewrite `state.json` at the current state version; the layout, links, receipts, and journal of those releases are already read as they are.
+Preflight accepts only what releases that predate the envelope leave behind: a `state.json` with state version 1 or 2 (other top-level entries are left alone), `toolchains/` entries that are links or the alpha directory of a toolchain v1.x carried forward, receipts and a pending journal that parse. A publication missing behind a state record is not a reason to refuse; recovery reports it as divergence with its remedy (§9.7). The `released-v1` steps remove carried-forward toolchains' alpha directories, which their reinstall replaces with a link, and rewrite `state.json` at the current state version; the layout, links, receipts, and journal of those releases are already read as they are.
 
 ### 12.3 Alpha-era homes
 
@@ -935,7 +935,7 @@ A `manifest.json` beside a `state.json` that records installations is inert: it 
 
 ### 12.4 Records awaiting reinstallation
 
-midenup v1.0.0-v1.2.1 converted alpha local manifests into `state.json` records with **roots-only** intent and no publication:
+Releases that predate the envelope converted alpha local manifests into `state.json` records with **roots-only** intent and no publication:
 
 ```json
 { "channel": "0.15.0", "intent": { "profiles": [], "roots": ["vm", "client", "core"] }, "publication": { "kind": "needs-reinstall" } }
@@ -1252,7 +1252,7 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 * unsupported target fails plan construction without touching the filesystem;
 * two Cargo-backed components install, update, and uninstall independently without disturbing each other's binaries;
 * `var/<selector>` survives update, republication, and pointer moves; two networks on one channel keep separate stores; is removed only under `--purge`, and then only for the selector named;
-* homes shaped like those of v1.0.x and v1.2.x are converted and keep working with an unreachable upstream;
+* homes shaped like those of releases that predate the envelope, at state version 1 or 2, are converted and keep working with an unreachable upstream;
 * an unknown or malformed home format, and an alpha-era home, are refused with the home byte-for-byte unchanged;
 * a leftover `manifest.json` beside valid state neither blocks nor is touched;
 * an `unsupported` component parses, shows, and is installable-around, but errors when selected;

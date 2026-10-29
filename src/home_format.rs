@@ -46,7 +46,7 @@ pub struct Envelope {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Conversion {
-    /// A home written by midenup v1.0.0 through v1.2.1, which predate the envelope.
+    /// A home written by a midenup release that predates the envelope.
     ReleasedV1,
 }
 
@@ -75,7 +75,8 @@ pub enum HomeFormatError {
     Unrecognized { home: PathBuf, reason: String },
     #[error(
         "'{home}' was written by a pre-1.0 midenup ({reason}), and this midenup cannot convert \
-         it. {}",
+         it. To keep its installations, run any command with midenup v1.3.0 (`cargo install \
+         --locked --force midenup --version 1.3.0`) once to convert it, then upgrade again. {}",
         CLEAN_INSTALL
     )]
     AlphaEra { home: PathBuf, reason: String },
@@ -96,16 +97,17 @@ pub enum HomeFormatError {
 pub fn enter(home: &Path) -> Result<(lock::FormatLease, bool), HomeFormatError> {
     let mut converted = false;
     loop {
+        // Refuse before the lease file is created, so a refused home is left as it was. The
+        // converter checks again under its locks.
+        if read(home)?.is_none() && !is_empty(home)? {
+            preflight(home)?;
+        }
         let lease = lock::shared_lease(home)?;
         match read(home)? {
             Some(Envelope { conversion: None, .. }) => return Ok((lease, converted)),
             // Initialized by its first writer: see `initialize_if_empty`.
             None if is_empty(home)? => return Ok((lease, converted)),
-            // Refuse before waiting on anyone else; the converter checks again under its locks.
-            None => {
-                preflight(home)?;
-            },
-            Some(Envelope { conversion: Some(_), .. }) => {},
+            _ => {},
         }
         drop(lease);
         convert(home)?;
@@ -250,7 +252,7 @@ fn convert_released_v1(home: &Path) -> Result<(), HomeFormatError> {
 
 /// Checks a home without an envelope as a whole, before anything in it changes.
 ///
-/// Read-only. Accepts only what midenup v1.0.0 through v1.2.1 leave behind.
+/// Read-only. Accepts only what releases that predate the envelope leave behind.
 fn preflight(home: &Path) -> Result<Conversion, HomeFormatError> {
     let unrecognized =
         |reason: String| HomeFormatError::Unrecognized { home: home.to_path_buf(), reason };
@@ -351,10 +353,7 @@ fn check_links(
         } else if !file_type.is_symlink() {
             return Err(HomeFormatError::AlphaEra {
                 home: home.to_path_buf(),
-                reason: format!(
-                    "'{}' is a toolchain directory, not a link",
-                    entry.path().display()
-                ),
+                reason: format!("'{}' is not a link", entry.path().display()),
             });
         }
     }

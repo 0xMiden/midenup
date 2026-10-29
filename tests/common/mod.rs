@@ -122,16 +122,13 @@ pub fn environment_setup(test_name: &str) -> TestEnvironment {
 }
 
 /// Every path under `root` with its contents (or link target), for comparing a tree before and
-/// after a command. The lock files a refused command may create are left out.
+/// after a command.
 pub fn snapshot_tree(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
     fn walk(root: &Path, dir: &Path, out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
         for entry in std::fs::read_dir(dir).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
             let relative = path.strip_prefix(root).unwrap().to_path_buf();
-            if relative == Path::new(".lock") || relative == Path::new(".format-lease") {
-                continue;
-            }
             let file_type = entry.file_type().unwrap();
             if file_type.is_symlink() {
                 let target = std::fs::read_link(&path).unwrap();

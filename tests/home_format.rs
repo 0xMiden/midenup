@@ -70,8 +70,8 @@ fn state_json(env: &TestEnvironment) -> serde_json::Value {
         .unwrap()
 }
 
-/// Rewinds an installed home to what midenup v1.0.x (`1.0.0`) or v1.2.x (`2.0.0`) leaves: no
-/// envelope, and that state version.
+/// Rewinds an installed home to what a release that predates the envelope leaves: no envelope,
+/// and the given state version (`1.0.0` or `2.0.0`).
 fn as_released(env: &TestEnvironment, state_version: &str) {
     std::fs::remove_file(paths::home_format_path(&env.midenup_home)).unwrap();
     let mut state = state_json(env);
