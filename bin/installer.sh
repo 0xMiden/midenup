@@ -97,10 +97,7 @@ install_via_cargo() {
     esac
 }
 
-if [ ! -d "${install_path}" ]; then
-    echo "Expected ${install_path} to be a directory"
-    exit 2
-fi
+mkdir -p "${install_path}"
 
 case "${version:-}" in
     "") ;; # unset
