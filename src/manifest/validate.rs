@@ -146,6 +146,38 @@ pub enum ValidationError {
         artifact: String,
         format: &'static str,
     },
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' declares digest \
+         '{digest}', which midenup cannot verify; declare a SHA-256 digest ('sha256:' followed by \
+         64 lowercase hex characters)"
+    )]
+    UnsupportedDigest {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+        digest: String,
+    },
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' declares one digest \
+         for every target; declare it in each 'targets.<target>' entry instead"
+    )]
+    SharedDigest {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+    },
+    #[error(
+        "channel {channel}: artifact '{artifact}' of component '{component}' declares no digest{}; \
+         record one with `update-manifest digest --channel {channel}`",
+        target.as_deref().map(|target| format!(" for {target}")).unwrap_or_default()
+    )]
+    MissingDigest {
+        channel: semver::Version,
+        component: String,
+        artifact: String,
+        /// The target lacking a digest, or `None` for a target-agnostic artifact.
+        target: Option<String>,
+    },
     #[error("channel {channel}: invalid 'format' for component '{component}': {reason}")]
     InvalidExecutableFormat {
         channel: semver::Version,
@@ -476,6 +508,39 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
                     }
                 },
             }
+
+            if let crate::artifact::Artifact::TargetSpecific { substitutions: Some(subs), .. } =
+                artifact
+                && subs.digest.is_some()
+            {
+                errors.push(ValidationError::SharedDigest {
+                    channel: channel.name.clone(),
+                    component: component.name.to_string(),
+                    artifact: id.to_string(),
+                });
+            }
+
+            // Every target needs a digest midenup can verify. As with archive formats, any
+            // algorithm parses, but only SHA-256 can be installed.
+            for target in artifact.targets() {
+                match artifact.digest_for(&target) {
+                    Some(digest) if !digest.is_sha256() => {
+                        errors.push(ValidationError::UnsupportedDigest {
+                            channel: channel.name.clone(),
+                            component: component.name.to_string(),
+                            artifact: id.to_string(),
+                            digest: digest.to_string(),
+                        });
+                    },
+                    Some(_) => {},
+                    None => errors.push(ValidationError::MissingDigest {
+                        channel: channel.name.clone(),
+                        component: component.name.to_string(),
+                        artifact: id.to_string(),
+                        target: (!target.is_empty()).then_some(target),
+                    }),
+                }
+            }
         }
     }
 }
@@ -617,12 +682,17 @@ mod tests {
             id.to_string(),
             Artifact::TargetAgnostic {
                 uri: "https://example.invalid/x".to_string(),
-                digest: None,
+                digest: Some(some_digest().parse().unwrap()),
                 archive: None,
                 extra: Default::default(),
             },
         );
         component
+    }
+
+    /// A well-formed SHA-256 digest, for artifacts whose bytes no test fetches.
+    fn some_digest() -> String {
+        crate::artifact::Digest::sha256(b"x").to_string()
     }
 
     fn manifest(components: Vec<Component>) -> Manifest {
@@ -856,13 +926,123 @@ mod tests {
     }
 
     #[test]
+    fn a_shared_digest_is_rejected_for_publication() {
+        let mut c = component("vm", ComponentKind::Package);
+        c.artifacts.insert(
+            "vm".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/vm-%target",
+                "digest": format!("sha256:{}", "a".repeat(64)),
+                "targets": {"aarch64-apple-darwin": {}}
+            }))
+            .expect("a shared digest must still parse"),
+        );
+
+        let errors = errors_of(&manifest(vec![c]));
+        assert!(
+            errors.iter().any(|e| matches!(e, ValidationError::SharedDigest { .. })),
+            "{errors:?}"
+        );
+    }
+
+    #[test]
+    fn a_digest_midenup_cannot_verify_is_rejected_for_publication() {
+        let sha256 = format!("sha256:{}", "a".repeat(64));
+        let mut c = component("vm", ComponentKind::Package);
+        for (id, digest) in [
+            ("a.masp", "sha512:abcd"),
+            ("b.masp", "sha256:abcd"),
+            ("c.masp", sha256.as_str()),
+        ] {
+            c.artifacts.insert(
+                id.to_string(),
+                serde_json::from_value(serde_json::json!({
+                    "uri": format!("https://example.invalid/{id}"),
+                    "digest": digest
+                }))
+                .expect("any algorithm must parse"),
+            );
+        }
+        c.artifacts.insert(
+            "d.masp".to_string(),
+            serde_json::from_value(serde_json::json!({
+                "uri": "https://example.invalid/%target/d.masp",
+                "targets": {
+                    "aarch64-apple-darwin": {"digest": "md5:abcd"},
+                    "x86_64-unknown-linux-gnu": {"digest": sha256}
+                }
+            }))
+            .expect("must parse"),
+        );
+
+        let rejected: Vec<_> = errors_of(&manifest(vec![c]))
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::UnsupportedDigest { artifact, digest, .. } => {
+                    Some((artifact, digest))
+                },
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            rejected,
+            [
+                ("a.masp".to_string(), "sha512:abcd".to_string()),
+                ("b.masp".to_string(), "sha256:abcd".to_string()),
+                ("d.masp".to_string(), "md5:abcd".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn an_artifact_without_a_digest_is_rejected_for_each_target() {
+        let sha256 = some_digest();
+        let mut c = component("vm", ComponentKind::Package);
+        for (id, artifact) in [
+            ("a.masp", serde_json::json!({"uri": "https://example.invalid/a.masp"})),
+            (
+                "b.masp",
+                serde_json::json!({"uri": "https://example.invalid/b.masp", "digest": sha256}),
+            ),
+            (
+                "c.masp",
+                serde_json::json!({
+                    "uri": "https://example.invalid/%target/c.masp",
+                    "targets": {
+                        "aarch64-apple-darwin": {"digest": sha256},
+                        "x86_64-unknown-linux-gnu": {}
+                    }
+                }),
+            ),
+        ] {
+            c.artifacts.insert(id.to_string(), serde_json::from_value(artifact).unwrap());
+        }
+
+        let missing: Vec<_> = errors_of(&manifest(vec![c]))
+            .into_iter()
+            .filter_map(|e| match e {
+                ValidationError::MissingDigest { artifact, target, .. } => Some((artifact, target)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            missing,
+            [
+                ("a.masp".to_string(), None),
+                ("c.masp".to_string(), Some("x86_64-unknown-linux-gnu".to_string())),
+            ]
+        );
+    }
+
+    #[test]
     fn a_readable_archive_declaration_validates() {
         let mut c = component("vm", ComponentKind::Package);
         c.artifacts.insert(
             "core.masp".to_string(),
             serde_json::from_value(serde_json::json!({
                 "uri": "https://example.invalid/core.tar.gz",
-                "archive": "tar.gz"
+                "archive": "tar.gz",
+                "digest": some_digest()
             }))
             .expect("must parse"),
         );
@@ -980,7 +1160,8 @@ mod tests {
         c.artifacts.insert(
             "core.masp".to_string(),
             serde_json::from_value(serde_json::json!({
-                "uri": "https://releases.tar.gz/core.masp"
+                "uri": "https://releases.tar.gz/core.masp",
+                "digest": some_digest()
             }))
             .expect("must parse"),
         );
@@ -995,7 +1176,8 @@ mod tests {
         c.artifacts.insert(
             "bundle.tar.gz".to_string(),
             serde_json::from_value(serde_json::json!({
-                "uri": "https://example.invalid/bundle.tar.gz"
+                "uri": "https://example.invalid/bundle.tar.gz",
+                "digest": some_digest()
             }))
             .expect("must parse"),
         );

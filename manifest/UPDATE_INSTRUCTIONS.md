@@ -55,9 +55,39 @@ bin/update-manifest --manifest-path manifest/v3/manifest.json \
 which toolchain a network runs changes over time, so a command naming a network does not mean the
 same thing when it is run again later.
 
+`update-component` also records the SHA-256 digest of each of the component's artifacts that has
+none, or whose URI the new version moved (through `%version`), by fetching it. Digests whose URI did
+not move are left as they are.
+
 For newly added components, see the `add-component` subcommand.
 
 For removed components, see the `remove-component` subcommand.
+
+## Artifact digests
+
+Every artifact must carry the SHA-256 digest of its bytes, for every target it declares: `check`
+refuses a manifest that lacks one, and the editing subcommands refuse to write one. midenup refuses
+to install bytes that do not match it, and does not fall back to a source build when they don't. A
+target-agnostic artifact declares it beside `uri`; a target-specific one declares it in each
+`targets` entry:
+
+```json
+"targets": {
+  "aarch64-apple-darwin":     { "digest": "sha256:9f86d081…" },
+  "x86_64-unknown-linux-gnu": { "digest": "sha256:4e07a1b2…" }
+}
+```
+
+After adding or editing artifacts by hand, fill in their digests with:
+
+```
+bin/update-manifest --manifest-path manifest/v3/manifest.json \
+    digest --channel $CHANNEL
+```
+
+It fetches every artifact without a digest, for every target it declares, and prints each digest it
+records. Omit `--channel` to cover every toolchain. Check the printed digests against the release
+before publishing: the tool records whatever the URI serves at the time it runs.
 
 ## Pointing a network at a toolchain
 

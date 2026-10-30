@@ -152,9 +152,8 @@ pub fn install(
     fault::fail_at(fault::FaultPoint::PostStage)?;
 
     // 3. VERIFY. Structural check before anything is published: every planned file exists, is a
-    // regular file, and carries the planned mode. Contents are not verified -- digests are
-    // recorded but never checked -- so this asserts the plan was carried out, not what was
-    // installed.
+    // regular file, and carries the planned mode. Declared digests were already checked as each
+    // artifact was acquired, so this asserts the plan was carried out.
     crate::install::verify(&plan, &publication)?;
 
     // The receipt makes the publication self-describing: from here on, what it owns is a fact

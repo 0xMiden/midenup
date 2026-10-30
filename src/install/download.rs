@@ -17,6 +17,9 @@
 //! [Acquisitions]). Selected files are streamed into temporary storage and published individually
 //! only after complete archive validation. Decompressed files stay on disk rather than in memory,
 //! and the archive container is never written anywhere.
+//!
+//! When the manifest declares a digest, the transferred bytes are checked against it before
+//! anything is unpacked or written: a mismatch leaves nothing on disk.
 
 use std::{
     cell::RefCell,
@@ -28,7 +31,7 @@ use std::{
 };
 
 use crate::{
-    artifact::SupportedFormat,
+    artifact::{Digest, SupportedFormat},
     install::{ArchiveError, archive},
     plan::{ArchiveMember, PlanStep},
     report,
@@ -72,6 +75,18 @@ pub enum ExecError {
     /// One source failure is shared by all outputs depending on that archive.
     #[error(transparent)]
     Shared(Arc<ExecError>),
+    #[error(
+        "artifact '{artifact}' of component '{component}' from '{uri}' does not match the digest \
+         in the manifest: expected {expected}, got {actual}. midenup will not install it or build \
+         it from source instead; retry, and report it to the toolchain maintainers if it persists"
+    )]
+    DigestMismatch {
+        component: String,
+        artifact: String,
+        uri: String,
+        expected: String,
+        actual: String,
+    },
 }
 
 /// Performs one acquisition step.
@@ -88,13 +103,13 @@ enum Source<'a> {
     Local(&'a Path),
 }
 
-fn archived(step: &PlanStep) -> Option<(Source<'_>, &ArchiveMember)> {
+fn archived(step: &PlanStep) -> Option<(Source<'_>, &ArchiveMember, Option<&Digest>)> {
     match step {
-        PlanStep::Download { uri, archive: Some(archive), .. } => {
-            Some((Source::Http(uri), archive))
+        PlanStep::Download { uri, archive: Some(archive), digest, .. } => {
+            Some((Source::Http(uri), archive, digest.as_ref()))
         },
-        PlanStep::CopyLocal { src, archive: Some(archive), .. } => {
-            Some((Source::Local(src), archive))
+        PlanStep::CopyLocal { src, archive: Some(archive), digest, .. } => {
+            Some((Source::Local(src), archive, digest.as_ref()))
         },
         _ => None,
     }
@@ -116,7 +131,7 @@ impl<'a> Acquisitions<'a> {
     }
 
     pub fn acquire(&mut self, step: &PlanStep) -> Result<(), ExecError> {
-        if let Some((source, archive)) = archived(step) {
+        if let Some((source, archive, digest)) = archived(step) {
             let extracted = match self.pending.remove(step.dest()) {
                 Some(result) => result,
                 None => {
@@ -125,9 +140,13 @@ impl<'a> Acquisitions<'a> {
                         .iter()
                         .filter(|other| {
                             !other.dest().exists()
-                                && archived(other).is_some_and(|(other_source, other_archive)| {
-                                    source == other_source && archive.format == other_archive.format
-                                })
+                                && archived(other).is_some_and(
+                                    |(other_source, other_archive, other_digest)| {
+                                        source == other_source
+                                            && archive.format == other_archive.format
+                                            && digest == other_digest
+                                    },
+                                )
                         })
                         .collect();
                     // A fallback is itself a step and need not be among the primary steps.
@@ -136,7 +155,7 @@ impl<'a> Acquisitions<'a> {
                         .map(|other| archived(other).unwrap().1.member.as_str())
                         .collect();
                     members.push(&archive.member);
-                    let result = load_archive(source, archive.format, &members, step)
+                    let result = load_archive(source, archive.format, digest, &members, step)
                         .map(Rc::new)
                         .map_err(Arc::new);
                     for other in group {
@@ -152,10 +171,12 @@ impl<'a> Acquisitions<'a> {
         }
 
         match step {
-            PlanStep::Download { uri, dest, mode, owner, .. } => {
-                download(uri, dest, *mode, None, owner)
+            PlanStep::Download { uri, dest, mode, digest, owner, .. } => {
+                download(uri, dest, *mode, digest.as_ref(), None, owner)
             },
-            PlanStep::CopyLocal { src, dest, mode, .. } => copy_local(src, dest, *mode, None),
+            PlanStep::CopyLocal { src, dest, mode, digest, owner, .. } => {
+                copy_local(src, dest, *mode, digest.as_ref(), None, owner)
+            },
             PlanStep::CargoBuild { .. } | PlanStep::ExtractPackage { .. } => Ok(()),
         }
     }
@@ -164,6 +185,7 @@ impl<'a> Acquisitions<'a> {
 fn load_archive(
     source: Source<'_>,
     format: SupportedFormat,
+    digest: Option<&Digest>,
     members: &[&str],
     step: &PlanStep,
 ) -> Result<archive::Extracted<TemporaryFile>, ExecError> {
@@ -178,13 +200,15 @@ fn load_archive(
             format!("file://{}", src.display()),
         ),
     };
+    verify(&body, digest, &uri, step.dest(), step.owner())?;
     Ok(archive::extract(&body, format, &uri, members, || {
         TemporaryFile::new(step.dest())
     })?)
 }
 
-/// Fetches `uri` to `dest`, atomically. For an archive, the destination filename is the member
-/// selector. Planned acquisitions use the explicit artifact key, which may be a relative path.
+/// Fetches `uri` to `dest`, atomically, after checking it against `digest`. For an archive, the
+/// destination filename is the member selector. Planned acquisitions use the explicit artifact key,
+/// which may be a relative path.
 ///
 /// `label` names what is being transferred for the progress display; it is the owning component,
 /// never anything derived from the URL.
@@ -192,19 +216,24 @@ pub fn download(
     uri: &str,
     dest: &Path,
     mode: u32,
+    digest: Option<&Digest>,
     archive: Option<SupportedFormat>,
     label: &str,
 ) -> Result<(), ExecError> {
     let body = fetch(uri, label)?;
+    verify(&body, digest, uri, dest, label)?;
     publish(&body, archive, uri, dest, mode)
 }
 
-/// Copies `src` to `dest`, atomically, unpacking it first when it is an archive.
+/// Copies `src` to `dest`, atomically, after checking it against `digest` and unpacking it when it
+/// is an archive. `owner` is the component it belongs to.
 pub fn copy_local(
     src: &Path,
     dest: &Path,
     mode: u32,
+    digest: Option<&Digest>,
     archive: Option<SupportedFormat>,
+    owner: &str,
 ) -> Result<(), ExecError> {
     let body = std::fs::read(src).map_err(|source| ExecError::Copy {
         src: src.to_path_buf(),
@@ -212,11 +241,38 @@ pub fn copy_local(
         source,
     })?;
     let source = format!("file://{}", src.display());
+    verify(&body, digest, &source, dest, owner)?;
     publish(&body, archive, &source, dest, mode)
 }
 
-/// Retrieves `uri`, rejecting anything that is not a usable body.
-fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
+/// Rejects `body` unless it matches `expected`. An artifact without a declared digest passes.
+fn verify(
+    body: &[u8],
+    expected: Option<&Digest>,
+    uri: &str,
+    dest: &Path,
+    owner: &str,
+) -> Result<(), ExecError> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    let actual = Digest::sha256(body);
+    if &actual == expected {
+        return Ok(());
+    }
+    Err(ExecError::DigestMismatch {
+        component: owner.to_string(),
+        // The destination is named after the artifact id.
+        artifact: dest.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        uri: uri.to_string(),
+        expected: expected.to_string(),
+        actual: actual.to_string(),
+    })
+}
+
+/// Retrieves `uri`, rejecting anything that is not a usable body. `label` names the transfer in
+/// the progress display.
+pub fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
     let mut body = Vec::new();
     let mut handle = curl::easy::Easy::new();
 
@@ -481,7 +537,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("artifact.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755, None, "fixture")
+        let err = download(&server.url("/x"), &dest, 0o755, None, None, "fixture")
             .expect_err("a 404 must fail");
         assert!(matches!(err, ExecError::HttpStatus { status: 404, .. }), "{err}");
         assert!(!dest.exists(), "a failed download must not leave a file");
@@ -494,7 +550,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755, None, "fixture")
+        let err = download(&server.url("/x"), &dest, 0o755, None, None, "fixture")
             .expect_err("a 500 must fail");
         assert!(matches!(err, ExecError::HttpStatus { status: 500, .. }), "{err}");
         assert!(!dest.exists());
@@ -507,7 +563,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        let err = download(&server.url("/x"), &dest, 0o755, None, "fixture")
+        let err = download(&server.url("/x"), &dest, 0o755, None, None, "fixture")
             .expect_err("an empty body must fail");
         assert!(matches!(err, ExecError::EmptyBody { .. }), "{err}");
         assert!(!dest.exists());
@@ -519,7 +575,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("planned-name.bin");
 
-        download(&server.url("/x"), &dest, 0o755, None, "fixture").expect("should succeed");
+        download(&server.url("/x"), &dest, 0o755, None, None, "fixture").expect("should succeed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
         assert!(leftovers(dir.path(), "planned-name.bin").is_empty());
     }
@@ -531,7 +587,7 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("a.bin");
 
-        download(&server.url("/from"), &dest, 0o755, None, "fixture")
+        download(&server.url("/from"), &dest, 0o755, None, None, "fixture")
             .expect("redirects must be followed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"payload");
     }
@@ -543,7 +599,8 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("nothing-like-the-url");
 
-        download(&server.url("/some/deep/path/other-name"), &dest, 0o755, None, "fixture").unwrap();
+        download(&server.url("/some/deep/path/other-name"), &dest, 0o755, None, None, "fixture")
+            .unwrap();
         assert!(dest.exists(), "the planned name must win");
     }
 
@@ -557,7 +614,7 @@ mod tests {
             let dir = temp();
             let dest = dir.path().join("pkg.masp");
 
-            download(&server.url("/x"), &dest, 0o644, None, "fixture").unwrap();
+            download(&server.url("/x"), &dest, 0o644, None, None, "fixture").unwrap();
             assert_eq!(
                 std::fs::metadata(&dest).unwrap().permissions().mode() & 0o777,
                 0o644,
@@ -609,7 +666,7 @@ mod tests {
             .unwrap();
         let dest = dir.path().join("installed/config.yml");
 
-        copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).unwrap();
+        copy_local(&src, &dest, 0o644, None, Some(SupportedFormat::TarGz), "fixture").unwrap();
 
         assert_eq!(std::fs::read(&dest).unwrap(), b"selected");
         assert_eq!(std::fs::read_dir(dest.parent().unwrap()).unwrap().count(), 1);
@@ -624,7 +681,8 @@ mod tests {
         let dest = dir.path().join("config.yml");
         std::fs::write(&dest, b"existing").unwrap();
 
-        let err = copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).unwrap_err();
+        let err = copy_local(&src, &dest, 0o644, None, Some(SupportedFormat::TarGz), "fixture")
+            .unwrap_err();
 
         assert!(err.to_string().contains("config.yml"), "{err}");
         assert!(err.to_string().contains("more than once"), "{err}");
@@ -643,7 +701,8 @@ mod tests {
         let dest = dir.path().join("config.yml");
         std::fs::write(&dest, b"existing").unwrap();
 
-        let err = copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).unwrap_err();
+        let err = copy_local(&src, &dest, 0o644, None, Some(SupportedFormat::TarGz), "fixture")
+            .unwrap_err();
 
         assert!(matches!(err, ExecError::Archive(ArchiveError::Malformed { .. })), "{err}");
         assert_eq!(std::fs::read(&dest).unwrap(), b"existing");
@@ -658,8 +717,15 @@ mod tests {
         let dir = temp();
         let dest = dir.path().join("miden-vm");
 
-        download(&server.url("/vm.tar.gz"), &dest, 0o755, Some(SupportedFormat::TarGz), "fixture")
-            .expect("should succeed");
+        download(
+            &server.url("/vm.tar.gz"),
+            &dest,
+            0o755,
+            None,
+            Some(SupportedFormat::TarGz),
+            "fixture",
+        )
+        .expect("should succeed");
 
         assert_eq!(std::fs::read(&dest).unwrap(), b"binary");
         assert!(leftovers(dir.path(), "miden-vm").is_empty(), "nothing else may be unpacked");
@@ -683,7 +749,8 @@ mod tests {
         std::fs::write(&src, tarball("packages/core.masp", b"package")).unwrap();
         let dest = dir.path().join("lib").join("core.masp");
 
-        copy_local(&src, &dest, 0o644, Some(SupportedFormat::TarGz)).expect("should succeed");
+        copy_local(&src, &dest, 0o644, None, Some(SupportedFormat::TarGz), "fixture")
+            .expect("should succeed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"package");
     }
 
@@ -699,6 +766,7 @@ mod tests {
             &server.url("/vm.tar.gz"),
             &dest,
             0o755,
+            None,
             Some(SupportedFormat::TarGz),
             "fixture",
         )
@@ -716,8 +784,8 @@ mod tests {
         std::fs::write(&src, tarball_of(&[("first", b"one"), ("second", b"two")])).unwrap();
         let dest = dir.path().join("miden-vm");
 
-        let err =
-            copy_local(&src, &dest, 0o755, Some(SupportedFormat::TarGz)).expect_err("must fail");
+        let err = copy_local(&src, &dest, 0o755, None, Some(SupportedFormat::TarGz), "fixture")
+            .expect_err("must fail");
         assert!(matches!(err, ExecError::Archive(_)), "{err}");
         assert!(!dest.exists(), "a rejected archive must not be installed");
         assert_eq!(
@@ -734,16 +802,81 @@ mod tests {
         std::fs::write(&src, b"local").unwrap();
         let dest = dir.path().join("nested").join("dest");
 
-        copy_local(&src, &dest, 0o644, None).expect("should succeed");
+        copy_local(&src, &dest, 0o644, None, None, "fixture").expect("should succeed");
         assert_eq!(std::fs::read(&dest).unwrap(), b"local", "parent dirs must be created");
     }
 
     #[test]
     fn a_missing_local_source_is_an_error() {
         let dir = temp();
-        let err = copy_local(&dir.path().join("nope"), &dir.path().join("dest"), 0o644, None)
-            .expect_err("must fail");
+        let err = copy_local(
+            &dir.path().join("nope"),
+            &dir.path().join("dest"),
+            0o644,
+            None,
+            None,
+            "fixture",
+        )
+        .expect_err("must fail");
         assert!(matches!(err, ExecError::Copy { .. }), "{err}");
+    }
+
+    #[test]
+    fn bytes_matching_their_digest_are_installed() {
+        let dir = temp();
+        let src = dir.path().join("source");
+        std::fs::write(&src, b"local").unwrap();
+        let dest = dir.path().join("dest");
+
+        copy_local(&src, &dest, 0o644, Some(&Digest::sha256(b"local")), None, "fixture")
+            .expect("matching bytes must install");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"local");
+    }
+
+    /// A mismatch names everything needed to report it, and writes nothing.
+    #[test]
+    fn a_download_not_matching_its_digest_writes_nothing() {
+        let server = TestServer::responding(200, b"tampered");
+        let dir = temp();
+        let dest = dir.path().join("miden-vm");
+        let expected = Digest::sha256(b"payload");
+
+        let err = download(&server.url("/x"), &dest, 0o755, Some(&expected), None, "vm")
+            .expect_err("a mismatch must fail");
+        let ExecError::DigestMismatch { component, artifact, actual, .. } = &err else {
+            panic!("expected a digest mismatch, got {err}");
+        };
+        assert_eq!((component.as_str(), artifact.as_str()), ("vm", "miden-vm"));
+        assert_eq!(actual, &Digest::sha256(b"tampered").to_string());
+        for part in [expected.to_string(), actual.to_string()] {
+            assert!(err.to_string().contains(&part), "the message must name {part}: {err}");
+        }
+        assert!(!dest.exists());
+        assert!(leftovers(dir.path(), "miden-vm").is_empty(), "no partial files");
+    }
+
+    /// The digest covers the archive as transferred, so corrupt bytes are caught before the
+    /// archive reader sees them.
+    #[test]
+    fn a_corrupt_archive_fails_its_digest_before_extraction() {
+        let dir = temp();
+        let good = tarball("packages/core.masp", b"package");
+        let src = dir.path().join("core.tar.gz");
+        std::fs::write(&src, &good[..good.len() / 2]).unwrap();
+        let dest = dir.path().join("core.masp");
+
+        let err = copy_local(
+            &src,
+            &dest,
+            0o644,
+            Some(&Digest::sha256(&good)),
+            Some(SupportedFormat::TarGz),
+            "core",
+        )
+        .expect_err("must fail");
+        assert!(matches!(err, ExecError::DigestMismatch { .. }), "{err}");
+        assert!(!dest.exists());
+        assert!(leftovers(dir.path(), "core.tar.gz").is_empty(), "no partial files");
     }
 
     /// Two artifacts sharing a stem must not stage through the same temporary path, and neither

@@ -405,6 +405,138 @@ fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
     );
 }
 
+/// Artifacts whose bytes match their declared digests install, plain and archived alike.
+#[test]
+fn integration_install_verifies_artifact_digests() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_install_verifies_artifact_digests");
+
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_archived_component()
+        .with_digests()
+        .build();
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect("artifacts matching their digests must install");
+
+    let channel = semver::Version::new(0, 15, 0);
+    let midenup::state::PublicationRef::Managed { id, .. } =
+        &state.get(&channel).expect("installed").publication
+    else {
+        panic!("expected a managed publication");
+    };
+    let publication = midenup::paths::publication_dir(&test_env.midenup_home, &channel, id);
+    assert!(
+        publication.join("lib").join("archived.masp").exists(),
+        "the archived artifact must be installed"
+    );
+}
+
+/// Bytes that do not match their digest fail the install outright: the declared Cargo fallback,
+/// which would succeed, is not taken, and nothing is published.
+#[test]
+fn integration_a_digest_mismatch_fails_without_falling_back() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_digest_mismatch");
+
+    let sources = common::harness::SourceFixture::build(test_env.tmp_dir.path());
+    let artifact = test_env.tmp_dir.path().join("miden-vm");
+    std::fs::write(&artifact, b"tampered").unwrap();
+    let expected = midenup::artifact::Digest::sha256(b"the published binary");
+    let manifest = serde_json::json!({
+        "manifest_version": "3.0.0",
+        "min_client_version": "1.0.0",
+        "date": 1735689600,
+        "channels": [{
+            "name": "0.15.0",
+            "components": [{
+                "name": "vm",
+                "version": {"kind": "path", "path": sources.path_crate.to_str().unwrap()},
+                "kind": "executable",
+                "installation_method": {
+                    "kind": "prebuilt-with-cargo-fallback",
+                    "crate_name": "fixture-vm"
+                },
+                "installed-executable": "miden-vm",
+                "profiles": ["minimal"],
+                "artifacts": {"miden-vm": {
+                    "uri": format!("file://{}", artifact.display()),
+                    "digest": expected.to_string()
+                }}
+            }]
+        }]
+    });
+    let manifest_path = test_env.tmp_dir.path().join("mismatch-manifest.json");
+    std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest).unwrap()).unwrap();
+
+    let (mut state, config) = test_setup(&test_env, &format!("file://{}", manifest_path.display()));
+
+    let err = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("a digest mismatch must fail the install");
+    let message = format!("{err:#}");
+    for part in [
+        "'miden-vm'".to_string(),
+        "'vm'".to_string(),
+        expected.to_string(),
+        midenup::artifact::Digest::sha256(b"tampered").to_string(),
+    ] {
+        assert!(message.contains(&part), "the error must name {part}: {message}");
+    }
+
+    assert_not_installed(&test_env, &state, "0.15.0", "bin/miden-vm");
+}
+
+/// Corrupt archive bytes are caught by the digest before extraction is attempted.
+#[test]
+fn integration_a_corrupt_archive_fails_its_digest() {
+    let _guard = common::harness::mutating_test_guard();
+    let test_env = environment_setup("integration_corrupt_archive");
+
+    let fixture = common::harness::OfflineFixture::new(test_env.tmp_dir.path())
+        .with_channel("0.15.0")
+        .with_archived_component()
+        .with_digests()
+        .build();
+    let tarball = fixture.dir.join("0.15.0").join("archived.masp.tar.gz");
+    let bytes = std::fs::read(&tarball).unwrap();
+    std::fs::write(&tarball, &bytes[..bytes.len() / 2]).unwrap();
+
+    let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
+
+    let err = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+        .unwrap()
+        .execute_with_state(&config, &mut state)
+        .expect_err("a corrupt archive must fail the install");
+    let message = format!("{err:#}");
+    assert!(message.contains("does not match the digest"), "{message}");
+    assert!(message.contains("'archived.masp'"), "{message}");
+
+    assert_not_installed(&test_env, &state, "0.15.0", "lib/archived.masp");
+}
+
+/// `channel` is neither recorded nor linked, and no publication holds the rejected `artifact`.
+fn assert_not_installed(
+    test_env: &TestEnvironment,
+    state: &midenup::state::LocalState,
+    channel: &str,
+    artifact: &str,
+) {
+    assert!(state.get(&channel.parse().unwrap()).is_none(), "nothing may be recorded");
+    let link = test_env.midenup_home.join("toolchains").join(channel);
+    assert!(link.symlink_metadata().is_err(), "no toolchain may be linked");
+    let publications = midenup::paths::publications_dir(&test_env.midenup_home);
+    for publication in std::fs::read_dir(&publications).into_iter().flatten() {
+        let path = publication.unwrap().path().join(artifact);
+        assert!(!path.exists(), "the rejected artifact must not be written: {}", path.display());
+    }
+}
+
 /// `path` and `git` authorities must be recorded at install time and re-checked on update.
 ///
 /// The behaviour under test is update *detection*: midenup records a path's modification time and

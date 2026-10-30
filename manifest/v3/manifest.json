@@ -1,7 +1,7 @@
 {
-  "manifest_version": "3.0.0",
+  "manifest_version": "3.1.0",
   "min_client_version": "1.2.0",
-  "date": 1793213045,
+  "date": 1793377513,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.17.0",
@@ -23,8 +23,12 @@
             "cargo-miden": {
               "archive": "tar.gz",
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:5c4888881eac0ab007982ec498223fc744a5af407620b5bc9ff2b46a869db26f"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:4a074de637c07f147931088d4139a79b7245ebc8876a88656cd0ec2a1e13fab2"
+                }
               },
               "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/cargo-miden-%target.tar.gz"
             }
@@ -89,8 +93,12 @@
           "artifacts": {
             "miden-client": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:430756a0357e88fa6ea83db3eb7f2d0b88df7d96790cf341c4cbd57036283edc"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:cc4936ebab38fdeb1eee2f0c8b3d811254c8c07075688adc90ea5b820f10562b"
+                }
               },
               "uri": "https://github.com/0xMiden/rust-sdk/releases/download/v%version/miden-client-%target"
             }
@@ -113,9 +121,11 @@
         {
           "artifacts": {
             "miden-core.masp": {
+              "digest": "sha256:40651f424c8321f77f88a5fe6d7b3fa159547beb69047d7499e31f0db269f464",
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
             },
             "miden-precompiles.masp": {
+              "digest": "sha256:5bd37e979febde0a865e89c481119f61a0c01ae3f0247f460f3ff5b5f12e590b",
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/precompiles.masp"
             }
           },
@@ -133,8 +143,12 @@
           "artifacts": {
             "miden-debug": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:feba8711e774acecc23a6853f80ac5a4d4114aca153a1cb5c54bd3b9b5c06edb"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:d2b24ef021dc60e38677f0cf872142ec97f739c0a31f2abc1dd676afe91491ab"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-debug/releases/download/miden-debug-engine-v%version/miden-debug-%target"
             }
@@ -164,8 +178,12 @@
           "artifacts": {
             "miden-faucet-client": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:bcea600af8e653fd14a3e1d58e7f99b32bfa021fc645d81f0998947a07e828bc"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:134e695e727551fbfcf49b2b853d83a768e3c2c9889dca7cd277108a5d35512b"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-faucet/releases/download/v%version/miden-faucet-client-%target"
             }
@@ -194,8 +212,12 @@
           "artifacts": {
             "miden-format": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:ae9029a02633f4251a6ee8ee07ce16a3e0fa610bdc3a9721d58c0ed1a63ff170"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:c778c5fc149b008fa671f8bf6f5b490884c2b6b3b219873d659b723404479ab8"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-format-%target"
             }
@@ -222,8 +244,12 @@
           "artifacts": {
             "miden-registry": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:1b50dc56188a7ade74eb02d9934067e181acd44de726de699854481f723bb5aa"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:8810106d90e5b9dd403cf95f3f2cd100fb8f679e4bcff36d994014eb76555625"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-registry-%target"
             }
@@ -251,8 +277,12 @@
             "midenc": {
               "archive": "tar.gz",
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:64819fff109c1408ea9fb2f3c61013b91a93d6d18757d896aed3c603e7e1ce51"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:da9f917be7dbfc3d0ab5b056a6fb68e03209fa43eaf9f1c754cc40b7955e71ab"
+                }
               },
               "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/midenc-%target.tar.gz"
             }
@@ -321,12 +351,15 @@
         {
           "artifacts": {
             "miden-protocol.masp": {
+              "digest": "sha256:9d25c3b804c93593f6573f325d2f887f22ddfcb016fa2c4f0014b8b9b2c0fab0",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
             },
             "miden-standards.masp": {
+              "digest": "sha256:616aaebdeec2987d092bba5d54db683190d3df01b06008d8642196581ba15582",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards.masp"
             },
             "miden-tx-kernel.masp": {
+              "digest": "sha256:752e439945282166415003aaca38054eaa99cbe0293bbc008da56fca211d9dc9",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-tx-kernel.masp"
             }
           },
@@ -374,8 +407,12 @@
           "artifacts": {
             "miden-verify": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:19045622bf441ae066c10e802f69d9fd581cf5bea0b72bb4f4523326d92c512e"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:7feca24833452f6d1dc3eb6950d4bdcb2b7e01eeeaad5301c8d15a73f700fe73"
+                }
               },
               "uri": "https://github.com/walnuthq/miden-verify/releases/download/v%version/miden-verify-%target"
             }
@@ -399,8 +436,12 @@
           "artifacts": {
             "miden-vm": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:bb8c3384ef9563ba6f31113761e9a186994928c4531f6a4eb27a9e13e41b4ba2"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:a17ce753f20c3cfe072092d4bc6684b33e797cb16d6b9eb2a72748b1f3d8888c"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-vm-%target"
             }
@@ -437,8 +478,12 @@
             "cargo-miden": {
               "archive": "tar.gz",
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:6dabad4dc3f04b67426ac420d77a7554010ad693da6176418c5c3e48d469327b"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:d19cd8c07399e7d962c966bbd95fc6a7d56abcd72c08dd06392eb689a3bfd933"
+                }
               },
               "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/cargo-miden-%target.tar.gz"
             }
@@ -503,8 +548,12 @@
           "artifacts": {
             "miden-client": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:bae78eb9ee89536834f909ed95c81e5e16f58c4b8f3b7cf86e825d7d195dccca"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:2e53bc728b617ef99f417be95874370a0556c2101aca422cda64be17717e9e69"
+                }
               },
               "uri": "https://github.com/0xMiden/rust-sdk/releases/download/v%version/miden-client-%target"
             }
@@ -527,6 +576,7 @@
         {
           "artifacts": {
             "miden-core.masp": {
+              "digest": "sha256:4b72e7d9ca556b89ba43b51dfdf0940e0320809ed5b6743354a7cd2d5b70a7fb",
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
             }
           },
@@ -545,8 +595,12 @@
             "miden-debug": {
               "archive": "tar.gz",
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:7623935c9f2a25e78ce50075a0bf7a3ae45534110927af572a62ba8c7310ffea"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:c51b52019f21efac99496ef8432747606acd910548a2268b1e515b3de0310816"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-debug/releases/download/v%version/miden-debug-%target.tar.gz"
             }
@@ -576,8 +630,12 @@
           "artifacts": {
             "miden-faucet-client": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:5c3b5c58490fd0057ca070611ccc4918ef2a29e492af257359855bf4d9b45bfc"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:392d2881e4cb26c4df03f141f8a68b148abf6c5c43078757a3654da23c1589b5"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-faucet/releases/download/v%version/miden-faucet-client-%target"
             }
@@ -606,8 +664,12 @@
           "artifacts": {
             "miden-format": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:6b519ec8a749bc61cf445b65aa620c4363f3222f904a259962e37881928d24c4"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:ce895d3302feb202cc2f5ccc7391acfb21fad597888edf863c7c4daa3a1b4125"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-format-%target"
             }
@@ -634,8 +696,12 @@
           "artifacts": {
             "miden-registry": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:bc465ae08b64d743eccd91ce3bec2149ad9282cd9fc98e60b7de943313ee8b4c"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:e5fffda4109fb4223b59c608835012015b6381b1b57bb31886d3f48026dcdf45"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-registry-%target"
             }
@@ -663,8 +729,12 @@
             "midenc": {
               "archive": "tar.gz",
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:511314da2fb585fcb3e026ad600b49bb8b8b73fae185a8d38ca8855d5e3e9e0c"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:05dc0801c0c8a2ee1af9fe75dc8cfd19df614eaaa446ec092b32c00092a82e22"
+                }
               },
               "uri": "https://github.com/0xMiden/compiler/releases/download/v%version/midenc-%target.tar.gz"
             }
@@ -733,12 +803,15 @@
         {
           "artifacts": {
             "miden-protocol.masp": {
+              "digest": "sha256:b0020bbf3e377c3cecd5582bdb79ddd330d8975315e1d82dce41421646c88d36",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
             },
             "miden-standards.masp": {
+              "digest": "sha256:4f83e74dbb8ac35b6a25cddc79c61b5428be2341a14781dc3fbeb02c603ce566",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards.masp"
             },
             "miden-tx-kernel.masp": {
+              "digest": "sha256:e2e8d05f94240f2cfdeeb7a55091f0dc542ace130abff735acb3e40c49df9909",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-tx-kernel.masp"
             }
           },
@@ -786,8 +859,12 @@
           "artifacts": {
             "miden-verify": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:259d732b1fa1d3e26805a97dbe3584c21d56c610a9d27dee07c02e8710ea9054"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:44be8919451b24fe540e96eb6366797a071b9a5bda16dc1d30a24b65387e0ecf"
+                }
               },
               "uri": "https://github.com/walnuthq/miden-verify/releases/download/v%version/miden-verify-%target"
             }
@@ -811,8 +888,12 @@
           "artifacts": {
             "miden-vm": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:da928c3128cbbf5d1537f65014207ce176cabc2ca7d08c4e9dc152d096c75b94"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:1b77fd720a57791c5ad6b69ab5abdc3fc56203083aff35ed51f5002f3577ebbb"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-vm-%target"
             }
@@ -840,6 +921,7 @@
         {
           "artifacts": {
             "miden-core.masp": {
+              "digest": "sha256:998f88659b440b9de6d3c082b7a62dae2d18bece2b179a7966dc61c190947ab1",
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/core.masp"
             }
           },
@@ -858,8 +940,12 @@
             "miden-debug": {
               "archive": "tar.gz",
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:3af238dd62f4f539632ddcadbc5004d63f9f55b365ae132d9e74cb9ce2069ba1"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:8e774536ab96b6f1e3d2f2c93f7f71406aca969b68081c023d5080d49fa8f0e4"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-debug/releases/download/v%version/miden-debug-%target.tar.gz"
             }
@@ -888,8 +974,12 @@
           "artifacts": {
             "miden-format": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:0f33ca00e63ea859b35c17587ab65272f7aff59a117988266103e9809d84bf59"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:7152b22d42535cb92c609ffe71f08c483fed8a0d8bd300a1b67cdc726d19fc9a"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-format-%target"
             }
@@ -916,8 +1006,12 @@
           "artifacts": {
             "miden-registry": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:2a54efcee334f28c5674d00e946227338e93a645199951e6f8e54aba779802fe"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:3eef2144bac87b85ae220a777d906269ea6e4f875bbb7c65d9140a0415c9fb25"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-registry-%target"
             }
@@ -975,12 +1069,15 @@
         {
           "artifacts": {
             "miden-protocol.masp": {
+              "digest": "sha256:4e742e2d3e3091750a0a5c2ac1da7cd3cd8ccdc4e1846dff0498ac7ca811ab39",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-protocol.masp"
             },
             "miden-standards.masp": {
+              "digest": "sha256:5815cf9d8d8523ab6963a4b22944c7f81735f7ced863138c451972b6e05dcb54",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-standards.masp"
             },
             "miden-tx-kernel.masp": {
+              "digest": "sha256:434556ac11963650bf635a19d1a46949c16d80c10fbbf30d05f0d74c91387a25",
               "uri": "https://github.com/0xMiden/protocol/releases/download/v%version/miden-tx-kernel.masp"
             }
           },
@@ -1028,8 +1125,12 @@
           "artifacts": {
             "miden-vm": {
               "targets": {
-                "aarch64-apple-darwin": {},
-                "x86_64-unknown-linux-gnu": {}
+                "aarch64-apple-darwin": {
+                  "digest": "sha256:d701b9ab4dbecf23091cf20fe4751bc1c53695a422a77bcdadfe439ca34e12d8"
+                },
+                "x86_64-unknown-linux-gnu": {
+                  "digest": "sha256:8d135a5bc08c2800d97b43096216dd5d5649ba6d50b4609483e64d7037fd9db0"
+                }
               },
               "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/miden-vm-%target"
             }
