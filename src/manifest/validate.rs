@@ -391,6 +391,16 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
+/// Whether `value` reads the same as an absent field: null, or an empty array or object.
+pub(crate) fn is_empty_value(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Null => true,
+        serde_json::Value::Array(items) => items.is_empty(),
+        serde_json::Value::Object(members) => members.is_empty(),
+        _ => false,
+    }
+}
+
 /// Rules over fields the parser preserved without recognizing.
 ///
 /// Reading tolerates them so that a newer manifest does not break an older `midenup`; publishing
@@ -400,15 +410,6 @@ pub fn validate_manifest(manifest: &Manifest) -> Result<(), Vec<ValidationError>
 /// there. A misspelled field whose value is empty therefore goes unreported; it is also the one
 /// typo with no effect, since an empty field and an absent one read the same.
 fn validate_unknown_fields(manifest: &Manifest, errors: &mut Vec<ValidationError>) {
-    fn is_empty_value(value: &serde_json::Value) -> bool {
-        match value {
-            serde_json::Value::Null => true,
-            serde_json::Value::Array(items) => items.is_empty(),
-            serde_json::Value::Object(members) => members.is_empty(),
-            _ => false,
-        }
-    }
-
     fn report(location: &str, extra: &Extra, errors: &mut Vec<ValidationError>) {
         for (field, _) in extra.iter().filter(|(_, value)| !is_empty_value(value)) {
             errors.push(ValidationError::UnknownField {

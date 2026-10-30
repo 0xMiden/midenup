@@ -7,6 +7,10 @@ on:
         description: URI of the manifest this change replaces
         required: true
         type: string
+    outputs:
+      diff:
+        description: The changes to the manifest as a Markdown list, empty when there are none or a check failed
+        value: ${{ jobs.check.outputs.diff }}
   # ci.yml ignores manifest-only pushes, so those are checked here directly.
   push:
     branches: [next]
@@ -20,6 +24,11 @@ jobs:
   check:
     name: check
     runs-on: ubuntu-latest
+    outputs:
+      diff: ${{ steps.diff.outputs.diff }}
+    env:
+      # On a push, the manifest at the previous tip of the branch
+      AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
     steps:
       - uses: actions/checkout@v5
       - name: Install Rust
@@ -40,7 +49,20 @@ jobs:
       - name: Check the manifest against the one it replaces
         # A push that creates the branch has no previous tip to compare against.
         if: inputs.against != '' || github.event.before != '0000000000000000000000000000000000000000'
-        env:
-          # On a push, the manifest at the previous tip of the branch
-          AGAINST: ${{ inputs.against || format('https://raw.githubusercontent.com/{0}/{1}/manifest/v3/manifest.json', github.repository, github.event.before) }}
         run: cargo make check-manifest --against "${AGAINST}" --online
+      - name: Summarize the changes to the manifest
+        id: diff
+        if: inputs.against != '' || github.event.before != '0000000000000000000000000000000000000000'
+        # Last, so it only summarizes a manifest that passed every check; a failure is read in the
+        # log instead. Not through cargo make, which prints its environment to stdout. Also an
+        # output, which ci.yml posts on the pull request.
+        run: |
+          set -euo pipefail
+          cargo run -q -p manifest-utils -- diff --manifest-path manifest/v3/manifest.json "${AGAINST}" > "${RUNNER_TEMP}/diff.md"
+          cat "${RUNNER_TEMP}/diff.md" >> "${GITHUB_STEP_SUMMARY}"
+          delimiter="diff-$(openssl rand -hex 8)"
+          {
+            echo "diff<<${delimiter}"
+            cat "${RUNNER_TEMP}/diff.md"
+            echo "${delimiter}"
+          } >> "${GITHUB_OUTPUT}"
