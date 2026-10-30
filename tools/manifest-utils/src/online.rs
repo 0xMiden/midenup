@@ -215,7 +215,7 @@ fn check_revision(
     subpath: Option<&str>,
     built: bool,
 ) -> anyhow::Result<()> {
-    let scratch = tempfile::Builder::new().prefix("update-manifest-revision").tempdir()?;
+    let scratch = tempfile::Builder::new().prefix("manifest-utils-revision").tempdir()?;
     git(scratch.path(), &["init", "--quiet"])?;
     git(scratch.path(), &["fetch", "--quiet", "--depth=1", repository_url, revision])
         .with_context(|| format!("failed to fetch revision {revision} from '{repository_url}'"))?;

@@ -26,7 +26,7 @@ This specification covers:
 - **runtime dispatch** semantics for `miden`;
 - **migration** from manifest v1.0.1;
 - **validation** rules and the **error taxonomy**;
-- the **manifest authoring tool** (`update-manifest`).
+- the **manifest authoring tool** (`manifest-utils`).
 
 Out of scope, with rationale in §16.
 
@@ -260,7 +260,7 @@ A network is a **moving name** for a channel. `mainnet` names whichever toolchai
 
 Several networks may name one channel, which is the normal state once a testnet toolchain is promoted to mainnet.
 
-**Declared, never derived.** Which toolchain a network runs is a deployment fact, not a function of version ordering: mainnet may lag testnet by several releases, and a hotfix may put it ahead. No ordering over version numbers can express that, so the map is authored - by `update-manifest promote` (§15) - and read literally.
+**Declared, never derived.** Which toolchain a network runs is a deployment fact, not a function of version ordering: mainnet may lag testnet by several releases, and a hotfix may put it ahead. No ordering over version numbers can express that, so the map is authored - by `manifest-utils promote` (§15) - and read literally.
 
 **Synonyms.** `stable`, `beta` and `nightly` are accepted as input for `mainnet`, `testnet` and `devnet`, and are rewritten as they are read. Everything downstream - output, symlinks, local state, diagnostics - sees only the network name, so a `miden-toolchain.toml` written before networks existed keeps working and means `mainnet`. The mapping is fixed in `midenup` rather than declared in the manifest: it is user vocabulary, not deployment, and letting a manifest author redefine `stable` is not a capability worth having.
 
@@ -409,7 +409,7 @@ A `branch` target is resolved to a concrete commit at install time and that comm
 }
 ```
 
-It exists because channels up to 0.15.0 did not ship packages as assets in their releases, and the only way to obtain them was using this methodology. It is **closed to new channels**: `update-manifest` refuses to author a `legacy-package` into any channel, and validation reports it as deprecated. When the affected channels are removed, this kind and the generated Cargo script (§9.3) should be removed together.
+It exists because channels up to 0.15.0 did not ship packages as assets in their releases, and the only way to obtain them was using this methodology. It is **closed to new channels**: `manifest-utils` refuses to author a `legacy-package` into any channel, and validation reports it as deprecated. When the affected channels are removed, this kind and the generated Cargo script (§9.3) should be removed together.
 
 `installed-package` is the exact output filename. It carries forward from v1's
 `installed_library.library_name`, which was previously inferred.
@@ -873,7 +873,7 @@ Because the superset only grows, `midenup install <channel> --profile <p>` is th
 
 This is deliberately **not** `migrates_from` lineage (§11.4). That describes a relationship between two channels and is what someone tracking a pinned version follows. A user tracking `mainnet` asked for `mainnet`, and their data belongs to the network rather than to a version.
 
-The comparison is **inequality, not "is newer"**. The pointer is authoritative in both directions: `update-manifest promote` refuses to author a backwards move without an explicit flag (§15), but once one is published, following it is what tracking a network means. A backwards move is announced, because a network naming an older channel than it did is worth saying out loud; nothing is carried, so there is nothing else to say about it.
+The comparison is **inequality, not "is newer"**. The pointer is authoritative in both directions: `manifest-utils promote` refuses to author a backwards move without an explicit flag (§15), but once one is published, following it is what tracking a network means. A backwards move is announced, because a network naming an older channel than it did is worth saying out loud; nothing is carried, so there is nothing else to say about it.
 
 Repointing the link is done by this command rather than left to the DERIVE step of the install it performs, because an update whose target is already installed can legitimately have nothing to install - and moving the pointer is the thing this command exists to do.
 
@@ -1056,8 +1056,8 @@ Spawned components receive `MIDENUP_HOME`, `MIDENUP_TOOLCHAIN`, `MIDEN_SYSROOT`,
 |---|---|
 | loading an upstream manifest | **none** - parsing is permissive (see below) |
 | after parsing local state | structural + referential |
-| after every `update-manifest` mutation, before writing | structural, platform-neutral |
-| `update-manifest check` | structural, platform-neutral, reports every error |
+| after every `manifest-utils` mutation, before writing | structural, platform-neutral |
+| `manifest-utils check` | structural, platform-neutral, reports every error |
 | during plan construction | structural for the selected channel, plus target-specific installability |
 
 Structural validation is **platform-neutral**: a manifest is not invalid because the current machine cannot install one of its components. Target availability is checked only when building a plan.
@@ -1178,7 +1178,7 @@ a file or CI log the announcement lines are the whole report.
 
 ---
 
-## 15. `update-manifest`
+## 15. `manifest-utils`
 
 The authoring tool shares the schema types and validators; it does not reimplement them.
 
@@ -1193,7 +1193,7 @@ The authoring tool shares the schema types and validators; it does not reimpleme
 ### 15.1 `promote`
 
 ```
-update-manifest promote <NETWORK> <CHANNEL> [--allow-downgrade]
+manifest-utils promote <NETWORK> <CHANNEL> [--allow-downgrade]
 ```
 
 `promote` is the only way a network moves (§5.1). It deploys nothing; it records which toolchain `midenup install <NETWORK>` resolves to from now on. Creating the network if it does not exist is the same operation as moving one, so there is no separate "add network" command.

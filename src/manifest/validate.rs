@@ -6,13 +6,13 @@
 //! installation plan is built -- not here. Conflating the two would make a manifest "invalid" on a
 //! Mac and valid on Linux.
 //!
-//! Every rule returns rather than short-circuits, so `update-manifest check` can report everything
+//! Every rule returns rather than short-circuits, so `manifest-utils check` can report everything
 //! wrong with a manifest in one pass instead of one error per run.
 //!
 //! # This is not run at parse time
 //!
 //! Loading a manifest is deliberately permissive. Validation is an *authoring* gate
-//! (`update-manifest check`) and an *install-time* gate (plan construction, scoped to the channel
+//! (`manifest-utils check`) and an *install-time* gate (plan construction, scoped to the channel
 //! actually being installed) -- not a precondition for reading the document.
 //!
 //! The reason is concrete. The manifest published at the time of writing has dangling requirements
@@ -158,7 +158,7 @@ pub enum ValidationError {
     },
     #[error(
         "manifest timestamp {next} does not advance past the previous manifest's {previous}; run \
-         `update-manifest touch`"
+         `manifest-utils touch`"
     )]
     StaleTimestamp { previous: i64, next: i64 },
     #[error("network '{network}' is declared by the previous manifest but not by this one")]
@@ -217,7 +217,7 @@ pub enum ValidationError {
         channel: semver::Version,
         from: semver::Version,
     },
-    #[error("manifest timestamp {0} is in the future; run `update-manifest touch`")]
+    #[error("manifest timestamp {0} is in the future; run `manifest-utils touch`")]
     FutureTimestamp(i64),
     #[error("channel {0} declares `migrates_from` itself")]
     SelfMigration(semver::Version),

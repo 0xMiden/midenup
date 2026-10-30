@@ -5,14 +5,15 @@
 
 use std::{path::Path, process::Command};
 
-/// Runs `update-manifest` against `path`, returning stderr on failure.
+/// Runs `manifest-utils` against `path`, returning stderr on failure.
 fn run(path: &Path, args: &[&str]) -> Result<String, String> {
-    let output = Command::new(env!("CARGO_BIN_EXE_update-manifest"))
+    let output = Command::new(env!("CARGO_BIN_EXE_manifest-utils"))
+        .arg(args[0])
         .arg("--manifest-path")
         .arg(path)
-        .args(args)
+        .args(&args[1..])
         .output()
-        .expect("failed to spawn update-manifest");
+        .expect("failed to spawn manifest-utils");
 
     let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
     let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -49,7 +50,7 @@ fn manifest_with(components: serde_json::Value) -> serde_json::Value {
 ///
 /// This is the shape `promote` exists to change: a network that has somewhere to move to.
 fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
-    let dir = tempfile::Builder::new().prefix("update-manifest-promote").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-promote").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         serde_json::json!({
@@ -70,7 +71,7 @@ fn fixture() -> (tempfile::TempDir, std::path::PathBuf) {
 /// is not in the channel.
 fn fixture_with_dangling_requirement() -> (tempfile::TempDir, std::path::PathBuf) {
     let dir = tempfile::Builder::new()
-        .prefix("update-manifest-promote-dangling")
+        .prefix("manifest-utils-promote-dangling")
         .tempdir()
         .unwrap();
     let path = write_manifest(
@@ -119,7 +120,7 @@ fn component<'a>(manifest: &'a serde_json::Value, name: &str) -> &'a serde_json:
 /// The merge applies the user's new value over the existing one, so the new value wins.
 #[test]
 fn partial_kind_update_changes_the_requested_field() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-patch").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-patch").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -156,7 +157,7 @@ fn partial_kind_update_changes_the_requested_field() {
 /// which is where a reversed merge is least visible.
 #[test]
 fn partial_kind_update_can_change_a_nested_field() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-nested").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-nested").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -188,7 +189,7 @@ fn partial_kind_update_can_change_a_nested_field() {
 /// updating one of its fields -- and does so while reporting success.
 #[test]
 fn a_non_object_kind_patch_is_rejected() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-nonobject").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-nonobject").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -218,7 +219,7 @@ fn a_non_object_kind_patch_is_rejected() {
 /// A failed mutation must leave the original file byte-for-byte intact.
 #[test]
 fn a_failed_mutation_does_not_write() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-nowrite").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-nowrite").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -247,7 +248,7 @@ fn a_failed_mutation_does_not_write() {
 /// discarding it accepts a cyclic manifest.
 #[test]
 fn check_rejects_a_cyclic_manifest() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-cycle").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-cycle").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([
@@ -266,7 +267,7 @@ fn check_rejects_a_cyclic_manifest() {
 
 #[test]
 fn check_accepts_a_well_formed_manifest() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-ok").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-ok").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -277,7 +278,7 @@ fn check_accepts_a_well_formed_manifest() {
 /// `check` must report every problem in one pass, not one per run.
 #[test]
 fn check_reports_all_errors_at_once() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-many").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-many").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([
@@ -337,7 +338,7 @@ fn check_against_the_deployed_manifest() {
 /// field, and two channels claiming one predecessor is refused by `check`.
 #[test]
 fn clone_toolchain_does_not_carry_migrates_from() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-clone").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-clone").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         serde_json::json!({
@@ -396,7 +397,7 @@ fn clone_toolchain_can_declare_what_it_supersedes() {
 /// Removing a component that something else still requires would leave the channel unresolvable.
 #[test]
 fn removing_a_still_required_component_is_rejected() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-remove").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-remove").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([
@@ -421,7 +422,7 @@ fn removing_a_still_required_component_is_rejected() {
 
 #[test]
 fn removing_an_unrequired_component_succeeds() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-remove-ok").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-remove-ok").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),
@@ -432,7 +433,7 @@ fn removing_an_unrequired_component_succeeds() {
 
 #[test]
 fn add_component_accepts_profiles() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-add").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-add").tempdir().unwrap();
     let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
 
     run(&path, &[
@@ -452,7 +453,7 @@ fn add_component_accepts_profiles() {
 #[test]
 fn add_component_accepts_artifacts_for_a_prebuilt_component() {
     let dir = tempfile::Builder::new()
-        .prefix("update-manifest-add-prebuilt")
+        .prefix("manifest-utils-add-prebuilt")
         .tempdir()
         .unwrap();
     let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
@@ -494,7 +495,7 @@ fn add_component_accepts_artifacts_for_a_prebuilt_component() {
 /// `legacy-package` is closed to new authoring: packages ship prebuilt from here on.
 #[test]
 fn authoring_a_legacy_package_is_rejected() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-legacy").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-legacy").tempdir().unwrap();
     let path = write_manifest(dir.path(), manifest_with(serde_json::json!([])));
 
     let err = run(&path, &[
@@ -516,7 +517,7 @@ fn authoring_a_legacy_package_is_rejected() {
 /// only then renamed into place.
 #[test]
 fn a_mutation_producing_an_invalid_manifest_is_refused() {
-    let dir = tempfile::Builder::new().prefix("update-manifest-invalid").tempdir().unwrap();
+    let dir = tempfile::Builder::new().prefix("manifest-utils-invalid").tempdir().unwrap();
     let path = write_manifest(
         dir.path(),
         manifest_with(serde_json::json!([cargo_executable("vm", "miden-vm")])),

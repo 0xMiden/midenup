@@ -18,17 +18,22 @@ use midenup::{
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "update-manifest",
+    name = "manifest-utils",
     author,
-    about = "Modify channel-manifest.json safely",
+    about = "Author, check and publish the midenup manifest",
     long_about = None,
     arg_required_else_help(true)
 )]
 pub struct Cli {
-    #[arg(long, required(true), value_name = "PATH")]
-    manifest_path: PathBuf,
     #[command(subcommand)]
     command: Command,
+}
+
+/// The manifest a command works on.
+#[derive(Debug, clap::Args)]
+struct ManifestPath {
+    #[arg(long, value_name = "PATH")]
+    manifest_path: PathBuf,
 }
 
 // Parsed once per run, so the size of its largest variant costs nothing.
@@ -37,6 +42,8 @@ pub struct Cli {
 enum Command {
     /// Check that the manifest is valid
     Check {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// Also check the manifest as a replacement for the previous one at this URI, e.g. the
         /// deployed manifest or the one on the base branch: refuses a stale timestamp, a removed
         /// network, a network or component moving backwards, a removed channel or component, a
@@ -52,6 +59,8 @@ enum Command {
     },
     /// Format the manifest
     Format {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// Writes the formatted manifest to stdout, rather than rewriting the file
         #[arg(long, default_value_t = false)]
         stdout: bool,
@@ -60,9 +69,14 @@ enum Command {
         check: bool,
     },
     /// Updates the timestamp of the manifest to the current time in UTC
-    Touch,
+    Touch {
+        #[command(flatten)]
+        manifest: ManifestPath,
+    },
     /// Clone the a toolchain to a new toolchain for further modification
     CloneToolchain {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// The channel to clone
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         from: channel::UserChannel,
@@ -79,6 +93,8 @@ enum Command {
     /// Does not deploy anything. It records which toolchain `midenup install <NETWORK>` resolves
     /// to from now on.
     Promote {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// The network to move, e.g. `mainnet`
         #[arg(required(true), value_name = "NETWORK")]
         network: String,
@@ -91,6 +107,8 @@ enum Command {
     },
     /// Add a component to a toolchain
     AddComponent {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// The channel to add this component to
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
@@ -115,6 +133,8 @@ enum Command {
     },
     /// Remove a component from a toolchain
     RemoveComponent {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// The channel to remove the component from
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
@@ -123,6 +143,8 @@ enum Command {
         name: String,
     },
     UpdateComponent {
+        #[command(flatten)]
+        manifest: ManifestPath,
         /// The channel in which to find the component being updated
         #[arg(long, required(true), value_name = "CHANNEL", value_parser)]
         channel: channel::UserChannel,
@@ -201,11 +223,27 @@ fn main() -> ExitCode {
     }
 }
 
+impl Command {
+    fn manifest_path(&self) -> &Path {
+        match self {
+            Self::Check { manifest, .. }
+            | Self::Format { manifest, .. }
+            | Self::Touch { manifest }
+            | Self::CloneToolchain { manifest, .. }
+            | Self::Promote { manifest, .. }
+            | Self::AddComponent { manifest, .. }
+            | Self::RemoveComponent { manifest, .. }
+            | Self::UpdateComponent { manifest, .. } => &manifest.manifest_path,
+        }
+    }
+}
+
 impl Cli {
     fn execute(&self) -> anyhow::Result<()> {
-        let mut manifest = VersionedManifest::load_from_file(&self.manifest_path)?;
+        let manifest_path = self.command.manifest_path();
+        let mut manifest = VersionedManifest::load_from_file(manifest_path)?;
         match &self.command {
-            Command::Check { against, online } => {
+            Command::Check { against, online, .. } => {
                 // Structural validation first: it reports every problem in one pass, which is
                 // what an authoring tool should do. Loading the manifest does NOT run this --
                 // see the module docs on src/manifest/validate.rs.
@@ -259,23 +297,23 @@ impl Cli {
                 let formatted = serde_json::to_string_pretty(&manifest)
                     .context("failed to format manifest")?
                     + "\n";
-                let committed = std::fs::read_to_string(&self.manifest_path)
-                    .with_context(|| format!("failed to read {}", self.manifest_path.display()))?;
+                let committed = std::fs::read_to_string(manifest_path)
+                    .with_context(|| format!("failed to read {}", manifest_path.display()))?;
                 if committed != formatted {
                     bail!(
-                        "{} is not formatted; run `update-manifest format`",
-                        self.manifest_path.display()
+                        "{} is not formatted; run `manifest-utils format`",
+                        manifest_path.display()
                     );
                 }
                 Ok(())
             },
-            Command::Format { stdout: false, .. } => write_manifest(&manifest, &self.manifest_path),
+            Command::Format { stdout: false, .. } => write_manifest(&manifest, manifest_path),
             Command::Format { stdout: true, .. } => write_manifest_to_stdout(&manifest),
-            Command::Touch => {
+            Command::Touch { .. } => {
                 manifest.update_last_modified();
-                write_manifest(&manifest, &self.manifest_path)
+                write_manifest(&manifest, manifest_path)
             },
-            Command::CloneToolchain { from, to, migrates_from } => {
+            Command::CloneToolchain { from, to, migrates_from, .. } => {
                 let Some(mut from) = manifest.get_channel(from).cloned() else {
                     bail!("unknown source toolchain '{from}'")
                 };
@@ -302,9 +340,9 @@ impl Cli {
                 manifest.add_channel(from);
                 manifest.update_last_modified();
 
-                write_manifest(&manifest, &self.manifest_path)
+                write_manifest(&manifest, manifest_path)
             },
-            Command::Promote { network, channel, allow_downgrade } => {
+            Command::Promote { network, channel, allow_downgrade, .. } => {
                 if semver::Version::parse(network).is_ok() {
                     bail!(
                         "'{network}' cannot be a network name: it would be ambiguous with a \
@@ -350,7 +388,7 @@ impl Cli {
                 }
 
                 manifest.update_last_modified();
-                write_manifest(&manifest, &self.manifest_path)?;
+                write_manifest(&manifest, manifest_path)?;
 
                 // Reported only once the write has committed: the printed line is what a reviewer
                 // checks a promotion against, so it must never describe a change that failed.
@@ -371,6 +409,7 @@ impl Cli {
                 profiles,
                 requires,
                 artifacts,
+                ..
             } => {
                 // `legacy-package` exists only so that channels 0.9-0.15, which ship packages
                 // extracted from Rust crates, remain installable. It is closed to new authoring:
@@ -416,9 +455,9 @@ impl Cli {
                 }
                 channel.components.push(component);
                 manifest.update_last_modified();
-                write_manifest(&manifest, &self.manifest_path)
+                write_manifest(&manifest, manifest_path)
             },
-            Command::RemoveComponent { channel, name } => {
+            Command::RemoveComponent { channel, name, .. } => {
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
                 };
@@ -443,7 +482,7 @@ impl Cli {
 
                 channel.components.retain_mut(|c| c.name != name.as_str());
                 manifest.update_last_modified();
-                write_manifest(&manifest, &self.manifest_path)
+                write_manifest(&manifest, manifest_path)
             },
             Command::UpdateComponent {
                 channel,
@@ -454,6 +493,7 @@ impl Cli {
                 keep_existing_profiles,
                 requires,
                 keep_existing_requires,
+                ..
             } => {
                 let Some(channel) = manifest.get_channel_mut(channel) else {
                     bail!("unknown toolchain '{channel}'")
@@ -500,7 +540,7 @@ impl Cli {
                     }
                 }
                 manifest.update_last_modified();
-                write_manifest(&manifest, &self.manifest_path)
+                write_manifest(&manifest, manifest_path)
             },
         }
     }

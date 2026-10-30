@@ -998,7 +998,7 @@ mod forward_compatibility_tests {
 
     /// Spec section 4.4: *every* schema type preserves what this build does not understand,
     /// `Artifact` included. Without that, a newer publisher adding a field to an artifact -- a
-    /// signature, say -- would lose it on the first `update-manifest` round trip.
+    /// signature, say -- would lose it on the first `manifest-utils` round trip.
     #[test]
     fn unknown_artifact_fields_round_trip() {
         for source in [

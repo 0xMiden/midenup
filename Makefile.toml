@@ -377,16 +377,16 @@ args = [
 
 [tasks.check-manifest]
 category = "Test"
-description = "Validates the channel manifest; extra arguments go to `update-manifest check`"
+description = "Validates the channel manifest; extra arguments go to `manifest-utils check`"
 command = "cargo"
 args = [
     "run",
     "-p",
-    "update-manifest",
+    "manifest-utils",
     "--",
+    "check",
     "--manifest-path",
     "manifest/v3/manifest.json",
-    "check",
     "${@}",
 ]
 
@@ -397,11 +397,11 @@ command = "cargo"
 args = [
     "run",
     "-p",
-    "update-manifest",
+    "manifest-utils",
     "--",
+    "format",
     "--manifest-path",
     "manifest/v3/manifest.json",
-    "format",
     "--check",
 ]
 

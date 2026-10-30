@@ -213,7 +213,7 @@ impl VersionedManifest {
 
 /// What a call to [`Manifest::promote`] did.
 ///
-/// Returned rather than printed so the caller decides how to report it: `update-manifest` prints a
+/// Returned rather than printed so the caller decides how to report it: `manifest-utils` prints a
 /// sentence, tests assert on the variant.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Promotion {
@@ -505,7 +505,7 @@ mod tests {
         ));
     }
 
-    /// The map is a `BTreeMap` so that `update-manifest format` is deterministic.
+    /// The map is a `BTreeMap` so that `manifest-utils format` is deterministic.
     #[test]
     fn networks_serialize_in_key_order() {
         let mut manifest = super::Manifest::default();

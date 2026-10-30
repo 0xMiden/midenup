@@ -29,7 +29,7 @@ pub struct Manifest {
     /// Which channel each release network currently runs.
     ///
     /// A network is a *moving name* for a channel: `mainnet` names whichever toolchain is deployed
-    /// to mainnet today, and `update-manifest promote` is what moves it. Several networks may name
+    /// to mainnet today, and `manifest-utils promote` is what moves it. Several networks may name
     /// one channel, which is the normal state once a testnet toolchain is promoted to mainnet --
     /// the per-channel `alias` field this replaces could not express that at all.
     ///

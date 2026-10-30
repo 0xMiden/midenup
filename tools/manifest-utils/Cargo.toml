@@ -1,5 +1,5 @@
 [package]
-name = "update-manifest"
+name = "manifest-utils"
 version = "0.1.0"
 description = "Tool for updating midenup manifests safely"
 authors.workspace = true
@@ -12,7 +12,7 @@ edition.workspace = true
 publish = false
 
 [[bin]]
-name = "update-manifest"
+name = "manifest-utils"
 path = "src/main.rs"
 
 [dependencies]

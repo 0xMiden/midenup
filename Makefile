@@ -17,12 +17,12 @@ format-check: ## Runs Format using nightly toolchain but only in check mode
 	cargo +nightly fmt --all --check
 
 .PHONY: check-manifest
-check-manifest: update-manifest
-	bin/update-manifest --manifest-path manifest/v3/manifest.json check
+check-manifest: manifest-utils
+	bin/manifest-utils check --manifest-path manifest/v3/manifest.json
 
 .PHONY: format-manifest
-format-manifest: update-manifest
-	bin/update-manifest --manifest-path manifest/v3/manifest.json format
+format-manifest: manifest-utils
+	bin/manifest-utils format --manifest-path manifest/v3/manifest.json
 
 .PHONY: lint
 lint: format clippy ## Runs all linting tasks at once (Clippy, formatting)
@@ -67,9 +67,9 @@ build-release: ## Builds with release profile
 install: ## Installs midenup in release configuration
 	cargo install --locked --path . --force --bin midenup
 
-.PHONY: update-manifest
-update-manifest: ## Builds the update-manifest tool
-	cargo +nightly -Z unstable-options build -p update-manifest --artifact-dir bin
+.PHONY: manifest-utils
+manifest-utils: ## Builds the manifest-utils tool
+	cargo +nightly -Z unstable-options build -p manifest-utils --artifact-dir bin
 
 # --- docs ----------------------------------------------------------------------------------------
 .PHONY: serve-docs
