@@ -117,6 +117,17 @@ jobs:
       ref: ${{ needs.plan.outputs.subject }}
       full: true
 
+  # Every released midenup against this commit, whether or not the manifest changed.
+  released:
+    name: released binaries
+    needs: plan
+    # The ceiling for every job in the called workflow; see release-ci.yml.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/released-binaries.yml
+    with:
+      ref: ${{ needs.plan.outputs.subject }}
+
   # ---------------------------------------------------------------- Phase C --
   stage:
     name: seal and stage
@@ -207,6 +218,19 @@ jobs:
           set -euo pipefail
           "./target/${TARGET}/release/${BINARY}" --version
 
+      # The staged binary must install from the manifest it will read once published.
+      - name: Smoke test against the live v3 manifest
+        if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' || matrix.runner == 'macos-15' }}
+        env:
+          BINARY: ${{ matrix.binary }}
+          TARGET: ${{ matrix.target }}
+          MIDENUP_MANIFEST_URI: https://0xmiden.github.io/midenup/v3/manifest.json
+        run: |
+          set -euo pipefail
+          export MIDENUP_HOME="${RUNNER_TEMP}/midenup-home" CARGO_HOME="${RUNNER_TEMP}/cargo-home"
+          "./target/${TARGET}/release/${BINARY}" install mainnet --profile minimal
+          "${CARGO_HOME}/bin/miden" +mainnet help toolchain
+
       - *install-cargo-make
 
       - name: Archive
@@ -287,7 +311,7 @@ jobs:
   # ---------------------------------------------------------------- Phase D --
   publish:
     name: publish
-    needs: [plan, stage, stage-artifacts, attest]
+    needs: [plan, stage, stage-artifacts, attest, released]
     runs-on: ubuntu-latest
     # The approval gate. Everything before this is reversible; nothing after it
     # is. Deployment is restricted to protected main by the environment itself.

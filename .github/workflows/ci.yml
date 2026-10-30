@@ -134,3 +134,13 @@ jobs:
         # takes many minutes. Run them on main or on explicitly labelled PRs
         if: ${{ github.ref_name == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
         run: cargo make prerelease-test
+
+  released_binaries:
+    name: released binaries
+    # Pull requests that change the client or the manifest reach this job: only docs are ignored.
+    needs: [unit_tests]
+    permissions:
+      contents: read
+    uses: ./.github/workflows/released-binaries.yml
+    with:
+      ref: ${{ github.event.pull_request.head.sha || github.sha }}

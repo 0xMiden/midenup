@@ -925,6 +925,8 @@ Conversion runs under the exclusive format lease and the home lock, and never fe
 
 The steps are idempotent, so the `conversion` field is the whole journal: a run that finds it repeats them from step 3 without consulting upstream. Older releases that know the envelope refuse the new format from step 2 on.
 
+Releases that predate the envelope do not read it and are unsupported on a converted home: v1.0.x and v1.1.0 refuse its state version, and v1.2.x and v1.3.0 keep using and changing it. An older midenup needs its own `MIDENUP_HOME`.
+
 Preflight accepts only what releases that predate the envelope leave behind: a `state.json` with state version 1 or 2 (other top-level entries are left alone), `toolchains/` entries that are links or the alpha directory of a toolchain v1.x carried forward, receipts and a pending journal that parse. A publication missing behind a state record is not a reason to refuse; recovery reports it as divergence with its remedy (§9.7). The `released-v1` steps remove carried-forward toolchains' alpha directories, which their reinstall replaces with a link, and rewrite `state.json` at the current state version; the layout, links, receipts, and journal of those releases are already read as they are.
 
 ### 12.3 Alpha-era homes
@@ -1265,6 +1267,14 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 ### End to end
 
 A version install (`0.15.0`) -> two project toolchains activating additively -> an in-place update of that same channel -> a bare `midenup update` following a `migrates_from` successor -> `gc` -> uninstall, asserting physical layout at every step.
+
+### Released binaries
+
+`tests/upgrade.rs` and `tests/released.rs` run a published midenup binary named by an environment variable, and skip without it. CI runs them for each stable release from live GitHub release metadata, on both targets, for every client or manifest change and before every midenup release:
+
+* `MIDENUP_UPGRADE_FROM`, every release: the release builds a home, and the candidate converts it to format 1 without rebuilding anything, then updates it, keeping selections, links, and `var/`;
+* `MIDENUP_RELEASED_CLIENT`, releases the candidate's `min_client_version` admits: the release lists the candidate manifest and installs and runs a toolchain from local artifacts under its header;
+* `MIDENUP_GUARDED_RELEASE`, releases after v1.2.1: the release refuses a home one format past its own, leaving it unchanged.
 
 ### Fault injection
 
