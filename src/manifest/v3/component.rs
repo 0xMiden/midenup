@@ -32,7 +32,7 @@ pub struct Component {
     pub artifacts: Artifacts,
     /// Fields declared by a newer schema that this build does not recognize.
     ///
-    /// Preserved verbatim so an older `midenup` rewriting a manifest -- `update-manifest`, most
+    /// Preserved verbatim so an older `midenup` rewriting a manifest -- `manifest-utils`, most
     /// importantly -- cannot silently strip them. A field nested inside a known object, such as
     /// `installation_method` or `version`, is kept under that object's canonical key.
     pub extra: UnknownFields,
@@ -1124,7 +1124,7 @@ mod field_alias_tests {
     }
 
     /// The alias is a *read* affordance. Output stays snake_case until the primary name is
-    /// flipped, so adding it does not churn every manifest on the next `update-manifest format`.
+    /// flipped, so adding it does not churn every manifest on the next `manifest-utils format`.
     #[test]
     fn the_canonical_spelling_is_still_written() {
         let manifest = VersionedManifest::parse_str(&manifest_with("installation-method")).unwrap();

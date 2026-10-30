@@ -15,10 +15,10 @@ at the end).
 
 ## Prerequisites
 
-Make sure you have built the `bin/update-manifest` CLI tool with:
+Make sure you have built the `bin/manifest-utils` CLI tool with:
 
 ```
-make update-manifest
+make manifest-utils
 ```
 
 The following steps will use this tool to perform modifications to the channel manifest.
@@ -28,8 +28,8 @@ The following steps will use this tool to perform modifications to the channel m
 When a new release[^1] is made, a new channel entry needs to be added to the manifest's `channels` array. The channel name should match the protocol version it is linked to, without the patch version set to `0` (e.g. `0.15.0`). The simplest way to do this is to clone the toolchain a network already runs and give it the new version:
 
 ```
-bin/update-manifest --manifest-path manifest/v3/manifest.json \
-    clone-toolchain --from mainnet --to 0.15.0
+bin/manifest-utils clone-toolchain --manifest-path manifest/v3/manifest.json \
+    --from mainnet --to 0.15.0
 ```
 
 `--from` accepts either a network name or a toolchain version; `--to` must be a version, since a
@@ -46,11 +46,11 @@ Next, you will need to update each component in the cloned toolchain, as appropr
 
 ## Updating an existing toolchain (minor/patch)
 
-In typical cases, this is just a matter of bumping the version of each affected component - for more complex changes, see the output of `bin/update-manifest help update-component`, or modify the manifest by hand. Bumping the component version is as simple as:
+In typical cases, this is just a matter of bumping the version of each affected component - for more complex changes, see the output of `bin/manifest-utils help update-component`, or modify the manifest by hand. Bumping the component version is as simple as:
 
 ```
-bin/update-manifest --manifest-path manifest/v3/manifest.json \
-    update-component $COMPONENT \
+bin/manifest-utils update-component --manifest-path manifest/v3/manifest.json \
+    $COMPONENT \
     --channel $CHANNEL \
     --authority="{\"kind\":\"registry\",\"version\":\"$COMPONENT_VERSION\"}"
 ```
@@ -69,8 +69,8 @@ A toolchain in the manifest is installable by version, but nobody tracking a net
 that network names it:
 
 ```
-bin/update-manifest --manifest-path manifest/v3/manifest.json \
-    promote testnet 0.15.0
+bin/manifest-utils promote --manifest-path manifest/v3/manifest.json \
+    testnet 0.15.0
 ```
 
 This deploys nothing. It records that `midenup install testnet` resolves to `0.15.0` from now on,
@@ -97,8 +97,8 @@ When a toolchain that has been running on testnet is deployed to mainnet, promot
 well. Several networks naming one toolchain is the normal state, and is expected:
 
 ```
-bin/update-manifest --manifest-path manifest/v3/manifest.json \
-    promote mainnet 0.15.0
+bin/manifest-utils promote --manifest-path manifest/v3/manifest.json \
+    mainnet 0.15.0
 ```
 
 The tool prints what it did — `created network 'testnet' at 0.15.0`, or `moved 'mainnet' from 0.14.0

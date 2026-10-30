@@ -73,7 +73,7 @@ network name.
 
 Which toolchain a network runs is a deployment fact, not a function of version ordering: mainnet may
 lag testnet by several releases, and a hotfix may put it ahead. So it is declared rather than
-derived, and `update-manifest promote` is what moves it.
+derived, and `manifest-utils promote` is what moves it.
 
 Validation requires that every network name a channel in the same document, that no network is named
 like a channel or after one of the synonyms, and that `mainnet` is declared — it is the channel
@@ -148,7 +148,7 @@ To install the tarball itself, omit `archive` and use a key such as `node-config
 
 ## Validation
 
-Validation is an authoring gate, not a parsing gate: `update-manifest check` runs the full structural validator, and plan construction re-checks what depends on the current target. Parsing deliberately does *not* validate — the published manifest has historically contained channels with dangling requirements, and refusing to parse would break every command for every user over a channel they were not using.
+Validation is an authoring gate, not a parsing gate: `manifest-utils check` runs the full structural validator, and plan construction re-checks what depends on the current target. Parsing deliberately does *not* validate — the published manifest has historically contained channels with dangling requirements, and refusing to parse would break every command for every user over a channel they were not using.
 
 The structural rules are platform-neutral: duplicate names, dangling or cyclic `requires`, unsafe artifact ids, destination collisions, alias conflicts, malformed digests, archive formats midenup cannot read, `.tar.gz` URIs that forgot to declare `archive`, and the network rules described above. Target availability is checked only when an installation is actually planned.
 
@@ -158,4 +158,4 @@ The structural rules are platform-neutral: duplicate names, dangling or cyclic `
 This functionality is still in early stages of development. Currently, this requires writing the channel manifest manually.
 :::
 
-`midenup` supports custom, user-authored manifests for installing and managing custom toolchains. These can contain components installed from the local filesystem, from a specific git revision, or from a registry. Use `update-manifest` to author them: it shares the schema types and the validator with `midenup` itself rather than reimplementing either, and it validates every mutation before writing, leaving the original byte-for-byte intact if the result would not be valid.
+`midenup` supports custom, user-authored manifests for installing and managing custom toolchains. These can contain components installed from the local filesystem, from a specific git revision, or from a registry. Use `manifest-utils` to author them: it shares the schema types and the validator with `midenup` itself rather than reimplementing either, and it validates every mutation before writing, leaving the original byte-for-byte intact if the result would not be valid.
