@@ -181,7 +181,7 @@ fn integration_local_commands_need_neither_upstream_nor_a_cache() {
     assert!(listed.status.success(), "{}", String::from_utf8_lossy(&listed.stderr));
     assert!(String::from_utf8_lossy(&listed.stdout).contains("0.15.0"));
 
-    for args in [&["uninstall", "0.15.0"][..], &["gc"]] {
+    for args in [&["override", "0.15.0"][..], &["uninstall", "0.15.0"], &["gc"]] {
         let output = run_midenup(&env, UNREACHABLE, args);
         assert!(output.status.success(), "{args:?}: {}", String::from_utf8_lossy(&output.stderr));
     }
