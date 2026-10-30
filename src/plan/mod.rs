@@ -4,6 +4,7 @@ pub mod authority;
 pub mod build;
 pub mod destination;
 pub mod key;
+pub mod snapshot;
 
 pub use self::{
     authority::{PinError, ResolvedAuthority, pin, recheck_path},
@@ -16,4 +17,5 @@ pub use self::{
         destination_for, validate_artifact_id, validate_artifact_id_for, validate_artifact_path,
     },
     key::{ArtifactInput, ComponentInputs, KeyInputs, PlanKey, compute as compute_plan_key},
+    snapshot::{SnapshotId, compute as compute_snapshot},
 };

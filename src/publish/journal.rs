@@ -460,6 +460,7 @@ mod tests {
     fn installation(channel: &semver::Version, id: &PublicationId) -> Installation {
         Installation {
             channel: channel.clone(),
+            snapshot: None,
             custom: None,
             intent: Intent::new(&[Profile::Minimal], &[]),
             components: vec![],
