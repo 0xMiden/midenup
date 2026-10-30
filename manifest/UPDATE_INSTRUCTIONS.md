@@ -187,6 +187,25 @@ run the same way:
 PRERELEASE_AGAINST=file:///tmp/previous-manifest.json cargo make prerelease-test
 ```
 
+Acceptance scenarios in `acceptance/scenarios.toml` check that the components of a toolchain work
+together. Each names the toolchains it covers (`toolchain`, a semver range that must have an upper
+bound) and the components it exercises (`requires`), and is either a shell `script`, which passes
+when it exits successfully, or a `lit` suite in a directory next to the file, run with `litcheck`.
+Every component of a toolchain needs at least one scenario: a change to a toolchain with an uncovered
+component is rejected, so a component is only carried into a new toolchain line once its team widens
+its scenarios' ranges (see `acceptance/README.md`).
+CI runs the scenarios that require a component a pull request changes, and every scenario before
+deploying. Each runs against a scratch midenup home with the toolchain installed, `miden` on `PATH`,
+and the versions in `MIDEN_TOOLCHAIN_VERSION` and `MIDEN_COMPONENT_<NAME>_VERSION` (and as lit
+features such as `vm=0.17.2`). A scenario that needs Docker declares `needs = ["docker"]` and is
+skipped where Docker is missing. To run them locally:
+
+```
+cargo build -p midenup -p manifest-utils
+./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json \
+    --against file:///tmp/previous-manifest.json --midenup target/debug/midenup
+```
+
 ## Publishing
 
 Everything above edits your working copy and nothing else. `promote` deploys nothing, `make
