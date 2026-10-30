@@ -12,7 +12,7 @@ use super::{CURRENT_CLIENT_VERSION, ManifestError};
 pub const MANIFEST_VERSION: semver::Version = semver::Version::new(3, 0, 0);
 
 /// The global manifest of all known channels and their toolchains
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct Manifest {
     /// The schema version this document declares.
     ///
@@ -29,7 +29,7 @@ pub struct Manifest {
     /// Which channel each release network currently runs.
     ///
     /// A network is a *moving name* for a channel: `mainnet` names whichever toolchain is deployed
-    /// to mainnet today, and `update-manifest promote` is what moves it. Several networks may name
+    /// to mainnet today, and `manifest-utils promote` is what moves it. Several networks may name
     /// one channel, which is the normal state once a testnet toolchain is promoted to mainnet --
     /// the per-channel `alias` field this replaces could not express that at all.
     ///

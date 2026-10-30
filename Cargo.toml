@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "tools/update-manifest"]
+members = [".", "tools/manifest-utils"]
 
 [workspace.package]
 version = "1.3.0"

@@ -14,8 +14,19 @@ permissions:
   id-token: write
 
 jobs:
+  check-manifest:
+    name: check manifest
+    # A called workflow can only downgrade the calling job's token.
+    permissions:
+      contents: read
+    uses: ./.github/workflows/check-manifest.yml
+    with:
+      # The manifest this push replaces, so nothing that fails the comparison is deployed.
+      against: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.event.before }}/manifest/v3/manifest.json
+
   upload-manifest:
     name: upload manifest
+    needs: check-manifest
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources

@@ -1,7 +1,7 @@
 {
   "manifest_version": "3.0.0",
   "min_client_version": "1.2.0",
-  "date": 1793213045,
+  "date": 1793221063,
   "networks": {
     "devnet": "0.17.0",
     "mainnet": "0.17.0",
@@ -286,7 +286,7 @@
             "docker",
             "compose",
             "-f",
-            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}@sha256:8a17df13a3840c35d7ec2c0b02d49df586323a0c0cb6af5287b038829599338b",
             "--profile",
             "telemetry",
             "--profile",
@@ -345,7 +345,7 @@
           "installation_method": {
             "crate_name": "miden-remote-prover",
             "kind": "cargo",
-            "rustup_channel": "1.98"
+            "rustup_channel": "1.98.1"
           },
           "installed-executable": "miden-remote-prover",
           "kind": "executable",
@@ -360,7 +360,7 @@
           "installation_method": {
             "crate_name": "miden-validator",
             "kind": "cargo",
-            "rustup_channel": "1.98"
+            "rustup_channel": "1.98.1"
           },
           "installed-executable": "miden-validator",
           "kind": "executable",
@@ -698,7 +698,7 @@
             "docker",
             "compose",
             "-f",
-            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}@sha256:6aa41148e7449dbd38683a05bd048babc63f92837458ce35545ffeb45a0bae36",
             "--profile",
             "telemetry",
             "--profile",
@@ -757,7 +757,7 @@
           "installation_method": {
             "crate_name": "miden-remote-prover",
             "kind": "cargo",
-            "rustup_channel": "1.98"
+            "rustup_channel": "1.98.1"
           },
           "installed-executable": "miden-remote-prover",
           "kind": "executable",
@@ -772,7 +772,7 @@
           "installation_method": {
             "crate_name": "miden-validator",
             "kind": "cargo",
-            "rustup_channel": "1.98"
+            "rustup_channel": "1.98.1"
           },
           "installed-executable": "miden-validator",
           "kind": "executable",
@@ -940,7 +940,7 @@
             "docker",
             "compose",
             "-f",
-            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}@sha256:809e89ee02d12a69b116d8820278dac0e5c93825a25c8dbcf9ec0f180860c5c2",
             "--profile",
             "telemetry",
             "--profile",
@@ -999,7 +999,7 @@
           "installation_method": {
             "crate_name": "miden-remote-prover",
             "kind": "cargo",
-            "rustup_channel": "1.98"
+            "rustup_channel": "1.98.1"
           },
           "installed-executable": "miden-remote-prover",
           "kind": "executable",
@@ -1014,7 +1014,7 @@
           "installation_method": {
             "crate_name": "miden-validator",
             "kind": "cargo",
-            "rustup_channel": "1.98"
+            "rustup_channel": "1.98.1"
           },
           "installed-executable": "miden-validator",
           "kind": "executable",

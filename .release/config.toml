@@ -42,5 +42,5 @@ unit = "main"
 # --- private ------------------------------------------------------------
 
 [[packages]]
-name = "update-manifest"
+name = "manifest-utils"
 unit = "private"
