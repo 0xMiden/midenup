@@ -57,7 +57,7 @@ cm_run_task "print-env"
 
 [tasks.default]
 category = "Build"
-description = "Default task builds the compiler"
+description = "Default task builds midenup"
 alias = "build"
 
 [tasks.print-env]
@@ -183,18 +183,6 @@ description = "Run cargo-bloat"
 command = "cargo"
 args = ["bloat", "${@}"]
 
-[tasks.bench]
-category = "Benchmarks"
-description = "Benchmarks example package sizes and VM cycles, with SVG flamegraphs"
-command = "cargo"
-args = [
-    "run",
-    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
-    "-p",
-    "midenc-benchmark-runner",
-    "${@}",
-]
-
 [tasks.build]
 category = "Build"
 description = "Runs cargo build on the workspace"
@@ -202,7 +190,7 @@ run_task = [{ name = ["midenup"] }]
 
 [tasks.install]
 category = "Install"
-description = "Installs the compiler via cargo"
+description = "Installs midenup via cargo"
 run_task = [
     { name = [
        "install-midenup",
