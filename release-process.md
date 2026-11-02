@@ -162,7 +162,7 @@ rather than two approximations of it.
 
 | Job | What it does |
 | --- | --- |
-| `impact` | Classifies the diff. Touching `tools/release/`, `.release/`, `Makefile.toml`, `.github/workflows/`, `Cargo.lock`, or any `Cargo.toml` escalates to the full tier. |
+| `impact` | Classifies the diff. Touching `.release/`, `Makefile.toml`, `.github/workflows/`, `Cargo.lock`, or any `Cargo.toml` escalates to the full tier. |
 | `release lint` | Lints the configuration, checks the publication order is derivable, runs the release-tool tests, checks formatting. |
 | `package closure` | Packages every publishable crate and builds a consumer against them. Full tier only. |
 | `workflow policy` | Asserts the release workflow's invariants; runs `actionlint`. |
