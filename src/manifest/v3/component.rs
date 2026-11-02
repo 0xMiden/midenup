@@ -534,8 +534,8 @@ pub struct ExecutableComponent {
     /// 1. Executable, but should only be executed via its defined aliases
     /// 2. Not directly executable, but provides executable aliases
     ///
-    /// An example of this behavior is `cargo miden`, which is only intended to be executed
-    /// via the `miden new` alias.
+    /// An example of this behavior is `miden-registry`, which is only intended to be executed
+    /// via the `miden registry` alias.
     ///
     /// NOTE: If this is set, at least one entry in `aliases` must be present
     #[serde(default)]
