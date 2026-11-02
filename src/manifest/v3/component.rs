@@ -519,7 +519,7 @@ pub struct ExecutableComponent {
     /// The file used by midenup's 'miden' to call the components executable.
     ///
     /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
-    /// exists mainly for components like `cargo-miden`, which differ in how they are called.
+    /// exists mainly for cargo extensions, which `cargo` finds on `PATH` by executable name.
     ///
     /// A symlink is never created for executables for which `hide` is `true`
     #[serde(default)]
