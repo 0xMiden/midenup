@@ -176,33 +176,33 @@ mod tests {
     fn without_a_previous_manifest_every_network_toolchain_is_verified_in_full() {
         let m = with_channels(serde_json::json!([
             {"name": "0.16.0", "components": [component("vm", "0.16.0")]},
-            {"name": "0.17.0", "components": [component("vm", "0.17.0"), component("midenc", "0.17.0")]},
+            {"name": "0.17.0", "components": [component("vm", "0.17.0"), component("client", "0.17.0")]},
         ]));
         let targets = targets(&m, None);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].toolchain.name, semver::Version::new(0, 17, 0));
-        assert_eq!(targets[0].changed, BTreeSet::from(["midenc".into(), "vm".into()]));
+        assert_eq!(targets[0].changed, BTreeSet::from(["client".into(), "vm".into()]));
     }
 
     #[test]
     fn a_changed_component_selects_only_scenarios_that_require_it() {
         let previous = with_channels(serde_json::json!([
-            {"name": "0.17.0", "components": [component("vm", "0.17.0"), component("midenc", "0.17.0")]},
+            {"name": "0.17.0", "components": [component("vm", "0.17.0"), component("client", "0.17.0")]},
         ]));
         let next = with_channels(serde_json::json!([
-            {"name": "0.17.0", "components": [component("vm", "0.17.1"), component("midenc", "0.17.0")]},
+            {"name": "0.17.0", "components": [component("vm", "0.17.1"), component("client", "0.17.0")]},
         ]));
         let targets = targets(&next, Some(&previous));
         assert_eq!(targets[0].changed, BTreeSet::from(["vm".into()]));
 
         let scenarios = [
-            scenario("^0.17.0", &["vm", "midenc"]),
-            scenario("^0.17.0", &["midenc"]),
+            scenario("^0.17.0", &["vm", "client"]),
+            scenario("^0.17.0", &["client"]),
             scenario("^0.16.0", &["vm"]),
         ];
         let selected = selected(&targets[0], &scenarios);
         assert_eq!(selected.len(), 1);
-        assert_eq!(selected[0].requires, ["vm", "midenc"]);
+        assert_eq!(selected[0].requires, ["vm", "client"]);
         assert!(uncovered(&targets[0], &scenarios).is_empty());
     }
 

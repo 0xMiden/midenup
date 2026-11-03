@@ -164,7 +164,7 @@ mod tests {
             [[scenarios]]
             title = "compile and prove"
             toolchain = "^0.17.0"
-            requires = ["vm", "midenc"]
+            requires = ["vm", "client"]
             kind = "script"
             script = "true"
 
@@ -174,14 +174,12 @@ mod tests {
             requires = ["debug"]
             needs = ["docker"]
             kind = "lit"
-            suite = "debug-midenc-produced"
+            suite = "debug-suite"
             "#,
         )
         .unwrap();
         assert!(matches!(file.scenarios[0].kind, Kind::Script { .. }));
-        assert!(
-            matches!(&file.scenarios[1].kind, Kind::Lit { suite } if suite == "debug-midenc-produced")
-        );
+        assert!(matches!(&file.scenarios[1].kind, Kind::Lit { suite } if suite == "debug-suite"));
         assert_eq!(file.scenarios[1].needs, [Need::Docker]);
     }
 }
