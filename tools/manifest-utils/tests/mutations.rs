@@ -716,10 +716,11 @@ fn diff_preserves_version_metadata_during_a_registry_bump() {
         let next = write_manifest(&next_dir, next);
         let out = run(&next, &["diff", &previous_uri]).expect("diff");
         assert!(out.contains("**(downgrade)**"), "{out}");
-        assert!(out.contains("\"vendor\":\"old\""), "{out}");
-        if metadata.is_some() {
-            assert!(out.contains("\"vendor\":\"new\""), "{out}");
-        }
+        let to = if metadata.is_some() { "`\"new\"`" } else { "none" };
+        assert!(
+            out.contains(&format!("`version.vendor` changed from `\"old\"` to {to}")),
+            "{out}"
+        );
     }
 }
 
@@ -786,6 +787,8 @@ fn diff_preserves_empty_artifact_target_entries() {
     old["channels"][0]["components"][0]["artifacts"]["miden-vm"]["targets"] = serde_json::json!({});
     let next = write_manifest(&next_dir, old);
     let out = run(&next, &["diff", &format!("file://{}", previous.display())]).expect("diff");
-    assert!(out.contains("`artifacts` changed"), "{out}");
-    assert!(out.contains("aarch64-apple-darwin"), "{out}");
+    assert!(
+        out.contains("`artifacts.miden-vm.targets.aarch64-apple-darwin` changed from `{}` to none"),
+        "{out}"
+    );
 }
