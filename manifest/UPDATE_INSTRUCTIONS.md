@@ -199,9 +199,8 @@ check-manifest` deploys nothing, and no user has seen any of it yet.
 
 What users fetch is the manifest deployed to GitHub Pages by
 `.github/workflows/publish-manifest.yml`. Nothing deploys it automatically: a maintainer dispatches
-that workflow on `main`, the manifest checks and acceptance scenarios run on that commit, and a
-second maintainer approves the deployment. A manifest whose `min_client_version` is not released yet
-is refused; see "Manifest publication" in `release-process.md`.
+that workflow on `main`, and the manifest checks and acceptance scenarios run on that commit before
+it deploys. A manifest whose `min_client_version` is not released yet is refused; see "Manifest publication" in `release-process.md`.
 `channel-manifest.json` is frozen for clients that predate the v3 endpoint: do not edit it. So the
 release lands the way every other change does:
 
@@ -211,7 +210,7 @@ git commit
 ```
 
 then open a pull request for review. Once it is merged to `main`, dispatch the publication; its
-approved deployment is the point at which the new toolchain and the promotion become reachable.
+deployment is the point at which the new toolchain and the promotion become reachable.
 Until then, `midenup install mainnet` on any machine still resolves to whatever the deployed manifest
 says — a promotion that only exists locally has shipped to nobody.
 

@@ -1,7 +1,6 @@
 # Publishes the manifest on main to GitHub Pages, after the required manifest checks and the
 # acceptance scenarios pass on the same commit, and confirms the public URLs serve it. Dispatched by
-# hand; a reviewer other than the dispatcher approves the deployment. See "Manifest publication" in
-# release-process.md.
+# hand. See "Manifest publication" in release-process.md.
 name: publish manifest
 
 on:
@@ -30,6 +29,7 @@ jobs:
       action: ${{ steps.decide.outputs.action }}
       receipt: ${{ steps.decide.outputs.receipt }}
       deployed: ${{ steps.decide.outputs.deployed }}
+      artifact: ${{ steps.upload.outputs.artifact_id }}
     steps:
       - name: Require main
         if: github.ref != 'refs/heads/main'
@@ -63,6 +63,7 @@ jobs:
           --site "${RUNNER_TEMP}/site"
 
       - name: Upload the site
+        id: upload
         if: steps.decide.outputs.action == 'deploy'
         uses: actions/upload-pages-artifact@v3
         with:
@@ -113,7 +114,7 @@ jobs:
           cargo build -p midenup -p manifest-utils
           ./target/debug/manifest-utils acceptance --manifest-path manifest/v3/manifest.json --midenup target/debug/midenup
 
-  # Waits for a reviewer other than the dispatcher: the github-pages environment requires one.
+  # The github-pages environment accepts deployments from main only.
   deploy:
     name: deploy
     needs: [prepare, check, acceptance]
@@ -140,6 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      deployments: read
     steps:
       - uses: actions/checkout@v5
         with:
@@ -158,8 +160,12 @@ jobs:
 
       - name: Confirm the served files
         env:
+          GH_TOKEN: ${{ github.token }}
           RECEIPT: ${{ needs.prepare.outputs.receipt }}
-        run: cargo run -q -p manifest-utils -- publish confirm --receipt "${RECEIPT}"
+          ARTIFACT: ${{ needs.prepare.outputs.artifact }}
+        run: >-
+          cargo run -q -p manifest-utils -- publish confirm --receipt "${RECEIPT}"
+          --artifact-id "${ARTIFACT}"
 
   smoke:
     name: Run smoke tests

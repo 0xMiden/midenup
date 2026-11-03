@@ -54,11 +54,16 @@ pub enum Step {
         #[arg(long, default_value = DEFAULT_BASE_URL)]
         base_url: String,
     },
-    /// Poll the served files until they match a receipt
+    /// Poll the served files until they match a receipt, and record the deployment serving them
     Confirm {
         /// The expected receipt, as JSON
         #[arg(long)]
         receipt: String,
+        /// The ID of the deployed Pages artifact, empty if this run deployed none
+        #[arg(long, default_value = "")]
+        artifact_id: String,
+        #[arg(long, env = "GITHUB_REPOSITORY", default_value = "0xMiden/midenup")]
+        repository: String,
         #[arg(long, default_value_t = 40)]
         attempts: u32,
         /// Seconds between attempts
@@ -87,7 +92,14 @@ pub fn run(step: &Step) -> anyhow::Result<()> {
         } => {
             let deployed = match deployed {
                 Some(deployed) => deployed.clone(),
-                None => deployed_commit(repository)?,
+                None => {
+                    let deployment = latest_deployment(repository, None)?;
+                    summary(&format!(
+                        "Predecessor: github-pages deployment {} of {}.",
+                        deployment.id, deployment.commit
+                    ));
+                    deployment.commit
+                },
             };
             let released = match released.as_deref() {
                 Some("") => None,
@@ -111,9 +123,24 @@ pub fn run(step: &Step) -> anyhow::Result<()> {
                 },
             }
         },
-        Step::Confirm { receipt, attempts, interval, base_url } => {
+        Step::Confirm {
+            receipt,
+            artifact_id,
+            repository,
+            attempts,
+            interval,
+            base_url,
+        } => {
             let expected: Receipt = serde_json::from_str(receipt).context("invalid receipt")?;
-            confirm(&expected, *attempts, Duration::from_secs(*interval), base_url)
+            let deployment = latest_deployment(repository, Some(&expected.source_commit))?;
+            confirm(&expected, *attempts, Duration::from_secs(*interval), base_url)?;
+            let artifact = if artifact_id.is_empty() {
+                String::new()
+            } else {
+                format!(", Pages artifact {artifact_id}")
+            };
+            summary(&format!("Recorded: github-pages deployment {}{artifact}.", deployment.id));
+            Ok(())
         },
         Step::Verify { base_url } => verify(base_url),
     }
@@ -310,11 +337,21 @@ fn decide_for(
     gathered().unwrap_or_else(|err| Err(Blocked(format!("{err:#}"))))
 }
 
-/// The commit of the newest github-pages deployment whose latest status is `success`. A newer
-/// successful deployment marks the older ones inactive, so this is what Pages serves.
-fn deployed_commit(repository: &str) -> anyhow::Result<String> {
-    let deployments = github(repository, "deployments?environment=github-pages&per_page=30")?
-        .context("GitHub has no deployments for this repository")?;
+/// A github-pages deployment record.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Deployment {
+    pub id: u64,
+    pub commit: String,
+}
+
+/// The newest github-pages deployment whose latest status is `success`, of `commit` if given. A
+/// newer successful deployment marks the older ones inactive, so without `commit` this is what
+/// Pages serves.
+fn latest_deployment(repository: &str, commit: Option<&str>) -> anyhow::Result<Deployment> {
+    let filter = commit.map_or(String::new(), |commit| format!("&sha={commit}"));
+    let deployments =
+        github(repository, &format!("deployments?environment=github-pages{filter}&per_page=30"))?
+            .context("GitHub has no deployments for this repository")?;
     first_successful(&deployments, |id| {
         let statuses = github(repository, &format!("deployments/{id}/statuses?per_page=1"))?
             .with_context(|| format!("GitHub has no deployment {id}"))?;
@@ -323,16 +360,16 @@ fn deployed_commit(repository: &str) -> anyhow::Result<String> {
     .context("no successful github-pages deployment among the latest 30")
 }
 
-/// The commit of the first of `deployments` whose state, as `state_of` reports it, is `success`.
+/// The first of `deployments` whose state, as `state_of` reports it, is `success`.
 pub fn first_successful(
     deployments: &serde_json::Value,
     mut state_of: impl FnMut(u64) -> anyhow::Result<Option<String>>,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<Option<Deployment>> {
     for deployment in deployments.as_array().context("expected a list of deployments")? {
         let id = deployment["id"].as_u64().context("a deployment has no id")?;
         if state_of(id)?.as_deref() == Some("success") {
             let commit = deployment["sha"].as_str().context("a deployment has no commit")?;
-            return Ok(Some(commit.to_string()));
+            return Ok(Some(Deployment { id, commit: commit.to_string() }));
         }
     }
     Ok(None)
@@ -775,7 +812,10 @@ mod tests {
         ]);
         let states = BTreeMap::from([(3, "failure"), (2, "success"), (1, "success")]);
         let state_of = |id| Ok(states.get(&id).map(|state| state.to_string()));
-        assert_eq!(first_successful(&deployments, state_of).unwrap().as_deref(), Some("served"));
+        assert_eq!(
+            first_successful(&deployments, state_of).unwrap(),
+            Some(Deployment { id: 2, commit: "served".to_string() })
+        );
         assert_eq!(first_successful(&serde_json::json!([]), state_of).unwrap(), None);
     }
 

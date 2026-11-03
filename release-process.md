@@ -671,8 +671,8 @@ the release of `midenup` itself. The site holds exactly three files:
 ### 10.1 How a publication runs
 
 Nothing publishes automatically. A run starts only by dispatch on `main`
-(`gh workflow run publish-manifest.yml --ref main`), and its deployment waits
-for a reviewer other than the person who dispatched it (§10.2). Runs share one
+(`gh workflow run publish-manifest.yml --ref main`), and the `github-pages`
+environment accepts deployments from `main` only (a repository setting). Runs share one
 concurrency group, so publications happen one at a time, each holding the group
 through confirmation. At most one run waits behind the running one: dispatching
 another cancels the waiting run. Each job's logic is a `manifest-utils` subcommand
@@ -681,11 +681,11 @@ workflows only call them, so every step also runs locally.
 
 | Job | What it does |
 | --- | --- |
-| `prepare` | Requires `main`. Looks up the latest successful `github-pages` deployment and the latest `midenup` release, reconciles the deployment with the served receipt, and stages the site from the run's commit. |
+| `prepare` | Requires `main`. Looks up the latest successful `github-pages` deployment and the latest `midenup` release, reconciles the deployment with the served receipt, and stages the site from the run's commit. Its summary records the predecessor's deployment ID. |
 | `check` | The required manifest checks (`check-manifest.yml`) on the run's commit: the legacy file's recorded hash, `cargo make check-manifest`, and the comparison against the deployed commit's manifest. There is no way to skip them. |
 | `acceptance` | Every acceptance scenario against every network's toolchain, on Linux and macOS (`acceptance/README.md`). |
-| `deploy` | Deploys the staged site, only when `prepare` decided to, `check` and `acceptance` passed, the run is not a dry run, and a reviewer approved it. |
-| `confirm` | Polls the public URLs, with cache-busting queries and no-cache headers, until all three files match the receipt: 40 attempts, 30 seconds apart. |
+| `deploy` | Deploys the staged site, only when `prepare` decided to, `check` and `acceptance` passed, and the run is not a dry run. |
+| `confirm` | Polls the public URLs, with cache-busting queries and no-cache headers, until all three files match the receipt: 40 attempts, 30 seconds apart. Its summary records the serving deployment's ID and the deployed Pages artifact's ID. |
 | `smoke` | Installs from the latest release and the live manifest. |
 
 `prepare` decides one of:
@@ -697,7 +697,7 @@ workflows only call them, so every step also runs locally.
 | confirm | The latest deployment is not confirmed as served, and it publishes the candidate's files | Confirm it without deploying |
 | refused | No release satisfies the candidate's `min_client_version` | Failure; release that `midenup` first, then dispatch again |
 | refused | `main`'s tip publishes different files than the run's commit | Failure; dispatch again to publish the tip |
-| blocked | The latest deployment is not confirmed as served, and the candidate differs | Failure; see 10.4 |
+| blocked | The latest deployment is not confirmed as served, and the candidate differs | Failure; see 10.3 |
 
 The job summary of each run states the decision and the commits involved.
 
@@ -706,23 +706,14 @@ A manifest whose `min_client_version` is newer than the latest published
 upgrade to. To ship a manifest that needs a new client, merge both, release the
 client (§4), then dispatch the publication.
 
-### 10.2 Sign-off
-
-The `deploy` job runs in the `github-pages` environment, which requires a
-reviewer and has **Prevent self-review** enabled (**Settings** →
-**Environments** → **github-pages**). The person who dispatched the run cannot
-approve its deployment; another maintainer reads the job summaries of
-`prepare`, `check` and `acceptance` and approves or rejects it. These are
-repository settings, set by a repository admin, not files in this repository.
-
-### 10.3 Dry run
+### 10.2 Dry run
 
 Dispatching with `dry_run` set (`gh workflow run publish-manifest.yml --ref main
 -f dry_run=true`) runs `prepare`, `check` and `acceptance` and stages the site,
 then stops: nothing is deployed or confirmed. Use it to rehearse a publication,
 for example against a release that is still a draft.
 
-### 10.4 Deployed, unconfirmed
+### 10.3 Deployed, unconfirmed
 
 A `confirm` job that runs out of attempts fails with `Deployed, unconfirmed`:
 GitHub Pages accepted the deployment but the public URLs do not serve it.
@@ -743,7 +734,7 @@ blocks until this is reconciled.
 4. If neither explains what is served, treat it as an incident: establish what
    deployed it before publishing anything. Nothing rolls back automatically.
 
-### 10.5 The legacy manifest
+### 10.4 The legacy manifest
 
 `manifest/channel-manifest.json` is frozen: `check-manifest.yml` checks it
 against `manifest/channel-manifest.json.sha256` on every pull request and before
@@ -753,7 +744,7 @@ redirected to the v3 manifest.
 Its `manifest_version` is `4.0.0`, a major version no client knows, so the old
 clients still reading it tell their users to upgrade `midenup`.
 
-### 10.6 Scheduled verification
+### 10.5 Scheduled verification
 
 [`verify-manifest.yml`](.github/workflows/verify-manifest.yml) runs daily and on
 dispatch. It checks that the served files match the served receipt, and that
