@@ -23,9 +23,7 @@ set -euo pipefail
 
 - **`script`:** passes when the script exits successfully. It runs with `bash`.
 - **`lit`:** a directory holding `lit.suite.toml` and its tests, run with `litcheck`. Use it when
-  checking output matters. See `debug-midenc-produced/`.
-
-`scenarios.toml` has a working example of each kind.
+  checking output matters.
 
 To cover a new toolchain line, widen `toolchain`, e.g. `>=0.17.0, <0.19.0`.
 
