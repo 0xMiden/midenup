@@ -85,11 +85,6 @@ enum Command {
         #[arg(long, value_name = "PATH", required(true))]
         midenup: PathBuf,
     },
-    /// Print the URI of every artifact the manifest declares, for every target, one per line
-    ArtifactUris {
-        #[command(flatten)]
-        manifest: ManifestPath,
-    },
     /// Publication steps for the manifest workflows
     Publish {
         #[command(subcommand)]
@@ -267,7 +262,6 @@ impl Command {
             Self::Check { manifest, .. }
             | Self::Diff { manifest, .. }
             | Self::Acceptance { manifest, .. }
-            | Self::ArtifactUris { manifest }
             | Self::Format { manifest, .. }
             | Self::Touch { manifest }
             | Self::CloneToolchain { manifest, .. }
@@ -348,12 +342,6 @@ impl Cli {
             Command::Acceptance { against, scenarios, midenup, .. } => {
                 if !acceptance::run(manifest_path, against.as_deref(), scenarios, midenup)? {
                     bail!("the acceptance scenarios rejected the change");
-                }
-                Ok(())
-            },
-            Command::ArtifactUris { .. } => {
-                for uri in publish::artifact_uris(&manifest)? {
-                    println!("{uri}");
                 }
                 Ok(())
             },

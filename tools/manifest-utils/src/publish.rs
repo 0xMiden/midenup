@@ -22,7 +22,7 @@ const FILES: [(&str, &str); 2] = [
     ("manifest/channel-manifest.json", "channel-manifest.json"),
 ];
 
-/// A commit whose site carries a receipt has this file.
+/// A commit whose site carries a receipt has this file. Transitional; see `decide`.
 const RECEIPT_MARKER: &str = "tools/manifest-utils/src/publish.rs";
 
 /// The branch whose tip a publication must match.
@@ -221,6 +221,8 @@ pub fn decide(inputs: &Inputs<'_>) -> Result<Decision, Blocked> {
         Some(_) => return unconfirmed(inputs),
         None if inputs.recorded.is_some() => return unconfirmed(inputs),
         // The served site and the deployment both predate receipts: an ordinary predecessor.
+        // Transitional: only the first publication takes this arm. Once a receipt is served,
+        // remove it with RECEIPT_MARKER and has_receipt, so a missing receipt is unconfirmed.
         None => (),
     }
 

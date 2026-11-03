@@ -674,7 +674,8 @@ Nothing publishes automatically. A run starts only by dispatch on `main`
 (`gh workflow run publish-manifest.yml --ref main`), and its deployment waits
 for a reviewer other than the person who dispatched it (§10.2). Runs share one
 concurrency group, so publications happen one at a time, each holding the group
-through confirmation. Each job's logic is a `manifest-utils` subcommand
+through confirmation. At most one run waits behind the running one: dispatching
+another cancels the waiting run. Each job's logic is a `manifest-utils` subcommand
 (`publish decide`, `publish confirm`, `acceptance`, `publish verify`); the
 workflows only call them, so every step also runs locally.
 
@@ -749,10 +750,8 @@ against `manifest/channel-manifest.json.sha256` on every pull request and before
 every publication, and every deploy serves it unchanged. The endpoint is never
 redirected to the v3 manifest.
 
-Right before the file is removed, change its `manifest_version` to a major
-version no client knows and update the recorded hash in the same pull request,
-so the old clients still reading it tell their users to upgrade `midenup`.
-Check first which old releases report that correctly; not all of them do.
+Its `manifest_version` is `4.0.0`, a major version no client knows, so the old
+clients still reading it tell their users to upgrade `midenup`.
 
 ### 10.6 Scheduled verification
 

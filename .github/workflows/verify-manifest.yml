@@ -28,6 +28,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           shared-key: check-manifest
+          save-if: false
 
       - name: Check the served files and every artifact of the served manifest
         run: cargo run -q -p manifest-utils -- publish verify
