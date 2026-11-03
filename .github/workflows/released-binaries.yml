@@ -66,14 +66,16 @@ jobs:
             echo "::group::${tag}"
             gh release download "${tag}" --repo "${GITHUB_REPOSITORY}" \
               --pattern "midenup-${TARGET}.tar.gz" --output - | tar xz -C "${dir}"
-            MIDENUP_UPGRADE_FROM="${dir}/midenup" cargo test --locked --test upgrade
+            MIDENUP_UPGRADE_FROM="${dir}/midenup" cargo test --locked --test upgrade -- --ignored
             upgrade=$((upgrade + 1))
             if at_least "${version}" "${min}"; then
-              MIDENUP_RELEASED_CLIENT="${dir}/midenup" cargo test --locked --test released
+              MIDENUP_RELEASED_CLIENT="${dir}/midenup" cargo test --locked --test released -- \
+                --ignored --exact released_client_reads_the_candidate_manifest
               client=$((client + 1))
             fi
             if [ "${version}" != "${unguarded}" ] && at_least "${version}" "${unguarded}"; then
-              MIDENUP_GUARDED_RELEASE="${dir}/midenup" cargo test --locked --test released
+              MIDENUP_GUARDED_RELEASE="${dir}/midenup" cargo test --locked --test released -- \
+                --ignored --exact released_midenup_refuses_a_newer_home_format_unchanged
               guard=$((guard + 1))
             fi
             echo "::endgroup::"

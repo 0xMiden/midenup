@@ -1,6 +1,6 @@
 //! Released `midenup` binaries against what this checkout would publish.
 //!
-//! Each test runs the released binary named by its variable and is skipped when it is unset:
+//! Each test is ignored and runs the released binary named by its variable:
 //! `MIDENUP_RELEASED_CLIENT` for any release, `MIDENUP_GUARDED_RELEASE` for releases that check
 //! the home format.
 
@@ -18,12 +18,10 @@ use common::*;
 /// The manifest this checkout publishes.
 const CANDIDATE_MANIFEST: &str = full_path!("manifest/v3/manifest.json");
 
-fn released(variable: &str) -> Option<PathBuf> {
-    let binary = std::env::var_os(variable).map(PathBuf::from);
-    if binary.is_none() {
-        eprintln!("{variable} is not set; skipping");
-    }
-    binary
+fn released(variable: &str) -> PathBuf {
+    std::env::var_os(variable)
+        .map(PathBuf::from)
+        .unwrap_or_else(|| panic!("{variable} must name a released midenup"))
 }
 
 fn run(program: &Path, env: &TestEnvironment, manifest_uri: &str, args: &[&str]) -> Output {
@@ -42,10 +40,9 @@ fn assert_success(output: &Output, what: &str) -> String {
 
 #[test]
 #[cfg(unix)]
+#[ignore = "needs MIDENUP_RELEASED_CLIENT"]
 fn released_client_reads_the_candidate_manifest() {
-    let Some(released) = released("MIDENUP_RELEASED_CLIENT") else {
-        return;
-    };
+    let released = released("MIDENUP_RELEASED_CLIENT");
     let _guard = harness::mutating_test_guard();
     let env = environment_setup("released_client");
 
@@ -78,10 +75,9 @@ fn released_client_reads_the_candidate_manifest() {
 
 #[test]
 #[cfg(unix)]
+#[ignore = "needs MIDENUP_GUARDED_RELEASE"]
 fn released_midenup_refuses_a_newer_home_format_unchanged() {
-    let Some(released) = released("MIDENUP_GUARDED_RELEASE") else {
-        return;
-    };
+    let released = released("MIDENUP_GUARDED_RELEASE");
     let _guard = harness::mutating_test_guard();
     let env = environment_setup("released_guard");
     let fixture = harness::OfflineFixture::create(env.tmp_dir.path(), "0.15.0");
@@ -105,7 +101,11 @@ fn released_midenup_refuses_a_newer_home_format_unchanged() {
         (&miden, &["vm"]),
     ] {
         let output = run(program, &env, &fixture.manifest_uri, args);
-        assert!(!output.status.success(), "{args:?} must refuse format {newer}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            !output.status.success() && stderr.contains(&format!("format {newer}")),
+            "{args:?} must refuse format {newer}: {stderr}"
+        );
     }
     assert!(snapshot_tree(&env.midenup_home) == before, "the home changed");
 }

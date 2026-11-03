@@ -1,6 +1,6 @@
 //! A home built by a released `midenup` keeps working once the candidate binary replaces it.
 //!
-//! Set `MIDENUP_UPGRADE_FROM` to the released binary; without it the test is skipped.
+//! Ignored; set `MIDENUP_UPGRADE_FROM` to the released binary to run it.
 
 use std::path::{Path, PathBuf};
 
@@ -112,11 +112,11 @@ fn install_binary(binary: &Path, at: &Path) {
 
 #[test]
 #[cfg(unix)]
+#[ignore = "needs MIDENUP_UPGRADE_FROM"]
 fn upgrade_from_a_released_midenup_keeps_the_home() {
-    let Some(released) = std::env::var_os("MIDENUP_UPGRADE_FROM").map(PathBuf::from) else {
-        eprintln!("MIDENUP_UPGRADE_FROM is not set; skipping");
-        return;
-    };
+    let released = std::env::var_os("MIDENUP_UPGRADE_FROM")
+        .map(PathBuf::from)
+        .expect("MIDENUP_UPGRADE_FROM must name a released midenup");
 
     let _guard = common::harness::mutating_test_guard();
     let env = environment_setup("upgrade_from_a_released_midenup");

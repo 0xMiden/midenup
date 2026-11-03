@@ -218,7 +218,7 @@ jobs:
           set -euo pipefail
           "./target/${TARGET}/release/${BINARY}" --version
 
-      # The staged binary must install from the manifest it will read once published.
+      # The staged binary must install from the manifest that is live now.
       - name: Smoke test against the live v3 manifest
         if: ${{ matrix.target == 'x86_64-unknown-linux-gnu' || matrix.runner == 'macos-15' }}
         env:

@@ -1270,11 +1270,11 @@ A version install (`0.15.0`) -> two project toolchains activating additively -> 
 
 ### Released binaries
 
-`tests/upgrade.rs` and `tests/released.rs` run a published midenup binary named by an environment variable, and skip without it. CI runs them for each stable release from live GitHub release metadata, on both targets, for every client or manifest change and before every midenup release:
+`tests/upgrade.rs` and `tests/released.rs` run a published midenup binary named by an environment variable; they are `#[ignore]`d and fail without it. CI runs them for each stable release from live GitHub release metadata, on both targets, for every client or manifest change and before every midenup release:
 
 * `MIDENUP_UPGRADE_FROM`, every release: the release builds a home, and the candidate converts it to format 1 without rebuilding anything, then updates it, keeping selections, links, and `var/`;
 * `MIDENUP_RELEASED_CLIENT`, releases the candidate's `min_client_version` admits: the release lists the candidate manifest and installs and runs a toolchain from local artifacts under its header;
-* `MIDENUP_GUARDED_RELEASE`, releases after v1.2.1: the release refuses a home one format past its own, leaving it unchanged.
+* `MIDENUP_GUARDED_RELEASE`, releases after v1.3.0: the release refuses a home one format past its own, leaving it unchanged.
 
 ### Fault injection
 
