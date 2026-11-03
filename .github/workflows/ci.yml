@@ -18,12 +18,6 @@ on:
       - "**.txt"
       - "docs/**"
 
-# A newer PR event supersedes its checks and comment update. Push runs are independent.
-# Grouping at workflow entry prevents an older, slower check from evicting a newer update.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-
 env:
   # Set the new value when the cache grows too much and we hit the runner's disk space limit
   # via https://github.com/rust-lang/docs.rs/pull/2433
@@ -96,10 +90,10 @@ jobs:
   manifest_diff_comment:
     name: manifest diff comment
     # Keeps one comment on the pull request listing its manifest changes, removed once there are
-    # none. Only after a passing check. Pull requests from forks get a read-only token, so they
-    # only have the job summary.
+    # none. A failed check replaces the list with a notice. Pull requests from forks get a
+    # read-only token, so they only have the job summary.
     needs: [check_manifest]
-    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    if: ${{ !cancelled() && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
@@ -107,6 +101,7 @@ jobs:
       - name: Post, update or remove the comment
         env:
           GH_TOKEN: ${{ github.token }}
+          CHECK: ${{ needs.check_manifest.result }}
           DIFF: ${{ needs.check_manifest.outputs.diff }}
           PR: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
@@ -119,15 +114,30 @@ jobs:
             exit 0
           fi
           marker='<!-- manifest-diff -->'
-          existing=$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" \
-            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"${marker}\"))) | .id" | head -n 1)
-          if [ -z "${DIFF}" ]; then
+          ids=$(gh api --paginate "repos/${REPO}/issues/${PR}/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"${marker}\"))) | .id")
+          existing=""
+          for id in ${ids}; do
+            if [ -z "${existing}" ]; then
+              existing="${id}"
+            else
+              gh api -X DELETE "repos/${REPO}/issues/comments/${id}"
+            fi
+          done
+          if [ "${CHECK}" != success ]; then
+            # Only an existing list could mislead; a failing pull request gets no new comment.
+            if [ -z "${existing}" ]; then
+              exit 0
+            fi
+            body=$(printf '%s\n### Manifest changes\n\nNot listed: the manifest check failed on this revision.\n' "${marker}")
+          elif [ -z "${DIFF}" ]; then
             if [ -n "${existing}" ]; then
               gh api -X DELETE "repos/${REPO}/issues/comments/${existing}"
             fi
             exit 0
+          else
+            body=$(printf '%s\n### Manifest changes\n\n%s\n' "${marker}" "${DIFF}")
           fi
-          body=$(printf '%s\n### Manifest changes\n\n%s\n' "${marker}" "${DIFF}")
           if [ -n "${existing}" ]; then
             gh api -X PATCH "repos/${REPO}/issues/comments/${existing}" -f body="${body}" > /dev/null
           else

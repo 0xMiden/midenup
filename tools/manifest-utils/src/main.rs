@@ -619,13 +619,11 @@ fn render_changes(changes: &[Change]) -> String {
     let fields = |fields: &[FieldChange]| {
         fields
             .iter()
-            .map(|change| {
-                format!(
-                    "{} changed from {} to {}",
-                    code(&change.field),
-                    value(&change.from),
-                    value(&change.to)
-                )
+            .flat_map(|change| {
+                leaf_changes(&change.field, change.from.as_ref(), change.to.as_ref())
+            })
+            .map(|(path, from, to)| {
+                format!("{} changed from {} to {}", code(&path), value(&from), value(&to))
             })
             .collect::<Vec<_>>()
             .join("; ")
@@ -694,12 +692,19 @@ fn render_changes(changes: &[Change]) -> String {
                 }
                 let others: Vec<FieldChange> = changed
                     .iter()
-                    .filter(|change| {
-                        version.is_none()
-                            || change.field != "version"
-                            || registry_metadata(&change.from) != registry_metadata(&change.to)
+                    .filter_map(|change| {
+                        if version.is_none() || change.field != "version" {
+                            return Some(change.clone());
+                        }
+                        // The version summary covers the number; list only what changed beside it.
+                        let (from, to) =
+                            (registry_metadata(&change.from), registry_metadata(&change.to));
+                        (from != to).then(|| FieldChange {
+                            field: change.field.clone(),
+                            from: from.map(serde_json::Value::Object),
+                            to: to.map(serde_json::Value::Object),
+                        })
                     })
-                    .cloned()
                     .collect();
                 if !others.is_empty() {
                     parts.push(fields(&others));
@@ -710,6 +715,27 @@ fn render_changes(changes: &[Change]) -> String {
         out.push_str(&format!("- {line}\n"));
     }
     out
+}
+
+/// The differences between two values as `(path, from, to)`: objects on both sides are compared
+/// key by key, so a change deep inside one is listed alone; anything else is compared whole.
+fn leaf_changes(
+    path: &str,
+    from: Option<&serde_json::Value>,
+    to: Option<&serde_json::Value>,
+) -> Vec<(String, Option<serde_json::Value>, Option<serde_json::Value>)> {
+    match (from, to) {
+        (Some(serde_json::Value::Object(old)), Some(serde_json::Value::Object(new))) => {
+            let mut keys: Vec<&String> = old.keys().chain(new.keys()).collect();
+            keys.sort();
+            keys.dedup();
+            keys.into_iter()
+                .flat_map(|key| leaf_changes(&format!("{path}.{key}"), old.get(key), new.get(key)))
+                .collect()
+        },
+        _ if from == to => Vec::new(),
+        _ => vec![(path.to_string(), from.cloned(), to.cloned())],
+    }
 }
 
 /// The registry version summary covers the number, but not preserved metadata alongside it.
