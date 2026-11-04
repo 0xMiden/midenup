@@ -16,11 +16,14 @@ Options:
 
   -h, --help                   Displays this usage information
   -v, --version <VERSION>      Install a specific midenup release, if available
-  --install-path <DIR>         Installs the midenup binary to DIR.
+  --install-path <DIR>         Installs the midenup binary to DIR (default: the directory of the
+                               midenup already in PATH, otherwise $CARGO_HOME/bin if Cargo is
+                               installed, otherwise ~/.local/bin).
                                NOTE: Ensure that DIR is added to your shell's PATH
   --no-verify                  Do not verify the SHA256SUMs of the downloaded release
   --ignore-attestation         Do not verify the GitHub attestation of the downloaded release
-  --no-cargo-fallback          Require a prebuilt release artifact to proceed with installation
+  --no-cargo-fallback          Require a prebuilt release artifact to proceed with installation.
+                               Without it, unsupported platforms build midenup with Cargo
   --no-init                    Skip automatic initialization after midenup is installed
 
 Environment Variables:
@@ -31,10 +34,8 @@ These should be set in your shell if you want them to be persistent.
 EOF
 }
 
-CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
-
 version=
-install_path="${CARGO_HOME}/bin"
+install_path=
 skip_sha256sum=0
 skip_gh_attestation=0
 skip_init=0
@@ -97,10 +98,18 @@ install_via_cargo() {
     esac
 }
 
-if [ ! -d "${install_path}" ]; then
-    echo "Expected ${install_path} to be a directory"
-    exit 2
+# Upgrade an existing installation in place, so an older midenup earlier in PATH can't shadow it.
+# With Cargo present, share its bin directory so a later `cargo install midenup` replaces this one.
+if [ -z "${install_path}" ]; then
+    if existing="$(command -v midenup)"; then
+        install_path="$(dirname "${existing}")"
+    elif command -v cargo >/dev/null 2>&1; then
+        install_path="${CARGO_HOME:-$HOME/.cargo}/bin"
+    else
+        install_path="${HOME}/.local/bin"
+    fi
 fi
+mkdir -p "${install_path}"
 
 case "${version:-}" in
     "") ;; # unset
@@ -121,12 +130,11 @@ else
     base_url="https://github.com/0xMiden/midenup/releases/download/${version_tag}"
 fi
 
-if ! command -v rustc >/dev/null 2>&1; then
-    echo "Expected Rust to be installed, and available in your PATH"
-    exit 2
-fi
-
-arch="$(rustc --print host-tuple)"
+case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) arch=aarch64-apple-darwin ;;
+    Linux-x86_64) arch=x86_64-unknown-linux-gnu ;;
+    *) arch="$(uname -s)-$(uname -m)" ;;
+esac
 file="midenup-${arch}.tar.gz"
 url="${base_url}/${file}"
 midenup_src=midenup
@@ -154,8 +162,12 @@ case "$arch" in
             echo "Unsupported architecture, and --no-cargo-fallback was set: '${arch}'"
             exit 1
         fi
+        if ! command -v cargo >/dev/null 2>&1; then
+            echo "Unsupported architecture '${arch}': building midenup requires Cargo in your PATH"
+            exit 2
+        fi
         install_via_cargo "$version"
-        midenup_src="${CARGO_HOME}/bin/midenup"
+        midenup_src="${CARGO_HOME:-$HOME/.cargo}/bin/midenup"
         ;;
 esac
 
@@ -169,7 +181,7 @@ fi
 
 # Finalize
 case ":$PATH:" in
-    *":${install_path}:"*) ;; # Cargo home is already in path
+    *":${install_path}:"*) ;; # Install path is already in PATH
     *) needs_install_path=1 ;;
 esac
 
