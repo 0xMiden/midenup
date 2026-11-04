@@ -221,7 +221,7 @@ fn config_in(env: &TestEnvironment, project: &Path, manifest_uri: &str) -> Confi
     Config::init(
         project.to_path_buf(),
         env.midenup_home.clone(),
-        env.cargo_home.clone(),
+        env.bin_dir.clone(),
         manifest_uri,
         true,
     )

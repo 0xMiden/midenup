@@ -34,7 +34,7 @@ pub fn midenup_command(
     command
         .current_dir(&env.present_working_dir)
         .env("MIDENUP_HOME", &env.midenup_home)
-        .env("CARGO_HOME", &env.cargo_home)
+        .env("MIDENUP_BIN_DIR", &env.bin_dir)
         .env("MIDENUP_MANIFEST_URI", manifest_uri)
         .env_remove("XDG_DATA_HOME");
     command
@@ -72,7 +72,7 @@ pub fn test_setup(env: &TestEnvironment, manifest_uri: &str) -> (LocalManifest, 
     let config = config::Config::init(
         env.present_working_dir.clone(),
         env.midenup_home.clone(),
-        env.cargo_home.clone(),
+        env.bin_dir.clone(),
         manifest_uri,
         true,
     )
@@ -94,7 +94,7 @@ Error: {}",
 pub struct TestEnvironment {
     pub tmp_dir: TempDir,
     pub midenup_home: PathBuf,
-    pub cargo_home: PathBuf,
+    pub bin_dir: PathBuf,
     pub present_working_dir: PathBuf,
 }
 
@@ -109,14 +109,14 @@ pub fn environment_setup(test_name: &str) -> TestEnvironment {
 
     let tmp_midenup_home = tmp_dir.path().join("midenup");
 
-    let tmp_cargo_home = tmp_dir.path().join("cargo");
+    let tmp_bin_dir = tmp_dir.path().join("bin");
 
     std::fs::create_dir(&tmp_present_working_directory).unwrap();
 
     TestEnvironment {
         tmp_dir,
         midenup_home: tmp_midenup_home,
-        cargo_home: tmp_cargo_home,
+        bin_dir: tmp_bin_dir,
         present_working_dir: tmp_present_working_directory,
     }
 }
