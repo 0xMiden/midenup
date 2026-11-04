@@ -694,7 +694,7 @@ workflows only call them, so every step also runs locally.
 
 | Decision | When | Outcome |
 | --- | --- | --- |
-| deploy | The served site matches the latest deployment, or both predate receipts | Deploy and confirm |
+| deploy | The served site matches the latest deployment | Deploy and confirm |
 | done | The candidate's files equal what the served receipt records | Success; nothing is deployed |
 | confirm | The latest deployment is not confirmed as served, and it publishes the candidate's files | Confirm it without deploying |
 | refused | No release satisfies the candidate's `min_client_version` | Failure; release that `midenup` first, then dispatch again |
@@ -752,6 +752,4 @@ clients still reading it tell their users to upgrade `midenup`.
 dispatch. It checks that the served files match the served receipt, and that
 every artifact URI the served v3 manifest declares, for every target, can be
 downloaded (`manifest-utils publish verify`). A failure names each
-missing artifact in the job summary. Until a publication serves a receipt, the
-hash comparison is skipped with a notice in the summary, and the artifact check
-still runs.
+missing artifact in the job summary.

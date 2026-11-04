@@ -22,9 +22,6 @@ const FILES: [(&str, &str); 2] = [
     ("manifest/channel-manifest.json", "channel-manifest.json"),
 ];
 
-/// A commit whose site carries a receipt has this file. Transitional; see `decide`.
-const RECEIPT_MARKER: &str = "tools/manifest-utils/src/publish.rs";
-
 /// The branch whose tip a publication must match.
 const TIP: &str = "origin/main";
 
@@ -214,7 +211,8 @@ pub struct Inputs<'a> {
     pub deployed: &'a str,
     /// The deployed commit is in this repository's history.
     pub deployed_known: bool,
-    /// The receipt the deployed commit's site carries, if it carries one.
+    /// The receipt the deployed commit's site carries, `None` when that commit is not in this
+    /// repository's history.
     pub recorded: Option<&'a Receipt>,
     pub served: &'a Served,
     pub minimum: &'a semver::Version,
@@ -255,13 +253,8 @@ pub fn decide(inputs: &Inputs<'_>) -> Result<Decision, Blocked> {
                 return unconfirmed(inputs);
             }
         },
-        // A receipt is or should be served, but what is served is not what it records.
-        Some(_) => return unconfirmed(inputs),
-        None if inputs.recorded.is_some() => return unconfirmed(inputs),
-        // The served site and the deployment both predate receipts: an ordinary predecessor.
-        // Transitional: only the first publication takes this arm. Once a receipt is served,
-        // remove it with RECEIPT_MARKER and has_receipt, so a missing receipt is unconfirmed.
-        None => (),
+        // What is served is not what its receipt records, or there is no receipt.
+        _ => return unconfirmed(inputs),
     }
 
     if !released_satisfies(inputs.released, inputs.minimum) {
@@ -323,7 +316,7 @@ fn decide_for(
         let candidate = stage(subject, site)?;
         let tip = receipt_of(&git(&["rev-parse", TIP])?)?;
         let deployed_known = git(&["cat-file", "-e", &format!("{deployed}^{{commit}}")]).is_ok();
-        let recorded = if deployed_known && has_receipt(deployed) {
+        let recorded = if deployed_known {
             Some(receipt_of(deployed)?)
         } else {
             None
@@ -425,11 +418,6 @@ fn github(repository: &str, path: &str) -> anyhow::Result<Option<serde_json::Val
     }
 }
 
-/// Whether the site deployed from `commit` included a receipt.
-fn has_receipt(commit: &str) -> bool {
-    git(&["cat-file", "-e", &format!("{commit}:{RECEIPT_MARKER}")]).is_ok()
-}
-
 /// Writes the site for `commit` into `dir`: the published files byte-for-byte and receipt.json.
 pub fn stage(commit: &str, dir: &Path) -> anyhow::Result<Receipt> {
     let mut files = BTreeMap::new();
@@ -520,41 +508,24 @@ fn confirm(
 /// Checks the served files against the served receipt, then probes every artifact of the served
 /// manifest.
 fn verify(base_url: &str) -> anyhow::Result<()> {
-    let mut failed = false;
-    match fetch(base_url, "receipt.json")? {
-        (404, _) => {
-            for (_, path) in FILES {
-                let (status, _) = fetch(base_url, path)?;
-                if status != 200 {
-                    summary(&format!("{base_url}/{path} returned HTTP {status}."));
-                    failed = true;
-                }
-            }
-            if !failed {
-                summary("No receipt served yet, so the served files are not compared with one.");
-            }
+    let served = fetch_served(base_url);
+    let failed = match served.receipt {
+        Some(receipt) if served.consistent => {
+            summary(&format!("The served files match the receipt of {}.", receipt.source_commit));
+            false
         },
-        _ => {
-            let served = fetch_served(base_url);
-            match served.receipt {
-                Some(receipt) if served.consistent => summary(&format!(
-                    "The served files match the receipt of {}.",
-                    receipt.source_commit
-                )),
-                Some(receipt) => {
-                    summary(&format!(
-                        "The served files do not match the served receipt (source commit {}).",
-                        receipt.source_commit
-                    ));
-                    failed = true;
-                },
-                None => {
-                    summary("The served receipt cannot be read; see the log.");
-                    failed = true;
-                },
-            }
+        Some(receipt) => {
+            summary(&format!(
+                "The served files do not match the served receipt (source commit {}).",
+                receipt.source_commit
+            ));
+            true
         },
-    }
+        None => {
+            summary("The served receipt cannot be read; see the log.");
+            true
+        },
+    };
 
     let (status, body) = fetch(base_url, "v3/manifest.json")?;
     if status != 200 {
@@ -720,12 +691,6 @@ mod tests {
     }
 
     #[test]
-    fn a_predecessor_without_a_receipt_is_deployed_over() {
-        let decision = decide_with(Served::default(), None).unwrap();
-        assert_eq!(decision.action, Action::Deploy(receipt("subject", "new")));
-    }
-
-    #[test]
     fn a_confirmed_predecessor_is_deployed_over() {
         let old = receipt("deployed", "old");
         let decision = decide_with(served(old.clone(), true), Some(&old)).unwrap();
@@ -763,6 +728,7 @@ mod tests {
     #[test]
     fn an_unreleased_minimum_refuses_publication() {
         let candidate = receipt("subject", "new");
+        let old = receipt("deployed", "old");
         let minimum = version("1.4.0");
         let released = version("1.3.0");
         let decision = decide(&Inputs {
@@ -771,8 +737,8 @@ mod tests {
             tip: &candidate,
             deployed: "deployed",
             deployed_known: true,
-            recorded: None,
-            served: &Served::default(),
+            recorded: Some(&old),
+            served: &served(old.clone(), true),
             minimum: &minimum,
             released: Some(&released),
         });
@@ -796,7 +762,7 @@ mod tests {
         assert!(decide_with(served(receipt("deployed", "other"), false), Some(&recorded)).is_err());
         // Served and consistent, but from a commit other than the deployed one.
         assert!(decide_with(served(receipt("older", "old"), true), Some(&recorded)).is_err());
-        // A deployment that should serve a receipt but serves none.
+        // A deployment that serves no receipt.
         assert!(decide_with(Served::default(), Some(&recorded)).is_err());
     }
 
