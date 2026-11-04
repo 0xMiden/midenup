@@ -245,6 +245,7 @@ fn integration_install_publishes_into_an_opaque_publication_with_a_receipt() {
         "the receipt must record every installed file and how it was obtained: {:?}",
         receipt.outputs
     );
+    assert!(built_instead_of_downloaded(&test_env.midenup_home, installed).is_empty());
 }
 
 /// Adding a component publishes a *new* publication, seeded from the old one's receipt. The
@@ -406,6 +407,12 @@ fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
         midenup::state::RealizedMethod::Cargo,
         "the receipt must record the method actually taken, not the one declared"
     );
+
+    // The pre-release check must not count this install as a downloaded artifact.
+    assert_eq!(
+        built_instead_of_downloaded(&test_env.midenup_home, state.get(&channel).unwrap()),
+        ["vm"]
+    );
 }
 
 /// `path` and `git` authorities must be recorded at install time and re-checked on update.
@@ -513,7 +520,8 @@ fn integration_install_from_non_cargo() {
 /// Pre-release check: every component of every network's toolchain is actually executable.
 ///
 /// Toolchains with a `prebuilt-with-cargo-fallback` component are installed a second time with
-/// `cargo` instead.
+/// `cargo` instead. A component with an artifact for this target fails the check if it was built
+/// with `cargo`.
 ///
 /// This relies on every component respecting the `--help` flag, an assumption `miden_wrapper`
 /// already makes because clap generates help automatically.
@@ -599,6 +607,37 @@ fn integration_prerelease_components_are_runnable() {
     }
 }
 
+/// Components of `installation` with an artifact for its target that its receipt records as built
+/// with `cargo`, i.e. installed through the fallback.
+fn built_instead_of_downloaded(
+    home: &Path,
+    installation: &midenup::state::Installation,
+) -> Vec<String> {
+    let midenup::state::PublicationRef::Managed { id, .. } = &installation.publication else {
+        panic!("an install must produce a managed publication");
+    };
+    let publication = midenup::paths::publication_dir(home, &installation.channel, id);
+    let receipt = midenup::publish::read_receipt(&publication).expect("a receipt must be written");
+    installation
+        .components
+        .iter()
+        .filter(|component| {
+            !component
+                .artifacts
+                .get_default_artifacts_for_target(&receipt.target, component)
+                .expect("an installed component's artifacts must resolve")
+                .is_empty()
+        })
+        .filter(|component| {
+            receipt.outputs.iter().any(|output| {
+                output.owner == component.name
+                    && output.realized == midenup::state::RealizedMethod::Cargo
+            })
+        })
+        .map(|component| component.name.to_string())
+        .collect()
+}
+
 /// Installs `toolchain`, through `network` when given and by version otherwise, then runs the help
 /// of each of its visible executable components through the `miden` interface.
 fn install_and_run(
@@ -616,10 +655,14 @@ fn install_and_run(
         .execute_with_state(config, state)
         .unwrap_or_else(|err| panic!("failed to install {toolchain}: {err:#}"));
 
-    let channel = state
-        .get(toolchain)
-        .expect("state must record the installed channel")
-        .as_channel();
+    let installation = state.get(toolchain).expect("state must record the installed channel");
+    let built = built_instead_of_downloaded(&test_env.midenup_home, installation);
+    assert!(
+        built.is_empty(),
+        "{selector}: {built:?} declare an artifact for this target but were built with cargo; \
+         check that the artifacts can be downloaded"
+    );
+    let channel = installation.as_channel();
 
     if let Some(network) = network {
         let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join(network))
