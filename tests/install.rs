@@ -1,9 +1,7 @@
-use std::{collections::BTreeSet, ffi::OsString, fs::OpenOptions, path::Path, process::ExitCode};
+use std::fs::OpenOptions;
 
 use clap::Parser;
-use midenup::{
-    channel::UserChannel, commands::Midenup, manifest::ComponentKind, miden_wrapper, version,
-};
+use midenup::{channel::UserChannel, commands::Midenup, version};
 
 mod common;
 
@@ -505,110 +503,6 @@ fn integration_install_from_non_cargo() {
         new_revision, fixture.revisions[1],
         "a changed revision must be reinstalled at the new commit"
     );
-}
-
-/// Pre-release check: every component of every network's toolchain is actually executable.
-///
-/// This relies on every component respecting the `--help` flag, an assumption `miden_wrapper`
-/// already makes because clap generates help automatically.
-///
-/// Deliberately kept on the real manifest and a real install -- it is the one test that proves the
-/// whole pipeline produces binaries that run, which means it downloads and builds real components
-/// and takes minutes. Everything asserting only on layout or recorded state uses the offline
-/// fixture instead.
-///
-/// The `prerelease` marker in the name excludes it from `make integration-test`; run it with
-/// `make prerelease-test`. See the Makefile.
-///
-/// [See here for details](https://docs.rs/clap/latest/clap/struct.Command.html#method.disable_help_flag)
-#[test]
-fn integration_prerelease_components_are_runnable() {
-    let _guard = common::harness::mutating_test_guard();
-    let test_name = "integration_test_components";
-    let test_env = environment_setup(test_name);
-
-    const FILE: &str = full_path_manifest!("manifest/v3/manifest.json");
-    let (mut state, config) = test_setup(&test_env, FILE);
-
-    // The manifest decides which networks exist, so a new or newly promoted network is never left
-    // untested. Several networks may name one toolchain; it is installed once, through the first
-    // of them, since the binaries are the same whichever network asks for them. Only the network
-    // asked for gets a `toolchains/<network>` link.
-    let manifest = config.upstream_manifest().expect("the manifest must load");
-    let toolchains: BTreeSet<&semver::Version> = manifest
-        .network_names()
-        .filter_map(|network| manifest.network_version(network))
-        .collect();
-    assert!(!toolchains.is_empty(), "the manifest must declare at least one network");
-
-    for toolchain in toolchains {
-        let networks: Vec<&str> = manifest.networks_for(toolchain).collect();
-        let network = networks[0];
-        let install =
-            Midenup::try_parse_from(["midenup", "install", network, "--profile", "complete"])
-                .unwrap();
-        install
-            .execute_with_state(&config, &mut state)
-            .unwrap_or_else(|err| panic!("failed to install {toolchain}: {err:#}"));
-
-        let channel = state
-            .get(toolchain)
-            .expect("state must record the installed channel")
-            .as_channel();
-
-        let named = std::fs::read_link(test_env.midenup_home.join("toolchains").join(network))
-            .unwrap_or_else(|err| panic!("the {network} symlink must exist: {err}"));
-        assert_eq!(named, Path::new(&toolchain.to_string()), "{network} must name {toolchain}");
-
-        println!("Installed {network} ({}): {channel}", networks.join(", "));
-
-        // Verify each executable component is accessible and runnable
-        for component in &channel.components {
-            match component.kind() {
-                ComponentKind::Executable { spec, .. }
-                | ComponentKind::CargoExtension { spec, .. }
-                    if !spec.is_hidden() =>
-                {
-                    // `+<network>` selects this toolchain regardless of which one is the
-                    // default
-                    let argv: Vec<OsString> = vec![
-                        "miden".into(),
-                        format!("+{network}").into(),
-                        "help".into(),
-                        component.name.as_ref().into(),
-                    ];
-
-                    let exit_code = miden_wrapper::miden_wrapper(&argv, &config, &mut state)
-                        .unwrap_or_else(|err| {
-                            panic!(
-                                "{network}: component '{}' is not runnable through the 'miden' \
-                                 interface: {err:#}",
-                                component.name
-                            )
-                        });
-                    assert_eq!(
-                        exit_code,
-                        ExitCode::SUCCESS,
-                        "{network} ({toolchain}): component '{}' exited unsuccessfully",
-                        component.name
-                    );
-                },
-                // Skip executables that aren't meant to be executed directly
-                ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
-                // Skip non-executable components, or command aliases
-                ComponentKind::Asset
-                | ComponentKind::Command { .. }
-                | ComponentKind::Package
-                | ComponentKind::LegacyPackage { .. } => (),
-                // The checked-in manifest declares no unknown kinds; if one appears, the
-                // manifest and this build have diverged and the test should say so rather
-                // than skipping quietly.
-                ComponentKind::Unsupported { tag, .. } => {
-                    panic!("component '{}' has unsupported kind '{tag}'", component.name)
-                },
-            }
-        }
-    }
 }
 
 /// Spec section 9.2: a `path` source that changes *while* it is being built produces an

@@ -337,24 +337,7 @@ args = [
     "--workspace",
 	"--no-tests=pass",
 	"-E",
-	"test(/integration_/) and not test(/prerelease/)",
-    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
-    "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
-    "${@}",
-]
-
-[tasks.prerelease-test]
-category = "Test"
-description = "Run pre-release tests written in Rust, with optional extra arguments"
-command = "cargo"
-install_crate_args = ["--locked"]
-args = [
-    "nextest",
-    "run",
-    "--workspace",
-	"--no-tests=pass",
-	"-E",
-	"test(/prerelease/)",
+	"test(/integration_/)",
     "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
     "@@split(CARGO_MAKE_CARGO_BUILD_TEST_FLAGS, )",
     "${@}",

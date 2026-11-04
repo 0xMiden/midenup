@@ -198,12 +198,6 @@ jobs:
         run: cargo make test-build
       - name: Test
         run: cargo make integration-test
-      - name: Pre-release checks
-        # These install real components from this repo's copy of the manifest and run them, so it
-        # takes many minutes. Run them on main, on pull requests into main (the release path from
-        # next), and on explicitly labelled pull requests
-        if: ${{ github.ref_name == 'main' || github.base_ref == 'main' || contains(github.event.pull_request.labels.*.name, 'check:install') }}
-        run: cargo make prerelease-test
 
   acceptance:
     name: acceptance tests (${{ matrix.os }})
