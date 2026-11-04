@@ -4,7 +4,7 @@ mod runner;
 mod scenarios;
 mod selection;
 
-use std::path::Path;
+use std::{collections::BTreeSet, path::Path};
 
 use anyhow::Context;
 use midenup::manifest::{VersionedManifest, validate};
@@ -83,7 +83,14 @@ pub fn run(
             target.toolchain.name
         );
 
-        let home = match Home::install(midenup, &manifest_uri, target.toolchain) {
+        // Only the components the toolchain has: `run` fails a scenario that requires another.
+        let components: BTreeSet<&str> = selected
+            .iter()
+            .flat_map(|scenario| &scenario.requires)
+            .map(String::as_str)
+            .filter(|name| target.toolchain.get_component(name).is_some())
+            .collect();
+        let home = match Home::install(midenup, &manifest_uri, target.toolchain, &components) {
             Ok(home) => home,
             Err(err) => {
                 println!("* Install toolchain {} .. FAIL\n\n{err:#}\n", target.toolchain.name);

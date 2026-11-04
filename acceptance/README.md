@@ -29,8 +29,8 @@ To cover a new toolchain line, widen `toolchain`, e.g. `>=0.17.0, <0.19.0`.
 
 ## What a scenario can rely on
 
-- A scratch midenup home with the toolchain installed with the `complete` profile, and that
-  toolchain selected.
+- A scratch midenup home with the toolchain's default profile and the components every selected
+  scenario of that toolchain `requires` installed, and that toolchain selected.
 - `miden` and `midenup` on `PATH`.
 - An empty working directory of its own.
 - The versions in `MIDEN_TOOLCHAIN_VERSION` and `MIDEN_COMPONENT_<NAME>_VERSION`, e.g.

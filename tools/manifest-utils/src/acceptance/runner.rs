@@ -1,6 +1,7 @@
 //! Installs a toolchain into a scratch home and runs scenarios against it.
 
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     path::{Path, PathBuf},
     process::{Command, Output},
@@ -32,11 +33,13 @@ pub struct Home<'m> {
 }
 
 impl<'m> Home<'m> {
-    /// Installs `toolchain` from the manifest at `manifest_uri` with the `midenup` at `midenup`.
+    /// Installs `toolchain`'s default profile and `components` from the manifest at `manifest_uri`
+    /// with the `midenup` at `midenup`, which prints its progress as it goes.
     pub fn install(
         midenup: &Path,
         manifest_uri: &str,
         toolchain: &'m Channel,
+        components: &BTreeSet<&str>,
     ) -> anyhow::Result<Self> {
         let root = tempfile::Builder::new()
             .prefix("acceptance")
@@ -61,14 +64,18 @@ impl<'m> Home<'m> {
         std::os::unix::fs::symlink(std::fs::canonicalize(midenup)?, bin.join("midenup"))?;
 
         let version = toolchain.name.to_string();
-        for args in [vec!["init"], vec!["install", &version, "--profile", "complete"]] {
-            let output = home
+        let mut install = vec!["install", &version];
+        for component in components {
+            install.extend(["--component", component]);
+        }
+        for args in [vec!["init"], install] {
+            let status = home
                 .command(midenup)
                 .args(&args)
-                .output()
+                .status()
                 .with_context(|| format!("failed to run {}", midenup.display()))?;
-            if !output.status.success() {
-                bail!("`midenup {}` failed:\n{}", args.join(" "), output_text(&output));
+            if !status.success() {
+                bail!("`midenup {}` failed with {status}; see its output above", args.join(" "));
             }
         }
         Ok(home)
