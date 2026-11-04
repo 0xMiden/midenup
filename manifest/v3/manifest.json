@@ -995,36 +995,6 @@
           }
         },
         {
-          "hide": false,
-          "installation_method": {
-            "crate_name": "miden-remote-prover",
-            "kind": "cargo",
-            "rustup_channel": "1.98"
-          },
-          "installed-executable": "miden-remote-prover",
-          "kind": "executable",
-          "name": "remote-prover",
-          "version": {
-            "kind": "registry",
-            "version": "0.18.0"
-          }
-        },
-        {
-          "hide": false,
-          "installation_method": {
-            "crate_name": "miden-validator",
-            "kind": "cargo",
-            "rustup_channel": "1.98"
-          },
-          "installed-executable": "miden-validator",
-          "kind": "executable",
-          "name": "validator",
-          "version": {
-            "kind": "registry",
-            "version": "0.18.0"
-          }
-        },
-        {
           "artifacts": {
             "miden-vm": {
               "targets": {
