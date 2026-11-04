@@ -199,8 +199,8 @@ check-manifest` deploys nothing, and no user has seen any of it yet.
 
 What users fetch is the manifest deployed to GitHub Pages by
 `.github/workflows/publish-manifest.yml`. Nothing deploys it automatically: a maintainer dispatches
-that workflow on `main`, and the manifest checks and acceptance scenarios run on that commit before
-it deploys. A manifest whose `min_client_version` is not released yet is refused; see "Manifest publication" in `release-process.md`.
+that workflow on `main`, and the manifest checks, a check that every artifact can be downloaded and
+the acceptance scenarios run on that commit before it deploys. A manifest whose `min_client_version` is not released yet is refused; see "Manifest publication" in `release-process.md`.
 `channel-manifest.json` is frozen for clients that predate the v3 endpoint: do not edit it. So the
 release lands the way every other change does:
 

@@ -1,5 +1,5 @@
-# Publishes the manifest on main to GitHub Pages, after the required manifest checks and the
-# acceptance scenarios pass on the same commit, and confirms the public URLs serve it. Dispatched by
+# Publishes the manifest on main to GitHub Pages, after the required manifest checks, the artifact
+# check and the acceptance scenarios pass on the same commit, and confirms the public URLs serve it. Dispatched by
 # hand. See "Manifest publication" in release-process.md.
 name: publish manifest
 
@@ -79,6 +79,33 @@ jobs:
     with:
       against: https://raw.githubusercontent.com/${{ github.repository }}/${{ needs.prepare.outputs.deployed }}/manifest/v3/manifest.json
 
+  # Without this a component whose artifact cannot be downloaded would install, and pass
+  # acceptance, by building with cargo.
+  artifacts:
+    name: artifacts
+    needs: prepare
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup update --no-self-update
+          rustc --version
+
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: check-manifest
+          save-if: false
+
+      - name: Check every artifact of the manifest can be downloaded
+        run: cargo run -q -p manifest-utils -- publish artifacts --manifest-path manifest/v3/manifest.json
+
   acceptance:
     name: acceptance tests (${{ matrix.os }})
     # Every scenario in acceptance/ against every network's toolchain, on both targets midenup is
@@ -117,7 +144,7 @@ jobs:
   # The github-pages environment accepts deployments from main only.
   deploy:
     name: deploy
-    needs: [prepare, check, acceptance]
+    needs: [prepare, check, artifacts, acceptance]
     if: needs.prepare.outputs.action == 'deploy' && !inputs.dry_run
     runs-on: ubuntu-latest
     permissions:
@@ -133,10 +160,10 @@ jobs:
 
   confirm:
     name: confirm
-    needs: [prepare, check, acceptance, deploy]
+    needs: [prepare, check, artifacts, acceptance, deploy]
     if: >-
       !cancelled() && !inputs.dry_run && needs.check.result == 'success' &&
-      needs.acceptance.result == 'success' &&
+      needs.artifacts.result == 'success' && needs.acceptance.result == 'success' &&
       (needs.deploy.result == 'success' || needs.prepare.outputs.action == 'confirm')
     runs-on: ubuntu-latest
     permissions:

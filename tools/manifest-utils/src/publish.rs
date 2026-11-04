@@ -78,6 +78,11 @@ pub enum Step {
         #[arg(long, default_value = DEFAULT_BASE_URL)]
         base_url: String,
     },
+    /// Check that every artifact of a manifest can be downloaded
+    Artifacts {
+        #[arg(long, value_name = "PATH")]
+        manifest_path: PathBuf,
+    },
 }
 
 pub fn run(step: &Step) -> anyhow::Result<()> {
@@ -143,6 +148,12 @@ pub fn run(step: &Step) -> anyhow::Result<()> {
             Ok(())
         },
         Step::Verify { base_url } => verify(base_url),
+        Step::Artifacts { manifest_path } => {
+            if !artifacts_available(&VersionedManifest::load_from_file(manifest_path)?)? {
+                bail!("not every artifact of the manifest can be downloaded; see the summary");
+            }
+            Ok(())
+        },
     }
 }
 
@@ -551,7 +562,15 @@ fn verify(base_url: &str) -> anyhow::Result<()> {
     }
     let manifest = VersionedManifest::parse_str(&String::from_utf8_lossy(&body))
         .context("the served manifest cannot be parsed")?;
-    let uris = artifact_uris(&manifest)?;
+    if !artifacts_available(&manifest)? || failed {
+        bail!("the served manifest failed verification; see the summary");
+    }
+    Ok(())
+}
+
+/// Whether every artifact of `manifest` can be downloaded, listing those that cannot.
+fn artifacts_available(manifest: &Manifest) -> anyhow::Result<bool> {
+    let uris = artifact_uris(manifest)?;
     let unavailable: Vec<_> = uris.iter().filter(|uri| !available(uri)).collect();
     for uri in &unavailable {
         summary(&format!("- unavailable: {uri}"));
@@ -561,11 +580,7 @@ fn verify(base_url: &str) -> anyhow::Result<()> {
         uris.len() - unavailable.len(),
         uris.len()
     ));
-
-    if failed || !unavailable.is_empty() {
-        bail!("the served manifest failed verification; see the summary");
-    }
-    Ok(())
+    Ok(unavailable.is_empty())
 }
 
 /// The URI of every artifact `manifest` declares, for every target.

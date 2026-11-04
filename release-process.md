@@ -676,15 +676,17 @@ environment accepts deployments from `main` only (a repository setting). Runs sh
 concurrency group, so publications happen one at a time, each holding the group
 through confirmation. At most one run waits behind the running one: dispatching
 another cancels the waiting run. Each job's logic is a `manifest-utils` subcommand
-(`publish decide`, `publish confirm`, `acceptance`, `publish verify`); the
+(`publish decide`, `publish artifacts`, `publish confirm`, `acceptance`,
+`publish verify`); the
 workflows only call them, so every step also runs locally.
 
 | Job | What it does |
 | --- | --- |
 | `prepare` | Requires `main`. Looks up the latest successful `github-pages` deployment and the latest `midenup` release, reconciles the deployment with the served receipt, and stages the site from the run's commit. Its summary records the predecessor's deployment ID. |
 | `check` | The required manifest checks (`check-manifest.yml`) on the run's commit: the legacy file's recorded hash, `cargo make check-manifest`, and the comparison against the deployed commit's manifest. There is no way to skip them. |
+| `artifacts` | Checks that every artifact the run's manifest declares can be downloaded, for every target. Otherwise a component whose artifact is missing would be built with `cargo` and pass `acceptance`. |
 | `acceptance` | Every acceptance scenario against every network's toolchain, on Linux and macOS (`acceptance/README.md`). |
-| `deploy` | Deploys the staged site, only when `prepare` decided to, `check` and `acceptance` passed, and the run is not a dry run. |
+| `deploy` | Deploys the staged site, only when `prepare` decided to, `check`, `artifacts` and `acceptance` passed, and the run is not a dry run. |
 | `confirm` | Polls the public URLs, with cache-busting queries and no-cache headers, until all three files match the receipt: 40 attempts, 30 seconds apart. Its summary records the serving deployment's ID and the deployed Pages artifact's ID. |
 | `smoke` | Installs from the latest release and the live manifest. |
 
@@ -709,7 +711,7 @@ client (§4), then dispatch the publication.
 ### 10.2 Dry run
 
 Dispatching with `dry_run` set (`gh workflow run publish-manifest.yml --ref main
--f dry_run=true`) runs `prepare`, `check` and `acceptance` and stages the site,
+-f dry_run=true`) runs `prepare`, `check`, `artifacts` and `acceptance` and stages the site,
 then stops: nothing is deployed or confirmed. Use it to rehearse a publication,
 for example against a release that is still a draft.
 
