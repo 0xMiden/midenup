@@ -2,36 +2,40 @@
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs), latest stable.
+- [Rust](https://rustup.rs), latest stable, only if you install `midenup` with Cargo, patch
+  components, or use a toolchain with components built from source.
 - [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
   `node` component (`miden node`).
 
 ## Installing midenup
 
-1. Install the Miden toolchain installer (midenup) using cargo:
+Install `midenup` with the installer script. It downloads the prebuilt release for your platform
+(Linux x86_64 or macOS arm64) and runs `midenup init`. It replaces the `midenup` already in your
+`PATH`; otherwise it installs to `$CARGO_HOME/bin` if Cargo is installed, or `~/.local/bin` if not:
 
 ```shell title=">_ Terminal"
-cargo install midenup
+curl -L --proto '=https' --tlsv1.2 -sSf 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh' | bash
 ```
 
-2. Initialize the midenup environment:
+`midenup init` initializes the `$MIDENUP_HOME` directory and creates a `miden` symlink next to
+the `midenup` executable. The `miden` command then routes to the active toolchain components for
+you.
+
+Alternatively, if you have Rust installed, build `midenup` with Cargo and initialize it yourself.
+This places both executables in `$CARGO_HOME/bin` (default `~/.cargo/bin`):
 
 ```shell title=">_ Terminal"
-midenup init
+cargo install --locked midenup && midenup init
 ```
-
-The `midenup init` command initializes the `$MIDENUP_HOME` directory and creates a `miden`
-symlink in `$CARGO_HOME/bin` (default `~/.cargo/bin`). The `miden` command then routes to the
-active toolchain components for you.
 
 ## Configure PATH Environment Variable
 
 **This is a critical step!** You must ensure the directory containing the `miden` symlink is in
-your shell `$PATH`. In a standard Rust install that is `$CARGO_HOME/bin`, which defaults to
-`~/.cargo/bin`. `midenup` will automatically display the required commands if it detects that
-`miden` is not accessible from the `$PATH`.
+your shell `$PATH`: `~/.cargo/bin` if you have Rust installed, otherwise `~/.local/bin`. `midenup`
+will automatically display the required commands if it detects that `miden` is not accessible
+from the `$PATH`.
 
-If you use a custom `CARGO_HOME`, replace the paths below accordingly.
+The examples below use `~/.local/bin`; replace it with your install directory if it differs.
 
 ### For Zsh (macOS default)
 
@@ -39,13 +43,13 @@ Add the following to your `~/.zprofile` file. If the file does not exist yet, cr
 
 ```bash title=">_ Terminal"
 touch ~/.zprofile
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zprofile
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zprofile
 ```
 
 If you prefer to edit the file manually, add:
 
 ```bash title=">_ Terminal"
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Then reload your shell configuration:
@@ -61,13 +65,13 @@ not exist yet, create it first:
 
 ```bash title=">_ Terminal"
 touch ~/.bash_profile
-echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bash_profile
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bash_profile
 ```
 
 If you prefer to edit the file manually, add:
 
 ```bash title=">_ Terminal"
-export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
 
 Then reload your shell configuration:

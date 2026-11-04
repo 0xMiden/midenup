@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the remote prover and validator from the 0.18.0 toolchain. Both already run as part of
+  `miden node`, and can be started on their own with `miden node up tx-prover router` and
+  `miden node up validator-1`.
+- The installer script no longer requires Rust. It detects the platform with `uname`, replaces the
+  `midenup` already in `PATH`, otherwise installs to `$CARGO_HOME/bin` when Cargo is installed or
+  to `~/.local/bin` (creating it if missing), and only builds with Cargo on platforms without a
+  prebuilt release, when `cargo` is available.
+- `midenup init` places the `miden` symlink next to the `midenup` executable instead of in
+  `$CARGO_HOME/bin`, and `miden` no longer sets `CARGO_HOME` for the components it runs.
+
+### Migration and breaking changes
+
+- The hidden `--cargo-home` option is replaced by `--bin-dir` (`MIDENUP_BIN_DIR`). Existing
+  installations in `$CARGO_HOME/bin` keep their `miden` symlink there, and re-running the installer
+  script upgrades them in place.
+
 ## [1.3.0]
 
 ### Added
