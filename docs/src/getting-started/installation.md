@@ -10,8 +10,8 @@
 ## Installing midenup
 
 Install `midenup` with the installer script. It downloads the prebuilt release for your platform
-(Linux x86_64 or macOS arm64) and runs `midenup init`. It replaces the `midenup` already in your
-`PATH`; otherwise it installs to `$CARGO_HOME/bin` if Cargo is installed, or `~/.local/bin` if not:
+(Linux x86_64 or macOS arm64) to `~/.local/bin` and runs `midenup init`. It warns if another
+`midenup` earlier in your `PATH` would run instead:
 
 ```shell title=">_ Terminal"
 curl -L --proto '=https' --tlsv1.2 -sSf 'https://github.com/0xMiden/midenup/releases/latest/download/installer.sh' | bash
@@ -31,9 +31,9 @@ cargo install --locked midenup && midenup init
 ## Configure PATH Environment Variable
 
 **This is a critical step!** You must ensure the directory containing the `miden` symlink is in
-your shell `$PATH`: `~/.cargo/bin` if you have Rust installed, otherwise `~/.local/bin`. `midenup`
-will automatically display the required commands if it detects that `miden` is not accessible
-from the `$PATH`.
+your shell `$PATH`: `~/.local/bin` if you used the installer script, or `~/.cargo/bin` if you
+installed with Cargo. `midenup` will automatically display the required commands if it detects
+that `miden` is not accessible from the `$PATH`.
 
 The examples below use `~/.local/bin`; replace it with your install directory if it differs.
 

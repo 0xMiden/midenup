@@ -16,9 +16,7 @@ Options:
 
   -h, --help                   Displays this usage information
   -v, --version <VERSION>      Install a specific midenup release, if available
-  --install-path <DIR>         Installs the midenup binary to DIR (default: the directory of the
-                               midenup already in PATH, otherwise $CARGO_HOME/bin if Cargo is
-                               installed, otherwise ~/.local/bin).
+  --install-path <DIR>         Installs the midenup binary to DIR (default: ~/.local/bin).
                                NOTE: Ensure that DIR is added to your shell's PATH
   --no-verify                  Do not verify the SHA256SUMs of the downloaded release
   --ignore-attestation         Do not verify the GitHub attestation of the downloaded release
@@ -98,17 +96,7 @@ install_via_cargo() {
     esac
 }
 
-# Upgrade an existing installation in place, so an older midenup earlier in PATH can't shadow it.
-# With Cargo present, share its bin directory so a later `cargo install midenup` replaces this one.
-if [ -z "${install_path}" ]; then
-    if existing="$(command -v midenup)"; then
-        install_path="$(dirname "${existing}")"
-    elif command -v cargo >/dev/null 2>&1; then
-        install_path="${CARGO_HOME:-$HOME/.cargo}/bin"
-    else
-        install_path="${HOME}/.local/bin"
-    fi
-fi
+install_path="${install_path:-${HOME}/.local/bin}"
 mkdir -p "${install_path}"
 
 case "${version:-}" in
@@ -193,4 +181,11 @@ if [ -n "${needs_install_path:-}" ]; then
         printf "\033[0;31mYour path is missing %s, you might want to add it.\033[0m\n" "${install_path}"
         echo
     fi
+fi
+
+# Another midenup earlier in PATH, such as one from `cargo install`, would run instead of this one.
+if existing="$(command -v midenup)" && [ "${existing}" != "${install_path}/midenup" ]; then
+    echo
+    printf "\033[0;31m%s runs instead of %s/midenup. Remove it, or put %s earlier in your PATH.\033[0m\n" "${existing}" "${install_path}" "${install_path}"
+    echo
 fi

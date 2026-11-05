@@ -54,7 +54,7 @@ chmod +x installer.sh
 
 You can also install a specific `midenup` release using the `--version` flag. For more usage information, download the script and pass `--help`.
 
-The script replaces the `midenup` already in your `PATH`; otherwise it installs to `$CARGO_HOME/bin` if Cargo is installed, or `~/.local/bin` if not (change it with `--install-path`). It then runs `midenup init`, which places the `miden` symlink next to it. After the script exits, `midenup` is ready to use.
+The script installs to `~/.local/bin` (change it with `--install-path`) and warns if another `midenup` earlier in your `PATH` would run instead. It then runs `midenup init`, which places the `miden` symlink next to it. After the script exits, `midenup` is ready to use.
 
 ### Install via Cargo
 

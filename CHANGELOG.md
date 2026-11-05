@@ -11,18 +11,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Removed the remote prover and validator from the 0.18.0 toolchain. Both already run as part of
   `miden node`, and can be started on their own with `miden node up tx-prover router` and
   `miden node up validator-1`.
-- The installer script no longer requires Rust. It detects the platform with `uname`, replaces the
-  `midenup` already in `PATH`, otherwise installs to `$CARGO_HOME/bin` when Cargo is installed or
-  to `~/.local/bin` (creating it if missing), and only builds with Cargo on platforms without a
-  prebuilt release, when `cargo` is available.
+- The installer script no longer requires Rust. It detects the platform with `uname`, installs to
+  `~/.local/bin` (creating it if missing), warns when another `midenup` earlier in `PATH` would run
+  instead, and only builds with Cargo on platforms without a prebuilt release, when `cargo` is
+  available.
 - `midenup init` places the `miden` symlink next to the `midenup` executable instead of in
   `$CARGO_HOME/bin`, and `miden` no longer sets `CARGO_HOME` for the components it runs.
 
 ### Migration and breaking changes
 
-- The hidden `--cargo-home` option is replaced by `--bin-dir` (`MIDENUP_BIN_DIR`). Existing
-  installations in `$CARGO_HOME/bin` keep their `miden` symlink there, and re-running the installer
-  script upgrades them in place.
+- The hidden `--cargo-home` option is replaced by `--bin-dir` (`MIDENUP_BIN_DIR`).
+- The installer script now installs to `~/.local/bin` instead of `$CARGO_HOME/bin`. Re-running it
+  over an installation in `$CARGO_HOME/bin` leaves that copy in place and warns if it shadows the
+  new one; remove it, or pass `--install-path ~/.cargo/bin` to keep upgrading it there.
 
 ## [1.3.0]
 
