@@ -1,5 +1,6 @@
 mod acceptance;
 mod online;
+mod publish;
 
 use std::{
     path::{Path, PathBuf},
@@ -83,6 +84,11 @@ enum Command {
         /// The `midenup` binary that installs the toolchains, put on the scenarios' `PATH`
         #[arg(long, value_name = "PATH", required(true))]
         midenup: PathBuf,
+    },
+    /// Publication steps for the manifest workflows
+    Publish {
+        #[command(subcommand)]
+        step: publish::Step,
     },
     /// Format the manifest
     Format {
@@ -263,12 +269,16 @@ impl Command {
             | Self::AddComponent { manifest, .. }
             | Self::RemoveComponent { manifest, .. }
             | Self::UpdateComponent { manifest, .. } => &manifest.manifest_path,
+            Self::Publish { .. } => unreachable!("publish works on no manifest"),
         }
     }
 }
 
 impl Cli {
     fn execute(&self) -> anyhow::Result<()> {
+        if let Command::Publish { step } = &self.command {
+            return publish::run(step);
+        }
         let manifest_path = self.command.manifest_path();
         let mut manifest = VersionedManifest::load_from_file(manifest_path)?;
         match &self.command {
@@ -351,6 +361,7 @@ impl Cli {
             },
             Command::Format { stdout: false, .. } => write_manifest(&manifest, manifest_path),
             Command::Format { stdout: true, .. } => write_manifest_to_stdout(&manifest),
+            Command::Publish { .. } => unreachable!("handled before the manifest is loaded"),
             Command::Touch { .. } => {
                 manifest.update_last_modified();
                 write_manifest(&manifest, manifest_path)

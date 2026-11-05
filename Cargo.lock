@@ -526,6 +526,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "tar",
  "tempfile",
  "thiserror",

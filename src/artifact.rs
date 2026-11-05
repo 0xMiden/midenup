@@ -235,6 +235,11 @@ impl Artifacts {
         self.artifacts.insert(id, artifact).is_none()
     }
 
+    /// Returns the `(artifact id, artifact)` pairs, ordered by id.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &Artifact)> {
+        self.artifacts.iter().map(|(id, artifact)| (id.as_str(), artifact))
+    }
+
     /// Returns the `(artifact id, resolved artifact)` pairs that should be installed for `target`.
     ///
     /// The artifact id is the exact filename the artifact is installed as, so callers must use it

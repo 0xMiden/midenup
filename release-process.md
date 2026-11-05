@@ -24,6 +24,7 @@ Three things are true throughout and explain most of the procedure:
 | Try the real workflow on real runners first | [§6](#6-hosted-rehearsal) | No crates, no tags — but real drafts and real attestations |
 | Ship something consumers cannot accidentally pick up | [§7](#7-prereleases) | Yes, but invisible to default requirements |
 | Fix a release that went wrong | [§8](#8-recovery) | — |
+| Publish the channel manifest, or fix a publication | [§10](#10-manifest-publication) | Yes |
 
 ---
 
@@ -652,3 +653,105 @@ Everything else — every command in
 workflow and the pull-request gate — is implemented and tested end to end against
 the rehearsal registry and the GitHub double, which is as close to production as
 anything gets without publishing for real.
+
+---
+
+## 10. Manifest publication
+
+The channel manifest is published to GitHub Pages by
+[`publish-manifest.yml`](.github/workflows/publish-manifest.yml), separately from
+the release of `midenup` itself. The site holds exactly three files:
+
+| Path | Content |
+| --- | --- |
+| `/v3/manifest.json` | `manifest/v3/manifest.json`, read by current clients |
+| `/channel-manifest.json` | `manifest/channel-manifest.json`, byte-for-byte, read by clients that predate the v3 endpoint |
+| `/receipt.json` | The source commit and the sha256 of the two files above |
+
+### 10.1 How a publication runs
+
+Nothing publishes automatically. A run starts only by dispatch on `main`
+(`gh workflow run publish-manifest.yml --ref main`), and the `github-pages`
+environment accepts deployments from `main` only (a repository setting). Runs share one
+concurrency group, so publications happen one at a time, each holding the group
+through confirmation. At most one run waits behind the running one: dispatching
+another cancels the waiting run. Each job's logic is a `manifest-utils` subcommand
+(`publish decide`, `publish artifacts`, `publish confirm`, `acceptance`,
+`publish verify`); the
+workflows only call them, so every step also runs locally.
+
+| Job | What it does |
+| --- | --- |
+| `prepare` | Requires `main`. Looks up the latest successful `github-pages` deployment and the latest `midenup` release, reconciles the deployment with the served receipt, and stages the site from the run's commit. Its summary records the predecessor's deployment ID. |
+| `check` | The required manifest checks (`check-manifest.yml`) on the run's commit: the legacy file's recorded hash, `cargo make check-manifest`, and the comparison against the deployed commit's manifest. There is no way to skip them. |
+| `artifacts` | Checks that every artifact the run's manifest declares can be downloaded, for every target. Otherwise a component whose artifact is missing would be built with `cargo` and pass `acceptance`. |
+| `acceptance` | Every acceptance scenario against every network's toolchain, on Linux and macOS (`acceptance/README.md`). |
+| `deploy` | Deploys the staged site, only when `prepare` decided to, `check`, `artifacts` and `acceptance` passed, and the run is not a dry run. |
+| `confirm` | Polls the public URLs, with cache-busting queries and no-cache headers, until all three files match the receipt: 40 attempts, 30 seconds apart. Its summary records the serving deployment's ID and the deployed Pages artifact's ID. |
+| `smoke` | Installs from the latest release and the live manifest. |
+
+`prepare` decides one of:
+
+| Decision | When | Outcome |
+| --- | --- | --- |
+| deploy | The served site matches the latest deployment, or both predate receipts | Deploy and confirm |
+| done | The candidate's files equal what the served receipt records | Success; nothing is deployed |
+| confirm | The latest deployment is not confirmed as served, and it publishes the candidate's files | Confirm it without deploying |
+| refused | No release satisfies the candidate's `min_client_version` | Failure; release that `midenup` first, then dispatch again |
+| refused | `main`'s tip publishes different files than the run's commit | Failure; dispatch again to publish the tip |
+| blocked | The latest deployment is not confirmed as served, and the candidate differs | Failure; see 10.3 |
+
+The job summary of each run states the decision and the commits involved.
+
+A manifest whose `min_client_version` is newer than the latest published
+`midenup` release is never deployed: users told to upgrade would find nothing to
+upgrade to. To ship a manifest that needs a new client, merge both, release the
+client (§4), then dispatch the publication.
+
+### 10.2 Dry run
+
+Dispatching with `dry_run` set (`gh workflow run publish-manifest.yml --ref main
+-f dry_run=true`) runs `prepare`, `check`, `artifacts` and `acceptance` and stages the site,
+then stops: nothing is deployed or confirmed. Use it to rehearse a publication,
+for example against a release that is still a draft.
+
+### 10.3 Deployed, unconfirmed
+
+A `confirm` job that runs out of attempts fails with `Deployed, unconfirmed`:
+GitHub Pages accepted the deployment but the public URLs do not serve it.
+Production may be serving the old site, the new one, or a mix, and the next run
+blocks until this is reconciled.
+
+1. Read what is served:
+   `curl -sH 'Cache-Control: no-cache' "https://0xmiden.github.io/midenup/receipt.json?$(date +%s)"`,
+   and compare it with the latest `github-pages` deployment (**Settings** →
+   **Environments** → **github-pages**, or
+   `gh api 'repos/0xMiden/midenup/deployments?environment=github-pages&per_page=5'`).
+2. If it is propagation delay, dispatch the workflow again once the files are
+   served. A run whose candidate is the deployed commit's files confirms them
+   without deploying again; one with other files stays blocked until then.
+3. If the served receipt names a commit whose `deploy` job failed (the hosting
+   accepted it anyway), re-run that run's failed jobs. Its deployment then
+   becomes the latest successful one and matches what is served.
+4. If neither explains what is served, treat it as an incident: establish what
+   deployed it before publishing anything. Nothing rolls back automatically.
+
+### 10.4 The legacy manifest
+
+`manifest/channel-manifest.json` is frozen: `check-manifest.yml` checks it
+against `manifest/channel-manifest.json.sha256` on every pull request and before
+every publication, and every deploy serves it unchanged. The endpoint is never
+redirected to the v3 manifest.
+
+Its `manifest_version` is `4.0.0`, a major version no client knows, so the old
+clients still reading it tell their users to upgrade `midenup`.
+
+### 10.5 Scheduled verification
+
+[`verify-manifest.yml`](.github/workflows/verify-manifest.yml) runs daily and on
+dispatch. It checks that the served files match the served receipt, and that
+every artifact URI the served v3 manifest declares, for every target, can be
+downloaded (`manifest-utils publish verify`). A failure names each
+missing artifact in the job summary. Until a publication serves a receipt, the
+hash comparison is skipped with a notice in the summary, and the artifact check
+still runs.
