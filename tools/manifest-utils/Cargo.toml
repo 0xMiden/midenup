@@ -1,5 +1,5 @@
 [package]
-name = "update-manifest"
+name = "manifest-utils"
 version = "0.1.0"
 description = "Tool for updating midenup manifests safely"
 authors.workspace = true
@@ -12,7 +12,7 @@ edition.workspace = true
 publish = false
 
 [[bin]]
-name = "update-manifest"
+name = "manifest-utils"
 path = "src/main.rs"
 
 [dependencies]
@@ -20,12 +20,13 @@ anyhow.workspace = true
 chrono.workspace = true
 clap.workspace = true
 colored.workspace = true
+curl = "0.4"
+flate2 = { version = "1.1", default-features = false, features = ["rust_backend"] }
 json-patch = "4.2"
 midenup.workspace = true
 semver = { version = "1.0", features = ["serde"] }
 serde.workspace = true
 serde_json.workspace = true
+tar = { version = "0.4", default-features = false }
+tempfile = "3"
 thiserror.workspace = true
-
-[dev-dependencies]
-tempdir = "0.3"

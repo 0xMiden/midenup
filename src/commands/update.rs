@@ -118,7 +118,7 @@ fn update_custom(
 /// and there is nothing here to carry.
 ///
 /// The comparison is inequality, not "is newer". The pointer is authoritative in both directions:
-/// a rollback is rare, and `update-manifest promote` refuses to author one without an explicit
+/// a rollback is rare, and `manifest-utils promote` refuses to author one without an explicit
 /// flag, but once one is published, following it is what tracking the network means.
 fn update_network(
     config: &Config,
