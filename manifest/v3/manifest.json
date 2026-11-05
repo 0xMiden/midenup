@@ -995,6 +995,79 @@
           }
         },
         {
+          "format": [
+            "docker"
+          ],
+          "kind": "command",
+          "name": "remote-prover",
+          "subcommands": {
+            "down": [
+              "rm",
+              "-f",
+              "miden-remote-prover"
+            ],
+            "logs": [
+              "logs",
+              "-f",
+              "miden-remote-prover"
+            ],
+            "up": [
+              "run",
+              "-d",
+              "--name",
+              "miden-remote-prover",
+              "-p",
+              "50051:50051",
+              "ghcr.io/0xmiden/miden-remote-prover:v%{version}",
+              "miden-remote-prover",
+              "--kind=transaction",
+              "--port=50051"
+            ]
+          },
+          "version": {
+            "kind": "registry",
+            "version": "0.18.1"
+          }
+        },
+        {
+          "format": [
+            "docker",
+            "compose",
+            "-f",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
+            "--profile",
+            "telemetry",
+            "--profile",
+            "monitor"
+          ],
+          "kind": "command",
+          "name": "validator",
+          "subcommands": {
+            "down": [
+              "down",
+              "--remove-orphans",
+              "validator-1",
+              "bootstrap-validator",
+              "bootstrap-usdcx",
+              "otel-collector"
+            ],
+            "logs": [
+              "logs",
+              "-f",
+              "validator-1"
+            ],
+            "up": [
+              "up",
+              "-d",
+              "validator-1"
+            ]
+          },
+          "version": {
+            "kind": "registry",
+            "version": "0.18.1"
+          }
+        },
+        {
           "artifacts": {
             "miden-vm": {
               "targets": {
