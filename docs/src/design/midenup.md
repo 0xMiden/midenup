@@ -56,7 +56,7 @@ Recovery runs at startup. Before step 4 the operation never happened: the staged
 
 Seeding is scoped by the previous publication's **receipt**: only files it owns, only those the new plan still wants, and never those of a component known to have changed. That is what makes an update cheap without letting it carry stale content forward.
 
-Verification before publication is **structural**: every planned file exists, is a regular file, and carries the planned mode. Contents are not checked. A recorded digest is not evidence of anything (see [Manifest](./manifest.md)), so claiming otherwise here would be dishonest.
+Verification before publication is **structural**: every planned file exists, is a regular file, and carries the planned mode. Contents are checked earlier, as each artifact is acquired: fetched bytes must match the artifact's declared digest (see [Manifest](./manifest.md)) before anything is unpacked or written.
 
 ### Concurrency
 

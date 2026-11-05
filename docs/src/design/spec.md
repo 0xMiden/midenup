@@ -222,7 +222,7 @@ An `Unsupported` component:
 
 The consequence is that a channel introducing a new component kind stays installable on older `midenup` for every profile that does not include the new component, and produces an actionable error otherwise. Refusing the whole manifest - the current behavior - would brick every older `midenup` for every channel on the first new kind.
 
-**Reserved-but-inert fields.** Fields specified now and honored later must round-trip and be recorded, never silently dropped. Currently this applies to `digest` (§6.4) and `initialization` (§7.5).
+**Reserved-but-inert fields.** Fields specified now and honored later must round-trip and be recorded, never silently dropped. Currently this applies to `initialization` (§7.5).
 
 ---
 
@@ -282,10 +282,9 @@ An artifact is one named file plus the rules for locating it per target.
 "artifacts": {
   "miden-vm": {
     "uri": "https://github.com/0xMiden/miden-vm/releases/download/v%version/%basename-%target",
-    "digest": "sha256:9f86d0…",
     "targets": {
-      "aarch64-apple-darwin":     { "basename": "miden-vm" },
-      "x86_64-unknown-linux-gnu": { "basename": "miden-vm" }
+      "aarch64-apple-darwin":     { "basename": "miden-vm", "digest": "sha256:9f86d0…" },
+      "x86_64-unknown-linux-gnu": { "basename": "miden-vm", "digest": "sha256:4e07a1…" }
     }
   }
 }
@@ -312,9 +311,13 @@ Substitutions: `%target`, `%version` (requires a registry authority), `%basename
 
 If a component is selected and any of its declared artifacts has no entry for the current target, plan construction **fails**. The single exception is an executable with `prebuilt-with-cargo-fallback`, where missing target support selects the Cargo path instead.
 
-### 6.4 Digests are reserved, not verified
+### 6.4 Digests
 
-`digest` is optional, of the form `<algorithm>:<hex>`. It is validated for shape at parse time, recorded verbatim in the installation receipt when present, and round-trips losslessly. **No verification is performed currently.** Enabling verification later is a behavior change, not a schema change.
+`digest` is optional, of the form `<algorithm>:<hex>`. A target-agnostic artifact declares it beside `uri`; a target-specific artifact declares one in each `targets.<target>` entry, since one digest cannot match the bytes of several targets. A `digest` beside `targets` parses, but fails validation and plan construction for that artifact. Shape is checked at parse time and the value round-trips losslessly.
+
+Installation verifies the fetched bytes against the digest declared for the target being installed, before anything is unpacked or written (§9.3). The digest is not part of the plan key, so adding or changing one does not re-fetch or re-verify an existing installation. Only `sha256` with 64 hex digits can be verified: any other digest parses, so the rest of the manifest stays readable, but fails validation and plan construction for that artifact.
+
+A mismatch is terminal. It fails the install and never takes a `prebuilt-with-cargo-fallback` path: wrong bytes are not unavailable bytes. An artifact without a digest installs unverified, but fails validation (§14.2), so a published manifest declares one for every artifact and target.
 
 For an archived artifact (§6.5) the digest describes the archive as fetched, not the file installed out of it: it belongs to the bytes at the URI.
 
@@ -642,7 +645,7 @@ enum PlanStep {
     Download   { uri: ArtifactUri, dest: PathBuf, mode: u32, owner: ComponentName,
                  digest: Option<Digest>, archive: Option<ArchiveMember> },
     CopyLocal  { src: PathBuf, dest: PathBuf, mode: u32, owner: ComponentName,
-                 archive: Option<ArchiveMember> },
+                 digest: Option<Digest>, archive: Option<ArchiveMember> },
     CargoBuild { crate_name: String, authority: ResolvedAuthority, features: Vec<String>,
                  rustup_channel: Option<String>, expect_binary: String,
                  dest: PathBuf, owner: ComponentName },
@@ -674,10 +677,13 @@ Before the plan key is computed, every authority is pinned:
 1. Transfer into memory, following at most 10 redirects.
 2. Check the HTTP status **after** the transfer completes and reject any non-2xx terminal response. Previously the install script read the response code early as 0, so 404/500 responses would be written to disk as if they succeeded.
 3. Reject an empty body.
-4. When the step carries an `archive` (§6.5), group pending acquisitions of that source and format and scan the archive once into temporary files. Continue with this step's selected file only after complete validation; the container itself is never written. Bare files are written to a unique temporary sibling of `dest`.
-5. Apply the mode from the plan.
-6. `rename` into place.
-7. On any failure, remove the temporary file. If the owning component declares `prebuilt-with-cargo-fallback`, convert the step to `CargoBuild` and retry once; a successful fallback clears the failure.
+4. When the step carries a `digest` (§6.4), reject bytes whose SHA-256 does not match it. Archived steps are grouped only with steps declaring the same digest.
+5. When the step carries an `archive` (§6.5), group pending acquisitions of that source and format and scan the archive once into temporary files. Continue with this step's selected file only after complete validation; the container itself is never written. Bare files are written to a unique temporary sibling of `dest`.
+6. Apply the mode from the plan.
+7. `rename` into place.
+8. On any failure, remove the temporary file. If the owning component declares `prebuilt-with-cargo-fallback` and the failure is not a digest mismatch, convert the step to `CargoBuild` and retry once; a successful fallback clears the failure.
+
+A `CopyLocal` step reads its source file and continues from step 4.
 
 For `https` sources the destination filename comes from the **plan**, never from the URL.
 
@@ -741,7 +747,7 @@ Uninstall replaces step 4 with an atomic replacement of the symlink by a **tombs
 
 Before publication, for every plan step: the destination exists, is of the expected type, is owned by the expected component, has the expected mode, and collides with nothing else. Components with no physical output are skipped.
 
-Verification is **structural only**. No byte or digest verification is performed (§6.4). A matching plan key is not evidence of matching bytes and never authorizes content reuse.
+Verification is **structural only**: declared digests are checked during acquisition (§9.3), against the bytes fetched. A matching plan key is not evidence of matching bytes and never authorizes content reuse.
 
 ### 9.7 Recovery
 
@@ -1087,7 +1093,9 @@ The following are call disallowed and caught by validation:
 * a `command` reachable by none of `format`, `subcommands`, or `aliases` 
 * the §7.7 matrix
 *  a `%target`-less URI in a target-specific artifact
-* malformed `digest`
+* malformed `digest`, or a `digest` beside `targets` in a target-specific artifact
+* a `digest` that is not SHA-256 (§6.4)
+* an artifact without a `digest` for a target it declares (§6.4)
 * an `archive` format this build cannot read
 * an artifact whose resolved URI ends in a known archive extension without declaring `archive`, which would install the container as the artifact - unless the artifact id carries that extension too, which asks for exactly that
 * `legacy-package` in a newly authored channel
@@ -1117,6 +1125,7 @@ Each variant carries the file path, the offending identifier, and a remediation 
 | `DestinationCollision { path, owners }` | two artifacts target one path |
 | `CargoUnitConflict { unit, components }` | two components claim one Cargo installation unit |
 | `TransferFailed { uri, status }` | non-2xx or empty download with no fallback |
+| `DigestMismatch { component, artifact, uri, expected, actual }` | fetched bytes do not match the declared digest; never falls back |
 | `StagingVerificationFailed { path, reason }` | pre-publication structural check failed |
 | `RecoveredOperation { op, channel }` | informational; a journal was rolled forward |
 | `DivergentState { channel, detail }` | state and filesystem disagree with no journal |
@@ -1187,6 +1196,7 @@ The authoring tool shares the schema types and validators; it does not reimpleme
 - `check` runs the complete structural validator including cycle detection and dependency ordering. It currently accepts cyclic manifests.
 - Removing a component still required by a remaining component is rejected, listing the dependents.
 - `add-component` accepts `--profile`.
+- `digest [--channel]` records the SHA-256 of every artifact that has none, per declared target, by fetching it; recorded digests are left alone. `update-component` does the same for its component, and also re-records a digest whose URI the update moved, e.g. through `%version`.
 - Authoring a `legacy-package` is rejected (§7.4).
 - The tool never writes `manifest_version` by hand; it is emitted by the schema type.
 
@@ -1216,7 +1226,6 @@ A promotion that changes nothing says so and writes nothing, and what happened i
 
 | Excluded | Rationale |
 |---|---|
-| Per-artifact byte/digest verification | Schema slot reserved (§6.4); enabling it later is a behavior change, not a schema break. |
 | Per-project physical installations | The superset model handles the multi-project case at a fraction of the disk and complexity cost. |
 | Rollback to a previous publication | Old publications are removed after commit. Recovery restores consistency, not history. |
 | Archive/compressed artifacts | Deferred until a motivating example exists |
@@ -1251,6 +1260,7 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 * direct install shrinks; the next activation re-adds;
 * multi-file packages and multi-file command assets install **every** file;
 * 404, 500, and empty-body downloads publish nothing; a declared Cargo fallback recovers;
+* bytes that fail their digest, corrupt archives included, publish nothing and never take the Cargo fallback;
 * unsupported target fails plan construction without touching the filesystem;
 * two Cargo-backed components install, update, and uninstall independently without disturbing each other's binaries;
 * `var/<selector>` survives update, republication, and pointer moves; two networks on one channel keep separate stores; is removed only under `--purge`, and then only for the selector named;

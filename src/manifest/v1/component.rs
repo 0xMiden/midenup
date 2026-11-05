@@ -191,7 +191,6 @@ impl TryFrom<Component> for crate::manifest::v3::Component {
                             uri,
                             substitutions: None,
                             targets: Default::default(),
-                            digest: None,
                             archive: None,
                             extra: Default::default(),
                         }
@@ -208,7 +207,6 @@ impl TryFrom<Component> for crate::manifest::v3::Component {
                             uri,
                             substitutions: None,
                             targets: Default::default(),
-                            digest: None,
                             archive: None,
                             extra: Default::default(),
                         }

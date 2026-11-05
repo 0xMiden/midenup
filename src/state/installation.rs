@@ -76,8 +76,6 @@ pub struct Output {
     pub owner: String,
     pub mode: u32,
     pub realized: RealizedMethod,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub digest: Option<crate::artifact::Digest>,
 }
 
 /// The immutable record of what a publication contains.

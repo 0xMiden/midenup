@@ -223,6 +223,26 @@ exit 0
         self
     }
 
+    /// Declares the SHA-256 digest of every artifact added so far, hashed from the file it names.
+    pub fn with_digests(mut self) -> Self {
+        for channel in &mut self.channels {
+            for component in channel["components"].as_array_mut().expect("components is an array") {
+                let Some(artifacts) = component["artifacts"].as_object_mut() else {
+                    continue;
+                };
+                for artifact in artifacts.values_mut() {
+                    let uri = artifact["uri"].as_str().expect("an artifact has a uri");
+                    let path = uri.strip_prefix("file://").expect("fixture artifacts are local");
+                    let bytes = std::fs::read(path).expect("failed to read fixture artifact");
+                    artifact["digest"] =
+                        midenup::artifact::Digest::sha256(&bytes).to_string().into();
+                }
+            }
+        }
+
+        self
+    }
+
     /// Adds a component that is `cargo install`ed from a dependency-free local crate, so the real
     /// build path runs in about a second. Opt-in: only this needs a working `cargo`.
     pub fn with_cargo_component(mut self, name: &str) -> Self {

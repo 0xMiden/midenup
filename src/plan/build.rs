@@ -102,7 +102,8 @@ pub enum PlanStep {
         dest: PathBuf,
         mode: u32,
         owner: String,
-        /// Recorded in the receipt, never verified. See [crate::artifact::Digest].
+        /// The digest the fetched bytes must match before anything is unpacked or published. A
+        /// mismatch is terminal: the fallback is not taken. Also recorded in the receipt.
         digest: Option<Digest>,
         /// Set when the fetched bytes are an archive to unpack the artifact from.
         archive: Option<ArchiveMember>,
@@ -120,6 +121,8 @@ pub enum PlanStep {
         dest: PathBuf,
         mode: u32,
         owner: String,
+        /// As [PlanStep::Download::digest].
+        digest: Option<Digest>,
         /// As [PlanStep::Download::archive]. A `file://` artifact can be an archive too.
         archive: Option<ArchiveMember>,
         /// As [PlanStep::Download::fallback]. A `file://` artifact can be missing just as a
@@ -610,9 +613,8 @@ fn push_transfer_with_fallback(
     inputs: &mut ComponentInputs,
     fallback: Option<PlanStep>,
 ) {
-    let digest = component.artifacts.artifacts.get(id).and_then(|a| a.digest().cloned());
     let fallback = fallback.map(Box::new);
-    let ResolvedArtifact { uri, archive } = resolved;
+    let ResolvedArtifact { uri, archive, digest } = resolved;
     // Material: unpacking the same URI installs different bytes than fetching it whole.
     inputs.artifacts.push(ArtifactInput {
         id: id.to_string(),
@@ -627,6 +629,7 @@ fn push_transfer_with_fallback(
             dest: destination.path,
             mode: destination.mode,
             owner: component.name.to_string(),
+            digest,
             archive,
             fallback,
         },
@@ -738,7 +741,6 @@ mod tests {
             uri: uri.to_string(),
             substitutions: None,
             targets: targets.iter().map(|t| (t.to_string(), Default::default())).collect(),
-            digest: None,
             archive: None,
             extra: Default::default(),
         }

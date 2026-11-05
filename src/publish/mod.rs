@@ -7,8 +7,9 @@
 //!
 //! * **The directory name carries no meaning.** It is `<channel>-<publication-id>`, where the id is
 //!   opaque and randomly generated. Naming a publication after a digest of its inputs invites
-//!   treating equal names as equal bytes -- and nothing here verifies bytes ([crate::artifact]
-//!   digests are recorded, never checked). An opaque id makes that mistake impossible to express.
+//!   treating equal names as equal bytes -- and a plan key says nothing about bytes: only
+//!   [crate::artifact] digests do, checked as artifacts are acquired. An opaque id makes that
+//!   mistake impossible to express.
 //! * **The receipt, not the manifest, says what a publication owns.** Uninstall and update-seeding
 //!   both read it. Deriving ownership from the manifest a second time would give those paths their
 //!   own answer to a question the install already answered, and two answers can disagree.
@@ -140,10 +141,6 @@ pub fn receipt_for(
                 owner: step.owner().to_string(),
                 mode: step.mode(),
                 realized,
-                digest: match step {
-                    PlanStep::Download { digest, .. } => digest.clone(),
-                    _ => None,
-                },
             }
         })
         .collect();
@@ -245,7 +242,6 @@ mod tests {
                 owner: "vm".to_string(),
                 mode: 0o755,
                 realized: RealizedMethod::Prebuilt,
-                digest: None,
             }],
         }
     }
