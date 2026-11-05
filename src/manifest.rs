@@ -1,3 +1,4 @@
+pub mod diff;
 pub(crate) mod v1;
 pub(crate) mod v3;
 pub mod validate;
