@@ -109,7 +109,7 @@ pub fn environment_setup(test_name: &str) -> TestEnvironment {
 
     let tmp_midenup_home = tmp_dir.path().join("midenup");
 
-    let tmp_bin_dir = tmp_dir.path().join("bin");
+    let tmp_bin_dir = tmp_dir.path().join("midenup-bin");
 
     std::fs::create_dir(&tmp_present_working_directory).unwrap();
 
