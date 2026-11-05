@@ -20,6 +20,6 @@
 [[scenarios]]
 title = "Stub for toolchain 0.18.0"
 toolchain = "=0.18.0"
-requires = ["client", "core", "debug", "format", "local-registry", "node", "protocol", "remote-prover", "validator", "vm"]
+requires = ["client", "core", "debug", "format", "local-registry", "node", "protocol", "vm"]
 kind = "script"
 script = "true"

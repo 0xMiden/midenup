@@ -34,7 +34,7 @@ To cover a new toolchain line, widen `toolchain`, e.g. `>=0.17.0, <0.19.0`.
 - `miden` and `midenup` on `PATH`.
 - An empty working directory of its own.
 - The versions in `MIDEN_TOOLCHAIN_VERSION` and `MIDEN_COMPONENT_<NAME>_VERSION`, e.g.
-  `MIDEN_COMPONENT_REMOTE_PROVER_VERSION`. Lit suites also get them as features, e.g.
+  `MIDEN_COMPONENT_LOCAL_REGISTRY_VERSION`. Lit suites also get them as features, e.g.
   `toolchain=0.17.0` and `vm=0.17.2`, for `REQUIRES` and `UNSUPPORTED`.
 - Network access. Start any service the scenario needs, e.g. with `miden node up`, and stop it
   before exiting.
