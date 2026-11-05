@@ -1,0 +1,25 @@
+# Acceptance scenarios: checks that the components of a toolchain work together.
+#
+# Each scenario applies to the toolchains in `toolchain` (a semver range with an upper bound, so a
+# new toolchain line is only covered once a team widens it) and runs when a change touches one of
+# the components in `requires`. Run them with `manifest-utils acceptance`; see
+# manifest/UPDATE_INSTRUCTIONS.md.
+#
+# [[scenarios]]
+# title = "Can compile and prove a basic MASM program with the VM"
+# toolchain = "^0.18.0"
+# requires = ["vm"]
+# kind = "script"                # or "lit", with `suite = "<directory next to this file>"`
+# needs = ["docker"]             # optional: skipped on hosts without Docker
+# script = '''
+# miden vm compile -a program.masm
+# miden vm prove program.masm -i program.inputs
+# '''
+
+# Temporary stubs so every component counts as covered until its team adds real scenarios.
+[[scenarios]]
+title = "Stub for toolchain 0.18.0"
+toolchain = "=0.18.0"
+requires = ["client", "core", "debug", "format", "local-registry", "node", "protocol", "vm"]
+kind = "script"
+script = "true"

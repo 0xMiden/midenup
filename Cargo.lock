@@ -529,6 +529,7 @@ dependencies = [
  "tar",
  "tempfile",
  "thiserror",
+ "toml",
 ]
 
 [[package]]
