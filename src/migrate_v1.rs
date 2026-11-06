@@ -170,6 +170,7 @@ pub fn migrate_if_needed(home: &Path) -> Result<MigrationOutcome, MigrationError
         channels.push(channel.name.clone());
         state.upsert(Installation {
             channel: channel.name,
+            snapshot: None,
             custom: None,
             intent: crate::resolve::Intent { profiles: Default::default(), roots },
             // Nothing describes the pre-publication tree, so there is no component snapshot to

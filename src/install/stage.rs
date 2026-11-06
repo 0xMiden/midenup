@@ -10,7 +10,7 @@ use colored::Colorize;
 use crate::{
     install::{CargoError, ExecError, ExtractError},
     plan::{InstallationPlan, PlanStep},
-    state::{RealizedMethod, Receipt},
+    state::{Output, RealizedMethod, Receipt},
     utils,
 };
 
@@ -49,6 +49,12 @@ pub enum StageError {
     },
     #[error("component '{owner}' declares a fallback that cannot be executed as one")]
     UnsupportedFallback { owner: String },
+    #[error("failed to hash '{path}' for the publication receipt: {source}")]
+    Hash {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// How each destination in a staged tree was actually produced.
@@ -58,8 +64,8 @@ pub type Realized = BTreeMap<PathBuf, RealizedMethod>;
 ///
 /// Seeding is what makes an update cheap -- unchanged files are copied rather than re-fetched --
 /// but it is also how an update can silently carry stale content forward, so it is scoped
-/// deliberately: only files the previous receipt *owns*, only those the new plan still wants, and
-/// never those of a component known to have changed.
+/// deliberately: only files the previous receipt *owns*, whose bytes still match the hash it
+/// records, that the new plan still wants, and never those of a component known to have changed.
 pub struct Seed<'a> {
     /// The previous publication's directory.
     pub publication: &'a Path,
@@ -112,6 +118,16 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
         if !src.is_file() {
             continue;
         }
+        // An unverifiable or modified source is acquired again rather than reused.
+        if !matches_receipt(from.publication, output) {
+            if output.sha256.is_some() {
+                crate::warn!(
+                    "'{}' no longer matches its receipt; acquiring it again",
+                    src.display()
+                );
+            }
+            continue;
+        }
 
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)
@@ -124,6 +140,26 @@ pub fn seed(plan: &InstallationPlan, into: &Path, from: &Seed<'_>) -> Result<(),
 
     // Note what is *not* here: `var/`. It lives at `$MIDENUP_HOME/var/<channel>`, outside every
     // publication, so there is nothing to carry forward and no way for staging to disturb it.
+    Ok(())
+}
+
+/// Whether the file `output` names in `publication` still has the SHA-256 its receipt records.
+///
+/// An output with no recorded hash cannot be verified, so it never matches.
+pub fn matches_receipt(publication: &Path, output: &Output) -> bool {
+    let Some(expected) = &output.sha256 else {
+        return false;
+    };
+    utils::fs::sha256(&publication.join(&output.path)).is_ok_and(|found| &found == expected)
+}
+
+/// Records the SHA-256 of every output in `receipt`, read from the staged tree at `publication`.
+pub fn record_hashes(receipt: &mut Receipt, publication: &Path) -> Result<(), StageError> {
+    for output in &mut receipt.outputs {
+        let path = publication.join(&output.path);
+        let hash = utils::fs::sha256(&path).map_err(|source| StageError::Hash { path, source })?;
+        output.sha256 = Some(hash);
+    }
     Ok(())
 }
 
@@ -570,6 +606,8 @@ mod tests {
             None,
         );
         receipt.outputs.truncate(1);
+        receipt.outputs[0].sha256 =
+            Some(utils::fs::sha256(&previous.join("etc/node/compose.yml")).unwrap());
         prepare(&staging).unwrap();
         seed(
             &plan,
@@ -901,6 +939,7 @@ mod tests {
         std::fs::write(dir.join("lib").join("stray.masp"), b"nobody-owns-me").unwrap();
 
         let output = |path: PathBuf, owner: &str, mode| Output {
+            sha256: Some(utils::fs::sha256(&dir.join(&path)).unwrap()),
             path,
             owner: owner.to_string(),
             mode,
@@ -989,6 +1028,7 @@ mod tests {
             mode: MODE_EXECUTABLE,
             realized: RealizedMethod::Prebuilt,
             digest: None,
+            sha256: Some(utils::fs::sha256(&previous.join("bin").join("miden-debug")).unwrap()),
         });
 
         let (plan, staging) = staged(temp.path());
@@ -1038,6 +1078,50 @@ mod tests {
             b"old-package",
             "an unchanged component must still be reused"
         );
+    }
+
+    /// A carried-forward file is reused only while its bytes match the receipt; a modified one,
+    /// or one whose receipt records no hash, is acquired again.
+    #[test]
+    fn an_output_not_matching_its_receipt_is_re_acquired_rather_than_seeded() {
+        let temp = tempdir::TempDir::new("stage-seed-tampered").unwrap();
+        let (previous, mut receipt) = previous_publication(temp.path());
+        std::fs::write(previous.join("bin").join("miden-vm"), b"tampered").unwrap();
+        receipt.outputs[1].sha256 = None;
+        let (plan, staging) = staged(temp.path());
+
+        prepare(&staging).unwrap();
+        seed(
+            &plan,
+            &staging,
+            &Seed {
+                publication: &previous,
+                receipt: &receipt,
+                stale: &[],
+            },
+        )
+        .unwrap();
+        assert!(!staging.join("bin").join("miden-vm").exists());
+        assert!(!staging.join("lib").join("core.masp").exists());
+
+        execute(&plan, &staging, &temp.path().join("cache"), false, true).unwrap();
+        assert_eq!(std::fs::read(staging.join("bin").join("miden-vm")).unwrap(), b"binary");
+        assert_eq!(std::fs::read(staging.join("lib").join("core.masp")).unwrap(), b"package");
+    }
+
+    #[test]
+    fn recorded_hashes_match_the_staged_files() {
+        let temp = tempdir::TempDir::new("stage-record-hashes").unwrap();
+        let (previous, mut receipt) = previous_publication(temp.path());
+        let expected: Vec<_> = receipt.outputs.iter().map(|output| output.sha256.clone()).collect();
+        for output in &mut receipt.outputs {
+            output.sha256 = None;
+        }
+
+        record_hashes(&mut receipt, &previous).unwrap();
+        let recorded: Vec<_> = receipt.outputs.iter().map(|output| output.sha256.clone()).collect();
+        assert_eq!(recorded, expected);
+        assert!(receipt.outputs.iter().all(|output| matches_receipt(&previous, output)));
     }
 
     /// Staging must never create `var/` inside a publication. It lives outside, keyed by channel,

@@ -4,7 +4,12 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{manifest::Component, plan::PlanKey, resolve::Intent, toolchain::Patch};
+use crate::{
+    manifest::Component,
+    plan::{PlanKey, SnapshotId},
+    resolve::Intent,
+    toolchain::Patch,
+};
 
 /// An opaque identifier for one immutable published installation.
 ///
@@ -78,6 +83,10 @@ pub struct Output {
     pub realized: RealizedMethod,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<crate::artifact::Digest>,
+    /// The SHA-256 of the installed file. Without it the output cannot be verified, so it is never
+    /// carried forward.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// The immutable record of what a publication contains.
@@ -99,6 +108,10 @@ pub struct Receipt {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Installation {
     pub channel: semver::Version,
+    /// The identity of the upstream channel definition `components` were resolved from. Absent for
+    /// custom, patched or partially held-back installations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub snapshot: Option<SnapshotId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub custom: Option<crate::identity::CustomToolchain>,
     /// What the user asked for. Re-resolved against upstream on every update.

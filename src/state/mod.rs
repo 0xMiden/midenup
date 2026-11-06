@@ -216,6 +216,7 @@ mod tests {
             state_version: STATE_VERSION,
             installations: vec![Installation {
                 channel: semver::Version::new(0, 15, 0),
+                snapshot: None,
                 custom: None,
                 intent: Intent::new(&[Profile::Minimal], &["client"]),
                 components: vec![],
