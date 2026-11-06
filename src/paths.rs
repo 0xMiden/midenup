@@ -6,6 +6,7 @@
 //!
 //! ```text
 //! $MIDENUP_HOME/
+//! |- home-format.json                    the format of everything below
 //! |- state.json                          local installation state
 //! |- cache/cargo/<source-path-hash>/      reusable, disposable path-build outputs
 //! |- publications/
@@ -25,6 +26,11 @@
 use std::path::{Path, PathBuf};
 
 use crate::{channel::UserChannel, identity::InstallationId, state::PublicationId};
+
+/// The home format envelope ([`crate::home_format`]).
+pub fn home_format_path(home: &Path) -> PathBuf {
+    home.join("home-format").with_extension("json")
+}
 
 /// Local installation state: the sole logical authority on what is installed.
 pub fn state_path(home: &Path) -> PathBuf {
@@ -109,11 +115,9 @@ pub fn publications_dir(home: &Path) -> PathBuf {
 /// too is the identity the user chose.
 ///
 /// Nothing may move or delete this: not install, not update, not republication, not a pointer move.
-/// The three exceptions are explicit and are the whole list -- `uninstall --purge`; channel
+/// The two exceptions are explicit and are the whole list -- `uninstall --purge`; and channel
 /// migration, where the channel a pinned user selected ceases to exist and their data has to follow
-/// it; and the one-time conversion of a pre-network home
-/// ([`crate::migrate_networks`]), which hands the default network the single store such a home kept
-/// under its channel's version.
+/// it.
 pub fn var_dir(home: &Path, selector: &UserChannel) -> PathBuf {
     match selector {
         UserChannel::Custom(name) => home.join("var").join("custom").join(name.as_ref()),
