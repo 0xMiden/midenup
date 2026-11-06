@@ -140,8 +140,7 @@ fn integration_install_uninstall_test() {
     // We check that the basic midenup directory structure is present
     assert!(test_env.midenup_home.exists());
     assert!(toolchain_dir.exists());
-    // The miden symlink should be in $CARGO_HOME/bin
-    assert!(test_env.cargo_home.join("bin").join("miden").exists());
+    assert!(test_env.bin_dir.join("miden").exists());
 
     // Now, we install stable
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();

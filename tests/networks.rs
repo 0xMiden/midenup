@@ -353,7 +353,7 @@ fn integration_networks_dispatch_gives_each_network_its_own_var() {
         let config = Config::init(
             project.clone(),
             test_env.midenup_home.clone(),
-            test_env.cargo_home.clone(),
+            test_env.bin_dir.clone(),
             &manifest_uri,
             true,
         )

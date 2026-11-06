@@ -16,11 +16,12 @@ Options:
 
   -h, --help                   Displays this usage information
   -v, --version <VERSION>      Install a specific midenup release, if available
-  --install-path <DIR>         Installs the midenup binary to DIR.
+  --install-path <DIR>         Installs the midenup binary to DIR (default: ~/.local/bin).
                                NOTE: Ensure that DIR is added to your shell's PATH
   --no-verify                  Do not verify the SHA256SUMs of the downloaded release
   --ignore-attestation         Do not verify the GitHub attestation of the downloaded release
-  --no-cargo-fallback          Require a prebuilt release artifact to proceed with installation
+  --no-cargo-fallback          Require a prebuilt release artifact to proceed with installation.
+                               Without it, unsupported platforms build midenup with Cargo
   --no-init                    Skip automatic initialization after midenup is installed
 
 Environment Variables:
@@ -31,10 +32,8 @@ These should be set in your shell if you want them to be persistent.
 EOF
 }
 
-CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
-
 version=
-install_path="${CARGO_HOME}/bin"
+install_path=
 skip_sha256sum=0
 skip_gh_attestation=0
 skip_init=0
@@ -97,10 +96,8 @@ install_via_cargo() {
     esac
 }
 
-if [ ! -d "${install_path}" ]; then
-    echo "Expected ${install_path} to be a directory"
-    exit 2
-fi
+install_path="${install_path:-${HOME}/.local/bin}"
+mkdir -p "${install_path}"
 
 case "${version:-}" in
     "") ;; # unset
@@ -121,12 +118,11 @@ else
     base_url="https://github.com/0xMiden/midenup/releases/download/${version_tag}"
 fi
 
-if ! command -v rustc >/dev/null 2>&1; then
-    echo "Expected Rust to be installed, and available in your PATH"
-    exit 2
-fi
-
-arch="$(rustc --print host-tuple)"
+case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) arch=aarch64-apple-darwin ;;
+    Linux-x86_64) arch=x86_64-unknown-linux-gnu ;;
+    *) arch="$(uname -s)-$(uname -m)" ;;
+esac
 file="midenup-${arch}.tar.gz"
 url="${base_url}/${file}"
 midenup_src=midenup
@@ -154,8 +150,12 @@ case "$arch" in
             echo "Unsupported architecture, and --no-cargo-fallback was set: '${arch}'"
             exit 1
         fi
+        if ! command -v cargo >/dev/null 2>&1; then
+            echo "Unsupported architecture '${arch}': building midenup requires Cargo in your PATH"
+            exit 2
+        fi
         install_via_cargo "$version"
-        midenup_src="${CARGO_HOME}/bin/midenup"
+        midenup_src="${CARGO_HOME:-$HOME/.cargo}/bin/midenup"
         ;;
 esac
 
@@ -169,7 +169,7 @@ fi
 
 # Finalize
 case ":$PATH:" in
-    *":${install_path}:"*) ;; # Cargo home is already in path
+    *":${install_path}:"*) ;; # Install path is already in PATH
     *) needs_install_path=1 ;;
 esac
 
@@ -181,4 +181,11 @@ if [ -n "${needs_install_path:-}" ]; then
         printf "\033[0;31mYour path is missing %s, you might want to add it.\033[0m\n" "${install_path}"
         echo
     fi
+fi
+
+# Another midenup earlier in PATH, such as one from `cargo install`, would run instead of this one.
+if existing="$(command -v midenup)" && [ "${existing}" != "${install_path}/midenup" ]; then
+    echo
+    printf "\033[0;31m%s runs instead of %s/midenup. Remove it, or put %s earlier in your PATH.\033[0m\n" "${existing}" "${install_path}" "${install_path}"
+    echo
 fi

@@ -37,8 +37,7 @@ fn integration_miden_test() {
     // midenup initialized check
     assert!(test_env.midenup_home.exists());
     assert!(toolchain_dir.exists());
-    // The miden symlink should be in $CARGO_HOME/bin
-    assert!(test_env.cargo_home.join("bin").join("miden").exists());
+    assert!(test_env.bin_dir.join("miden").exists());
 
     // Stable toolchain installed check
     let latest_toolchain = toolchain_dir.join("0.16.0");
@@ -123,14 +122,10 @@ fn integration_miden_preserves_component_exit_code() {
     let installed = run_midenup(&test_env, &fixture.manifest_uri, &["install", "0.15.0"]);
     assert!(installed.status.success(), "{}", String::from_utf8_lossy(&installed.stderr));
 
-    let output = midenup_command(
-        test_env.cargo_home.join("bin").join("miden"),
-        &test_env,
-        &fixture.manifest_uri,
-    )
-    .arg("vm")
-    .output()
-    .expect("failed to run miden");
+    let output = midenup_command(test_env.bin_dir.join("miden"), &test_env, &fixture.manifest_uri)
+        .arg("vm")
+        .output()
+        .expect("failed to run miden");
 
     assert_eq!(output.status.code(), Some(42));
 }
@@ -369,15 +364,12 @@ fn integration_miden_explicit_override_survives_environment() {
             .unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 
-        let output = midenup_command(
-            test_env.cargo_home.join("bin/miden"),
-            &test_env,
-            &fixture.manifest_uri,
-        )
-        .env("MIDENUP_TOOLCHAIN", environment)
-        .args(["+0.15.0", "help", "vm"])
-        .output()
-        .unwrap();
+        let output =
+            midenup_command(test_env.bin_dir.join("miden"), &test_env, &fixture.manifest_uri)
+                .env("MIDENUP_TOOLCHAIN", environment)
+                .args(["+0.15.0", "help", "vm"])
+                .output()
+                .unwrap();
         assert_eq!(String::from_utf8_lossy(&output.stdout), "miden-vm 0.15.0\n");
         assert!(
             output.status.success(),

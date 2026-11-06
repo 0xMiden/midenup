@@ -29,8 +29,8 @@ pub struct Config {
     ///
     /// `MIDENUP_HOME=/path/to/custom/home midenup`
     pub midenup_home: PathBuf,
-    /// The path to `$CARGO_HOME`
-    pub cargo_home: PathBuf,
+    /// The directory holding the `miden` symlink, next to the `midenup` executable by default.
+    pub bin_dir: PathBuf,
     /// This represents the upstream manifest, which contains the state of all the available
     /// toolchains with their respective components.
     ///
@@ -70,7 +70,7 @@ impl Config {
     pub fn init(
         working_directory: PathBuf,
         midenup_home: PathBuf,
-        cargo_home: PathBuf,
+        bin_dir: PathBuf,
         manifest_uri: impl AsRef<str>,
         debug: bool,
     ) -> anyhow::Result<Config> {
@@ -79,7 +79,7 @@ impl Config {
         Ok(Config {
             working_directory,
             midenup_home,
-            cargo_home,
+            bin_dir,
             manifest_uri: manifest_uri.as_ref().to_string(),
             manifest: std::cell::OnceCell::new(),
             debug,
@@ -334,29 +334,8 @@ impl Config {
         let toolchain_name = selector.to_string();
         let toolchain_opt = sysroot.join("opt");
 
-        // Get the current PATH, and override CARGO_HOME if it differs from the inherited CARGO_HOME
-        let (cargo_home, path) = match std::env::var_os("CARGO_HOME") {
-            Some(inherited) if inherited.as_os_str() == self.cargo_home.as_os_str() => {
-                (inherited, std::env::var_os("PATH"))
-            },
-            Some(_) => match std::env::var_os("PATH") {
-                Some(prev_path) => {
-                    let mut path =
-                        OsString::from(format!("{}:", self.cargo_home.join("bin").display()));
-                    path.push(prev_path);
-                    (self.cargo_home.clone().into_os_string(), Some(path))
-                },
-                None => {
-                    let cargo_home = self.cargo_home.clone().into_os_string();
-                    let path = self.cargo_home.join("bin").into_os_string();
-                    (cargo_home, Some(path))
-                },
-            },
-            None => (self.cargo_home.clone().into_os_string(), std::env::var_os("PATH")),
-        };
-
         // Prepend the toolchain opt/ directory to the current PATH
-        let path = match path {
+        let path = match std::env::var_os("PATH") {
             Some(prev_path) => {
                 let mut path = OsString::from(format!("{}:", toolchain_opt.display()));
                 path.push(prev_path);
@@ -370,7 +349,6 @@ impl Config {
             .env("MIDENUP_HOME", &self.midenup_home)
             .env("MIDENUP_TOOLCHAIN", &toolchain_name)
             .env("MIDEN_SYSROOT", sysroot)
-            .env("CARGO_HOME", cargo_home)
             .env("PATH", path)
             .args(args);
 

@@ -570,7 +570,7 @@ mod tests {
     use crate::identity::CustomToolchain;
 
     fn config(root: &std::path::Path) -> Config {
-        Config::init(root.to_path_buf(), root.join("home"), root.join("cargo"), "", true).unwrap()
+        Config::init(root.to_path_buf(), root.join("home"), root.join("bin"), "", true).unwrap()
     }
 
     fn virtual_channel(version: &str) -> Channel {
@@ -633,7 +633,7 @@ mod tests {
                 "accepted {network}"
             );
             assert!(!config.midenup_home.exists(), "created installation files for {network}");
-            assert!(!config.cargo_home.exists(), "created dispatch links for {network}");
+            assert!(!config.bin_dir.exists(), "created dispatch links for {network}");
             assert!(state.installations.is_empty());
         }
     }

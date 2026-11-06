@@ -26,7 +26,8 @@ The `midenup` executable facilitates two primary tasks:
 
 ## Prerequisites
 
-- [Rust](https://rustup.rs), latest stable.
+- [Rust](https://rustup.rs), latest stable, only if you install `midenup` with Cargo, patch
+  components, or use a toolchain with components built from source.
 - [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
   `node` component (`miden node`).
 
@@ -53,7 +54,7 @@ chmod +x installer.sh
 
 You can also install a specific `midenup` release using the `--version` flag. For more usage information, download the script and pass `--help`.
 
-The installer also runs `midenup init` for you, so after the script exits, `midenup` is ready to use.
+The script installs to `~/.local/bin` (change it with `--install-path`) and warns if another `midenup` earlier in your `PATH` would run instead. It then runs `midenup init`, which places the `miden` symlink next to it. After the script exits, `midenup` is ready to use.
 
 ### Install via Cargo
 
@@ -65,7 +66,7 @@ cargo install --locked midenup && midenup init
 
 NOTE: This presumes that `$CARGO_HOME/bin` is in your shell's `PATH` environment variable.
 
-The `midenup init` command initializes the `$MIDENUP_HOME` directory, and creates a `miden` symlink in `$CARGO_HOME/bin` (default `~/.cargo/bin`) pointing to the `midenup` executable. Since Rust users typically already have `$CARGO_HOME/bin` in their PATH, the `miden` command should be available immediately.
+The `midenup init` command initializes the `$MIDENUP_HOME` directory, and creates a `miden` symlink pointing to the `midenup` executable in the same directory as it, here `$CARGO_HOME/bin` (default `~/.cargo/bin`). Since Rust users typically already have `$CARGO_HOME/bin` in their PATH, the `miden` command should be available immediately.
 
 > [!WARNING]
 > If `miden` is not found after running `midenup init`, ensure `$CARGO_HOME/bin`
@@ -234,7 +235,7 @@ will report it as absent. If you need to go back, reinstall your toolchains with
 ### Uninstalling `midenup`
 
 You can easily uninstall `midenup` itself by deleting the `$MIDENUP_HOME` directory,
-along with the `midenup` executable and the `miden` symlink in `$CARGO_HOME/bin`.
+along with the `midenup` executable and the `miden` symlink next to it.
 The location of the `$MIDENUP_HOME` directory can be obtained by running:
 ```
 midenup show home
@@ -242,7 +243,8 @@ midenup show home
 
 Then remove the executables:
 ```
-rm "${CARGO_HOME:-$HOME/.cargo}/bin/midenup" "${CARGO_HOME:-$HOME/.cargo}/bin/miden"
+bin_dir="$(dirname "$(command -v midenup)")"
+rm "${bin_dir}/midenup" "${bin_dir}/miden"
 ```
 
 ### Configuring the active toolchain
