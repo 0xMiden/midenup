@@ -70,6 +70,14 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
 ///
 /// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
 /// executable.
+fn miden_executable_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["miden.exe", "miden"]
+    } else {
+        &["miden"]
+    }
+}
+
 pub fn setup_midenup(config: &Config) -> Result<InitializationState, InitializationError> {
     let mut state = InitializationState::AlreadyInitialized;
 
@@ -113,11 +121,13 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
 
         let current_exe =
             std::env::current_exe().expect("unable to get location of current executable");
-        let miden_exe = cargo_bin.join("miden");
-        if !miden_exe.exists() {
-            utils::fs::symlink(&miden_exe, &current_exe)
-                .map_err(|e| InitializationError::Symlink(e.to_string()))?;
-            state = InitializationState::Initialized;
+        for executable_name in miden_executable_names() {
+            let miden_exe = cargo_bin.join(executable_name);
+            if !miden_exe.exists() {
+                utils::fs::symlink(&miden_exe, &current_exe)
+                    .map_err(|e| InitializationError::Symlink(e.to_string()))?;
+                state = InitializationState::Initialized;
+            }
         }
 
         // Is `miden` reachable through `$PATH`? Almost certainly not the first time midenup is
@@ -131,10 +141,12 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
         let miden_is_accessible = std::env::var_os("PATH")
             .map(|path| {
                 std::env::split_paths(&path).any(|dir| {
-                    let candidate = dir.join("miden");
-                    // `symlink_metadata`, not `exists`: the entry midenup itself installs is a
-                    // symlink, and a broken one is not reachable but does answer "is it there".
-                    std::fs::symlink_metadata(&candidate).is_ok() && candidate.exists()
+                    miden_executable_names().iter().any(|executable_name| {
+                        let candidate = dir.join(executable_name);
+                        // `symlink_metadata`, not `exists`: the entry midenup itself installs is a
+                        // symlink, and a broken one is not reachable but does answer "is it there".
+                        std::fs::symlink_metadata(&candidate).is_ok() && candidate.exists()
+                    })
                 })
             })
             .unwrap_or(false);
@@ -170,4 +182,18 @@ source ~/.zprofile
     }
 
     Ok(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::miden_executable_names;
+
+    #[test]
+    fn windows_uses_standard_executable_names() {
+        if cfg!(windows) {
+            assert_eq!(miden_executable_names(), &["miden.exe", "miden"]);
+        } else {
+            assert_eq!(miden_executable_names(), &["miden"]);
+        }
+    }
 }
