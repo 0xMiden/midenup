@@ -65,12 +65,18 @@ pub fn r#override(
 
             link
         },
-        UserChannel::Version(_) => {
-            let inner_channel = config.upstream_manifest()?.get_channel(channel).context(
-                "failed to set {channel} as the system default. Try installing it:
-        midenup install {channel}",
-            )?;
-            inner_channel.get_channel_dir(config)
+        UserChannel::Version(version) => {
+            let id = crate::identity::InstallationId::Version(version.clone());
+            // An installed version stays selectable after upstream stops publishing it.
+            if state.get_by_id(&id).is_none() {
+                config.upstream_manifest()?.get_channel(channel).with_context(|| {
+                    format!(
+                        "failed to set {channel} as the system default. Try installing it:
+        midenup install {channel}"
+                    )
+                })?;
+            }
+            crate::paths::installation_link(&config.midenup_home, &id)
         },
     };
 

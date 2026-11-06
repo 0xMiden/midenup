@@ -176,7 +176,7 @@ fn integration_dispatch_against_an_installed_toolchain_makes_no_network_request(
         String::from_utf8_lossy(&output.stdout),
     );
     assert!(
-        !stderr.contains("could not reach"),
+        !stderr.contains("could not fetch"),
         "dispatch must not even *attempt* a fetch: {stderr}"
     );
 }

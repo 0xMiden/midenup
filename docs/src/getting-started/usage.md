@@ -295,4 +295,8 @@ from the installed toolchain, so an unreachable manifest cannot stop you working
 
 The upstream manifest is fetched only when something actually needs to know what exists upstream —
 installing, updating, or `midenup list`. Each successful fetch is cached, and if a later fetch
-fails, `midenup` proceeds against that cached copy and tells you it is doing so.
+fails, installing and listing proceed against that cached copy and tell you so. `midenup update`
+always needs a fresh manifest: if it cannot fetch one, it fails and changes nothing.
+
+When the manifest requires a newer `midenup`, the error names your version and how to upgrade:
+rerun the installer, or run `cargo install --locked --force midenup`.
