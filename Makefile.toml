@@ -8,7 +8,6 @@ init_task = "init"
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 CARGO_MAKE_CARGO_VERBOSE_FLAGS = { source = "${CARGO_MAKE_CI}", default_value = "", mapping = { "true" = "--verbose" } }
-CARGO_MAKE_RUST_SCRIPT_PROVIDER = "rust-script"
 CARGO_MAKE_USE_WORKSPACE_PROFILE = true
 CARGO_MAKE_CARGO_BUILD_TEST_FLAGS = "--no-fail-fast"
 CARGO_TARGET_DIR = { value = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/target", condition = { env_not_set = [
@@ -18,17 +17,6 @@ BACKTRACE_DEFAULT = { source = "${CARGO_MAKE_CI}", mapping = { "true" = "1", "fa
 RUST_BACKTRACE = { value = "${BACKTRACE_DEFAULT}", condition = { env_not_set = [
     "RUST_BACKTRACE",
 ] } }
-MIDEN_BIN_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/bin"
-MIDEN_INSTALL_DIR = "${MIDEN_BIN_DIR}/${CARGO_MAKE_RUST_TARGET_TRIPLE}"
-
-# Workaround for https://github.com/0xMiden/miden-vm/issues/2025
-RUST_MIN_STACK = 16777216
-
-[env.development]
-MIDEN_BUILD_PROFILE = "debug"
-
-[env.production]
-MIDEN_BUILD_PROFILE = "release"
 
 [tasks.init]
 script = ['''
@@ -57,7 +45,7 @@ cm_run_task "print-env"
 
 [tasks.default]
 category = "Build"
-description = "Default task builds the compiler"
+description = "Default task builds midenup"
 alias = "build"
 
 [tasks.print-env]
@@ -83,8 +71,6 @@ echo "    Command: ${CARGO_MAKE_COMMAND}"
 echo "    Working Directory: ${CARGO_MAKE_WORKING_DIRECTORY}"
 echo "    Target Directory: ${CARGO_TARGET_DIR}"
 echo "    Profile: ${CARGO_MAKE_PROFILE}"
-echo "    Bin Directory: ${MIDEN_BIN_DIR}"
-echo "    Install Directory: ${MIDEN_INSTALL_DIR}"
 echo "    Target Triple: ${CARGO_MAKE_RUST_TARGET_TRIPLE}"
 echo "    RUST_BACKTRACE: ${RUST_BACKTRACE}"
 echo "*************************************"
@@ -183,18 +169,6 @@ description = "Run cargo-bloat"
 command = "cargo"
 args = ["bloat", "${@}"]
 
-[tasks.bench]
-category = "Benchmarks"
-description = "Benchmarks example package sizes and VM cycles, with SVG flamegraphs"
-command = "cargo"
-args = [
-    "run",
-    "@@remove-empty(CARGO_MAKE_CARGO_VERBOSE_FLAGS)",
-    "-p",
-    "midenc-benchmark-runner",
-    "${@}",
-]
-
 [tasks.build]
 category = "Build"
 description = "Runs cargo build on the workspace"
@@ -202,7 +176,7 @@ run_task = [{ name = ["midenup"] }]
 
 [tasks.install]
 category = "Install"
-description = "Installs the compiler via cargo"
+description = "Installs midenup via cargo"
 run_task = [
     { name = [
        "install-midenup",

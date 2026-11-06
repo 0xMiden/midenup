@@ -15,32 +15,44 @@ A typical usage of midenup and miden might look like the following:
    miden help toolchain
    ```
 
-4. To start, create a new miden project:
+4. To start, create a directory for the project and write a Miden Assembly program in it, e.g. `program.masm`:
    ```shell title=">_ Terminal"
-   miden new miden_project && cd miden_project
+   mkdir miden_project && cd miden_project
+   ```
+   ```masm title="program.masm"
+   begin
+       add
+   end
+   ```
+   Along with the inputs it reads from the operand stack, in `program.inputs`:
+   ```json title="program.inputs"
+   {
+       "operand_stack": ["3", "4"]
+   }
    ```
 
-5. If said project requires a specific toolchain version, for instance 0.17.0, then it can be set with the following command:
+5. If said project requires a specific toolchain version, for instance 0.18.0, then it can be set with the following command:
    ```shell title=">_ Terminal"
-   midenup set 0.17.0
+   midenup set 0.18.0
    ```
    Note that if the toolchain is not already installed, midenup/miden will automatically install it as soon as it detects that it is required.
 
-6. With the project now generated and the required toolchain established, the `src/lib.rs` can be modified with any desired additions. Afterwards, a build can be issued:
+6. The program can be assembled with the VM, which writes `program.masb` and prints the program hash:
    ```shell title=">_ Terminal"
-   miden build
+   miden vm compile -a program.masm
    ```
-   Once compilation finishes, a message displaying the location of the generated Miden Package will be shown.
 
-7. With the generated Miden Package, an account can be created and deployed with the following command:
+7. The program can then be executed, which prints the resulting operand stack (`[7, 0, ...]` here):
    ```shell title=">_ Terminal"
-   miden client new-account --account-type regular-account-updatable-code -p /path/to/package.masp
+   miden vm run program.masm -i program.inputs
    ```
-8. Once the account exists, a procedure exported by the package can be invoked on it with the `miden call` alias. This calls the procedure on the local account and displays both its return value and the resulting account state delta:
+
+8. To generate a proof of the execution, which writes `program.proof` and `program.outputs`:
    ```shell title=">_ Terminal"
-   miden call <ACCOUNT_ID>:<PROCEDURE> --package /path/to/package.masp
+   miden vm prove program.masm -i program.inputs
    ```
-   For example, to call the `increment_count` procedure exported by a counter contract:
+
+9. Finally, the proof can be verified against the program hash printed in step 6:
    ```shell title=">_ Terminal"
-   miden call 0x29b8...f1:increment_count --package /path/to/counter-contract.masp
+   miden vm verify -p program.proof -x <PROGRAM_HASH>
    ```

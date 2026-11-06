@@ -4,7 +4,7 @@
 # explicit rather than inferred from directory layout, so that adding a package
 # forces a deliberate decision about whether it is published.
 #
-# See tools/release/README.md for the schema, and docs/release-process.md for
+# See https://github.com/0xMiden/release-tool for the schema, and release-process.md for
 # this repository's process.
 
 schema-version = 2

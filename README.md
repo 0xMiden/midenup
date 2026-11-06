@@ -14,8 +14,7 @@ The `midenup` executable facilitates two primary tasks:
 >
 > Currently, the set of such components consists of:
 >
-> * Miden VM
-> * The [Miden compiler](https://github.com/0xMiden/compiler), `midenc`, and its Miden Assembly and Rust-specific tooling, i.e. `miden-format`, `cargo-miden`
+> * Miden VM, and its Miden Assembly tooling, i.e. `miden-format`
 > * The [Miden debugger](https://github.com/0xMiden/miden-debug)
 > * The Miden client
 > * The Miden core library package
@@ -92,7 +91,7 @@ The requested toolchain becomes the system default, so `miden` uses it in later 
 > If your repository contains a `miden-toolchain.toml`, it will take precedence
 > over the system default selected by the action. If you intend to run commands
 > with a different toolchain than your repository pins, then you must specify
-> that when invoking those commands, e.g. `miden +0.16.0 build` or by setting
+> that when invoking those commands, e.g. `miden +0.16.0 vm run` or by setting
 > the `MIDENUP_TOOLCHAIN` environment variable, e.g. `MIDENUP_TOOLCHAIN=0.16.0`.
 
 ### Installing a toolchain
@@ -155,8 +154,8 @@ midenup update 0.16.0
 
 Interacting with Miden toolchain components is done via the `miden` command,
 which handles delegating commands to the underlying components using
-subprocesses. For example, `miden new` calls out to `cargo miden new` to create
-a new Rust-based Miden project.
+subprocesses. For example, `miden call` calls out to `miden-client call` to call
+a procedure on an account.
 
 By default, the `miden` command uses the currently active toolchain, which you
 can view using `midenup show active-toolchain`. To see how to configure the
@@ -171,8 +170,6 @@ Here's a table with all the currently available aliases:
 
 | Alias                  | Action                                  | Corresponds to                        |
 |------------------------|-----------------------------------------|---------------------------------------|
-| miden new              | Create new project                      | cargo miden new                       |
-| miden build            | Build project                           | midenc                                |
 | miden format           | Format Miden Assembly                   | miden-format                          |
 | miden registry         | Run a local package registry            | miden-registry                        |
 | miden mint             | Fund account via faucet                 | miden-faucet-client mint              |
@@ -295,10 +292,10 @@ Listing components adds them to the profile's members. With this file:
 ```toml
 [toolchain]
 channel = "mainnet"
-components = ["vm", "midenc", "client"]
+components = ["vm", "format", "client"]
 ```
 
-the `minimal` profile is installed, plus `vm`, `midenc` and `client` if they are not already part
+the `minimal` profile is installed, plus `vm`, `format` and `client` if they are not already part
 of it.
 
 Activating an unnamed, unpatched project's toolchain only ever *adds* to what is installed for a

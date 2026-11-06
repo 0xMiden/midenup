@@ -439,7 +439,7 @@ The shim rule is therefore:
 | absent | `false` | `opt/miden <component-name>` |
 | absent | `true` | none |
 
-The `symlink-name`-set-and-hidden row _is_ a valid case: `cargo-miden` is `hide: true` with `symlink-name: "cargo-miden"`, and that shim is how `cargo miden` - which currently backs the `miden new` alias - is found via `PATH`. Suppressing shims for hidden components would break that functionality.
+The `symlink-name`-set-and-hidden row _is_ a valid case: a hidden `cargo-extension` component sets `symlink-name` to its executable's name, and that shim is how `cargo` finds the extension via `PATH`. Suppressing shims for hidden components would break that functionality.
 
 ### 7.6 `command` components
 
@@ -531,7 +531,7 @@ Persisted per installation:
 Current supported profiles are: 
 
 * `empty` - install no components as the base, only explicitly listed components
-* `minimal` - install all of the base developer tools (e.g. the compiler, VM, client)
+* `minimal` - install all of the base developer tools (e.g. the VM, client, debugger)
 * `complete` - install all components. 
 
 The default profile (i.e. `Profile::default()`) is `minimal`.
