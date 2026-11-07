@@ -1,8 +1,3 @@
-# The substantive release checks, factored out so that pull requests, rehearsals,
-# and production all run the *same* logic rather than three approximations of it.
-#
-# This workflow holds no credentials and can reach no production service. It is
-# called by `release-ci.yml` on pull requests and by `release.yml` in production.
 name: release-verify
 
 on:
@@ -13,76 +8,44 @@ on:
         required: true
         type: string
       full:
-        description: Run the expensive closure verification.
+        description: Verify the workspace publication with Cargo.
         required: false
         default: false
         type: boolean
 
-# Every job here checks out a commit and builds it; none of them write anything.
-# This is also the ceiling a caller must grant on the calling job -- a called
-# workflow can only downgrade the token it is handed, and asking for more than
-# it was given fails the entire run before any job starts.
 permissions:
   contents: read
+
+env:
+  RUSTUP_TOOLCHAIN: stable
 
 jobs:
   lint:
     name: release lint
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - &install-cargo-make
-        name: Install cargo-make
-        uses: taiki-e/install-action@8cca0918f8471c33515202b73f56ab27f2bed283 # v2.87.29
-        with:
-          tool: cargo-make@0.37.24
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.ref }}
-          # Baseline tags and merge-base checks need real history.
-          fetch-depth: 0
           persist-credentials: false
-
       - &install-rust
         name: Install Rust
-        run: |
-          rustup update --no-self-update
-          rustc --version
-
-      # Package classification, publishability, private-dependency edges, the
-      # frozen private-crate versions, and active `[patch]` entries. An active
-      # patch is the most likely way to publish a broken crate: the workspace
-      # builds, the normalized manifest looks correct, and the published crate
-      # resolves to a registry version without the patched behaviour.
-      - name: Lint release configuration
-        run: cargo make release lint
-
-      - name: Check publication order is derivable
-        run: cargo make release package-order
+        run: rustup toolchain install stable --profile minimal --no-self-update
+      - name: Check workspace versions and publishable crates
+        run: bash scripts/check-release.sh
 
   closure:
     name: package closure
-    # Expensive: it packages every selected crate and builds a consumer that
-    # resolves only through a registry. That build is the only thing proving the
-    # archives are usable, because production publishes with `--no-verify`.
-    if: ${{ inputs.full }}
+    if: inputs.full
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     steps:
-      - *install-cargo-make
-
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
-
       - *install-rust
-
-      - name: Verify the package closure
-        run: cargo make release verify-closure --cache-dir "${RUNNER_TEMP}/index-cache"
+      - name: Verify native workspace publication
+        run: cargo publish --workspace --locked --dry-run --exclude update-manifest
 
   workflow-policy:
     name: workflow policy
@@ -120,7 +83,7 @@ jobs:
           done
 
           # Production must not accept scope or versions as inputs; the scope
-          # comes from the reviewed .release/release.toml and nothing else.
+          # comes from the reviewed Cargo.toml and nothing else.
           if [ -f .github/workflows/release.yml ]; then
             if grep -Eq '^\s+(version|unit|units|scope):' .github/workflows/release.yml; then
               fail "release.yml accepts scope or version inputs"

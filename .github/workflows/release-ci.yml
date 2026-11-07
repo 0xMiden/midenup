@@ -45,7 +45,7 @@ jobs:
           full=false
           while read -r file; do
             case "${file}" in
-              tools/release/*|.release/*|Makefile.toml|.github/workflows/*|Cargo.lock|*/Cargo.toml|Cargo.toml)
+              scripts/check-release.sh|Makefile.toml|.github/workflows/*|Cargo.lock|*/Cargo.toml|Cargo.toml)
                 full=true ;;
             esac
           done <<< "${changed}"
