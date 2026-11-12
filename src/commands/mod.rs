@@ -3,6 +3,7 @@ mod init;
 mod install;
 mod list;
 mod r#override;
+mod self_management;
 mod set;
 mod show;
 mod uninstall;
@@ -19,6 +20,7 @@ pub use self::{
     install::install,
     list::list,
     r#override::r#override,
+    self_management::SelfCommand,
     set::set,
     show::ShowCommand,
     uninstall::uninstall,
@@ -278,6 +280,9 @@ enum Commands {
         #[clap(flatten)]
         options: options::UpdateOptions,
     },
+    /// Manage the midenup installation itself.
+    #[command(name = "self", subcommand, hide = true)]
+    SelfManagement(SelfCommand),
 }
 
 impl Commands {
@@ -298,6 +303,8 @@ impl Commands {
             // Writes `miden-toolchain.toml` in the working directory, not `$MIDENUP_HOME`.
             Self::Set { .. } => false,
             Self::List { .. } | Self::Show(_) => false,
+            // Never reaches the normal startup path; see `Midenup::self_command`.
+            Self::SelfManagement(_) => false,
         }
     }
 
@@ -315,6 +322,7 @@ impl Commands {
                 Some(flags)
             },
             Self::Show(ShowCommand::Home | ShowCommand::Sysroot) => None,
+            Self::SelfManagement(cmd) => Some(cmd.flags()),
         }
     }
 
@@ -397,6 +405,9 @@ impl Commands {
             Self::Show(cmd) => cmd.execute(config, state),
             Self::Set { channel, flags: _ } => set(config, channel),
             Self::Override { channel, flags: _ } => r#override(config, state, channel),
+            Self::SelfManagement(_) => {
+                unreachable!("`midenup self` is dispatched before the normal startup sequence")
+            },
         }
     }
 }
@@ -507,6 +518,22 @@ impl Midenup {
         }
     }
 
+    /// The `midenup self` command requested, if any.
+    ///
+    /// It runs instead of the normal startup sequence -- no home format check, local state,
+    /// recovery or `opt` symlink refresh -- so that a midenup that cannot understand its home can
+    /// still update or uninstall itself.
+    fn self_command(&self) -> Option<&SelfCommand> {
+        match &self.behavior {
+            Behavior::Midenup {
+                version: VersionStyle::None,
+                command: Some(Commands::SelfManagement(cmd)),
+                ..
+            } => Some(cmd),
+            _ => None,
+        }
+    }
+
     fn flags(&self) -> Option<&Flags> {
         match &self.behavior {
             Behavior::Miden(_) | Behavior::Midenup { command: None, .. } => None,
@@ -529,6 +556,10 @@ impl Midenup {
         if let Some(style) = self.version_request() {
             return Ok(print_version(config, style));
         }
+        if let Some(cmd) = self.self_command() {
+            cmd.execute(config)?;
+            return Ok(ExitCode::SUCCESS);
+        }
         // The home format is checked before local state is decoded, and its lease is held until
         // this session, including any component it runs, has finished.
         let (_lease, _) = crate::home_format::enter(&config.midenup_home)?;
@@ -544,6 +575,10 @@ impl Midenup {
     ) -> anyhow::Result<ExitCode> {
         if let Some(style) = self.version_request() {
             return Ok(print_version(config, style));
+        }
+        if let Some(cmd) = self.self_command() {
+            cmd.execute(config)?;
+            return Ok(ExitCode::SUCCESS);
         }
         let (_lease, converted) = crate::home_format::enter(&config.midenup_home)?;
         if converted {
@@ -731,5 +766,50 @@ mod tests {
             .expect_err("quiet and verbose must conflict");
         Midenup::try_parse_from(["midenup", "list", "--no-progress", "--progress=pretty"])
             .expect_err("no-progress and an explicit progress style must conflict");
+    }
+
+    fn self_command(args: &[&str]) -> Option<SelfCommand> {
+        match Midenup::try_parse_from(args).unwrap_or_else(|err| err.exit()).behavior {
+            Behavior::Midenup {
+                command: Some(Commands::SelfManagement(cmd)),
+                ..
+            } => Some(cmd),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn self_commands_parse_with_their_flags() {
+        assert_matches!(
+            self_command(&["midenup", "self", "update"]),
+            Some(SelfCommand::Update { .. })
+        );
+        assert_matches!(
+            self_command(&["midenup", "self", "uninstall"]),
+            Some(SelfCommand::Uninstall { force: false, .. })
+        );
+        for force in ["-f", "--force"] {
+            assert_matches!(
+                self_command(&["midenup", "self", "uninstall", force]),
+                Some(SelfCommand::Uninstall { force: true, .. })
+            );
+        }
+    }
+
+    #[test]
+    fn self_commands_honor_the_shared_output_flags() {
+        let (verbosity, progress, _) = output_flags(&["midenup", "self", "update", "-q"]);
+        assert_eq!(verbosity, report::Verbosity::Warn);
+        assert_eq!(progress, report::ProgressStyle::None);
+        let (_, progress, color) = output_flags(&["midenup", "self", "uninstall", "--plain"]);
+        assert_eq!(progress, report::ProgressStyle::Plain);
+        assert_eq!(color, report::ColorChoice::False);
+    }
+
+    /// `self` is selected only as a subcommand; a version request still answers the version.
+    #[test]
+    fn a_version_request_is_not_a_self_command() {
+        let midenup = Midenup::try_parse_from(["midenup", "self", "update", "--version"]).unwrap();
+        assert!(midenup.self_command().is_none());
     }
 }
