@@ -40,6 +40,9 @@ use crate::{
 /// number is required: unbounded following turns a redirect loop into a hang.
 const MAX_REDIRECTS: u32 = 10;
 
+/// Identifies midenup to the servers it talks to. GitHub's API rejects requests without one.
+const USER_AGENT: &str = concat!("midenup/", env!("CARGO_PKG_VERSION"));
+
 #[derive(Debug, thiserror::Error)]
 pub enum ExecError {
     #[error("failed to create '{path}': {source}")]
@@ -67,6 +70,8 @@ pub enum ExecError {
         #[source]
         source: std::io::Error,
     },
+    #[error("'{member}' in the archive fetched from '{uri}' is empty")]
+    EmptyMember { uri: String, member: String },
     #[error(transparent)]
     Archive(#[from] ArchiveError),
     /// One source failure is shared by all outputs depending on that archive.
@@ -216,7 +221,7 @@ pub fn copy_local(
 }
 
 /// Retrieves `uri`, rejecting anything that is not a usable body.
-fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
+pub(crate) fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
     let mut body = Vec::new();
     let mut handle = curl::easy::Easy::new();
 
@@ -224,6 +229,7 @@ fn fetch(uri: &str, label: &str) -> Result<Vec<u8>, ExecError> {
         handle.url(uri)?;
         handle.follow_location(true)?;
         handle.max_redirections(MAX_REDIRECTS)?;
+        handle.useragent(USER_AGENT)?;
         // Without this curl never calls the progress function at all.
         handle.progress(true)?;
         Ok(())
@@ -300,6 +306,35 @@ fn publish(
         },
         None => publish_with(dest, mode, |file| file.write_all(body)),
     }
+}
+
+/// Publishes `member` of a fully validated archive to `dest` as an executable, refusing an empty
+/// one.
+///
+/// The member is staged beside `dest`, so the final rename never crosses a filesystem, and `dest`
+/// is replaced only by that rename: a failure at any earlier point leaves it untouched.
+pub(crate) fn publish_executable(
+    body: &[u8],
+    format: SupportedFormat,
+    source: &str,
+    member: &str,
+    dest: &Path,
+    mode: u32,
+) -> Result<(), ExecError> {
+    let extracted = archive::extract(body, format, source, &[member], || TemporaryFile::new(dest))?;
+    let staged = extracted.member(member)?;
+    let len = staged
+        .file
+        .metadata()
+        .map_err(|source| ExecError::Create { path: staged.path.clone(), source })?
+        .len();
+    if len == 0 {
+        return Err(ExecError::EmptyMember {
+            uri: source.to_string(),
+            member: member.to_string(),
+        });
+    }
+    publish_member(staged, dest, mode)
 }
 
 /// Temporary storage with ownership-based cleanup on every return path.

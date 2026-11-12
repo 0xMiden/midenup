@@ -23,6 +23,9 @@ macro_rules! full_path {
 
 pub type LocalManifest = midenup::state::LocalState;
 
+/// A release URI that cannot be reached: nothing listens here.
+pub const UNREACHABLE_RELEASE: &str = "https://127.0.0.1:1/releases/latest";
+
 /// A command for the real binary with every variable it reads set or removed, so nothing is
 /// inherited from the developer's environment (e.g. their `MIDENUP_HOME`).
 pub fn midenup_command(
@@ -36,6 +39,8 @@ pub fn midenup_command(
         .env("MIDENUP_HOME", &env.midenup_home)
         .env("CARGO_HOME", &env.cargo_home)
         .env("MIDENUP_MANIFEST_URI", manifest_uri)
+        // No test may update a binary from the real release, least of all the one under test.
+        .env(midenup::commands::MIDENUP_RELEASE_URI_ENV, UNREACHABLE_RELEASE)
         .env_remove("XDG_DATA_HOME");
     command
 }
@@ -51,6 +56,21 @@ pub fn midenup_command_via_xdg(
     let mut command = midenup_command(program, env, manifest_uri);
     command.env_remove("MIDENUP_HOME").env("XDG_DATA_HOME", env.tmp_dir.path());
     command
+}
+
+/// A private copy of the binary under test, at `relative` inside the test's directory.
+///
+/// `midenup self` replaces or removes the executable it runs as, so those tests must never run the
+/// binary cargo built: they run a copy that is theirs to destroy.
+pub fn private_midenup(env: &TestEnvironment, relative: &str) -> PathBuf {
+    let copy = env.tmp_dir.path().join(relative);
+    std::fs::create_dir_all(copy.parent().unwrap()).unwrap();
+    // Copied to a fresh file and renamed into place: macOS kills a signed executable whose file was
+    // rewritten in place after it last ran.
+    let staged = copy.with_extension("copying");
+    std::fs::copy(env!("CARGO_BIN_EXE_midenup"), &staged).unwrap();
+    std::fs::rename(&staged, &copy).unwrap();
+    copy
 }
 
 /// Runs the real `midenup` binary against a test environment.

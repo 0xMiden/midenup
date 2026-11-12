@@ -5,9 +5,12 @@
 //! midenup that cannot understand its home -- one written by a newer release, or left corrupt --
 //! must still be able to update or uninstall itself.
 
+mod update;
+
 use anyhow::bail;
 use clap::{ArgAction, Subcommand};
 
+pub use self::update::MIDENUP_RELEASE_URI_ENV;
 use super::Flags;
 use crate::config;
 
@@ -21,6 +24,8 @@ pub enum SelfCommand {
         flags: Flags,
     },
     /// Uninstall midenup, removing every installed toolchain and all of its data.
+    // Hidden until it is implemented.
+    #[command(hide = true)]
     Uninstall {
         /// Do not ask for confirmation.
         #[arg(short, long, action(ArgAction::SetTrue))]
@@ -39,11 +44,11 @@ impl SelfCommand {
     }
 
     /// Runs the command. The caller must not have run any of the normal startup sequence.
-    pub fn execute(&self, _config: &config::Config) -> anyhow::Result<()> {
+    pub fn execute(&self, config: &config::Config) -> anyhow::Result<()> {
         ensure_supported_platform(self)?;
 
         match self {
-            Self::Update { .. } => bail!("`midenup self update` is not implemented yet"),
+            Self::Update { .. } => update::update(config),
             Self::Uninstall { .. } => bail!("`midenup self uninstall` is not implemented yet"),
         }
     }

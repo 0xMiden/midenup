@@ -24,13 +24,23 @@ fn unreadable_home(env: &TestEnvironment) {
     std::fs::write(paths::journal_dir(home).join("entry.json"), "{ not json").unwrap();
 }
 
-/// Until the handlers are implemented, reaching one is how a test knows startup was bypassed.
+/// Runs `midenup self` from a private copy, since `self` acts on the executable it runs as.
+fn run_self(env: &TestEnvironment, args: &[&str]) -> std::process::Output {
+    midenup_command(private_midenup(env, "bin/midenup"), env, UNREACHABLE_UPSTREAM)
+        .args(args)
+        .output()
+        .expect("failed to run midenup")
+}
+
+/// Reaching the handler is how a test knows startup was bypassed: update fails on the unreachable
+/// release, and uninstall is not implemented yet.
 fn assert_reached_handler(output: &std::process::Output, args: &[&str]) {
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("is not implemented yet"),
-        "{args:?} must reach its handler: {stderr}"
-    );
+    let reached = match args {
+        ["self", "update"] => UNREACHABLE_RELEASE,
+        _ => "is not implemented yet",
+    };
+    assert!(stderr.contains(reached), "{args:?} must reach its handler: {stderr}");
 }
 
 #[test]
@@ -44,8 +54,7 @@ fn integration_self_commands_bypass_an_unreadable_home_and_leave_it_unchanged() 
     assert!(!output.status.success(), "an ordinary command must refuse this home");
 
     for args in SELF_COMMANDS {
-        let output = run_midenup(&env, UNREACHABLE_UPSTREAM, args);
-        assert_reached_handler(&output, args);
+        assert_reached_handler(&run_self(&env, args), args);
     }
 
     assert!(snapshot_tree(&env.midenup_home) == before, "a self command changed the home");
@@ -56,14 +65,15 @@ fn integration_self_commands_do_not_create_a_missing_home() {
     let env = environment_setup("self_missing_home");
 
     for args in SELF_COMMANDS {
-        let output = run_midenup(&env, UNREACHABLE_UPSTREAM, args);
-        assert_reached_handler(&output, args);
+        assert_reached_handler(&run_self(&env, args), args);
     }
 
     assert!(!env.midenup_home.exists(), "a self command created the home");
 }
 
 /// Library callers that build their own `Config` must get the same bypass as the CLI.
+///
+/// Only uninstall runs here: in-process, `self update` would act on the test runner itself.
 #[test]
 fn integration_in_process_self_commands_bypass_startup() {
     let env = environment_setup("self_in_process");
@@ -79,7 +89,7 @@ fn integration_in_process_self_commands_bypass_startup() {
     )
     .unwrap();
 
-    for args in SELF_COMMANDS {
+    for args in [&["self", "uninstall"][..], &["self", "uninstall", "--force"]] {
         let argv = std::iter::once("midenup").chain(args.iter().copied());
         let midenup = Midenup::try_parse_from(argv).unwrap();
         let err = midenup

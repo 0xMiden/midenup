@@ -20,7 +20,7 @@ pub use self::{
     install::install,
     list::list,
     r#override::r#override,
-    self_management::SelfCommand,
+    self_management::{MIDENUP_RELEASE_URI_ENV, SelfCommand},
     set::set,
     show::ShowCommand,
     uninstall::uninstall,
@@ -281,7 +281,7 @@ enum Commands {
         options: options::UpdateOptions,
     },
     /// Manage the midenup installation itself.
-    #[command(name = "self", subcommand, hide = true)]
+    #[command(name = "self", subcommand)]
     SelfManagement(SelfCommand),
 }
 
