@@ -268,6 +268,38 @@ Uninstalling a toolchain, with or without `--purge`, leaves its build cache for 
 Shared caches remain while another installation uses their source. Garbage collection preserves
 installed toolchains, in-flight operations, source trees, and runtime data.
 
+## Updating midenup
+
+To update midenup itself to the latest release:
+
+```shell title=">_ Terminal"
+midenup self update
+```
+
+This downloads the release built for your platform, checks it against the release's `SHA256SUMS`,
+and replaces the `midenup` executable you ran, wherever it is installed. If you are already on the
+latest release, nothing changes. Your toolchains are not touched; if the new release changes the
+home format, it converts the home the next time you run it.
+
+Prebuilt releases are published for macOS on Apple Silicon and Linux on x86_64. On other platforms,
+update by building from source with `cargo install midenup --locked --force`.
+
+## Uninstalling midenup
+
+To remove midenup completely:
+
+```shell title=">_ Terminal"
+midenup self uninstall
+```
+
+This removes the `midenup` executable you ran, the `miden` link that points to it, and the whole
+`MIDENUP_HOME`: every installed toolchain, its configuration, caches and data, such as the client's
+database. It lists what it will remove and asks once for confirmation; pass `--force` to skip the
+question. Cargo, its other binaries, and your shell profile are not touched.
+
+Uninstall refuses while another `midenup` or `miden` process is using the home, and refuses a
+`MIDENUP_HOME` that is or contains your home directory or `CARGO_HOME`, even with `--force`.
+
 ## Upgrading from an older midenup
 
 Local state version 2 records named installation identities. Version 1 state remains readable as
