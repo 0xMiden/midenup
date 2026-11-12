@@ -11,8 +11,9 @@ use common::*;
 /// An upstream that cannot be reached: nothing listens here.
 const UNREACHABLE_UPSTREAM: &str = "https://127.0.0.1:1/nope.json";
 
-const SELF_COMMANDS: [&[&str]; 3] =
-    [&["self", "update"], &["self", "uninstall"], &["self", "uninstall", "--force"]];
+/// Neither changes anything: update fails on the unreachable release, and uninstall, given no
+/// answer, cancels.
+const SELF_COMMANDS: [&[&str]; 2] = [&["self", "update"], &["self", "uninstall"]];
 
 /// A home that every other command refuses or fails on: a format from a later release, state that
 /// does not parse, and an interrupted publication whose journal entry does not parse either.
@@ -24,7 +25,8 @@ fn unreadable_home(env: &TestEnvironment) {
     std::fs::write(paths::journal_dir(home).join("entry.json"), "{ not json").unwrap();
 }
 
-/// Runs `midenup self` from a private copy, since `self` acts on the executable it runs as.
+/// Runs `midenup self` from a private copy, since `self` acts on the executable it runs as. Its
+/// input is closed.
 fn run_self(env: &TestEnvironment, args: &[&str]) -> std::process::Output {
     midenup_command(private_midenup(env, "bin/midenup"), env, UNREACHABLE_UPSTREAM)
         .args(args)
@@ -32,13 +34,12 @@ fn run_self(env: &TestEnvironment, args: &[&str]) -> std::process::Output {
         .expect("failed to run midenup")
 }
 
-/// Reaching the handler is how a test knows startup was bypassed: update fails on the unreachable
-/// release, and uninstall is not implemented yet.
+/// Reaching the handler is how a test knows startup was bypassed.
 fn assert_reached_handler(output: &std::process::Output, args: &[&str]) {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let reached = match args {
         ["self", "update"] => UNREACHABLE_RELEASE,
-        _ => "is not implemented yet",
+        _ => "Continue? [y/N]",
     };
     assert!(stderr.contains(reached), "{args:?} must reach its handler: {stderr}");
 }
@@ -61,6 +62,16 @@ fn integration_self_commands_bypass_an_unreadable_home_and_leave_it_unchanged() 
 }
 
 #[test]
+fn integration_self_uninstall_removes_an_unreadable_home() {
+    let env = environment_setup("self_unreadable_home_removed");
+    unreadable_home(&env);
+
+    let output = run_self(&env, &["self", "uninstall", "--force"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(!env.midenup_home.exists(), "the unreadable home must be removed");
+}
+
+#[test]
 fn integration_self_commands_do_not_create_a_missing_home() {
     let env = environment_setup("self_missing_home");
 
@@ -73,7 +84,8 @@ fn integration_self_commands_do_not_create_a_missing_home() {
 
 /// Library callers that build their own `Config` must get the same bypass as the CLI.
 ///
-/// Only uninstall runs here: in-process, `self update` would act on the test runner itself.
+/// In-process, `self` would act on the test runner itself, so this uses a configuration uninstall
+/// refuses before it removes anything: a `CARGO_HOME` inside the midenup home.
 #[test]
 fn integration_in_process_self_commands_bypass_startup() {
     let env = environment_setup("self_in_process");
@@ -83,20 +95,17 @@ fn integration_in_process_self_commands_bypass_startup() {
     let config = midenup::config::Config::init(
         env.present_working_dir.clone(),
         env.midenup_home.clone(),
-        env.cargo_home.clone(),
+        env.midenup_home.join("cargo"),
         UNREACHABLE_UPSTREAM,
         false,
     )
     .unwrap();
 
-    for args in [&["self", "uninstall"][..], &["self", "uninstall", "--force"]] {
-        let argv = std::iter::once("midenup").chain(args.iter().copied());
-        let midenup = Midenup::try_parse_from(argv).unwrap();
-        let err = midenup
-            .execute_with_state(&config, &mut LocalState::default())
-            .expect_err("the handlers are not implemented yet");
-        assert!(err.to_string().contains("is not implemented yet"), "{args:?}: {err:#}");
-    }
+    let midenup = Midenup::try_parse_from(["midenup", "self", "uninstall", "--force"]).unwrap();
+    let err = midenup
+        .execute_with_state(&config, &mut LocalState::default())
+        .expect_err("uninstall must refuse this home");
+    assert!(err.to_string().contains("contains CARGO_HOME"), "{err:#}");
 
     assert!(snapshot_tree(&env.midenup_home) == before, "a self command changed the home");
 }

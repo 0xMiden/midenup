@@ -5,9 +5,12 @@
 //! midenup that cannot understand its home -- one written by a newer release, or left corrupt --
 //! must still be able to update or uninstall itself.
 
+mod uninstall;
 mod update;
 
-use anyhow::bail;
+use std::path::PathBuf;
+
+use anyhow::{Context, bail};
 use clap::{ArgAction, Subcommand};
 
 pub use self::update::MIDENUP_RELEASE_URI_ENV;
@@ -24,8 +27,6 @@ pub enum SelfCommand {
         flags: Flags,
     },
     /// Uninstall midenup, removing every installed toolchain and all of its data.
-    // Hidden until it is implemented.
-    #[command(hide = true)]
     Uninstall {
         /// Do not ask for confirmation.
         #[arg(short, long, action(ArgAction::SetTrue))]
@@ -49,7 +50,7 @@ impl SelfCommand {
 
         match self {
             Self::Update { .. } => update::update(config),
-            Self::Uninstall { .. } => bail!("`midenup self uninstall` is not implemented yet"),
+            Self::Uninstall { force, .. } => uninstall::uninstall(config, *force),
         }
     }
 
@@ -59,6 +60,14 @@ impl SelfCommand {
             Self::Uninstall { .. } => "self uninstall",
         }
     }
+}
+
+/// The executable actually running, with every symlink resolved: an update replaces the file a
+/// symlink points to and leaves the link in place, and an uninstall removes that file.
+fn running_executable() -> anyhow::Result<PathBuf> {
+    let path = std::env::current_exe().context("failed to locate the running midenup")?;
+    path.canonicalize()
+        .with_context(|| format!("failed to resolve the running midenup at '{}'", path.display()))
 }
 
 /// Fails before anything is locked, downloaded or removed on a platform without a backend.

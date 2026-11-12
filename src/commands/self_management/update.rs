@@ -7,7 +7,7 @@
 //! leaves the installed midenup untouched. The new executable is never run here; it converts the
 //! home, if it needs to, on its next ordinary invocation.
 
-use std::{cmp::Ordering, path::PathBuf};
+use std::cmp::Ordering;
 
 use anyhow::{Context, anyhow, bail};
 use semver::Version;
@@ -75,7 +75,7 @@ pub fn update(config: &config::Config) -> anyhow::Result<()> {
         .asset(CHECKSUMS)
         .ok_or_else(|| anyhow!("midenup {version} does not publish {CHECKSUMS}"))?;
 
-    let executable = running_executable()?;
+    let executable = super::running_executable()?;
     let mode = executable_mode(&executable)?;
 
     crate::info!("updating midenup {current} -> {version}");
@@ -148,14 +148,6 @@ fn expected_digest(checksums: &[u8], name: &str) -> anyhow::Result<String> {
         bail!("{CHECKSUMS} lists a malformed digest for '{name}': '{digest}'");
     }
     Ok(digest.to_ascii_lowercase())
-}
-
-/// The executable actually running, with every symlink resolved: updating through a symlink
-/// replaces the file it points to, and leaves the link in place.
-fn running_executable() -> anyhow::Result<PathBuf> {
-    let path = std::env::current_exe().context("failed to locate the running midenup")?;
-    path.canonicalize()
-        .with_context(|| format!("failed to resolve the running midenup at '{}'", path.display()))
 }
 
 /// The permissions the replacement keeps.
