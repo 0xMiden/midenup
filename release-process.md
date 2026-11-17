@@ -203,7 +203,7 @@ Fully automated. Nothing to do but watch.
 | `verify` | Calls `release-verify.yml` at the full tier. |
 | `seal and stage` | Seals the intent into a plan. |
 | `build <binary> (<target>)` | `midenup` × Linux, macOS — building, smoke-testing, and archiving each executable. |
-| `attest artifacts` | Records build provenance for the two executables. |
+| `attest artifacts` | Records build provenance for all executables. |
 | `stage drafts` | Creates the draft releases, routes every artifact to a unit by its `assets` globs, uploads, and reads each one back. |
 
 *Expect:* draft releases under **Releases** — not visible to anyone without
