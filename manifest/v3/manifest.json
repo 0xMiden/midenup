@@ -1017,13 +1017,10 @@
               "-f"
             ],
             "up": [
-              "run",
+              "up",
               "-d",
-              "--name",
-              "miden-remote-prover",
-              "-p",
-              "50051:50051",
-              "tx-prover"
+              "tx-prover",
+              "router"
             ]
           },
           "version": {
