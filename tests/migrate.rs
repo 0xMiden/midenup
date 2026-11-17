@@ -23,13 +23,13 @@ fn integration_channel_migration_test() {
 
     // Initialize midenup
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to initialize");
 
     // Install stable (0.20.3)
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
@@ -45,7 +45,7 @@ fn integration_channel_migration_test() {
 
     // Perform global update
     let command = Midenup::try_parse_from(["midenup", "update"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update");
 
@@ -83,7 +83,7 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
         full_path_manifest!("tests/data/integration_migration_test/channel-manifest-1.json");
     let (mut state, config) = test_setup(&test_env, manifest);
 
-    Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -100,7 +100,7 @@ fn integration_channel_migration_carries_intent_and_renames_var() {
         full_path_manifest!("tests/data/integration_migration_test/channel-manifest-2.json");
     let (_, config) = test_setup(&test_env, manifest);
 
-    Midenup::try_parse_from(["midenup", "update"])
+    let _ = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -134,7 +134,7 @@ fn integration_uninstall_removes_the_publication_wholesale() {
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -148,7 +148,7 @@ fn integration_uninstall_removes_the_publication_wholesale() {
     let receipt = midenup::publish::read_receipt(&publication).unwrap();
     assert!(!receipt.outputs.is_empty(), "the receipt must describe what was installed");
 
-    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("uninstall must not fail");

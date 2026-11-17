@@ -19,7 +19,7 @@ fn integration_networks_one_install_writes_only_the_requested_link() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "init"])
+    let _ = Midenup::try_parse_from(["midenup", "init"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
@@ -27,7 +27,7 @@ fn integration_networks_one_install_writes_only_the_requested_link() {
     // Spelled `stable` deliberately: the synonym reaching the network it names is part of what is
     // under test. The fixture's mainnet is its only channel, so this reaches the same place either
     // way.
-    Midenup::try_parse_from(["midenup", "install", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -54,12 +54,12 @@ fn integration_networks_stable_still_installs_mainnet() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "init"])
+    let _ = Midenup::try_parse_from(["midenup", "init"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
 
-    Midenup::try_parse_from(["midenup", "install", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -88,7 +88,7 @@ fn integration_networks_update_follows_a_rollback_to_an_installed_channel() {
 
     let (mut state, config) = test_setup(&test_env, &fixture.initial());
     for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -101,7 +101,7 @@ fn integration_networks_update_follows_a_rollback_to_an_installed_channel() {
 
     // Promoted to 0.15.0 -- installs it, and keeps 0.14.0.
     let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to follow the promotion");
@@ -116,7 +116,7 @@ fn integration_networks_update_follows_a_rollback_to_an_installed_channel() {
 
     // Rolled back. 0.14.0 is still installed with the same intent, so there is nothing to install.
     let (_, config) = test_setup(&test_env, &fixture.initial());
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to follow the rollback");
@@ -143,14 +143,14 @@ fn integration_networks_update_follows_a_promotion() {
     let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
 
     let (mut state, config) = test_setup(&test_env, &fixture.initial());
-    Midenup::try_parse_from(["midenup", "init"])
+    let _ = Midenup::try_parse_from(["midenup", "init"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
     // Deliberately not the default profile: intent transferring verbatim and intent being
     // discarded produce the same record for a default install, so only a non-default one can tell
     // them apart.
-    Midenup::try_parse_from(["midenup", "install", "mainnet", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "mainnet", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install mainnet");
@@ -167,7 +167,7 @@ fn integration_networks_update_follows_a_promotion() {
 
     // mainnet is promoted to 0.15.0.
     let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update mainnet");
@@ -224,7 +224,7 @@ fn integration_networks_two_networks_on_one_channel_keep_separate_stores() {
         vec!["midenup", "install", "mainnet"],
         vec!["midenup", "install", "devnet"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -241,7 +241,7 @@ fn integration_networks_two_networks_on_one_channel_keep_separate_stores() {
     }
 
     let (_, config) = test_setup(&test_env, &fixture.with_networks_on_one_channel());
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to follow the promotion onto devnet's channel");
@@ -324,7 +324,7 @@ fn integration_networks_dispatch_gives_each_network_its_own_var() {
         vec!["midenup", "install", "mainnet"],
         vec!["midenup", "install", "testnet"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -360,7 +360,7 @@ fn integration_networks_dispatch_gives_each_network_its_own_var() {
         .expect("failed to build a config rooted in the project");
 
         let argv: Vec<OsString> = vec!["miden".into(), "store".into()];
-        miden_wrapper::miden_wrapper(&argv, &config, &mut state)
+        let _ = miden_wrapper::miden_wrapper(&argv, &config, &mut state)
             .unwrap_or_else(|err| panic!("dispatch from the {network} project failed: {err:#}"));
     }
 
@@ -389,7 +389,7 @@ fn integration_networks_install_of_a_moved_network_does_not_move_var() {
 
     let (mut state, config) = test_setup(&test_env, &fixture.initial());
     for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -401,7 +401,7 @@ fn integration_networks_install_of_a_moved_network_does_not_move_var() {
 
     // mainnet is promoted, and the user reaches for `install` rather than `update`.
     let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
-    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install the promoted channel");
@@ -436,18 +436,18 @@ fn integration_networks_update_follows_a_rollback() {
     let fixture = common::harness::UpdateFixture::build(test_env.tmp_dir.path());
 
     let (mut state, config) = test_setup(&test_env, &fixture.with_new_stable());
-    Midenup::try_parse_from(["midenup", "init"])
+    let _ = Midenup::try_parse_from(["midenup", "init"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
-    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install mainnet");
 
     // mainnet is rolled back to 0.14.0.
     let (_, config) = test_setup(&test_env, &fixture.initial());
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("following a rollback must succeed");
@@ -480,7 +480,7 @@ fn integration_networks_update_leaves_other_networks_alone() {
         vec!["midenup", "install", "devnet"],
         vec!["midenup", "update", "devnet"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -488,7 +488,7 @@ fn integration_networks_update_leaves_other_networks_alone() {
 
     // devnet still names 0.15.0, but 0.15.0's vm has been bumped upstream.
     let (_, config) = test_setup(&test_env, &fixture.with_split_networks_and_a_bumped_component());
-    Midenup::try_parse_from(["midenup", "update", "devnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "devnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update devnet");
@@ -598,7 +598,7 @@ fn integration_networks_uninstall_removes_every_naming_link() {
         vec!["midenup", "install", "mainnet"],
         vec!["midenup", "uninstall", "0.15.0"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -629,7 +629,7 @@ fn integration_networks_uninstall_leaves_other_channels_alone() {
         vec!["midenup", "install", "devnet"],
         vec!["midenup", "uninstall", "0.15.0"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -671,7 +671,7 @@ fn integration_networks_uninstall_does_not_leave_default_dangling() {
             vec!["midenup", "override", selector],
             vec!["midenup", "uninstall", "0.15.0"],
         ] {
-            Midenup::try_parse_from(args.clone())
+            let _ = Midenup::try_parse_from(args.clone())
                 .unwrap()
                 .execute_with_state(&config, &mut state)
                 .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -697,7 +697,7 @@ fn integration_networks_first_install_becomes_the_default() {
     assert!(std::fs::symlink_metadata(&default).is_err(), "no default before any install");
 
     for args in [vec!["midenup", "install", "devnet"], vec!["midenup", "install", "mainnet"]] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -724,7 +724,7 @@ fn integration_networks_override_follows_the_network() {
         vec!["midenup", "install", "mainnet"],
         vec!["midenup", "override", "mainnet"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -739,7 +739,7 @@ fn integration_networks_override_follows_the_network() {
     );
 
     let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update mainnet");
@@ -765,7 +765,7 @@ fn integration_networks_set_writes_the_canonical_name() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "set", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "set", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to set the toolchain");
@@ -796,7 +796,7 @@ fn integration_networks_resolve_offline() {
     // mainnet names 0.15.0, so that is what gets installed.
     let (mut state, config) = test_setup(&test_env, &with_new_stable);
     for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -804,7 +804,7 @@ fn integration_networks_resolve_offline() {
 
     // Rolled back to 0.14.0, which installs it alongside 0.15.0 and moves the pointer back.
     let (_, config) = test_setup(&test_env, &initial);
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to follow the rollback");
@@ -852,7 +852,7 @@ fn integration_networks_show_list_reports_a_network_that_moved_upstream() {
 
     let (mut state, config) = test_setup(&test_env, &fixture.initial());
     for args in [vec!["midenup", "init"], vec!["midenup", "install", "mainnet"]] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -912,7 +912,7 @@ fn integration_networks_uninstall_of_a_shared_network_removes_only_its_link() {
         vec!["midenup", "install", "mainnet"],
         vec!["midenup", "uninstall", "mainnet"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -932,7 +932,7 @@ fn integration_networks_uninstall_of_a_shared_network_removes_only_its_link() {
         "the channel devnet names must still be installed"
     );
 
-    Midenup::try_parse_from(["midenup", "uninstall", "devnet"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "devnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("uninstalling the last network must remove the channel");

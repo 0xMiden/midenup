@@ -24,7 +24,7 @@ fn integration_miden_test() {
     // By default, the active toolchain is the latest stable version. In the
     // case of the manifest present in FILE, that is version 0.16.0.
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
@@ -54,14 +54,14 @@ fn integration_miden_test() {
     // Now, we set a global default toolchain. This should change the current active toolchain
     // to 0.15.0.
     let command = Midenup::try_parse_from(["midenup", "override", "0.15.0"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to override toolchain");
 
     // This should also trigger an install, since toolchain 0.15.0 is missing and is now the
     // active toolchain.
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
@@ -74,13 +74,13 @@ fn integration_miden_test() {
     // toolchain. By default, the active toolchain is the latest stable version. In the case of
     // the manifest present in FILE, that is version 0.16.0.
     let command = Midenup::try_parse_from(["midenup", "set", "0.14.0"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to set local toolchain");
 
     // This should also trigger an install, since toolchain 0.14.0 is now missing
     let command = Midenup::try_parse_from(["miden", "help", "client"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get client version");
 
@@ -160,7 +160,7 @@ fn integration_miden_toolchain_toml() {
     // one on the current project. Since the toolchain is not installed, the component list is
     // left empty.
     let command = Midenup::try_parse_from(["midenup", "set", "0.16.0"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to set local toolchain");
 
@@ -170,7 +170,7 @@ fn integration_miden_toolchain_toml() {
 
     // `miden` should now install the minimal profile components for 0.16.0
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
@@ -189,7 +189,7 @@ fn integration_miden_toolchain_toml() {
     // - The vm and debugger
     // - The core library as it is a dependency for the debugger
     let command = Midenup::try_parse_from(["miden", "help", "toolchain"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to get subcommand help");
 
@@ -203,7 +203,7 @@ fn integration_miden_toolchain_toml() {
     // which is `minimal` plus the project's `debug`, so it must not pull in anything else. The
     // toolchain was installed by version, so no network names it here and it is updated by version.
     let command = Midenup::try_parse_from(["midenup", "update", "0.16.0"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to update 0.16.0 toolchain");
 
@@ -216,7 +216,7 @@ fn integration_miden_toolchain_toml() {
     // grow it (spec section 8.1 -- a direct install replaces intent).
     let command =
         Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable toolchain");
 
@@ -241,7 +241,7 @@ fn integration_midenup_catches_installation_failure() {
     let (mut local_manifest, config) = test_setup(&test_env, FILE_PRE_UPDATE);
 
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
     // After install is executed, the local manifest should be present
@@ -322,7 +322,7 @@ fn integration_miden_explicit_toolchain_override() {
     // The default toolchain should be 0.15.0
     {
         let command = Midenup::try_parse_from(["miden", "help", "vm"]).unwrap();
-        command
+        let _ = command
             .execute_with_state(&config, &mut state)
             .expect("failed to execute command with toolchain override");
         let mut output = output_handle.borrow_mut();
@@ -334,7 +334,7 @@ fn integration_miden_explicit_toolchain_override() {
 
     // With an explicit override, we should be able to pick up 0.16.0 explicitly
     let command = Midenup::try_parse_from(["miden", "+0.16.0", "help", "vm"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut state)
         .expect("failed to execute command with toolchain override");
 

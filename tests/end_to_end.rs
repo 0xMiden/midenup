@@ -227,7 +227,7 @@ fn integration_end_to_end_lifecycle() {
     // 1. A plain install of the minimal profile.
     let manifest = fixture.initial();
     let (mut state, config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -247,7 +247,7 @@ fn integration_end_to_end_lifecycle() {
         )
         .unwrap();
 
-        Midenup::try_parse_from(["miden", "help", "vm"])
+        let _ = Midenup::try_parse_from(["miden", "help", "vm"])
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("activation of {name} failed: {err}"));
@@ -261,7 +261,7 @@ fn integration_end_to_end_lifecycle() {
     assert_publication_consistent(&env, &first, "after two activations");
 
     // 3. An in-place update of the same channel.
-    Midenup::try_parse_from(["midenup", "update", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -270,7 +270,7 @@ fn integration_end_to_end_lifecycle() {
     // 4. A successor channel is published, and the installation follows it.
     let manifest = fixture.with_successor();
     let (_, config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "update"])
+    let _ = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to migrate");
@@ -285,13 +285,13 @@ fn integration_end_to_end_lifecycle() {
     assert_publication_consistent(&env, &second, "after migration");
 
     // 5. Reclaim what the sequence left behind, then remove the channel entirely.
-    Midenup::try_parse_from(["midenup", "gc"])
+    let _ = Midenup::try_parse_from(["midenup", "gc"])
         .unwrap()
         .execute_with_state(&config, &mut state_of(&env))
         .expect("gc failed");
     assert_publication_consistent(&env, &second, "after gc");
 
-    Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"])
         .unwrap()
         .execute_with_state(&config, &mut state_of(&env))
         .expect("uninstall failed");
