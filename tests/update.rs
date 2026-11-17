@@ -36,12 +36,12 @@ fn integration_update_test() {
     // Only 0.14.0 exists upstream, so that is what `stable` means.
     let (mut state, config) = test_setup(&test_env, &fixture.initial());
 
-    Midenup::try_parse_from(["midenup", "init"])
+    let _ = Midenup::try_parse_from(["midenup", "init"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to initialize");
 
-    Midenup::try_parse_from(["midenup", "install", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -53,7 +53,7 @@ fn integration_update_test() {
     // is an additional installation, not a replacement.
     let (_, config) = test_setup(&test_env, &fixture.with_new_stable());
 
-    Midenup::try_parse_from(["midenup", "update", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update stable");
@@ -67,7 +67,7 @@ fn integration_update_test() {
     // each kind at once -- see `UpdateFixture::with_every_change`.
     let (_, config) = test_setup(&test_env, &fixture.with_every_change());
 
-    Midenup::try_parse_from(["midenup", "update"])
+    let _ = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -123,7 +123,7 @@ fn integration_update_test() {
     );
 
     // Updating stable again picks up the newly released 0.16.0 and moves the symlink.
-    Midenup::try_parse_from(["midenup", "update", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update stable");
@@ -209,7 +209,7 @@ fn assert_equivalent_patch_cleared(test_name: &str, add_alias: bool) {
     let (_, config) = test_setup(&env, &fixture.manifest_uri);
     let listed = run_midenup(&env, &fixture.manifest_uri, &["list"]);
     assert!(listed.status.success());
-    Midenup::try_parse_from(["midenup", "update", "--path-update=off", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "--path-update=off", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update the patched toolchain");
@@ -228,7 +228,7 @@ fn assert_equivalent_patch_cleared(test_name: &str, add_alias: bool) {
         assert!(after.as_channel().get_alias_names().contains("prove"));
     }
 
-    Midenup::try_parse_from(["miden", "+0.15.0", "help", "prover"])
+    let _ = Midenup::try_parse_from(["miden", "+0.15.0", "help", "prover"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("the unpatched toolchain must be usable outside the project");
@@ -250,7 +250,7 @@ fn integration_network_update_clears_a_patch_and_reacquires_other_changed_compon
         .with_cargo_component("prover")
         .build();
     let (mut state, config) = test_setup(&env, &fixture.manifest_uri);
-    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install the network's original channel");
@@ -274,7 +274,7 @@ fn integration_network_update_clears_a_patch_and_reacquires_other_changed_compon
     std::fs::write(&fixture.manifest_path, serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
 
     let (_, config) = test_setup(&env, &fixture.manifest_uri);
-    Midenup::try_parse_from(["midenup", "update", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update the network to its patched target");
