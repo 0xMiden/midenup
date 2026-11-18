@@ -8,7 +8,11 @@ mod show;
 mod uninstall;
 mod update;
 
-use std::{ffi::OsString, path::PathBuf, process::ExitCode};
+use std::{
+    ffi::OsString,
+    path::{Path, PathBuf},
+    process::ExitCode,
+};
 
 use anyhow::{Context, anyhow, bail};
 use clap::{ArgAction, Args, Parser, Subcommand, builder::ArgPredicate};
@@ -53,8 +57,9 @@ enum Behavior {
         /// The location of the Miden toolchain root
         #[arg(long, global(true), hide(true), value_name = "DIR", env = "MIDENUP_HOME")]
         midenup_home: Option<PathBuf>,
-        #[arg(long, global(true), hide(true), value_name = "DIR", env = "CARGO_HOME")]
-        cargo_home: Option<PathBuf>,
+        /// The directory the `miden` symlink is placed in
+        #[arg(long, global(true), hide(true), value_name = "DIR", env = "MIDENUP_BIN_DIR")]
+        bin_dir: Option<PathBuf>,
         /// The URI from which we should load the global toolchain manifest
         #[arg(
             long,
@@ -434,15 +439,10 @@ impl Midenup {
                         )
                     })?;
 
-                let cargo_home = std::env::var_os("CARGO_HOME")
-                    .map(PathBuf::from)
-                    .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "$CARGO_HOME and $HOME are unset, but at least one must be set in \
-                             your shell's profile"
-                        )
-                    })?;
+                let bin_dir = match std::env::var_os("MIDENUP_BIN_DIR") {
+                    Some(dir) => PathBuf::from(dir),
+                    None => default_bin_dir()?,
+                };
 
                 let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                     .unwrap_or(manifest::VersionedManifest::PUBLISHED_MANIFEST_URI.to_string());
@@ -453,17 +453,9 @@ impl Midenup {
                 crate::migrate_networks::migrate_if_needed(&midenup_home)
                     .context("failed to migrate the toolchains directory to the network layout")?;
 
-                config::Config::init(
-                    working_directory,
-                    midenup_home,
-                    cargo_home,
-                    manifest_uri,
-                    false,
-                )
+                config::Config::init(working_directory, midenup_home, bin_dir, manifest_uri, false)
             },
-            Behavior::Midenup {
-                midenup_home, cargo_home, manifest_uri, ..
-            } => {
+            Behavior::Midenup { midenup_home, bin_dir, manifest_uri, .. } => {
                 let flags = self.flags();
                 let midenup_home = midenup_home
                     .clone()
@@ -483,16 +475,10 @@ impl Midenup {
                              XDG_DATA_HOME in your shell's profile"
                         )
                     })?;
-                let cargo_home = cargo_home
-                    .clone()
-                    .or_else(|| std::env::var_os("CARGO_HOME").map(PathBuf::from))
-                    .or_else(|| dirs::home_dir().map(|home| home.join(".cargo")))
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "$CARGO_HOME and $HOME are unset, but at least one must be set in \
-                             your shell's profile"
-                        )
-                    })?;
+                let bin_dir = match bin_dir {
+                    Some(dir) => dir.clone(),
+                    None => default_bin_dir()?,
+                };
 
                 // See above: migration precedes any upstream fetch.
                 crate::migrate_v1::migrate_if_needed(&midenup_home)?;
@@ -500,13 +486,7 @@ impl Midenup {
                     .context("failed to migrate the toolchains directory to the network layout")?;
 
                 let debug = flags.map(|flags| flags.debug).unwrap_or(false);
-                config::Config::init(
-                    working_directory,
-                    midenup_home,
-                    cargo_home,
-                    manifest_uri,
-                    debug,
-                )
+                config::Config::init(working_directory, midenup_home, bin_dir, manifest_uri, debug)
             },
         }
     }
@@ -656,6 +636,14 @@ fn recover(config: &config::Config, state: &mut crate::state::LocalState) -> any
     }
 
     Ok(())
+}
+
+/// The directory of the running executable, where `midenup init` places the `miden` symlink.
+fn default_bin_dir() -> anyhow::Result<PathBuf> {
+    let exe = std::env::current_exe().context("failed to locate the midenup executable")?;
+    exe.parent().map(Path::to_path_buf).ok_or_else(|| {
+        anyhow!("the midenup executable at {} has no parent directory", exe.display())
+    })
 }
 
 fn get_full_command(argv: &[OsString]) -> String {

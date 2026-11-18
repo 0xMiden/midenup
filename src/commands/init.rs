@@ -68,8 +68,8 @@ pub fn init(config: &Config) -> Result<(), InitializationError> {
 /// |- state.json
 /// ```
 ///
-/// Additionally, a `miden` symlink is created in `$CARGO_HOME/bin/` pointing to the midenup
-/// executable.
+/// Additionally, a `miden` symlink pointing to the midenup executable is created in
+/// [`Config::bin_dir`].
 pub fn setup_midenup(config: &Config) -> Result<InitializationState, InitializationError> {
     let mut state = InitializationState::AlreadyInitialized;
 
@@ -102,18 +102,16 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
 
     // Install the `miden` symlink.
     {
-        // Write the symlink for `miden` to $CARGO_HOME/bin
-        let cargo_bin = config.cargo_home.join("bin");
-        if !cargo_bin.exists() {
-            // In most cases, this directory should already directory
-            std::fs::create_dir_all(&cargo_bin).map_err(|e| {
-                InitializationError::DirectoryCreation(cargo_bin.clone(), e.to_string())
+        let bin_dir = &config.bin_dir;
+        if !bin_dir.exists() {
+            std::fs::create_dir_all(bin_dir).map_err(|e| {
+                InitializationError::DirectoryCreation(bin_dir.clone(), e.to_string())
             })?;
         }
 
         let current_exe =
             std::env::current_exe().expect("unable to get location of current executable");
-        let miden_exe = cargo_bin.join("miden");
+        let miden_exe = bin_dir.join("miden");
         if !miden_exe.exists() {
             utils::fs::symlink(&miden_exe, &current_exe)
                 .map_err(|e| InitializationError::Symlink(e.to_string()))?;
@@ -150,21 +148,17 @@ pub fn setup_midenup(config: &Config) -> Result<InitializationState, Initializat
             crate::warn!(
                 "could not find the `miden` executable in the system's PATH.
 
-The `miden` symlink was placed in $CARGO_HOME/bin ({cargo_bin_display}), which should already be \
-                 in your PATH if you have Rust installed. If not, ensure $CARGO_HOME/bin is in \
-                 your PATH.
+The `miden` symlink was placed in {bin_dir_display}. Add that directory to your shell's profile
+file:
 
-Add the directory containing the `miden` symlink to your shell's profile file. For the default
-Rust installation this is usually:
-
-export PATH=\"{cargo_bin_display}:$PATH\"
+export PATH=\"{bin_dir_display}:$PATH\"
 
 On macOS with zsh, add that line to ~/.zprofile (create the file first if it does not exist),
 then start a new shell or run:
 
 source ~/.zprofile
 ",
-                cargo_bin_display = cargo_bin.display(),
+                bin_dir_display = bin_dir.display(),
             );
         }
     }

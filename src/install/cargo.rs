@@ -2,9 +2,8 @@
 //!
 //! # On `CARGO_HOME`
 //!
-//! midenup deliberately does **not** override `CARGO_HOME` for builds, and `Config::cargo_home` is
-//! not consulted here. The three locations used for Cargo installation serve different
-//! purposes:
+//! midenup deliberately does **not** override `CARGO_HOME` for builds. The three locations used
+//! for Cargo installation serve different purposes:
 //!
 //! * `--root` decides where the built binary and Cargo's install bookkeeping go. That *is*
 //!   isolated: every build targets the staging directory for the installation being produced.

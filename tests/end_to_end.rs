@@ -241,7 +241,7 @@ fn integration_end_to_end_lifecycle() {
         let config = midenup::config::Config::init(
             dir.clone(),
             env.midenup_home.clone(),
-            env.cargo_home.clone(),
+            env.bin_dir.clone(),
             &manifest,
             true,
         )

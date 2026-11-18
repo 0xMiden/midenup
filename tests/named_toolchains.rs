@@ -34,7 +34,7 @@ fn project(env: &TestEnvironment, name: &str, channel: &str) {
 }
 
 fn dispatch(env: &TestEnvironment, manifest: &str, args: &[&str]) -> Output {
-    midenup_command(env.cargo_home.join("bin/miden"), env, manifest)
+    midenup_command(env.bin_dir.join("miden"), env, manifest)
         .env_remove("MIDENUP_TOOLCHAIN")
         .args(args)
         .output()
@@ -290,7 +290,7 @@ fn integration_two_path_variants_preserve_their_recipes_when_selected_offline() 
     );
     success(command(&env, &fixture.manifest_uri, &["set", "custom:beta"]));
     assert_eq!(success(dispatch(&env, &fixture.manifest_uri, &["help", "prover"])), "beta\n");
-    let output = midenup_command(env.cargo_home.join("bin/miden"), &env, &fixture.manifest_uri)
+    let output = midenup_command(env.bin_dir.join("miden"), &env, &fixture.manifest_uri)
         .env("MIDENUP_TOOLCHAIN", "custom:alpha")
         .args(["help", "prover"])
         .output()
@@ -614,7 +614,7 @@ cat "$MIDEN_SYSROOT/lib/core.masp"
     }
     let ready = env.tmp_dir.path().join("ready");
     let release = env.tmp_dir.path().join("release");
-    let mut first = midenup_command(env.cargo_home.join("bin/miden"), &env, &fixture.manifest_uri)
+    let mut first = midenup_command(env.bin_dir.join("miden"), &env, &fixture.manifest_uri)
         .env_remove("MIDENUP_TOOLCHAIN")
         .env("NAMED_READY", &ready)
         .env("NAMED_RELEASE", &release)

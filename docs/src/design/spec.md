@@ -687,8 +687,6 @@ For `https` sources the destination filename comes from the **plan**, never from
 `CARGO_HOME` is **not** overridden. The two location settings serve different purposes: `--root` decides where the built binary and Cargo's install bookkeeping go, and that *is* isolated per installation; while `CARGO_HOME` holds the registry index, crate cache, git checkouts and credentials, which are shared caches, and isolating them would mean re-downloading the crates.io index for every `MIDENUP_HOME` - slow, and ultimately pointless, since a cache entry is identical regardless of who fetched it and the credentials are the user's. Concurrency is handled by the advisory lock (§9.9), not by cache isolation.
 :::
 
-`Config::cargo_home` therefore governs only where the `miden` symlink is placed, which is its actual purpose.
-
 For path sources, both `--target-dir` and `CARGO_BUILD_BUILD_DIR` point into
 `$MIDENUP_HOME/cache/cargo/<source-path-hash>`. Different source paths cannot share Cargo
 fingerprints, while repeated builds of the same source reuse their cache. Registry and Git builds
