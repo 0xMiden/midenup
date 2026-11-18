@@ -159,13 +159,14 @@ pub fn install(
 
     // The receipt makes the publication self-describing: from here on, what it owns is a fact
     // recorded inside it rather than something re-derived from a manifest that may have moved on.
-    let receipt = crate::publish::receipt_for(
+    let mut receipt = crate::publish::receipt_for(
         &plan,
         &publication,
         &publication_id,
         &realized,
         previous.as_ref().map(|(_, receipt)| receipt),
     );
+    crate::install::record_hashes(&mut receipt, &publication)?;
     crate::publish::write_receipt(&publication, &receipt)?;
 
     // A `cargo install --path` build can touch its own source tree, so a `path` component's
@@ -392,6 +393,7 @@ fn target_installation(
 
     Ok(Installation {
         channel: channel.name.clone(),
+        snapshot: snapshot_for(channel, options, config.target()),
         custom: options.custom.clone(),
         intent: intent.clone(),
         components: installed_components,
@@ -407,6 +409,17 @@ fn target_installation(
         ),
         patches: options.patches.clone(),
     })
+}
+
+/// The snapshot identity an installation of `channel` records, if it is the upstream definition:
+/// a custom, patched or partially held-back installation is not.
+pub(crate) fn snapshot_for(
+    channel: &Channel,
+    options: &InstallationOptions,
+    target: &str,
+) -> Option<crate::plan::SnapshotId> {
+    (options.custom.is_none() && options.patches.is_empty() && options.held_back.is_empty())
+        .then(|| crate::plan::compute_snapshot(channel, target))
 }
 
 /// Records each `path` component's source tree modification time, canonicalizing the path.
@@ -452,7 +465,7 @@ fn previous_publication_id(state: &LocalState, id: &InstallationId) -> Option<Pu
 /// or its receipt is unreadable. In every one of those cases the correct behaviour is the same:
 /// seed nothing and install from scratch. Guessing ownership from a directory listing is what this
 /// exists to avoid.
-fn previous_publication(
+pub(crate) fn previous_publication(
     config: &Config,
     state: &LocalState,
     id: &InstallationId,

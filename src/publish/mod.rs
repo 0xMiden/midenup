@@ -144,6 +144,7 @@ pub fn receipt_for(
                     PlanStep::Download { digest, .. } => digest.clone(),
                     _ => None,
                 },
+                sha256: None,
             }
         })
         .collect();
@@ -246,6 +247,7 @@ mod tests {
                 mode: 0o755,
                 realized: RealizedMethod::Prebuilt,
                 digest: None,
+                sha256: None,
             }],
         }
     }
@@ -381,6 +383,7 @@ mod tests {
         let mut state = LocalState::default();
         state.upsert(Installation {
             channel: channel.clone(),
+            snapshot: None,
             custom: None,
             intent: Default::default(),
             components: vec![],
@@ -426,6 +429,7 @@ mod tests {
             staged.clone(),
             Installation {
                 channel: channel.clone(),
+                snapshot: None,
                 custom: None,
                 intent: Default::default(),
                 components: vec![],

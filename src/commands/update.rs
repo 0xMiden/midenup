@@ -7,7 +7,7 @@
 
 use std::{
     io::{BufRead, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 
 use anyhow::Context;
@@ -20,8 +20,11 @@ use crate::{
     identity::InstallationId,
     manifest::Component,
     options::{InstallationOptions, IntentUpdate, PathUpdate, UpdateOptions},
-    state::{Installation, LocalState},
-    toolchain::Toolchain,
+    plan::{InstallationPlan, PlanError},
+    profile::Profile,
+    resolve::{Intent, ResolutionError},
+    state::{Installation, LocalState, Receipt},
+    toolchain::{Toolchain, ToolchainJustification},
     version::{Authority, GitTarget},
 };
 
@@ -103,7 +106,8 @@ fn update_custom(
         intent_update: Some(IntentUpdate::Preserve),
         ..Default::default()
     };
-    perform_update(config, &upstream, state, &install_options, logical_only, options)
+    let selector = installation.id().to_string();
+    perform_update(config, &upstream, state, &install_options, logical_only, options, &selector)
 }
 
 /// Brings a network to the channel it now names.
@@ -146,6 +150,13 @@ fn update_network(
         )
     })?;
 
+    let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
+        format!("network '{name}' names channel {target}, which is not upstream")
+    })?;
+    if installation.is_managed() {
+        check_roots(&installation.intent, &upstream, name, project_file(config, name).as_ref())?;
+    }
+
     crate::info!("{name} is now {target} (installed as {installed})");
 
     if installed == target {
@@ -153,10 +164,6 @@ fn update_network(
         // components may have.
         return update_installed_channel(config, &installation, state, options);
     }
-
-    let mut upstream = manifest.get_channel_by_name(&target).cloned().with_context(|| {
-        format!("network '{name}' names channel {target}, which is not upstream")
-    })?;
 
     if target < installed {
         crate::warn!("{name} has moved back from {installed} to {target}.");
@@ -175,6 +182,7 @@ fn update_network(
         IntentUpdate::Replace(installation.intent.clone()),
         changes,
         options,
+        name,
     )?;
 
     // DERIVE writes this link too, and writing it twice is a rename onto the same target -- but
@@ -262,6 +270,15 @@ fn update_installed_channel(
         );
         return Ok(());
     };
+    if installation.is_managed() {
+        let selector = upstream.channel.name.to_string();
+        check_roots(
+            &installation.intent,
+            &upstream.channel,
+            &selector,
+            project_file(config, &selector).as_ref(),
+        )?;
+    }
 
     match migration_of(&upstream, installation) {
         Some(old_channel) => migrate(config, installation, &upstream.channel, state, options)
@@ -279,9 +296,128 @@ fn update_installed_channel(
                 IntentUpdate::Preserve,
                 changes,
                 options,
+                &upstream.channel.name.to_string(),
             )
         },
     }
+}
+
+/// The active `miden-toolchain.toml` and the components it selects, if it selects `selector`.
+fn project_file(config: &Config, selector: &str) -> Option<(PathBuf, Vec<String>)> {
+    match Toolchain::current(config, None) {
+        Ok((toolchain, ToolchainJustification::MidenToolchainFile { path }))
+            if toolchain.selector().to_string() == selector
+                || toolchain
+                    .installation_id(config)
+                    .is_some_and(|id| id.to_string() == selector) =>
+        {
+            Some((path, toolchain.components))
+        },
+        _ => None,
+    }
+}
+
+/// Refuses an update to `upstream` that lacks a root of `intent`, before anything changes, naming
+/// the `install` for `selector` that leaves it out. Migrated records skip it; `install` drops them.
+fn check_roots(
+    intent: &Intent,
+    upstream: &Channel,
+    selector: &str,
+    project_file: Option<&(PathBuf, Vec<String>)>,
+) -> anyhow::Result<()> {
+    let (kept, missing): (Vec<&String>, Vec<&String>) =
+        intent.roots.iter().partition(|root| upstream.get_component(root).is_some());
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    // Activation adds a project file's components back, so the file has to change first.
+    if let Some((path, components)) = project_file
+        && let Some(root) = missing.iter().find(|root| components.contains(root))
+    {
+        anyhow::bail!(
+            "{selector} was not updated: channel {} no longer has '{root}', which {} selects. \
+             Nothing was changed. Remove it from that file, then run:\n    {}\n",
+            upstream.name,
+            path.display(),
+            install_command(intent, &kept, selector)
+        );
+    }
+
+    let missing = missing.iter().map(|root| format!("'{root}'")).collect::<Vec<_>>().join(", ");
+    anyhow::bail!(
+        "{selector} was not updated: channel {} no longer has {missing}, which you selected. \
+         Nothing was changed. To update without it, run:\n    {}\n",
+        upstream.name,
+        install_command(intent, &kept, selector)
+    )
+}
+
+/// Turns a plan error about a root of `intent` into a refusal naming the `install` for `selector`
+/// that leaves it out. The plan is built before anything changes, so nothing has.
+fn refuse_selected(
+    err: anyhow::Error,
+    intent: &Intent,
+    channel: &semver::Version,
+    selector: &str,
+    project_file: Option<(PathBuf, Vec<String>)>,
+) -> anyhow::Error {
+    let Some(plan_error) = err.downcast_ref::<PlanError>() else {
+        return err;
+    };
+    let Some(root) = plan_error_components(plan_error)
+        .into_iter()
+        .find_map(|component| intent.roots.iter().find(|root| *root == component))
+    else {
+        return err;
+    };
+    let kept: Vec<&String> = intent.roots.iter().filter(|kept| *kept != root).collect();
+    let command = install_command(intent, &kept, selector);
+
+    // Activation adds a project file's components back, so the file has to change first.
+    if let Some((path, components)) = project_file
+        && components.contains(root)
+    {
+        return anyhow::anyhow!(
+            "{selector} was not updated: channel {channel} cannot install '{root}', which {} \
+             selects: {plan_error}. Nothing was changed. Remove it from that file, then run:\n    \
+             {command}\n",
+            path.display()
+        );
+    }
+    anyhow::anyhow!(
+        "{selector} was not updated: channel {channel} cannot install '{root}', which you \
+         selected: {plan_error}. Nothing was changed. To update without it, run:\n    {command}\n"
+    )
+}
+
+/// The components a plan error is about.
+fn plan_error_components(err: &PlanError) -> Vec<&str> {
+    match err {
+        PlanError::TargetUnsupported { component, .. }
+        | PlanError::ArtifactCardinality { component, .. }
+        | PlanError::ArtifactIdMismatch { component, .. }
+        | PlanError::Resolution(
+            ResolutionError::UnknownRequirement { component, .. }
+            | ResolutionError::UnsupportedComponentKind { component, .. },
+        ) => vec![component],
+        PlanError::DestinationCollision { first, second, .. }
+        | PlanError::CargoUnitConflict { first, second, .. } => vec![first, second],
+        PlanError::Resolution(_)
+        | PlanError::Destination(_)
+        | PlanError::Artifact(_)
+        | PlanError::Pin(_) => vec![],
+    }
+}
+
+/// The `install` that records `intent`'s profile with only the `kept` roots.
+fn install_command(intent: &Intent, kept: &[&String], selector: &str) -> String {
+    let profile = intent.profiles.iter().max().copied().unwrap_or(Profile::Empty);
+    let mut command = format!("midenup install {selector} --profile {profile}");
+    for root in kept {
+        command.push_str(&format!(" --component {root}"));
+    }
+    command
 }
 
 /// The channel this one supersedes, if this really is a migration.
@@ -324,6 +460,7 @@ fn migrate(
         IntentUpdate::Replace(installation.intent.clone()),
         changes,
         options,
+        &upstream.name.to_string(),
     )?;
 
     // A migration is the one operation that changes what a *pinned* selector means: the channel the
@@ -455,6 +592,7 @@ fn install_for_update(
     intent_update: IntentUpdate,
     changes: Changes,
     options: &UpdateOptions,
+    selector: &str,
 ) -> anyhow::Result<()> {
     let logical_only = changes.logical_only;
     let install_options = InstallationOptions {
@@ -464,7 +602,7 @@ fn install_for_update(
         ..Default::default()
     };
 
-    perform_update(config, upstream, state, &install_options, logical_only, options)
+    perform_update(config, upstream, state, &install_options, logical_only, options, selector)
 }
 
 fn perform_update(
@@ -474,26 +612,133 @@ fn perform_update(
     install_options: &InstallationOptions,
     logical_only: bool,
     options: &UpdateOptions,
+    selector: &str,
 ) -> anyhow::Result<()> {
     let id = install_options.installation_id(&upstream.name);
-    match work_for(upstream, state, install_options, logical_only)? {
+    // Held-back components stay at their installed definitions, so the whole selection is resolved
+    // against upstream with those substituted.
+    let selection = with_held_back(upstream, &install_options.held_back);
+    match work_for(&selection, state, install_options, logical_only, config.target())? {
         Work::Physical => {
-            display_warnings(upstream, install_options, options);
+            let intent = commands::install::effective_intent(state, &selection, install_options);
+            let refuse = |err| {
+                refuse_selected(
+                    err,
+                    &intent,
+                    &selection.name,
+                    selector,
+                    project_file(config, selector),
+                )
+            };
+            if !install_options.held_back.is_empty() {
+                let (plan, previous) =
+                    plan_held_back(config, upstream, &selection, state, install_options)
+                        .map_err(refuse)?;
+                check_held_back_reusable(&plan, previous.as_ref(), install_options, &id)?;
+            }
+            display_warnings(&selection, install_options, options);
             crate::info!("Updating toolchain {id}");
-            commands::install(config, upstream, state, install_options)
+            commands::install(config, &selection, state, install_options).map_err(refuse)
         },
         // Spec section 9.8: a change that touches selection or runtime metadata but no installed
         // file is committed as a single atomic `state.json` write. No journal, no staging, no new
         // publication -- republishing an identical tree to record an alias would be pure cost.
         Work::LogicalOnly => {
-            crate::info!("Updating recorded metadata for toolchain {}..", upstream.name);
-            record_logical_changes(config, upstream, state, install_options)
+            crate::info!("Updating recorded metadata for toolchain {}..", selection.name);
+            record_logical_changes(config, &selection, state, install_options)
         },
         Work::Nothing => {
             crate::info!("Toolchain {id} is up to date");
             Ok(())
         },
     }
+}
+
+/// `upstream` with each held-back component at the definition it is installed with.
+fn with_held_back(upstream: &Channel, held_back: &[Component]) -> Channel {
+    let mut selection = upstream.clone();
+    for held in held_back {
+        if let Some(component) = selection.get_component_mut(&held.name) {
+            *component = held.clone();
+        }
+    }
+    selection
+}
+
+/// Plans `selection` onto the publication being replaced, refusing before anything changes when
+/// the held-back components no longer fit the rest of `upstream`.
+fn plan_held_back(
+    config: &Config,
+    upstream: &Channel,
+    selection: &Channel,
+    state: &LocalState,
+    options: &InstallationOptions,
+) -> anyhow::Result<(InstallationPlan, Option<(PathBuf, Receipt)>)> {
+    let id = options.installation_id(&upstream.name);
+    let previous = commands::install::previous_publication(config, state, &id);
+    let sysroot = previous
+        .as_ref()
+        .map_or_else(|| PathBuf::from("/sysroot"), |(dir, _)| dir.clone());
+    let intent = commands::install::effective_intent(state, selection, options);
+
+    let err = match crate::plan::build_plan(selection, &intent, config.target(), &sysroot) {
+        Ok(plan) => return Ok((plan, previous)),
+        Err(err) => err,
+    };
+    // Upstream itself does not plan: that is not a conflict the held-back components caused.
+    if crate::plan::build_plan(upstream, &intent, config.target(), &sysroot).is_err() {
+        return Err(err.into());
+    }
+    anyhow::bail!(
+        "{id} was not updated: keeping {} at the installed definition conflicts with channel {}: \
+         {err}. Nothing was changed. To update it together with the rest, run:\n    midenup \
+         update {id} --path-update=all\n",
+        held_names(options),
+        upstream.name
+    )
+}
+
+/// Refuses a physical update when a held-back component's installed files cannot be carried
+/// forward, because their hashes are missing from the receipt or no longer match it.
+fn check_held_back_reusable(
+    plan: &InstallationPlan,
+    previous: Option<&(PathBuf, Receipt)>,
+    options: &InstallationOptions,
+    id: &InstallationId,
+) -> anyhow::Result<()> {
+    for step in &plan.steps {
+        if !options.held_back.iter().any(|held| held.name == step.owner()) {
+            continue;
+        }
+        let reusable = previous.is_some_and(|(dir, receipt)| {
+            let path = step.dest().strip_prefix(dir).unwrap_or(step.dest());
+            receipt.outputs.iter().any(|output| {
+                output.path == path
+                    && output.owner == step.owner()
+                    && crate::install::matches_receipt(dir, output)
+            })
+        });
+        if !reusable {
+            anyhow::bail!(
+                "{id} was not updated: '{}' would stay at the installed definition, but its \
+                 installed files cannot be verified against the publication receipt. Nothing was \
+                 changed. To rebuild it together with the rest, run:\n    midenup update {id} \
+                 --path-update=all\n",
+                step.owner()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// The held-back components, quoted, for a message.
+fn held_names(options: &InstallationOptions) -> String {
+    options
+        .held_back
+        .iter()
+        .map(|held| format!("'{}'", held.name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// How much of the protocol an update actually needs.
@@ -510,6 +755,7 @@ fn work_for(
     state: &LocalState,
     options: &InstallationOptions,
     logical_only: bool,
+    target: &str,
 ) -> anyhow::Result<Work> {
     if !options.stale.is_empty() {
         return Ok(Work::Physical);
@@ -531,7 +777,11 @@ fn work_for(
     if installed.channel != upstream.name || installed_names != resolved_names {
         return Ok(Work::Physical);
     }
-    if logical_only || installed.intent != intent {
+    if logical_only
+        || installed.intent != intent
+        || (installed.is_managed()
+            && installed.snapshot != commands::install::snapshot_for(upstream, options, target))
+    {
         return Ok(Work::LogicalOnly);
     }
     Ok(Work::Nothing)
@@ -633,6 +883,7 @@ fn record_logical_changes(
         .with_context(|| format!("channel {} is not installed", upstream.name))?;
     installation.intent = intent;
     installation.patches = options.patches.clone();
+    installation.snapshot = commands::install::snapshot_for(upstream, options, config.target());
 
     for component in installation.components.iter_mut() {
         let Some(upstream_component) = upstream.get_component(&component.name) else {
@@ -871,6 +1122,57 @@ mod tests {
             ComponentKind::Executable { spec, .. } => spec,
             _ => unreachable!("the fixture is an executable"),
         }
+    }
+
+    #[test]
+    fn roots_still_upstream_pass_the_check() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
+        let intent = Intent::new(&[Profile::Minimal], &["vm"]);
+        assert!(check_roots(&intent, &upstream, "mainnet", None).is_ok());
+    }
+
+    #[test]
+    fn a_root_missing_upstream_is_refused_with_the_command_that_drops_it() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
+        let intent = Intent::new(&[Profile::Complete], &["vm", "client"]);
+        let message = check_roots(&intent, &upstream, "mainnet", None).unwrap_err().to_string();
+        assert!(message.contains("channel 0.16.0 no longer has 'client'"), "{message}");
+        assert!(
+            message.contains("midenup install mainnet --profile complete --component vm\n"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn a_root_from_the_project_file_is_refused_naming_the_file() {
+        let upstream = crate::manifest::Channel::new(semver::Version::new(0, 16, 0), vec![base()]);
+        let intent = Intent::new(&[Profile::Minimal], &["client"]);
+        let file = (PathBuf::from("/project/miden-toolchain.toml"), vec!["client".to_string()]);
+        let message =
+            check_roots(&intent, &upstream, "mainnet", Some(&file)).unwrap_err().to_string();
+        assert!(message.contains("which /project/miden-toolchain.toml selects"), "{message}");
+        assert!(message.contains("midenup install mainnet --profile minimal\n"), "{message}");
+    }
+
+    #[test]
+    fn a_project_file_is_named_only_for_the_toolchain_it_selects() {
+        let temp = tempdir::TempDir::new("update-project-file").unwrap();
+        std::fs::write(
+            temp.path().join("miden-toolchain.toml"),
+            "[toolchain]\nchannel = \"0.18.0\"\ncomponents = [\"client\"]\n",
+        )
+        .unwrap();
+        let config = Config::init(
+            temp.path().to_path_buf(),
+            temp.path().join("home"),
+            temp.path().join("cargo"),
+            "",
+            false,
+        )
+        .unwrap();
+
+        assert!(project_file(&config, "0.18.0").is_some());
+        assert!(project_file(&config, "0.17.0").is_none());
     }
 
     #[test]

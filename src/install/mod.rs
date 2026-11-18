@@ -190,5 +190,7 @@ pub use self::{
     cargo::{CargoError, argv_for, build as cargo_build},
     download::{ExecError, acquire},
     extract::{ExtractError, extract, render_script},
-    stage::{Realized, Seed, StageError, execute, prepare, seed, verify},
+    stage::{
+        Realized, Seed, StageError, execute, matches_receipt, prepare, record_hashes, seed, verify,
+    },
 };

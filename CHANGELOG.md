@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- Installed files are reused on update only when their SHA-256 matches the publication receipt.
+  The first update after upgrading midenup downloads every component again, because older receipts
+  record no hashes, and refuses components kept by `--path-update` until they are rebuilt with
+  `--path-update=all`.
+- `midenup update` refuses, with nothing changed, when a component you selected was removed
+  upstream or can no longer be installed, and names the `midenup install` that leaves it out.
+
 ## [1.3.0]
 
 ### Added
