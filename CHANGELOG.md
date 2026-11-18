@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The README and docs no longer present the compiler (`midenc`, `cargo-miden`) as part of the
+  toolchain. The tutorial now writes a Miden Assembly program and assembles, runs, proves and
+  verifies it with `miden vm`.
+
 ## [1.3.0]
 
 ### Added

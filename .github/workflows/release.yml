@@ -320,9 +320,7 @@ jobs:
       # arguments are readable by every other process on the machine.
       #
       # GITHUB_TOKEN is here because each unit's tag is created immediately
-      # before that unit's crates are published -- not for all units up front,
-      # which would let a permanent failure in the SDK stage burn the compiler's
-      # tag as well.
+      # before that unit's crates are published.
       - name: Tag and publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}

@@ -84,7 +84,7 @@ pub struct Component {
     /// The file used by midenup's 'miden' to call the components executable.
     ///
     /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
-    /// exists mainly for components like `cargo-miden`, which differ in how they are called.
+    /// exists mainly for cargo extensions, which `cargo` finds on `PATH` by executable name.
     #[serde(default)]
     symlink_name: Option<String>,
     #[serde(default)]
@@ -578,8 +578,8 @@ pub enum InstalledFile {
         /// The component is executable (i.e. a CLI Binary) but it is *not* intended to be executed
         /// on its own, rather only under aliases.
         ///
-        /// An example of this behavior is `cargo miden`, which is only intended to be executed
-        /// under the `miden new` and `miden build` aliases.
+        /// An example of this behavior is `miden-registry`, which is only intended to be executed
+        /// under the `miden registry` alias.
         ///
         /// IMPORTANT: In order for alias_only to take effect, binary_name *must* also be specified
         /// in the manifest.

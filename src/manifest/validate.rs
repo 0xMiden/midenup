@@ -15,11 +15,10 @@
 //! (`update-manifest check`) and an *install-time* gate (plan construction, scoped to the channel
 //! actually being installed) -- not a precondition for reading the document.
 //!
-//! The reason is concrete. The manifest published at the time of writing has dangling requirements
-//! in channel 0.13.3: `midenc` requires `base` and `std`, which were renamed to `core` and
-//! `protocol`. Failing the parse would make every `midenup` and `miden` invocation fail for every
-//! user, including those on channels that are perfectly well-formed, because one stale channel in
-//! the same file is broken.
+//! A published manifest can carry a channel with dangling requirements, e.g. a component that
+//! requires a package which was later renamed. Failing the parse would make every `midenup` and
+//! `miden` invocation fail for every user, including those on channels that are perfectly
+//! well-formed, because one stale channel in the same file is broken.
 //!
 //! This is the same rule applied to unrecognized component kinds: a defect that is scoped to one
 //! part of a manifest must not take down the rest of it. A broken channel becomes uninstallable;

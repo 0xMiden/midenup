@@ -2,7 +2,7 @@
 
 ## Installing a toolchain
 
-In order to get started with `midenup`, a toolchain should be installed. A toolchain is simply a collection of miden programs (e.g. the vm, the client, the compiler, etc).
+In order to get started with `midenup`, a toolchain should be installed. A toolchain is simply a collection of miden programs (e.g. the vm, the client, the debugger, etc).
 Toolchains are installed via "Channels", which are a specific release of a toolchain with instructions on how to obtain it.
 
 Most users will want the toolchain that is deployed to a particular network, and can name the network rather than a version:
@@ -64,19 +64,22 @@ Usage: miden <ALIAS|COMPONENT>
 
 Available aliases:
   account
-  build
   call
-  deploy
-  faucet
-  new
-  send
-  simulate
+  consumable-notes
+  consume-notes
+  exec
+  new-wallet
+  sync
+  transfer
 
 Available components:
+  client
+  debug
   vm
-  client (requires init: miden client init )
-  midenc
-  cargo-miden
+
+Available libraries:
+  core
+  protocol
 ```
 
 This displays the following information:
