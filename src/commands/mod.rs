@@ -387,7 +387,7 @@ impl Commands {
                 Ok(())
             },
             // Deliberately not resolved against upstream: a channel that has been withdrawn is
-            // exactly one a user needs to be able to uninstall (spec section 12.3).
+            // exactly one a user needs to be able to uninstall (spec section 12.4).
             Self::Uninstall { channel, purge, flags: _ } => {
                 uninstall(config, channel, state, *purge)
             },
@@ -404,8 +404,7 @@ impl Commands {
 impl Midenup {
     /// Get the effective configuration for the current session
     pub fn config(&self) -> anyhow::Result<config::Config> {
-        // Before anything that could report: this governs the first message emitted, and the
-        // migrations below are reached before any command runs.
+        // Before anything that could report: this governs the first message emitted.
         let (verbosity, progress, color) = self.output_settings();
         crate::report::set(verbosity, progress, color);
 
@@ -446,12 +445,6 @@ impl Midenup {
 
                 let manifest_uri = std::env::var(MIDENUP_MANIFEST_URI_ENV)
                     .unwrap_or(manifest::VersionedManifest::PUBLISHED_MANIFEST_URI.to_string());
-
-                // Before the upstream fetch below: an unreachable upstream must not be able to
-                // prevent a local migration (spec section 12.2).
-                crate::migrate_v1::migrate_if_needed(&midenup_home)?;
-                crate::migrate_networks::migrate_if_needed(&midenup_home)
-                    .context("failed to migrate the toolchains directory to the network layout")?;
 
                 config::Config::init(
                     working_directory,
@@ -494,11 +487,6 @@ impl Midenup {
                         )
                     })?;
 
-                // See above: migration precedes any upstream fetch.
-                crate::migrate_v1::migrate_if_needed(&midenup_home)?;
-                crate::migrate_networks::migrate_if_needed(&midenup_home)
-                    .context("failed to migrate the toolchains directory to the network layout")?;
-
                 let debug = flags.map(|flags| flags.debug).unwrap_or(false);
                 config::Config::init(
                     working_directory,
@@ -508,6 +496,14 @@ impl Midenup {
                     debug,
                 )
             },
+        }
+    }
+
+    /// The `--version` style requested, if any. Answering it skips the home format guard.
+    fn version_request(&self) -> Option<VersionStyle> {
+        match &self.behavior {
+            Behavior::Midenup { version: VersionStyle::None, .. } | Behavior::Miden(_) => None,
+            Behavior::Midenup { version, .. } => Some(*version),
         }
     }
 
@@ -530,8 +526,14 @@ impl Midenup {
 
     /// Execute this session with the provided configuration.
     pub fn execute(&self, config: &config::Config) -> anyhow::Result<ExitCode> {
+        if let Some(style) = self.version_request() {
+            return Ok(print_version(config, style));
+        }
+        // The home format is checked before local state is decoded, and its lease is held until
+        // this session, including any component it runs, has finished.
+        let (_lease, _) = crate::home_format::enter(&config.midenup_home)?;
         let mut state = config.local_state()?;
-        self.execute_with_state(config, &mut state)
+        self.run(config, &mut state)
     }
 
     /// Execute this session with the provided configuration and local manifest
@@ -540,20 +542,22 @@ impl Midenup {
         config: &config::Config,
         state: &mut crate::state::LocalState,
     ) -> anyhow::Result<ExitCode> {
-        use crate::miden_wrapper;
-
-        // Migration first, before recovery and before anything reads local state. `config()`
-        // already ran this ahead of the upstream fetch on the CLI path; it is idempotent and costs
-        // one `stat`, and running it here too means a caller that built its own `Config` -- every
-        // in-process test -- gets the same startup sequence rather than a subtly different one.
-        if let crate::migrate_v1::MigrationOutcome::Migrated { channels } =
-            crate::migrate_v1::migrate_if_needed(&config.midenup_home)?
-        {
-            report_migration(&channels);
+        if let Some(style) = self.version_request() {
+            return Ok(print_version(config, style));
+        }
+        let (_lease, converted) = crate::home_format::enter(&config.midenup_home)?;
+        if converted {
             *state = config.local_state()?;
         }
-        crate::migrate_networks::migrate_if_needed(&config.midenup_home)
-            .context("failed to migrate the toolchains directory to the network layout")?;
+        self.run(config, state)
+    }
+
+    fn run(
+        &self,
+        config: &config::Config,
+        state: &mut crate::state::LocalState,
+    ) -> anyhow::Result<ExitCode> {
+        use crate::miden_wrapper;
 
         recover(config, state)?;
 
@@ -565,36 +569,22 @@ impl Midenup {
                     .with_context(|| format!("failed to execute '{}'", get_full_command(argv)))?;
                 return Ok(code);
             },
-            Behavior::Midenup { version, command: subcommand, .. } => {
-                match *version {
-                    style @ (VersionStyle::Detailed
-                    | VersionStyle::Json
-                    | VersionStyle::Plain
-                    | VersionStyle::Revision) => {
-                        println!("{}", miden_wrapper::display_version(config, style));
-                    },
-                    VersionStyle::None => {
-                        if let Some(subcommand) = subcommand {
-                            let _lock = if subcommand.is_mutating() {
-                                let lock = crate::lock::acquire(&config.midenup_home)?;
-                                // Whoever held the lock may have changed what is installed, so
-                                // nothing may be planned against
-                                // the state read before waiting for it.
-                                *state = config.local_state()?;
-                                Some(lock)
-                            } else {
-                                None
-                            };
+            Behavior::Midenup { command: Some(subcommand), .. } => {
+                let _lock = if subcommand.is_mutating() {
+                    let lock = crate::lock::acquire(&config.midenup_home)?;
+                    crate::home_format::initialize_if_empty(&config.midenup_home)?;
+                    // Whoever held the lock may have changed what is installed, so nothing may be
+                    // planned against the state read before waiting for it.
+                    *state = config.local_state()?;
+                    Some(lock)
+                } else {
+                    None
+                };
 
-                            subcommand.execute(config, state)?;
-                        } else {
-                            bail!(
-                                "no subcommand provided. Run `midenup --help` for usage \
-                                 information."
-                            )
-                        }
-                    },
-                }
+                subcommand.execute(config, state)?;
+            },
+            Behavior::Midenup { command: None, .. } => {
+                bail!("no subcommand provided. Run `midenup --help` for usage information.")
             },
         }
 
@@ -607,17 +597,9 @@ impl Midenup {
     }
 }
 
-fn report_migration(channels: &[semver::Version]) {
-    crate::info!(
-        "migrated {} installed toolchain(s) to the new local state format",
-        channels.len()
-    );
-    for channel in channels {
-        crate::note!(
-            "- {channel} will be reinstalled the next time it is used, so that midenup knows \
-             exactly what it owns"
-        );
-    }
+fn print_version(config: &config::Config, style: VersionStyle) -> ExitCode {
+    println!("{}", crate::miden_wrapper::display_version(config, style));
+    ExitCode::SUCCESS
 }
 
 /// Completes or discards whatever the previous run left behind, before anything else happens.
