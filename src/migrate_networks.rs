@@ -198,11 +198,10 @@ fn default_pins_a_version(home: &Path) -> bool {
 
 /// Removes a cached manifest this build cannot read.
 ///
-/// It would be rejected by the version check anyway; dropping it turns a confusing version error on
-/// the first offline command into an ordinary refetch.
+/// It is never used as upstream information, so dropping it loses nothing.
 ///
-/// A v1 cache is *not* stale: [`crate::manifest::VersionedManifest::parse_str`] runs it through the
-/// v1 converter, so deleting it would cost the offline capability this exists to preserve.
+/// A v1 cache is kept: it predates `min_client_version`, so it is never used as upstream
+/// information, but it stays as a record of what was last fetched.
 fn drop_stale_manifest_cache(home: &Path) -> anyhow::Result<()> {
     let cache = paths::manifest_cache(home);
     let Ok(contents) = std::fs::read_to_string(&cache) else {
@@ -274,8 +273,7 @@ mod tests {
         assert!(default.canonicalize().is_ok(), "default must not dangle");
     }
 
-    /// A v2 cache parses under no build that reads v3, and leaving it makes the first offline
-    /// command fail with a version error instead of simply refetching.
+    /// A v2 cache parses under no build that reads v3.
     #[test]
     fn a_stale_manifest_cache_is_dropped() {
         let (_temp, home) = alpha_home();
@@ -292,8 +290,7 @@ mod tests {
         assert!(crate::paths::manifest_cache(&home).exists());
     }
 
-    /// A v1 cache reads perfectly well through the v1 converter, so dropping it would strictly lose
-    /// offline capability for the alpha user this migration exists to help.
+    /// A v1 cache is never used as upstream information, but it is not deleted either.
     #[test]
     fn a_v1_manifest_cache_is_kept() {
         let (_temp, home) = alpha_home();

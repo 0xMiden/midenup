@@ -145,7 +145,7 @@ fn integration_update_checks_local_state_before_syncing() {
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect_err("installing the missing active toolchain requires upstream");
-    assert!(format!("{err:#}").contains("unable to fetch"));
+    assert!(format!("{err:#}").contains("could not fetch the manifest"));
     assert!(state.installations.is_empty());
 
     let err = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
@@ -158,7 +158,7 @@ fn integration_update_checks_local_state_before_syncing() {
         "the local diagnostic must name the version: {rendered}"
     );
     assert!(
-        !rendered.contains("unable to fetch"),
+        !rendered.contains("could not fetch"),
         "the network failure must not mask the local diagnostic: {rendered}"
     );
 }
