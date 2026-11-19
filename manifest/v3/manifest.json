@@ -1,7 +1,7 @@
 {
   "manifest_version": "3.0.0",
   "min_client_version": "1.3.0",
-  "date": 1793227303,
+  "date": 1795009856,
   "networks": {
     "devnet": "0.18.0",
     "mainnet": "0.18.0",
@@ -895,7 +895,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.18.0"
+            "version": "0.18.2"
           }
         },
         {
@@ -942,6 +942,37 @@
         },
         {
           "aliases": {
+            "mint": [
+              "%installed-executable",
+              "mint"
+            ]
+          },
+          "artifacts": {
+            "miden-faucet-client": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/0xMiden/miden-faucet/releases/download/v%version/miden-faucet-client-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-faucet-client",
+          "kind": "executable",
+          "name": "faucet-client",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.18.0"
+          }
+        },
+        {
+          "aliases": {
             "format": [
               "%installed-executable"
             ]
@@ -965,7 +996,7 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.36.3"
+            "version": "0.36.5"
           }
         },
         {
@@ -993,13 +1024,15 @@
           "profiles": [],
           "version": {
             "kind": "registry",
-            "version": "0.36.3"
+            "version": "0.36.5"
           }
         },
         {
           "format": [
             "docker",
             "compose",
+            "-p",
+            "miden-node",
             "-f",
             "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
             "--profile",
@@ -1030,7 +1063,7 @@
           },
           "version": {
             "kind": "registry",
-            "version": "0.18.1"
+            "version": "0.18.3"
           }
         },
         {
@@ -1192,30 +1225,32 @@
           }
         },
         {
-          "hide": false,
-          "installation_method": {
-            "crate_name": "miden-remote-prover",
-            "kind": "cargo",
-            "rustup_channel": "1.98"
-          },
-          "installed-executable": "miden-remote-prover",
-          "kind": "executable",
+          "format": [
+            "docker",
+            "compose",
+            "-p",
+            "miden-remote-prover",
+            "-f",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}"
+          ],
+          "kind": "command",
           "name": "remote-prover",
-          "version": {
-            "kind": "registry",
-            "version": "0.18.1"
-          }
-        },
-        {
-          "hide": false,
-          "installation_method": {
-            "crate_name": "miden-validator",
-            "kind": "cargo",
-            "rustup_channel": "1.98"
+          "subcommands": {
+            "down": [
+              "down",
+              "--remove-orphans"
+            ],
+            "logs": [
+              "logs",
+              "-f"
+            ],
+            "up": [
+              "up",
+              "-d",
+              "tx-prover",
+              "router"
+            ]
           },
-          "installed-executable": "miden-validator",
-          "kind": "executable",
-          "name": "validator",
           "version": {
             "kind": "registry",
             "version": "0.18.1"
@@ -1243,7 +1278,7 @@
           ],
           "version": {
             "kind": "registry",
-            "version": "0.36.3"
+            "version": "0.36.5"
           }
         }
       ]

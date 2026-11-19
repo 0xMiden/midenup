@@ -19,7 +19,7 @@ fn integration_uninstall_keeps_var_unless_purge_is_given() {
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -31,14 +31,14 @@ fn integration_uninstall_keeps_var_unless_purge_is_given() {
     std::fs::create_dir_all(data.parent().unwrap()).unwrap();
     std::fs::write(&data, b"user-database").unwrap();
 
-    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to uninstall");
     assert!(data.exists(), "var must be retained without --purge");
 
     // Reinstall so there is something to uninstall again.
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to reinstall");
@@ -48,7 +48,7 @@ fn integration_uninstall_keeps_var_unless_purge_is_given() {
         "reinstalling must find the data still there"
     );
 
-    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0", "--purge"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "0.15.0", "--purge"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to purge");
@@ -80,7 +80,7 @@ fn integration_uninstall_purges_the_store_of_the_selector_it_was_given() {
         vec!["midenup", "install", "mainnet"],
         vec!["midenup", "install", "0.15.0"],
     ] {
-        Midenup::try_parse_from(args.clone())
+        let _ = Midenup::try_parse_from(args.clone())
             .unwrap()
             .execute_with_state(&config, &mut state)
             .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
@@ -89,7 +89,7 @@ fn integration_uninstall_purges_the_store_of_the_selector_it_was_given() {
     seed("0.15.0");
 
     // The channel mainnet names, purged. mainnet's own store is not this channel's to remove.
-    Midenup::try_parse_from(["midenup", "uninstall", "0.15.0", "--purge"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "0.15.0", "--purge"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to purge the channel");
@@ -101,11 +101,11 @@ fn integration_uninstall_purges_the_store_of_the_selector_it_was_given() {
     );
 
     // Now the network itself, by name.
-    Midenup::try_parse_from(["midenup", "install", "mainnet"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "mainnet"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to reinstall");
-    Midenup::try_parse_from(["midenup", "uninstall", "mainnet", "--purge"])
+    let _ = Midenup::try_parse_from(["midenup", "uninstall", "mainnet", "--purge"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to purge the network");
@@ -133,7 +133,7 @@ fn integration_install_uninstall_test() {
 
     // We begin by initializing the midenup directory
     let command = Midenup::try_parse_from(["midenup", "init"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to initialize");
 
@@ -147,7 +147,7 @@ fn integration_install_uninstall_test() {
     let command = Midenup::try_parse_from(["midenup", "install", "stable"]).unwrap();
     // This should install version 0.16.0, since it's the latest available stable toolchain
     // present in FILE
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
@@ -166,7 +166,7 @@ fn integration_install_uninstall_test() {
 
     // Now we install a separate toolchain.
     let command = Midenup::try_parse_from(["midenup", "install", "0.15.0"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install 0.15.0");
 
@@ -194,7 +194,7 @@ fn integration_install_uninstall_test() {
 
     // Now, we'll uninstall 0.16.0.
     let command = Midenup::try_parse_from(["midenup", "uninstall", "0.16.0"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to uninstall 0.16.0");
 

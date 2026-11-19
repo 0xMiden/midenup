@@ -4,7 +4,7 @@
 
 - [Rust](https://rustup.rs), latest stable.
 - [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
-  `node` component (`miden node`).
+  `node` or `remote-prover` components (`miden node`, `miden remote-prover`).
 
 ## Installing midenup
 

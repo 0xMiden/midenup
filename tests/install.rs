@@ -23,7 +23,7 @@ fn integration_install_stable() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "install", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -68,7 +68,7 @@ fn integration_install_places_every_artifact_kind() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -104,7 +104,7 @@ fn integration_install_creates_default_symlinks() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "install", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -133,7 +133,7 @@ fn integration_install_unpacks_archived_artifacts() {
         .build();
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -205,7 +205,7 @@ fn integration_install_publishes_into_an_opaque_publication_with_a_receipt() {
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -264,14 +264,14 @@ fn integration_install_republishes_rather_than_mutating() {
             other => panic!("expected a managed publication, got {other:?}"),
         };
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
     let first = publication_of(&state);
 
     // The `complete` profile adds `assets`, which the minimal install did not have.
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to reinstall");
@@ -304,7 +304,7 @@ fn integration_var_survives_update_and_republication() {
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -316,7 +316,7 @@ fn integration_var_survives_update_and_republication() {
     std::fs::write(var.join("data"), b"user-database").unwrap();
 
     // Republish with a different component set, which produces a whole new publication.
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to republish");
@@ -374,7 +374,7 @@ fn integration_install_falls_back_to_cargo_when_an_artifact_is_unavailable() {
 
     let (mut state, config) = test_setup(&test_env, &format!("file://{}", manifest_path.display()));
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("a failed transfer with a declared fallback must not fail the install");
@@ -454,7 +454,7 @@ fn integration_install_from_non_cargo() {
     );
     let (mut state, config) = test_setup(&test_env, &first);
 
-    Midenup::try_parse_from(["midenup", "install", "stable"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "stable"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install stable");
@@ -466,7 +466,7 @@ fn integration_install_from_non_cargo() {
     );
 
     // Nothing has changed, so an update must be a no-op for both authorities.
-    Midenup::try_parse_from(["midenup", "update"])
+    let _ = Midenup::try_parse_from(["midenup", "update"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -494,7 +494,7 @@ fn integration_install_from_non_cargo() {
         .open(fixture.path_crate.join("trigger-update"))
         .unwrap();
 
-    Midenup::try_parse_from(["midenup", "update", "--path-update=all"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "--path-update=all"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -533,7 +533,7 @@ fn integration_prerelease_components_are_runnable() {
     // Install the latest stable toolchain
     let command =
         Midenup::try_parse_from(["midenup", "install", "stable", "--profile", "complete"]).unwrap();
-    command
+    let _ = command
         .execute_with_state(&config, &mut local_manifest)
         .expect("failed to install stable");
 
@@ -557,14 +557,13 @@ fn integration_prerelease_components_are_runnable() {
                 let argv: Vec<OsString> =
                     vec!["miden".into(), "help".into(), component.name.as_ref().into()];
 
-                miden_wrapper::miden_wrapper(&argv, &config, &mut local_manifest).unwrap_or_else(
-                    |err| {
+                let _ = miden_wrapper::miden_wrapper(&argv, &config, &mut local_manifest)
+                    .unwrap_or_else(|err| {
                         panic!(
                             "Component '{}' is not runnable through the 'miden' interface: {}",
                             component.name, err
                         )
-                    },
-                );
+                    });
             },
             // Skip executables that aren't meant to be executed directly
             ComponentKind::Executable { .. } | ComponentKind::CargoExtension { .. } => (),
@@ -720,7 +719,7 @@ fn assert_unpatched_by(test_name: &str, args: &[&str]) {
         .expect("failed to seed the legacy patched toolchain");
     assert!(std::fs::read(&vm).unwrap() != upstream_vm, "the patch must be installed");
 
-    Midenup::try_parse_from(args)
+    let _ = Midenup::try_parse_from(args)
         .unwrap()
         .execute_with_state(&config, &mut state)
         .unwrap_or_else(|err| panic!("{args:?} failed: {err:#}"));
