@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- The 0.18.0 toolchain's `miden remote-prover` now runs as a Docker container from the 0.18.1
+  local network, like `miden node`, instead of being compiled from source. It accepts the `up`,
+  `down` and `logs` subcommands and serves the prover at `http://prover.localhost`.
+
+### Removed
+
+- Removed the `validator` component from the 0.18.0 toolchain. `miden node up` already starts the
+  local network's validators.
+
 ## [1.3.0]
 
 ### Added

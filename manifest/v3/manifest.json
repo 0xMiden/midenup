@@ -1031,6 +1031,8 @@
           "format": [
             "docker",
             "compose",
+            "-p",
+            "miden-node",
             "-f",
             "oci://ghcr.io/0xmiden/miden-local-network:v%{version}",
             "--profile",
@@ -1220,6 +1222,38 @@
           "version": {
             "kind": "registry",
             "version": "0.18.0"
+          }
+        },
+        {
+          "format": [
+            "docker",
+            "compose",
+            "-p",
+            "miden-remote-prover",
+            "-f",
+            "oci://ghcr.io/0xmiden/miden-local-network:v%{version}"
+          ],
+          "kind": "command",
+          "name": "remote-prover",
+          "subcommands": {
+            "down": [
+              "down",
+              "--remove-orphans"
+            ],
+            "logs": [
+              "logs",
+              "-f"
+            ],
+            "up": [
+              "up",
+              "-d",
+              "tx-prover",
+              "router"
+            ]
+          },
+          "version": {
+            "kind": "registry",
+            "version": "0.18.1"
           }
         },
         {
