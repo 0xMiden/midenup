@@ -24,7 +24,7 @@ This specification covers:
 - **selection and resolution**: profiles, project toolchain files, dependency closure;
 - the **installation executor**: acquisition, staging, publication, recovery, uninstall;
 - **runtime dispatch** semantics for `miden`;
-- **migration** from manifest v1.0.1;
+- the **home format** guard and adoption of homes from earlier releases;
 - **validation** rules and the **error taxonomy**;
 - the **manifest authoring tool** (`update-manifest`).
 
@@ -71,7 +71,9 @@ Each term has exactly one meaning throughout this document.
 
 ```
 $MIDENUP_HOME/
+├── home-format.json                    # the format of everything below (§12)
 ├── state.json                          # local installation state (sole logical authority)
+├── .format-lease                       # format lease; shared by every command, exclusive to conversion
 ├── .lock                               # advisory lock; guards mutating operations only
 ├── channel-manifest.json               # cached copy of the last successfully fetched upstream manifest
 ├── cache/cargo/<source-path-hash>/      # reusable Cargo outputs for a canonical path source
@@ -118,8 +120,7 @@ It is keyed by the **toolchain selector the user chose** - `var/mainnet`, `var/t
 - **A selector does not move when a pointer moves.** `mainnet` advancing to a new channel leaves its store exactly where it was, so nothing is ever carried between keys and no operation has to order a pointer move against a data move.
 
 - Install, update, republication, and pointer moves **never** read, write, move, or delete `var/`.
-- Exactly two operations move it, and this is the whole list. Channel migration (§11.4) **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
-- The other is the one-time conversion of a pre-network home (§12.5), which **renames** `var/<version>` to `var/mainnet`. Such a home kept a single store under the channel it tracked, and that store is the default network's - unless the home records a pin on that version, in which case the version is already the selector and nothing moves.
+- Exactly one operation moves it. Channel migration (§11.4) **renames** `var/<old>` to `var/<new>`. Both are pinned-version selectors, and migration is what retires one: the channel the user pinned ceases to exist. A network selector is neither source nor destination.
 - `midenup uninstall <selector>` removes the publication and the state record - or, for a network whose channel other networks on this machine still name, only that network's link (§11.5). It removes `var/<selector>` - the selector exactly as given - **only** when `--purge` is passed; otherwise it is retained and the user is told it was kept and where it lives. Uninstalling a channel therefore never removes a network's store, which is correct: the network outlives any channel it names.
 - `%var` resolves to `$MIDENUP_HOME/var/<selector>`, or `var/custom/<name>/pinned` / `var/custom/<name>/networks/<network>` for a named installation, created on demand at dispatch time. Named data survives source version changes and network promotions. An installed name cannot change network identity; reusing a removed name for another source selects a separate store.
 
@@ -745,7 +746,7 @@ Verification is **structural only**. No byte or digest verification is performed
 
 ### 9.7 Recovery
 
-Recovery runs at startup, after migration (§12) and before any upstream fetch.
+Recovery runs at startup, after the home format check (§12) and before any upstream fetch.
 
 | Journal state | Action |
 |---|---|
@@ -766,7 +767,9 @@ Mutating operations take an exclusive advisory lock (`flock`) on `$MIDENUP_HOME/
 
 This is required, not optional: `miden <cmd>` can trigger an install via `ensure_current_is_installed`, so two `miden` invocations in two project directories are two concurrent writers against one `MIDENUP_HOME`.
 
-`miden` dispatch is therefore lock-free *until* it determines an install is needed, at which point it acquires the lock for the duration of that install and releases it before exec'ing the component. Startup recovery (§9.7) and migration (§12) also take the lock, since both mutate.
+`miden` dispatch is therefore lock-free *until* it determines an install is needed, at which point it acquires the lock for the duration of that install and releases it before exec'ing the component. Startup recovery (§9.7) and home conversion (§12) also take the lock, since both mutate.
+
+Before either, every command holds the **format lease** (`$MIDENUP_HOME/.format-lease`) shared until it finishes, including a component `miden` runs. A home conversion releases any shared lease, takes the lease exclusively, then the lock. Locks are always taken in that order, and a shared lease is never upgraded in place. A conversion waits at most ten seconds for running commands and then refuses, naming the cause; running tools are never stopped.
 
 A blocked writer prints `waiting for another midenup operation to finish…` after one second and blocks up to ten minutes before failing. On acquiring the lock it **re-reads** `state.json` and re-plans, because the prior holder may have changed the installed set.
 
@@ -881,82 +884,77 @@ A link that disagrees with upstream is reported by `midenup show list` on the ch
 
 ---
 
-## 12. Migration from manifest v1.0.1
+## 12. Home format
 
-### 12.1 Contract
+### 12.1 The envelope
 
-The supported migration floor is **1.0.1**. A local document older than that is rejected without modification.
-
-Migration carries forward the **selection only**: for each installed channel, its version and the names of its installed components. Everything else - installed filenames, aliases, call formats, artifact destinations, Cargo bookkeeping - is discarded and re-derived from the upstream manifest, because upstream is authoritative for all of it.
-
-The migrated installation is expressed as ordinary native intent:
+`$MIDENUP_HOME/home-format.json` records one integer format covering state, layout, receipts, and journals. This build reads and writes format 1:
 
 ```json
-{ "channel": "0.15.0", "intent": { "profiles": [], "roots": ["vm", "client", "core"] } }
+{ "format": 1 }
+{ "format": 1, "conversion": "released-v1" }
 ```
 
-This is why there is no `Frozen` intent variant. Roots-only intent already provides exactly the semantics a frozen migration needs - new dependencies of the roots are picked up, unrelated new profile members are not - using the same resolver as everything else.
+`state_version` still selects a state decoder; the home format is what protects everything else.
 
-**One-time root relaxation.** §11.3 blocks an update when an explicit root has disappeared upstream, because the user chose that root deliberately. Migrated roots were not chosen in the current schema's terms - they are inferred from a v1 record - so on the *first* install after migration, roots absent from the channel are **dropped with a warning** listing each one, and the intent is rewritten without them. Blocking here would strand every v1 user whose channel dropped a component. From the second operation onward the normal blocking rule applies.
+Every entry point - each `midenup` command and `miden` dispatch - reads the envelope under the shared format lease (§9.9) before state decoding, recovery, shim setup, or any mutation. Only `midenup --version` and `--help` skip it, so a refused home can still report which midenup refused it; the version report reads the active toolchain only from a home whose envelope it accepts.
 
-### 12.2 Sequence
+| Envelope | Action |
+|---|---|
+| format 1 | continue |
+| format 1 with a known `conversion` | resume that conversion (§12.2), then continue |
+| another format, an unknown `conversion`, or malformed | refuse; nothing changes |
+| missing, home empty or absent | continue; the first writer writes format 1 |
+| missing, a home from a release that predates the envelope (it has a `state.json`) | preflight, convert (§12.2), then continue |
+| missing, anything else | refuse; nothing changes |
 
-Migration is the **first** local operation, before recovery and before any upstream fetch. A missing or unreachable upstream manifest must not prevent it.
+A home is empty when it has no `state.json` and holds only the manifest cache, `cache/`, empty `toolchains/`, `publications/` or `journal/` directories, lock files and temporaries.
+
+A refusal names the format found and the one supported, and explains how to start over in a separate home (`MIDENUP_HOME=<new dir> midenup init`) or upgrade midenup. Creating lock files is the only change a refused command makes.
+
+### 12.2 Conversion
+
+Conversion runs under the exclusive format lease and the home lock, and never fetches a manifest or rebuilds anything:
 
 ```
-1. Read $MIDENUP_HOME/manifest.json. Absent -> nothing to migrate.
-2. Parse the version header only.
-     ≥ 2.0.0  -> not a v1 document; stop.
-     < 1.0.1  -> error UnsupportedVersion; leave the file untouched.
-     = 1.0.1  -> continue.
-3. Extract (channel version, component names) per channel. Fallibly - no `expect`.
-4. Serialize state.json to a unique temporary sibling; flush, fsync, close.
-5. Re-open and parse the temporary file as a state document. Validate it.   ← GATE
-6. Atomically rename it to state.json.                                       ← COMMIT
-7. Delete manifest.json.
-8. Re-open state.json for normal operation.
+1. Preflight the whole home, read-only. Any failure refuses before anything changes.
+2. Atomically replace the envelope with the target format and the conversion name.  ← COMMIT
+3. Run the conversion's steps.
+4. Replace the envelope with the target format alone.
 ```
 
-Every failure before step 6 leaves the original bytes untouched. After step 6, `state.json` is always valid. The post-commit re-open in step 8 is not a substitute for the step-5 gate: validating only after replacement is too late to preserve the original.
+The steps are idempotent, so the `conversion` field is the whole journal: a run that finds it repeats them from step 3 without consulting upstream. Older releases that know the envelope refuse the new format from step 2 on.
 
-### 12.3 Physical state after migration
+Preflight accepts only what releases that predate the envelope leave behind: a `state.json` with state version 1 or 2 (other top-level entries are left alone), `toolchains/` entries that are links or the alpha directory of a toolchain v1.x carried forward, receipts and a pending journal that parse. A publication missing behind a state record is not a reason to refuse; recovery reports it as divergence with its remedy (§9.7). The `released-v1` steps remove carried-forward toolchains' alpha directories, which their reinstall replaces with a link, and rewrite `state.json` at the current state version; the layout, links, receipts, and journal of those releases are already read as they are.
 
-The migrated record describes an installation whose on-disk layout predates publications. It is marked `needs-reinstall`. Such a record is never executed against: the pre-publication tree is not described by any receipt, so `midenup` cannot know what it owns.
+### 12.3 Alpha-era homes
+
+A pre-1.0 home - a v1 `manifest.json` with no installations in `state.json`, a `toolchains/stable` link, or toolchain directories in place of links - is refused with the same guidance and left unchanged. Nothing converts it at startup.
+
+A `manifest.json` beside a `state.json` that records installations is inert: it neither blocks the home nor is read or removed.
+
+### 12.4 Records awaiting reinstallation
+
+Releases that predate the envelope converted alpha local manifests into `state.json` records with **roots-only** intent and no publication:
+
+```json
+{ "channel": "0.15.0", "intent": { "profiles": [], "roots": ["vm", "client", "core"] }, "publication": { "kind": "needs-reinstall" } }
+```
+
+Released homes may still hold such records. One is never executed against: the pre-publication tree is not described by any receipt, so `midenup` cannot know what it owns.
 
 The next operation touching that channel resolves this:
 
-- `midenup install` / `midenup update` - performs a full install from the migrated intent.
+- `midenup install` / `midenup update` - performs a full install from the carried intent.
 - `miden <cmd>` - triggers the same install automatically, exactly as it does for a toolchain that was never installed (§13.2 step 2), taking the lock for the duration.
-- If that install cannot proceed - upstream unreachable, or a migrated root no longer exists in the channel - the command fails with `NeedsReinstall`, naming the exact recovery command. It never falls back to executing against the unmanaged tree.
+- If that install cannot proceed - upstream unreachable, or a carried root no longer exists in the channel - the command fails with `NeedsReinstall`, naming the exact recovery command. It never falls back to executing against the unmanaged tree.
+
+**One-time root relaxation.** §11.3 blocks an update when an explicit root has disappeared upstream, because the user chose that root deliberately. Carried roots were inferred from a v1 record rather than chosen, so on the *first* install of such a record, roots absent from the channel are **dropped with a warning** listing each one, and the intent is rewritten without them. From the second operation onward the normal blocking rule applies.
 
 `midenup show` displays the channel as needing reinstallation until this completes.
 `var/<selector>` is preserved across the reinstall, since it lives outside publications.
 
-If a migrated channel no longer exists in the upstream manifest at all, the record is retained and reported by `midenup show` as unavailable. It is not deleted - the user may still want `var/` and an explicit uninstall.
-
-### 12.4 Downgrade
-
-Migration is one-way. After it commits, `midenup` 0.3.x reading `$MIDENUP_HOME` finds no `manifest.json` and treats the installation as absent. This must be stated in the release notes and covered by a test asserting the message the older binary produces.
-
-### 12.5 Migration to the network layout
-
-An installation made before channels were named after networks has a single `toolchains/stable` link where it now needs one link per network (§3.4). Nothing else about it is wrong: the network-layout conversion itself does not change the state schema, because release-train names were not stored in state. Named installation support separately writes state version 2 (§4.3).
-
-```
-1. toolchains/stable exists and toolchains/mainnet does not:
-   a. var/<the version stable names> -> rename it to var/mainnet, unless
-      toolchains/default names that version rather than the stable link.
-   b. rename toolchains/stable to toolchains/mainnet.
-2. toolchains/default names the old link                    -> repoint it at mainnet.
-3. If (1) converted a home, drop the cached upstream manifest when this build cannot read it.
-```
-
-- Step 1a runs before 1b because the legacy link is what names the version the store sits under, and 1b is what retires that link. An existing `var/mainnet` means this is not a home to convert, and it is left as it is.
-- The exception in 1a exists because the legacy link was written for whichever channel was the latest stable, regardless of what the user typed - so it is present for someone who pinned the newest release just as it is for someone who asked for `stable`, and moving that user's store would hide it. `toolchains/default` naming the version rather than the link is that user. A pin living in a project's `miden-toolchain.toml` is not visible from the home at all, so the message reporting the move says how to reverse it.
-- Step 2 is not conditional on step 1: a run interrupted between them would otherwise leave `default` dangling forever.
-- Step 3 runs only for a home actually being converted. Only an installation from that era can be holding a cache this build cannot read, and checking on every startup would mean parsing the cached manifest twice per command on the dispatch path for an answer that is almost always "nothing to do". A **v1** cache is not stale - it is run through the v1 converter - so it is kept, which is what preserves the offline capability of §13.1.
-- It runs **without** the home lock, alongside §12.2, because it is on the `miden` dispatch path and that path must not wait on the lock. Every step is therefore idempotent and tolerates another process having done it first.
-- A home that already has a `mainnet` link is not from that era, and is left alone: its link is the authority.
+If such a channel no longer exists in the upstream manifest at all, the record is retained and reported by `midenup show` as unavailable. It is not deleted - the user may still want `var/` and an explicit uninstall.
 
 ---
 
@@ -1106,7 +1104,7 @@ Each variant carries the file path, the offending identifier, and a remediation 
 
 | Variant | Condition |
 |---|---|
-| `UnsupportedVersion { found, floor }` | document older than the migration floor |
+| `UnsupportedHomeFormat { found }` | `home-format.json` declares a format other than 1, or is malformed |
 | `RequiresNewerMidenup { found, supported }` | major version above what this build supports |
 | `WrongDocumentType { expected, found }` | state document where a manifest was expected, or vice versa |
 | `UnsupportedComponentKind { component, tag }` | an `unsupported` component was selected |
@@ -1120,7 +1118,7 @@ Each variant carries the file path, the offending identifier, and a remediation 
 | `StagingVerificationFailed { path, reason }` | pre-publication structural check failed |
 | `RecoveredOperation { op, channel }` | informational; a journal was rolled forward |
 | `DivergentState { channel, detail }` | state and filesystem disagree with no journal |
-| `NeedsReinstall { channel }` | a migrated installation has no publication yet |
+| `NeedsReinstall { channel }` | a carried-forward installation has no publication yet |
 | `RootRemovedUpstream { component, channel }` | update blocked; installation preserved |
 | `LockTimeout { holder_pid }` | another operation held the lock too long |
 | `DanglingNetwork { network, version }` | a network names a channel absent from the manifest |
@@ -1254,8 +1252,9 @@ artifacts. These assert against *reopened* `state.json` and *actual files*, not 
 * unsupported target fails plan construction without touching the filesystem;
 * two Cargo-backed components install, update, and uninstall independently without disturbing each other's binaries;
 * `var/<selector>` survives update, republication, and pointer moves; two networks on one channel keep separate stores; is removed only under `--purge`, and then only for the selector named;
-* v1.0.1 migration with an unreachable upstream still commits `state.json`;
-* v1.0.0 is rejected and the file is byte-for-byte unchanged;
+* homes shaped like those of releases that predate the envelope, at state version 1 or 2, are converted and keep working with an unreachable upstream;
+* an unknown or malformed home format, and an alpha-era home, are refused with the home byte-for-byte unchanged;
+* a leftover `manifest.json` beside valid state neither blocks nor is touched;
 * an `unsupported` component parses, shows, and is installable-around, but errors when selected;
 * installing a network that shares its channel with others writes a link for that network only, and uninstalling the channel removes every link naming it while leaving other channels' links resolving;
 * a synonym reaches the same channel as the network it names, and produces the network's link;
@@ -1270,8 +1269,8 @@ A version install (`0.15.0`) -> two project toolchains activating additively -> 
 ### Fault injection
 
 A test hook aborts the process at each labeled point in §9.5 (post-prepare,
-post-stage, post-verify, post-commit, post-record, post-derive). For each, a subsequent startup must produce exactly one consistent state, and the assertion is against the reopened state document plus the filesystem.
+post-stage, post-verify, post-commit, post-record, post-derive). For each, a subsequent startup must produce exactly one consistent state, and the assertion is against the reopened state document plus the filesystem. A home conversion interrupted right after its commit point (post-format-commit) is resumed by the next command, offline.
 
 ### Concurrency 
 
-Two processes installing different components of the same channel concurrently produce a superset containing both, with no lost update and no corrupt state document.
+Two processes installing different components of the same channel concurrently produce a superset containing both, with no lost update and no corrupt state document. Running components share the format lease, and a conversion waits until they exit.

@@ -8,7 +8,9 @@ Everything lives under one directory, `$XDG_DATA_HOME/midenup` by default (see t
 
 ```text
 $MIDENUP_HOME/
+├── home-format.json                    the format of everything below; checked by every command
 ├── state.json                          what is installed; the sole logical authority
+├── .format-lease                       held shared by every command, exclusively by a conversion
 ├── .lock                               advisory lock; guards mutating operations only
 ├── channel-manifest.json               the last upstream manifest fetched, cached verbatim
 ├── journal/
