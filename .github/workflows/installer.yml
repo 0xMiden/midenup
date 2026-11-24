@@ -51,6 +51,12 @@ jobs:
           mkdir -p "${CARGO_HOME}/bin"
           echo "CARGO_HOME=$CARGO_HOME" >> "$GITHUB_ENV"
 
+      # The installer expects its default install path to exist, and the macOS image has no
+      # `~/.cargo/bin`.
+      - name: Create `~/.cargo/bin`
+        if: matrix.set_cargo_home == 'f'
+        run: mkdir -p "$HOME/.cargo/bin"
+
       - name: Pass `--version`
         if: matrix.set_install_version != 'no'
         env:

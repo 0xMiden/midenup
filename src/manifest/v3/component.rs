@@ -519,7 +519,7 @@ pub struct ExecutableComponent {
     /// The file used by midenup's 'miden' to call the components executable.
     ///
     /// If `None`, then the component's file will be saved as `miden <name>`. This distinction
-    /// exists mainly for components like `cargo-miden`, which differ in how they are called.
+    /// exists mainly for cargo extensions, which `cargo` finds on `PATH` by executable name.
     ///
     /// A symlink is never created for executables for which `hide` is `true`
     #[serde(default)]
@@ -534,8 +534,8 @@ pub struct ExecutableComponent {
     /// 1. Executable, but should only be executed via its defined aliases
     /// 2. Not directly executable, but provides executable aliases
     ///
-    /// An example of this behavior is `cargo miden`, which is only intended to be executed
-    /// via the `miden new` alias.
+    /// An example of this behavior is `miden-registry`, which is only intended to be executed
+    /// via the `miden registry` alias.
     ///
     /// NOTE: If this is set, at least one entry in `aliases` must be present
     #[serde(default)]

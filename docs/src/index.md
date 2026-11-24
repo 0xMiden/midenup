@@ -19,7 +19,6 @@ The notion of a _toolchain_ here refers to a group of components from the Miden 
 Currently, the set of components consists of:
 
 - The [Miden VM](https://docs.miden.xyz/reference/miden-vm/).
-- The [Miden compiler](https://docs.miden.xyz/reference/compiler/usage/midenc) and its cargo extension [Cargo Miden](https://docs.miden.xyz/reference/compiler/usage/cargo-miden).
 - The [Miden client](https://docs.miden.xyz/builder/tools/clients/rust-client/).
 - The [Miden node](https://docs.miden.xyz/reference/node/).
 - The [Miden standard library](https://docs.miden.xyz/reference/miden-vm/user_docs/core_lib/).
