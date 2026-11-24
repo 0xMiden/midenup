@@ -249,7 +249,7 @@ fn project(env: &TestEnvironment, name: &str, components: &[&str]) -> PathBuf {
 /// Runs `miden help vm` from `project`, which activates that project's toolchain.
 fn activate(env: &TestEnvironment, project: &Path, manifest_uri: &str, state: &mut LocalState) {
     let config = config_in(env, project, manifest_uri);
-    Midenup::try_parse_from(["miden", "help", "vm"])
+    let _ = Midenup::try_parse_from(["miden", "help", "vm"])
         .unwrap()
         .execute_with_state(&config, state)
         .expect("activation failed");
@@ -313,7 +313,7 @@ fn integration_direct_install_can_shrink_and_activation_re_adds() {
     assert_eq!(installed(&state), vec!["debug", "vm"]);
 
     let config = config_in(&env, env.tmp_dir.path(), &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "minimal"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "minimal"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -340,7 +340,7 @@ fn integration_a_minimal_installation_receives_newly_profiled_components() {
 
     let before = fixture.manifest("before.json", &[("vm", &["minimal"], &[])]);
     let (mut state, config) = test_setup(&env, &before);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "minimal"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "minimal"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -349,7 +349,7 @@ fn integration_a_minimal_installation_receives_newly_profiled_components() {
     let after = fixture
         .manifest("after.json", &[("vm", &["minimal"], &[]), ("newthing", &["minimal"], &[])]);
     let (_, config) = test_setup(&env, &after);
-    Midenup::try_parse_from(["midenup", "update", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -368,7 +368,7 @@ fn integration_a_roots_only_installation_gains_dependencies_but_not_unrelated_me
     let before =
         fixture.manifest("before.json", &[("vm", &["minimal"], &[]), ("client", &[], &[])]);
     let (mut state, config) = test_setup(&env, &before);
-    Midenup::try_parse_from([
+    let _ = Midenup::try_parse_from([
         "midenup",
         "install",
         "0.15.0",
@@ -394,7 +394,7 @@ fn integration_a_roots_only_installation_gains_dependencies_but_not_unrelated_me
         ],
     );
     let (_, config) = test_setup(&env, &after);
-    Midenup::try_parse_from(["midenup", "update", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -413,7 +413,7 @@ fn integration_a_removed_root_blocks_the_update_and_preserves_the_installation()
     let before =
         fixture.manifest("before.json", &[("vm", &["minimal"], &[]), ("goingaway", &[], &[])]);
     let (mut state, config) = test_setup(&env, &before);
-    Midenup::try_parse_from([
+    let _ = Midenup::try_parse_from([
         "midenup",
         "install",
         "0.15.0",
@@ -459,7 +459,7 @@ fn integration_a_metadata_only_change_updates_state_without_republishing() {
 
     let before = fixture.manifest("before.json", &[("vm", &["minimal"], &[])]);
     let (mut state, config) = test_setup(&env, &before);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -473,7 +473,7 @@ fn integration_a_metadata_only_change_updates_state_without_republishing() {
     // Upstream adds an alias, and changes nothing else.
     let after = fixture.manifest_with_vm_alias("after.json", &[("vm", &["minimal"], &[])], "run");
     let (_, config) = test_setup(&env, &after);
-    Midenup::try_parse_from(["midenup", "update", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "update", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to update");
@@ -510,7 +510,7 @@ fn integration_an_invalid_subcommand_lists_the_valid_ones() {
     let manifest = fixture.manifest_with_command("manifest.json");
 
     let (mut state, config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -542,13 +542,13 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
     let manifest = fixture.manifest_with_command("manifest.json");
 
     let (mut state, mut config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
 
     let output = config.capture_output();
-    Midenup::try_parse_from(["miden", "node", "up", "service with spaces"])
+    let _ = Midenup::try_parse_from(["miden", "node", "up", "service with spaces"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("the declared subcommand must dispatch to the component");
@@ -576,7 +576,7 @@ fn integration_a_declared_subcommand_expands_to_its_own_words() {
     drop(output);
 
     // ...and asking for help on it lists the verbs rather than trying to run one.
-    Midenup::try_parse_from(["miden", "help", "node"])
+    let _ = Midenup::try_parse_from(["miden", "help", "node"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("`miden help <command>` must list its subcommands, not fail");
@@ -596,7 +596,7 @@ fn integration_a_superset_only_alias_conflict_does_not_break_every_command() {
 
     // Install both, as two projects asking for one each would have.
     let (mut state, config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -606,12 +606,12 @@ fn integration_a_superset_only_alias_conflict_does_not_break_every_command() {
     let dir = project(&env, "project-a", &["first"]);
     let config = config_in(&env, &dir, &manifest);
 
-    Midenup::try_parse_from(["miden", "help", "vm"])
+    let _ = Midenup::try_parse_from(["miden", "help", "vm"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("a superset-only conflict must not be fatal");
 
-    Midenup::try_parse_from(["miden", "run"])
+    let _ = Midenup::try_parse_from(["miden", "run"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("and the alias must resolve to the component in the active view");
@@ -627,7 +627,7 @@ fn integration_an_alias_conflict_inside_the_active_view_is_an_error() {
     let manifest = fixture.manifest_with_conflicting_aliases("manifest.json");
 
     let (mut state, config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -665,7 +665,7 @@ fn integration_without_a_toolchain_file_discovery_covers_everything_installed() 
     let manifest = fixture.manifest_with_conflicting_aliases("manifest.json");
 
     let (mut state, config) = test_setup(&env, &manifest);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--component", "first"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--component", "first"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");

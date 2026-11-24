@@ -87,6 +87,26 @@ This displays the following information:
 - A list of available aliases: These are a shortform versions of commonly used miden commands. The following [table](https://0xmiden.github.io/midenup/v3/manifest.json) showcases said mappings.
 - A list of available components: Each of these represents a different miden executable. If the component requires initialization, like it is the case with the client, the corresponding initialization command will be displayed.
 
+### Running a local node and remote prover
+
+Starting with the 0.18.0 toolchain, `miden node` and `miden remote-prover` run as Docker containers
+from the `miden-local-network` Docker Compose file, so they require Docker with Docker Compose
+v2.34.0 or later. Both components accept the `up`, `down` and `logs` subcommands:
+
+```shell title=">_ Terminal"
+miden remote-prover up    # start the transaction prover in the background
+miden remote-prover logs  # follow its logs
+miden remote-prover down  # stop and remove its containers
+```
+
+`miden node` additionally accepts `delete`, which also removes the node's data volumes.
+
+The remote prover is served at `http://prover.localhost`. `miden node up` already starts its own
+transaction prover at the same address, so `miden remote-prover` is only needed when you want a
+prover without running a full local node. The two commands bind the same local port, so stop one
+with `down` before starting the other. Each component runs in its own Compose project, so
+`miden remote-prover down` never stops the node's containers and vice versa.
+
 ## Activating a toolchain
 
 `midenup`, and by extension `miden`, have a notion of an 'active toolchain'. This value represents the toolchain that is going to be used in the current working directory. Unless configured otherwise, `midenup` will always default to the toolchain deployed to `mainnet`.

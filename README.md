@@ -19,7 +19,7 @@ The `midenup` executable facilitates two primary tasks:
 > * The Miden client
 > * The Miden core library package
 > * The Miden protocol library packages (transaction kernel, protocol and standards library, and various standard components).
-> * Aliases for running a local instance of the [Miden node](https://github.com/0xMiden/node)
+> * Aliases for running a local instance of the [Miden node](https://github.com/0xMiden/node) and a standalone remote prover
 >
 > Run `miden help toolchain` to see a list of all available components for the active toolchain.
 
@@ -27,7 +27,7 @@ The `midenup` executable facilitates two primary tasks:
 
 - [Rust](https://rustup.rs), latest stable.
 - [Docker](https://docs.docker.com/get-docker/) with Docker Compose v2.34.0 or later, only if you use the
-  `node` component (`miden node`).
+  `node` or `remote-prover` components (`miden node`, `miden remote-prover`).
 
 ## Usage
 

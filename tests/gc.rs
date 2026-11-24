@@ -18,7 +18,7 @@ fn integration_gc_removes_orphans_and_never_touches_referenced_publications() {
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
     let channel = semver::Version::new(0, 15, 0);
 
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to install");
@@ -29,7 +29,7 @@ fn integration_gc_removes_orphans_and_never_touches_referenced_publications() {
     let replaced = paths::publication_dir(&test_env.midenup_home, &channel, id);
 
     // Republish, which leaves the first publication behind.
-    Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0", "--profile", "complete"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("failed to republish");
@@ -45,7 +45,7 @@ fn integration_gc_removes_orphans_and_never_touches_referenced_publications() {
     let orphan = paths::publications_dir(&test_env.midenup_home).join("0.15.0-orphaned");
     std::fs::create_dir_all(&orphan).unwrap();
 
-    Midenup::try_parse_from(["midenup", "gc"])
+    let _ = Midenup::try_parse_from(["midenup", "gc"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("gc failed");
@@ -59,7 +59,7 @@ fn integration_gc_removes_orphans_and_never_touches_referenced_publications() {
     );
 
     // Idempotent: a second run finds nothing and changes nothing.
-    Midenup::try_parse_from(["midenup", "gc"])
+    let _ = Midenup::try_parse_from(["midenup", "gc"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("gc must be idempotent");
@@ -79,7 +79,7 @@ fn integration_gc_reclaims_cargo_caches_without_publication_orphans() {
     std::fs::create_dir_all(&orphan).unwrap();
     std::fs::write(orphan.join("artifact"), "obsolete build output").unwrap();
 
-    Midenup::try_parse_from(["midenup", "gc"])
+    let _ = Midenup::try_parse_from(["midenup", "gc"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .expect("gc failed");
@@ -102,7 +102,7 @@ fn integration_gc_retains_shared_and_pending_cargo_caches_and_preserves_user_dat
     let test_env = environment_setup("integration_gc_shared_cache");
     let fixture = common::harness::OfflineFixture::create(test_env.tmp_dir.path(), "0.15.0");
     let (mut state, config) = test_setup(&test_env, &fixture.manifest_uri);
-    Midenup::try_parse_from(["midenup", "install", "0.15.0"])
+    let _ = Midenup::try_parse_from(["midenup", "install", "0.15.0"])
         .unwrap()
         .execute_with_state(&config, &mut state)
         .unwrap();
