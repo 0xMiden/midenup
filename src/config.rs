@@ -5,15 +5,32 @@ use std::{
     rc::Rc,
 };
 
-use anyhow::Context;
+use anyhow::{Context, bail};
 
 use crate::{
     channel::Channel,
-    manifest::{Manifest, VersionedManifest},
+    manifest::{
+        CURRENT_CLIENT_VERSION, Manifest, ManifestError, RefreshFailure, VersionedManifest,
+    },
     state::LocalState,
     toolchain::Toolchain,
     utils,
 };
+
+/// How to upgrade midenup, which cannot upgrade itself.
+const UPGRADE_INSTRUCTIONS: &str = "
+to upgrade midenup, run the installer:
+    curl -L --proto '=https' --tlsv1.2 -sSf https://github.com/0xMiden/midenup/releases/latest/download/installer.sh | bash
+or install it with cargo:
+    cargo install --locked --force midenup";
+
+/// Parses the cached manifest, which is only usable if it declares `min_client_version` itself.
+///
+/// A cache from before that field existed is never given one by conversion.
+fn parse_cached_manifest(contents: &str) -> Result<Manifest, ManifestError> {
+    crate::manifest::version::read_version_header(contents, "min_client_version")?;
+    VersionedManifest::parse_str(contents)
+}
 
 /// This struct holds contextual information about the environment in which midenup/miden will
 /// operate under. This meant to be a *read-only* data structure.
@@ -48,7 +65,8 @@ pub struct Config {
     /// installed toolchain needs nothing from upstream (spec section 13.1), and fetching
     /// unconditionally would put a network round trip in front of every component invocation.
     manifest_uri: String,
-    manifest: std::cell::OnceCell<Manifest>,
+    /// The upstream manifest, and whether it was fetched rather than read from the cache.
+    manifest: std::cell::OnceCell<(Manifest, bool)>,
     /// This flag is used to detect/distinguish when midenup is being used in tests.
     ///
     /// At the time of writing, this is mostly done to install debug builds of the various miden
@@ -119,77 +137,113 @@ impl Config {
     /// active toolchain, resolving a command, running it -- is answered by `state.json` and the
     /// active publication.
     ///
-    /// A successful fetch is cached verbatim. A failed one falls back to that cache and says so:
-    /// an operation that can proceed against a manifest from an hour ago is better served by doing
-    /// that loudly than by failing because a network was briefly unavailable.
+    /// When upstream cannot be used, the cached copy stands in for it with a warning.
     pub fn upstream_manifest(&self) -> anyhow::Result<&Manifest> {
-        if let Some(manifest) = self.manifest.get() {
+        self.manifest(true)
+    }
+
+    /// As [Self::upstream_manifest], but fails rather than use the cached copy.
+    pub fn fresh_upstream_manifest(&self) -> anyhow::Result<&Manifest> {
+        self.manifest(false)
+    }
+
+    fn manifest(&self, allow_cache: bool) -> anyhow::Result<&Manifest> {
+        if let Some((manifest, fresh)) = self.manifest.get() {
+            if !fresh && !allow_cache {
+                bail!(
+                    "could not fetch a fresh manifest from '{}', and this operation does not use \
+                     the cached copy",
+                    self.manifest_uri
+                );
+            }
             return Ok(manifest);
         }
 
-        let manifest = self.fetch_upstream_manifest()?;
-        crate::info!("upstream last updated on {}", manifest.last_updated());
-        Ok(self.manifest.get_or_init(|| manifest))
+        let fetched = self.fetch_upstream_manifest(allow_cache)?;
+        crate::info!("upstream last updated on {}", fetched.0.last_updated());
+        Ok(&self.manifest.get_or_init(|| fetched).0)
     }
 
-    fn fetch_upstream_manifest(&self) -> anyhow::Result<Manifest> {
+    /// Fetches the upstream manifest, and whether it is fresh rather than the cached copy.
+    fn fetch_upstream_manifest(&self, allow_cache: bool) -> anyhow::Result<(Manifest, bool)> {
         crate::info!("syncing channel updates from upstream");
         let cache = crate::paths::manifest_cache(&self.midenup_home);
 
-        let cached = VersionedManifest::load_from_file(&cache).with_context(|| {
-            format!("unable to fetch the toolchain manifest from '{}'", self.manifest_uri)
+        let fetched = VersionedManifest::read_from(&self.manifest_uri).and_then(|contents| {
+            VersionedManifest::parse_str(&contents).map(|manifest| (contents, manifest))
         });
+        let err = match fetched {
+            Ok((contents, manifest)) => {
+                // Best effort: a manifest we could not cache is still a manifest we can use.
+                let _ = std::fs::create_dir_all(&self.midenup_home);
+                crate::trace!("caching the manifest at {}", cache.display());
+                let written =
+                    utils::atomic::write_bytes_validated(&cache, contents.as_bytes(), |written| {
+                        parse_cached_manifest(written).map(drop).map_err(|err| err.to_string())
+                    });
+                if let Err(err) = written {
+                    crate::trace!("the manifest was not cached: {err}");
+                }
+                return Ok((manifest, true));
+            },
+            Err(err) => err,
+        };
 
-        match VersionedManifest::read_from(&self.manifest_uri) {
-            Ok(contents) => match VersionedManifest::parse_str(&contents) {
-                Ok(manifest) => {
-                    // Best effort: a manifest we could not cache is still a manifest we can use.
-                    let _ = std::fs::create_dir_all(&self.midenup_home);
-                    crate::trace!("caching the manifest at {}", cache.display());
-                    let _ = std::fs::write(&cache, &contents);
-                    Ok(manifest)
+        let (cached, fallback) = if allow_cache {
+            let cached = std::fs::read_to_string(&cache)
+                .map_err(|_| ManifestError::Missing(cache.display().to_string()))
+                .and_then(|contents| parse_cached_manifest(&contents));
+            match cached {
+                Ok(manifest) => (
+                    Some(manifest),
+                    format!(
+                        "using the cached manifest from '{}', which may be out of date",
+                        cache.display()
+                    ),
+                ),
+                Err(cache_err) => {
+                    crate::trace!("the cached manifest is unusable: {cache_err}");
+                    (
+                        None,
+                        format!("no usable cached manifest is available at '{}'", cache.display()),
+                    )
                 },
-                Err(err) => match cached {
-                    Ok(manifest) => {
-                        crate::warn!("{err}");
-                        crate::warn!(
-                            "could not load manifest from '{}'; using the cached manifest from \
-                             '{}', which may be out of date",
-                            self.manifest_uri,
-                            cache.display(),
-                        );
-                        Ok(manifest)
-                    },
-                    // Report the *upstream* failure: it is the one the user can act on. The absent
-                    // cache is a consequence of never having fetched successfully, not an
-                    // independent problem.
-                    Err(_) => Err(anyhow::Error::new(err).context(format!(
-                        "unable to read the toolchain manifest from '{}', and no cached copy is \
-                         available",
-                        self.manifest_uri
-                    ))),
-                },
+            }
+        } else {
+            (
+                None,
+                "this operation requires a fresh manifest, so the cache was not used".to_string(),
+            )
+        };
+
+        let diagnostic = self.refresh_diagnostic(&err, &fallback);
+        match cached {
+            Some(manifest) => {
+                crate::warn!("{diagnostic}");
+                Ok((manifest, false))
             },
-            Err(err) => match cached {
-                Ok(manifest) => {
-                    crate::warn!(
-                        "could not reach '{}' ({err}); using the cached manifest from '{}', which \
-                         may be out of date",
-                        self.manifest_uri,
-                        cache.display(),
-                    );
-                    Ok(manifest)
-                },
-                // Report the *fetch* failure: it is the one the user can act on. The absent cache
-                // is a consequence of never having fetched successfully, not an independent
-                // problem.
-                Err(_) => Err(anyhow::Error::new(err).context(format!(
-                    "unable to fetch the toolchain manifest from '{}', and no cached copy is \
-                     available",
-                    self.manifest_uri
-                ))),
-            },
+            None => bail!("{diagnostic}"),
         }
+    }
+
+    /// Describes why the manifest could not be used, what is used instead, and how to fix it.
+    fn refresh_diagnostic(&self, err: &ManifestError, fallback: &str) -> String {
+        let uri = &self.manifest_uri;
+        let problem = match err.refresh_failure() {
+            RefreshFailure::Transport => {
+                format!("could not fetch the manifest from '{uri}': {err}")
+            },
+            RefreshFailure::Malformed => format!("the manifest at '{uri}' is malformed: {err}"),
+            RefreshFailure::UnsupportedSchema | RefreshFailure::UnmetMinimum => format!(
+                "the manifest at '{uri}' cannot be used by midenup {CURRENT_CLIENT_VERSION}: {err}"
+            ),
+        };
+        // An older schema is not fixed by upgrading midenup.
+        let upgrade = matches!(
+            err,
+            ManifestError::OutdatedMidenup(_) | ManifestError::UnsupportedClientVersion(_)
+        );
+        format!("{problem}\n{fallback}{}", if upgrade { UPGRADE_INSTRUCTIONS } else { "" })
     }
 
     #[inline]

@@ -954,7 +954,7 @@ An installation made before channels were named after networks has a single `too
 - Step 1a runs before 1b because the legacy link is what names the version the store sits under, and 1b is what retires that link. An existing `var/mainnet` means this is not a home to convert, and it is left as it is.
 - The exception in 1a exists because the legacy link was written for whichever channel was the latest stable, regardless of what the user typed - so it is present for someone who pinned the newest release just as it is for someone who asked for `stable`, and moving that user's store would hide it. `toolchains/default` naming the version rather than the link is that user. A pin living in a project's `miden-toolchain.toml` is not visible from the home at all, so the message reporting the move says how to reverse it.
 - Step 2 is not conditional on step 1: a run interrupted between them would otherwise leave `default` dangling forever.
-- Step 3 runs only for a home actually being converted. Only an installation from that era can be holding a cache this build cannot read, and checking on every startup would mean parsing the cached manifest twice per command on the dispatch path for an answer that is almost always "nothing to do". A **v1** cache is not stale - it is run through the v1 converter - so it is kept, which is what preserves the offline capability of §13.1.
+- Step 3 runs only for a home actually being converted. Only an installation from that era can be holding a cache this build cannot read, and checking on every startup would mean parsing the cached manifest twice per command on the dispatch path for an answer that is almost always "nothing to do". A **v1** cache is kept as a record of what was last fetched, but it predates `min_client_version`, so it is never used as upstream information.
 - It runs **without** the home lock, alongside §12.2, because it is on the `miden` dispatch path and that path must not wait on the lock. Every step is therefore idempotent and tolerates another process having done it first.
 - A home that already has a `mainnet` link is not from that era, and is left alone: its link is the authority.
 
@@ -971,7 +971,9 @@ The upstream manifest is fetched only when either:
 * an explicit `midenup` operation requires it
 * the active toolchain is not installed and must be
 
-On fetch failure with a cached `channel-manifest.json` present, the cache is used and staleness is reported.
+A refresh failure is reported as one of: unsupported schema, unmet `min_client_version`, malformed content, or transport failure. The first two name the installed midenup version and how to upgrade it.
+
+Only a fetched manifest that parsed and passed the client checks replaces `channel-manifest.json`, by an atomic rename. On a refresh failure, an operation that tolerates cached data uses the cache and says so; `midenup update` fails instead and changes nothing. A cache that does not declare its own `min_client_version` is never used.
 
 ### 13.2 Resolution order
 

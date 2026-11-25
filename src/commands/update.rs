@@ -26,6 +26,8 @@ use crate::{
 };
 
 /// Updates installed toolchains.
+///
+/// Reconciles against a freshly fetched manifest only, never the cache, after local checks pass.
 pub fn update(
     config: &Config,
     channel_type: Option<&UserChannel>,
@@ -54,6 +56,7 @@ pub fn update(
             // alone is also used by unrelated commands and must not enforce installation rules.
             let (toolchain, _) = Toolchain::current(config, None)?;
             toolchain.installed_view(config, state)?;
+            config.fresh_upstream_manifest()?;
 
             // Update everything else. Cloned up front because each update writes state.
             for installation in state.installations.clone() {
@@ -81,7 +84,7 @@ fn update_custom(
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
     let custom = installation.custom.as_ref().expect("custom update requires a recipe");
-    let Some(upstream) = config.upstream_manifest()?.get_channel(&custom.channel) else {
+    let Some(upstream) = config.fresh_upstream_manifest()?.get_channel(&custom.channel) else {
         crate::warn!(
             "{} has no upstream channel {}; leaving it installed",
             installation.id(),
@@ -126,7 +129,7 @@ fn update_network(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    let manifest = config.upstream_manifest()?;
+    let manifest = config.fresh_upstream_manifest()?;
     let target = manifest.network_version(name).cloned().with_context(|| {
         format!(
             "unknown channel '{name}'; known networks are {}",
@@ -249,7 +252,7 @@ fn update_installed_channel(
     state: &mut LocalState,
     options: &UpdateOptions,
 ) -> anyhow::Result<()> {
-    config.upstream_manifest()?;
+    config.fresh_upstream_manifest()?;
 
     let local_channel = installation.as_channel();
     let Some(upstream) = local_channel.find_upstream_counterpart(config) else {

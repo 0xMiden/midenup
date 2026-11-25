@@ -11,7 +11,7 @@ pub use self::v3::*;
 use self::version::Compatibility;
 use crate::channel::UserChannel;
 
-const CURRENT_CLIENT_VERSION: &str = env!(
+pub(crate) const CURRENT_CLIENT_VERSION: &str = env!(
     "CARGO_PKG_VERSION",
     "CARGO_PKG_VERSION environment variable not set. This should be set by cargo by default; \
      however, if not, it can be manually set using the `version` field in the Cargo.toml file"
@@ -68,6 +68,42 @@ pub enum ManifestError {
         component: String,
         alias: String,
     },
+}
+
+/// Why a fetched manifest could not be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshFailure {
+    /// The manifest declares a schema major this build cannot read.
+    UnsupportedSchema,
+    /// The manifest requires a newer midenup than this one.
+    UnmetMinimum,
+    /// The document is not a valid manifest.
+    Malformed,
+    /// The manifest could not be retrieved.
+    Transport,
+}
+
+impl ManifestError {
+    /// Which kind of refresh failure this error represents.
+    pub fn refresh_failure(&self) -> RefreshFailure {
+        match self {
+            Self::OutdatedMidenup(_) | Self::UnsupportedVersion(_) => {
+                RefreshFailure::UnsupportedSchema
+            },
+            Self::UnsupportedClientVersion(_) => RefreshFailure::UnmetMinimum,
+            Self::Empty
+            | Self::Invalid(_)
+            | Self::WrongDocumentType { .. }
+            | Self::MissingVersion(_)
+            | Self::InvalidClientVersion(_)
+            | Self::ConflictingAlias { .. } => RefreshFailure::Malformed,
+            Self::EmptyDownload(_)
+            | Self::DownloadError { .. }
+            | Self::InternalCurlError { .. }
+            | Self::Missing(_)
+            | Self::Unsupported(_) => RefreshFailure::Transport,
+        }
+    }
 }
 
 /// Version-dispatched loading of channel manifests.
@@ -161,7 +197,7 @@ impl VersionedManifest {
             let contents = std::fs::read_to_string(manifest_path)
                 .map_err(|_| ManifestError::Missing(manifest_path.to_string()))?;
             if contents.is_empty() {
-                return Err(ManifestError::Empty);
+                return Err(ManifestError::EmptyDownload(uri.to_string()));
             }
             return Ok(contents);
         }
