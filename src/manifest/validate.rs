@@ -320,6 +320,13 @@ fn validate_names(channel: &Channel, errors: &mut Vec<ValidationError>) {
             reason,
         };
 
+        // The component name becomes a path segment under `etc/<component>/` for assets
+        // and commands, so it must be a single segment for every component: a traversal
+        // name must fail manifest validation, not just install planning.
+        if let Err(err) = validate_artifact_id(component.name.as_ref()) {
+            errors.push(invalid("component name", err.to_string()));
+        }
+
         if let ComponentKind::Executable { spec, .. } | ComponentKind::CargoExtension { spec, .. } =
             component.kind()
         {
@@ -829,6 +836,23 @@ mod tests {
                 .iter()
                 .any(|e| matches!(e, ValidationError::InvalidName { field: "artifact id", .. }))
         );
+    }
+
+    /// The component name becomes a path segment under `etc/<component>/` for assets and
+    /// commands, so a traversal name must fail manifest validation, not just install planning.
+    #[test]
+    fn a_traversal_component_name_is_rejected() {
+        for bad in ["../../escape", "/tmp/escape", "..", "a/b", "x/../../escape"] {
+            let m =
+                manifest(vec![with_artifact(component(bad, ComponentKind::Asset), "payload.txt")]);
+            assert!(
+                errors_of(&m).iter().any(|e| matches!(
+                    e,
+                    ValidationError::InvalidName { field: "component name", .. }
+                )),
+                "'{bad}' must be rejected as a component name"
+            );
+        }
     }
 
     /// Parsing accepts an unreadable container so an unrelated channel stays usable; publishing one

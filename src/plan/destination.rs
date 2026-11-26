@@ -33,6 +33,8 @@ pub enum InvalidArtifactId {
 pub enum DestinationError {
     #[error(transparent)]
     InvalidId(#[from] InvalidArtifactId),
+    #[error("invalid component name '{name}': {source}")]
+    InvalidComponentName { name: String, source: InvalidArtifactId },
     #[error(
         "cannot compute a destination for component '{component}': its kind '{tag}' is not \
          supported by this version of midenup"
@@ -174,9 +176,18 @@ pub fn destination_for(
                 mode: MODE_DATA,
             }
         },
-        ComponentKind::Asset | ComponentKind::Command { .. } => Destination {
-            path: sysroot.join("etc").join(component.name.as_ref()).join(artifact_id),
-            mode: MODE_DATA,
+        ComponentKind::Asset | ComponentKind::Command { .. } => {
+            // The component name becomes a path segment here, so it must be a single
+            // segment like every other name that is joined onto a destination. Without
+            // this, `etc/<component>/` is the one computed destination a manifest can
+            // make escape the sysroot.
+            validate_artifact_id(component.name.as_ref()).map_err(|source| {
+                DestinationError::InvalidComponentName { name: component.name.to_string(), source }
+            })?;
+            Destination {
+                path: sysroot.join("etc").join(component.name.as_ref()).join(artifact_id),
+                mode: MODE_DATA,
+            }
         },
         ComponentKind::Unsupported { tag, .. } => {
             return Err(DestinationError::UnsupportedKind {
@@ -287,6 +298,42 @@ mod tests {
             err,
             DestinationError::InvalidId(InvalidArtifactId::RelativeSegment(_))
         ));
+    }
+
+    /// The component name is joined into `etc/<component>/`, so it must be a single path
+    /// segment like every other name that becomes part of an installed path. A traversal
+    /// name must be rejected outright, not normalized into something plausible.
+    #[test]
+    fn a_traversal_component_name_never_produces_a_path_outside_the_sysroot() {
+        let root = Path::new("/sysroot");
+        for bad in ["../../escape", "/tmp/escape", "..", "a/b", "x/../../escape"] {
+            let asset = component(bad, ComponentKind::Asset);
+            let err = destination_for(&asset, "payload.txt", root).unwrap_err();
+            assert!(
+                matches!(err, DestinationError::InvalidComponentName { .. }),
+                "component name {bad:?} must be rejected, got a destination instead"
+            );
+
+            let cmd = component(
+                bad,
+                ComponentKind::Command {
+                    command_name: None,
+                    format: Executable::default(),
+                    subcommands: Default::default(),
+                    aliases: Default::default(),
+                },
+            );
+            let err = destination_for(&cmd, "payload.txt", root).unwrap_err();
+            assert!(
+                matches!(err, DestinationError::InvalidComponentName { .. }),
+                "command component name {bad:?} must be rejected"
+            );
+        }
+
+        // A normal name is unchanged.
+        let asset = component("node", ComponentKind::Asset);
+        let d = destination_for(&asset, "payload.txt", root).unwrap();
+        assert_eq!(d.path, root.join("etc").join("node").join("payload.txt"));
     }
 
     /// Only the kinds that install under `etc/<component>/` accept a path.
