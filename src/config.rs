@@ -341,9 +341,7 @@ impl Config {
             },
             Some(_) => match std::env::var_os("PATH") {
                 Some(prev_path) => {
-                    let mut path =
-                        OsString::from(format!("{}:", self.cargo_home.join("bin").display()));
-                    path.push(prev_path);
+                    let path = prepend_to_path(&self.cargo_home.join("bin"), Some(&prev_path));
                     (self.cargo_home.clone().into_os_string(), Some(path))
                 },
                 None => {
@@ -357,11 +355,7 @@ impl Config {
 
         // Prepend the toolchain opt/ directory to the current PATH
         let path = match path {
-            Some(prev_path) => {
-                let mut path = OsString::from(format!("{}:", toolchain_opt.display()));
-                path.push(prev_path);
-                path
-            },
+            Some(prev_path) => prepend_to_path(&toolchain_opt, Some(&prev_path)),
             None => toolchain_opt.into_os_string(),
         };
 
@@ -409,5 +403,92 @@ impl Config {
         } else {
             child.wait()
         }
+    }
+}
+
+/// Prepend `dir` to `path`, separating entries with the platform's PATH separator.
+///
+/// Formatting a hard-coded `:` separator is only correct on Unix; Windows uses
+/// `;`, so a `:`-joined PATH is a single malformed entry there and the spawned
+/// command cannot find the toolchain `opt/` shims or `CARGO_HOME/bin`.
+/// `std::env::split_paths` / `std::env::join_paths` use the platform separator.
+///
+/// As a side benefit, this also stops lossy-converting `dir` through
+/// `Path::display`: a non-UTF-8 directory used to come out with replacement
+/// characters.
+fn prepend_to_path(dir: &Path, path: Option<&OsStr>) -> OsString {
+    let mut entries: Vec<PathBuf> =
+        path.map(|path| std::env::split_paths(path).collect()).unwrap_or_default();
+    entries.insert(0, dir.to_path_buf());
+    // `join_paths` only fails when a component contains the platform separator,
+    // which cannot be represented in a PATH at all. On Windows it quotes such
+    // components instead of failing, so this fallback only triggers on Unix,
+    // where `:` is the correct separator; it keeps the previous hand-rolled
+    // form so the prepend still happens.
+    std::env::join_paths(entries).unwrap_or_else(|_| {
+        let mut joined = dir.as_os_str().to_os_string();
+        joined.push(":");
+        if let Some(path) = path {
+            joined.push(path);
+        }
+        joined
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `prepend_to_path` puts `dir` first and keeps every existing entry, in
+    /// order, so the result splits back into exactly the entries it was built
+    /// from.
+    ///
+    /// On this host (`:` is the platform separator) the old hand-rolled form
+    /// produced the same string, so this pins the contract rather than the
+    /// Windows failure: the bug only manifests where `;` is the separator,
+    /// and the fix is using the platform API instead of a hard-coded `:`.
+    #[test]
+    fn prepended_path_splits_back_into_the_intended_entries() {
+        let dir = Path::new("/opt/midenup/toolchains/testnet/opt");
+        let prev = OsString::from("/usr/local/bin:/usr/bin:/bin");
+        let joined = prepend_to_path(dir, Some(&prev));
+        let entries: Vec<PathBuf> = std::env::split_paths(&joined).collect();
+        assert_eq!(
+            entries,
+            vec![
+                dir.to_path_buf(),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/usr/bin"),
+                PathBuf::from("/bin"),
+            ]
+        );
+    }
+
+    #[test]
+    fn prepended_path_without_an_existing_path_is_just_the_directory() {
+        let dir = Path::new("/opt/midenup/toolchains/testnet/opt");
+        assert_eq!(prepend_to_path(dir, None), dir.as_os_str());
+    }
+
+    #[test]
+    fn prepended_path_keeps_a_single_existing_entry() {
+        let dir = Path::new("/opt/midenup/toolchains/testnet/opt");
+        let joined = prepend_to_path(dir, Some(OsStr::new("/usr/bin")));
+        let entries: Vec<PathBuf> = std::env::split_paths(&joined).collect();
+        assert_eq!(entries, vec![dir.to_path_buf(), PathBuf::from("/usr/bin")]);
+    }
+
+    /// The old code built the prefix with `format!("{}:", dir.display())`,
+    /// which lossy-converts non-UTF-8 bytes to replacement characters. This
+    /// fails against the old code and passes with `prepend_to_path`, which
+    /// keeps the directory's bytes intact.
+    #[test]
+    #[cfg(unix)]
+    fn prepended_path_keeps_non_utf8_bytes_intact() {
+        use std::os::unix::ffi::OsStrExt;
+        let dir = Path::new(OsStr::from_bytes(b"/opt/midenup/\xff\xfe"));
+        let joined = prepend_to_path(dir, Some(OsStr::new("/usr/bin")));
+        let entries: Vec<PathBuf> = std::env::split_paths(&joined).collect();
+        assert_eq!(entries[0], dir);
     }
 }
