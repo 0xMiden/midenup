@@ -1,6 +1,6 @@
 {
   "manifest_version": "4.0.0",
-  "date": 1793227303,
+  "date": 1795810104,
   "networks": {
     "devnet": "0.18.0",
     "mainnet": "0.18.0",
@@ -2820,6 +2820,31 @@
           "version": {
             "kind": "registry",
             "version": "0.18.1"
+          }
+        },
+        {
+          "artifacts": {
+            "miden-verify": {
+              "targets": {
+                "aarch64-apple-darwin": {},
+                "x86_64-unknown-linux-gnu": {}
+              },
+              "uri": "https://github.com/walnuthq/miden-verify/releases/download/v%version/miden-verify-%target"
+            }
+          },
+          "hide": false,
+          "installation_method": {
+            "kind": "prebuilt"
+          },
+          "installed-executable": "miden-verify",
+          "kind": "executable",
+          "name": "verify",
+          "profiles": [
+            "minimal"
+          ],
+          "version": {
+            "kind": "registry",
+            "version": "0.8.0"
           }
         },
         {
